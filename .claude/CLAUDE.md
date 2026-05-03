@@ -124,6 +124,53 @@ ROADMAP to **strategiczny przegląd** projektu — odpowiada na "co robimy i w j
 
 ---
 
+## spec/ — zasady dokumentacji
+
+Katalog `spec/` zawiera specyfikacje formatu binarnego i design doci. **Język główny: angielski.** Polskie tłumaczenia w `spec/lang-pl/`.
+
+### Tworzenie nowego dokumentu
+
+1. Wybierz numer: następny wolny `NN` (sprawdź `ls spec/*.md`).
+2. Stwórz **oba** pliki jednocześnie:
+   - `spec/NN-nazwa.md` — wersja angielska (source of truth)
+   - `spec/lang-pl/NN-nazwa.md` — wersja polska (tłumaczenie)
+3. Zaktualizuj `spec/README.md` (tabela EN) i `spec/lang-pl/README.md` (tabela PL).
+
+### Kanoniczny nagłówek
+
+**Binary format spec:**
+```markdown
+# NN — Title
+
+> **Type**: Binary format spec
+> **Scope**: One sentence describing what this section covers.
+```
+
+**Design doc:**
+```markdown
+# NN — Title
+
+> **Type**: Design doc
+> **Status**: 🔲 Planned | ✅ Implemented | 🐛 Bug/Paused
+> **Scope**: One sentence.
+```
+
+### Reguły treści
+
+- **Język plików w `spec/`**: angielski. Identyfikatory kodu, nazwy pól, hex — bez tłumaczenia.
+- **Język plików w `spec/lang-pl/`**: polski. Identyfikatory kodu, hex, ścieżki plików — bez tłumaczenia.
+- Tabele, diagramy ASCII, bloki kodu — identyczne w obu wersjach (tłumaczymy tylko tekst opisowy).
+- Sekcja `## Sources` / `## Źródła` na końcu — linki do plików referencyjnych i URL.
+- Offsety jako hex (`0x1B0`), rozmiary hex + dec (`0x12F (303 bytes)`).
+- Nieznane pola: `unk_0xNN` + notatka co wiemy.
+- Status weryfikacji: ✅ hex-verified | ⚠️ cross-reference only | ❓ uncertain.
+
+### Aktualizacja istniejącego dokumentu
+
+Przy edycji `spec/NN-*.md` — zaktualizuj również `spec/lang-pl/NN-*.md` (lub oznacz jako TODO w CHANGELOG jeśli zmiana jest pilna a tłumaczenie nie).
+
+---
+
 ## Pułapki i ograniczenia
 
 - `wails dev` wymaga środowiska GUI (uruchamia Cocoa window) — nie uruchamiaj w headless.
