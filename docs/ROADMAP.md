@@ -51,6 +51,7 @@
 ### v0.8 — Network/PvP
 - Faster Invasions — NetworkParam break-in params (interval/timeout/targets) + regulation.bin pipeline (AES→DCX→BND4→PARAM)
 - PvP/Networking tab — role-based tuning (Invader/Host/Cooperator/Blue) with presets → spec/44
+- Auto-collect world pickups (Golden Seed, Sacred Tear, Scadutree Fragment, Revered Spirit Ash) — 117 pickup flags from ItemLotParam_map, auto-flagged on inventory add + manual Collect All in World Tab
 
 ### UI/UX Redesign ("Elden Ring SaveForge")
 - Theme system (Dark/Light/Elden Ring), tab consolidation (7→5 tabs)
@@ -123,7 +124,6 @@ War-Dead Catacombs (requires Radahn defeat), 3 DLC catacombs (m61 tiles, `20{col
 | 🔵 | Table virtualization (@tanstack/react-virtual for 1500+ item lists) |
 | 🔵 | Standalone preset editor (offline, no save loaded) |
 | 🔵 | Regulation Param Browser — searchable reference for all 194 game param tables (7500+ fields) |
-| 🔵 | Auto-collect world pickups (Golden Seed, Sacred Tear, Scadutree Fragment, Revered Spirit Ash) — set event flags as "picked up" since items are added via inventory directly |
 
 ---
 
