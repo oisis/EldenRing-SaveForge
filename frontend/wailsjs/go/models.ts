@@ -16,6 +16,22 @@ export namespace core {
 	        this.description = source["description"];
 	    }
 	}
+	export class NetworkParamValues {
+	    maxBreakInTargetListCount: number;
+	    breakInRequestIntervalTimeSec: number;
+	    breakInRequestTimeOutSec: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new NetworkParamValues(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.maxBreakInTargetListCount = source["maxBreakInTargetListCount"];
+	        this.breakInRequestIntervalTimeSec = source["breakInRequestIntervalTimeSec"];
+	        this.breakInRequestTimeOutSec = source["breakInRequestTimeOutSec"];
+	    }
+	}
 	export class SlotDiagnostics {
 	    slotIndex: number;
 	    issues: DiagnosticIssue[];

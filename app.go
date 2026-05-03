@@ -2863,7 +2863,40 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 	return written, nil
 }
 
+// GetNetworkParams reads the current invasion matchmaking parameters from the save's regulation.
+func (a *App) GetNetworkParams() (*core.NetworkParamValues, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if len(a.save.UserData11) == 0 {
+		return nil, fmt.Errorf("save has no UserData11 (regulation)")
+	}
+	return core.ReadNetworkParams(a.save.UserData11)
+}
+
+// SetNetworkParams patches the invasion matchmaking parameters in the save's regulation.
+func (a *App) SetNetworkParams(params core.NetworkParamValues) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if len(a.save.UserData11) == 0 {
+		return fmt.Errorf("save has no UserData11 (regulation)")
+	}
+
+	patched, err := core.PatchNetworkParams(a.save.UserData11, params)
+	if err != nil {
+		return fmt.Errorf("patch network params: %w", err)
+	}
+	a.save.UserData11 = patched
+	return nil
+}
+
+// ResetNetworkParams restores vanilla invasion matchmaking parameters.
+func (a *App) ResetNetworkParams() error {
+	return a.SetNetworkParams(core.NetworkParamDefaults())
+}
+
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}
 }

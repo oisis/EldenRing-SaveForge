@@ -138,6 +138,10 @@ export function GetMapProgress(arg1) {
   return window['go']['main']['App']['GetMapProgress'](arg1);
 }
 
+export function GetNetworkParams() {
+  return window['go']['main']['App']['GetNetworkParams']();
+}
+
 export function GetQuestNPCs() {
   return window['go']['main']['App']['GetQuestNPCs']();
 }
@@ -214,6 +218,10 @@ export function ResetMapExploration(arg1) {
   return window['go']['main']['App']['ResetMapExploration'](arg1);
 }
 
+export function ResetNetworkParams() {
+  return window['go']['main']['App']['ResetNetworkParams']();
+}
+
 export function RevealAllMap(arg1) {
   return window['go']['main']['App']['RevealAllMap'](arg1);
 }
@@ -272,6 +280,10 @@ export function SetMapFlag(arg1, arg2, arg3) {
 
 export function SetMapRegionFlags(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetMapRegionFlags'](arg1, arg2, arg3);
+}
+
+export function SetNetworkParams(arg1) {
+  return window['go']['main']['App']['SetNetworkParams'](arg1);
 }
 
 export function SetQuestStep(arg1, arg2, arg3) {

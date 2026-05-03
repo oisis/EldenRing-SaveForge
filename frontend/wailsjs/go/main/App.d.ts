@@ -74,6 +74,8 @@ export function GetItemListChunk(arg1:string):Promise<Array<db.ItemEntry>>;
 
 export function GetMapProgress(arg1:number):Promise<Array<db.MapEntry>>;
 
+export function GetNetworkParams():Promise<core.NetworkParamValues>;
+
 export function GetQuestNPCs():Promise<Array<string>>;
 
 export function GetQuestProgress(arg1:number,arg2:string):Promise<db.QuestNPC>;
@@ -112,6 +114,8 @@ export function RemoveItemsFromCharacter(arg1:number,arg2:Array<number>,arg3:boo
 
 export function ResetMapExploration(arg1:number):Promise<void>;
 
+export function ResetNetworkParams():Promise<void>;
+
 export function RevealAllMap(arg1:number):Promise<void>;
 
 export function RevertSlot(arg1:number):Promise<void>;
@@ -141,6 +145,8 @@ export function SetGraceVisited(arg1:number,arg2:number,arg3:boolean):Promise<vo
 export function SetMapFlag(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
 export function SetMapRegionFlags(arg1:number,arg2:number,arg3:boolean):Promise<void>;
+
+export function SetNetworkParams(arg1:core.NetworkParamValues):Promise<void>;
 
 export function SetQuestStep(arg1:number,arg2:string,arg3:number):Promise<void>;
 

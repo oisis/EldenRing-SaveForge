@@ -5,8 +5,9 @@ import {
     GetDeployTargets, SaveDeployTarget, DeleteDeployTarget,
     TestSSHConnection, DeploySave, DownloadRemoteSave,
     LaunchRemoteGame, CloseRemoteGame, DeployAndLaunch, CloseAndDownload,
+    GetNetworkParams, SetNetworkParams, ResetNetworkParams,
 } from '../../wailsjs/go/main/App';
-import {deploy} from '../../wailsjs/go/models';
+import {deploy, core} from '../../wailsjs/go/models';
 import {useSafetyMode} from '../state/safetyMode';
 
 interface SettingsTabProps {
@@ -57,6 +58,52 @@ export function SettingsTab({
         setFullChaosMode(checked);
         localStorage.setItem('setting:fullChaosMode', String(checked));
         window.dispatchEvent(new CustomEvent('fullChaosModeChanged', { detail: checked }));
+    };
+
+    // Network params state
+    const [netParams, setNetParams] = useState<core.NetworkParamValues | null>(null);
+    const [netDraft, setNetDraft] = useState<{targets: number; interval: number; timeout: number}>({targets: 5, interval: 30, timeout: 20});
+    const [netApplying, setNetApplying] = useState(false);
+    const [netDirty, setNetDirty] = useState(false);
+
+    const loadNetworkParams = useCallback(() => {
+        if (!platform) { setNetParams(null); return; }
+        GetNetworkParams().then(p => {
+            setNetParams(p);
+            setNetDraft({targets: p.maxBreakInTargetListCount, interval: p.breakInRequestIntervalTimeSec, timeout: p.breakInRequestTimeOutSec});
+            setNetDirty(false);
+        }).catch(() => setNetParams(null));
+    }, [platform]);
+
+    useEffect(() => { loadNetworkParams(); }, [loadNetworkParams]);
+
+    const handleNetApply = async () => {
+        setNetApplying(true);
+        try {
+            await SetNetworkParams(new core.NetworkParamValues({
+                maxBreakInTargetListCount: netDraft.targets,
+                breakInRequestIntervalTimeSec: netDraft.interval,
+                breakInRequestTimeOutSec: netDraft.timeout,
+            }));
+            toast.success('Network params applied');
+            loadNetworkParams();
+        } catch (e) { toast.error(String(e)); }
+        finally { setNetApplying(false); }
+    };
+
+    const handleNetReset = async () => {
+        setNetApplying(true);
+        try {
+            await ResetNetworkParams();
+            toast.success('Network params reset to defaults');
+            loadNetworkParams();
+        } catch (e) { toast.error(String(e)); }
+        finally { setNetApplying(false); }
+    };
+
+    const updateNetDraft = (field: keyof typeof netDraft, value: number) => {
+        setNetDraft(prev => ({...prev, [field]: value}));
+        setNetDirty(true);
     };
 
     // Deploy state
@@ -277,6 +324,66 @@ export function SettingsTab({
                                 <button onClick={() => setShowForm(false)} className={btnSecondary}>Cancel</button>
                             </div>
                         </div>
+                    )}
+                </div>
+            </section>
+
+            {/* Network / PvP Tweaks */}
+            <section className="space-y-3">
+                <div className={sectionHdr}><div className={dot} /><h2 className={hdrText}>Network / PvP Tweaks</h2></div>
+                <div className="card px-4 py-3 space-y-3">
+                    {!platform ? (
+                        <p className="text-[10px] text-muted-foreground font-medium">Load a save file first</p>
+                    ) : !netParams ? (
+                        <p className="text-[10px] text-muted-foreground font-medium">Loading regulation data...</p>
+                    ) : (
+                        <>
+                            <p className="text-[10px] text-muted-foreground leading-relaxed">
+                                Modify invasion matchmaking parameters (regulation.bin NetworkParam).
+                                Lower values = faster invasions. Changes are written to the save file.
+                            </p>
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                                <div className="space-y-2" title="How many potential invasion targets the game searches for simultaneously. Higher = more candidates, faster match.">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[11px] font-bold text-foreground">Max Targets</label>
+                                        <span className="text-[11px] font-mono font-bold text-primary">{netDraft.targets}</span>
+                                    </div>
+                                    <input type="range" min={1} max={20} step={1} value={netDraft.targets}
+                                        onChange={e => updateNetDraft('targets', parseInt(e.target.value))}
+                                        className="w-full h-2 rounded-full appearance-none bg-border accent-primary cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md" />
+                                    <div className="flex justify-between text-[9px] text-muted-foreground"><span>1</span><span className="font-medium">Default: 5</span><span>20</span></div>
+                                    <p className="text-[9px] text-muted-foreground/80 leading-snug">Simultaneous invasion target candidates</p>
+                                </div>
+                                <div className="space-y-2" title="Delay between successive matchmaking requests. Lower = the game retries faster when no host is found.">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[11px] font-bold text-foreground">Request Interval</label>
+                                        <span className="text-[11px] font-mono font-bold text-primary">{netDraft.interval}s</span>
+                                    </div>
+                                    <input type="range" min={2} max={30} step={1} value={netDraft.interval}
+                                        onChange={e => updateNetDraft('interval', parseInt(e.target.value))}
+                                        className="w-full h-2 rounded-full appearance-none bg-border accent-primary cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md" />
+                                    <div className="flex justify-between text-[9px] text-muted-foreground"><span>2s</span><span className="font-medium">Default: 30s</span><span>30s</span></div>
+                                    <p className="text-[9px] text-muted-foreground/80 leading-snug">Delay between matchmaking retries</p>
+                                </div>
+                                <div className="space-y-2" title="How long each matchmaking request waits for a response before timing out. Lower = faster cycle to next attempt.">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-[11px] font-bold text-foreground">Request Timeout</label>
+                                        <span className="text-[11px] font-mono font-bold text-primary">{netDraft.timeout}s</span>
+                                    </div>
+                                    <input type="range" min={3} max={20} step={1} value={netDraft.timeout}
+                                        onChange={e => updateNetDraft('timeout', parseInt(e.target.value))}
+                                        className="w-full h-2 rounded-full appearance-none bg-border accent-primary cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-md" />
+                                    <div className="flex justify-between text-[9px] text-muted-foreground"><span>3s</span><span className="font-medium">Default: 20s</span><span>20s</span></div>
+                                    <p className="text-[9px] text-muted-foreground/80 leading-snug">Timeout per matchmaking request</p>
+                                </div>
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                                <button onClick={handleNetApply} disabled={netApplying || !netDirty} className={btnAction}>Apply</button>
+                                <button onClick={handleNetReset} disabled={netApplying} className={btnSecondary}>Reset Defaults</button>
+                                <button onClick={() => { updateNetDraft('targets', 10); updateNetDraft('interval', 4); updateNetDraft('timeout', 4); }}
+                                    className={`${btnSm} bg-orange-600 text-white shadow-sm hover:brightness-110 active:scale-95`}>Fast Preset</button>
+                            </div>
+                        </>
                     )}
                 </div>
             </section>
