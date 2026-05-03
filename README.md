@@ -55,6 +55,12 @@ make test
 └── Makefile
 ```
 
+## Documentation
+
+- [SL2 Binary Format Specification](docs/sl2-binary-format-spec.md) — full technical spec of the `.sl2` save file format (offsets, structures, crypto, checksums)
+- [Roadmap](docs/ROADMAP.md) — planned features and progress
+- [Changelog](docs/CHANGELOG.md) — release history
+
 ## License
 
 This project is not affiliated with FromSoftware or Bandai Namco.
