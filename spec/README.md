@@ -95,6 +95,13 @@ Plik save składa się z następujących głównych bloków (w kolejności sekwe
 | 33 | [DB Categorization Audit](33-db-categorization-audit.md) | Information tab extraction + reklasyfikacja Multiplayer/Remembrances/Crystal Tears/Materials zgodnie z Fextralife per-item breadcrumb |
 | 34 | [Item Caps Enforcement](34-item-caps.md) | Vanilla-realistic MaxInventory/MaxStorage + `scales_with_ng` flag (effective_cap = base × (ClearCount+1)) + Full Chaos Mode bypass toggle |
 | 36 | [Inventory Categories — Game Order](36-inventory-categories-game-order.md) | Canonical 18-tab order + sub-grouping (Tools/Key Items/Melee/etc.) + reclassifications (Larval Tears, Torches, Region Maps, Golden Runes) — extends spec/33 |
+| 37 | [Character Presets](37-character-presets.md) | **Design doc** — JSON export/import format, Go structs, phases 1-5 (stats + inventory + appearance + world flags) |
+| 38 | [Boss Kill Multi-Flag](38-boss-multiflag.md) | **Design doc** — multi-flag approach for proper boss kill/respawn (arena state + quest + grace flags) |
+| 39 | [Inventory Reorder](39-inventory-reorder.md) | **Design doc** — drag & drop grid reorder via `acquisition_index` manipulation, phases 0-4, DnD library |
+| 40 | [DB Cleanup Plan](40-db-cleanup-plan.md) | **Design doc** — cut-content registry, multiplayer dedup, empty flask removal, phases A-G |
+| 41 | [Info-Tab Ground Drop](41-info-tab-ground-drop.md) | **Investigation** — world pickup flags + TutorialDataChunk tried, EMEVD gating unknown |
+| 42 | [Summoning Pools Bug](42-summoning-pools-bug.md) | **Investigation** — UI works, no in-game effect; diagnostic checklist + hypotheses |
+| 43 | [Transactional Item Adding](43-transactional-item-adding.md) | **Design doc** (✅ implemented v0.7.2) — ALL-OR-NOTHING architecture, pre-flight + snapshot/rollback |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Metody testowania, checklista weryfikacji, plan odkryć |
 
 ---

@@ -95,6 +95,35 @@ Edytor plików zapisu Elden Ring: odczyt/zapis binarnego formatu `.sl2`, krypto,
 
 ---
 
+## ROADMAP.md — zasady prowadzenia
+
+ROADMAP to **strategiczny przegląd** projektu — odpowiada na "co robimy i w jakiej kolejności", NIE na "jak to zrobimy".
+
+### Struktura
+- `## Done` — 1-liniowe wpisy pogrupowane po wersjach/fazach (nazwa + krótki opis)
+- `## In Progress` — aktualnie realizowane (max 3 pozycje)
+- `## Planned` — przyszłe featury z priorytetem (🔴/🟡/🟢/🔵), posortowane od najważniejszych
+- `## Backlog` — luźne pomysły bez terminów
+
+### Co WCHODZI do ROADMAP
+- Nazwa feature'u + 1-2 zdania opisu (co i dlaczego)
+- Priorytet + ewentualny blocker
+- Link do `spec/` jeśli istnieje design doc (np. `→ spec/37`)
+- Szacunkowy effort (opcjonalnie)
+
+### Co NIE WCHODZI do ROADMAP
+- Implementation details (pliki, offsety, API signatures) → kod jest source-of-truth
+- Post-mortem / root-cause analysis → `CHANGELOG.md`
+- Szczegółowy design (fazy, structs, UI mockupy, testy) → `spec/NN-*.md`
+- Research / investigation logs → `spec/NN-*.md`
+- Bugfix lista → `CHANGELOG.md`
+- Opisy ukończonych feature'ów dłuższe niż 1 linia → wyrzucić (CHANGELOG + spec pokrywają)
+
+### Objętość docelowa
+- Max ~150 linii. Jeśli ROADMAP rośnie ponad 200 — czas wyciągnąć design docs do spec/.
+
+---
+
 ## Pułapki i ograniczenia
 
 - `wails dev` wymaga środowiska GUI (uruchamia Cocoa window) — nie uruchamiaj w headless.
