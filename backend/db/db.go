@@ -19,6 +19,7 @@ type ItemEntry struct {
 	IconPath     string       `json:"iconPath"`
 	Flags        []string     `json:"flags"`
 	Description  string       `json:"description,omitempty"`
+	Location     string       `json:"location,omitempty"`
 	Weight       float64      `json:"weight,omitempty"`
 	Weapon       *data.WeaponStats `json:"weapon,omitempty"`
 	Armor        *data.ArmorStats  `json:"armor,omitempty"`
@@ -205,6 +206,7 @@ func enrichItemEntry(e *ItemEntry) {
 		return
 	}
 	e.Description = desc.Description
+	e.Location = desc.Location
 	e.Weight = desc.Weight
 	e.Weapon = desc.Weapon
 	e.Armor = desc.Armor

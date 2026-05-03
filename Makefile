@@ -4,7 +4,7 @@ VERSION=0.7.2
 BUILD_DIR=build/bin
 WAILS=/Users/oisis/go/bin/wails
 
-.PHONY: all build dev test lint clean extract-data deps help
+.PHONY: all build dev test lint clean deps help
 
 all: deps build test
 
@@ -35,11 +35,6 @@ lint:
 	@echo "🔍 Running linter..."
 	golangci-lint run ./...
 
-# Tool to extract data from Rust source to Go (Phase 2)
-extract-data:
-	@echo "📂 Extracting game data from Rust source..."
-	go run scripts/extractor.go tmp/org-src/src/db/ backend/db/data/
-
 # Clean build artifacts
 clean:
 	@echo "🧹 Cleaning up..."
@@ -54,5 +49,4 @@ help:
 	@echo "  make dev          - Run app in development mode"
 	@echo "  make test         - Run all tests"
 	@echo "  make lint         - Run linter"
-	@echo "  make extract-data - Extract DB from Rust to Go"
 	@echo "  make clean        - Remove build artifacts"

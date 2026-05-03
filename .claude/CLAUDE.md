@@ -27,9 +27,10 @@ Edytor plików zapisu Elden Ring: odczyt/zapis binarnego formatu `.sl2`, krypto,
 │       ├── components/  # Zakładki: GeneralTab, StatsTab, InventoryTab, DatabaseTab, ...
 │       └── wailsjs/     # Auto-generowane bindingsy Go→JS (NIE EDYTUJ ręcznie)
 ├── tests/               # roundtrip_test.go, steamid_test.go + data/
-├── scripts/             # extractor.go — import danych z Rust source
-├-- tmp/repos            # repozytoria z kodem referencyjnym
-├--- tmp/save            # pliki save do testow
+├── tmp/
+│   ├── scripts/         # Skrypty wspomagające (importery, parsery, narzędzia jednorazowe)
+│   ├── repos/           # Repozytoria z kodem referencyjnym
+│   └── save/            # Pliki save do testów
 └── Makefile
 
 ```
@@ -37,6 +38,13 @@ Edytor plików zapisu Elden Ring: odczyt/zapis binarnego formatu `.sl2`, krypto,
 ---
 
 ## Kluczowe konwencje
+
+### Skrypty wspomagające
+
+- **Lokalizacja**: wyłącznie `tmp/scripts/`. Nigdy nie twórz skryptów pomocniczych (importery, parsery, narzędzia jednorazowe) poza tym katalogiem.
+- Podkatalogi tematyczne dozwolone: `tmp/scripts/diag/`, `tmp/scripts/debug/`, itd.
+- `tmp/` jest w `.gitignore` — skrypty wspomagające nie wchodzą do repozytorium.
+- Przykład uruchomienia: `go run tmp/scripts/import_descriptions.go <args>`
 
 ### Platformy i format save file
 
@@ -81,7 +89,7 @@ Edytor plików zapisu Elden Ring: odczyt/zapis binarnego formatu `.sl2`, krypto,
 | Format Go | `gofmt -w <plik>.go` |
 | TS typecheck | `cd frontend && npx tsc --noEmit` |
 | Frontend lint | `cd frontend && npm run lint` |
-| Import danych | `go run scripts/extractor.go tmp/org-src/src/db/ backend/db/data/` |
+| Import opisów | `go run tmp/scripts/import_descriptions.go tmp/opisy-stats/data/ backend/db/data/descriptions.go` |
 
 ---
 
