@@ -9,6 +9,17 @@ interface ItemDetailPanelProps {
 export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     const [brokenIcon, setBrokenIcon] = useState(false);
 
+    const V = (v: number | undefined) => v != null ? String(v) : 'N/A';
+    const VF = (v: number | undefined) => v != null ? v.toFixed(1) : 'N/A';
+
+    const isWeaponCategory = ['melee_armaments', 'ranged_and_catalysts', 'shields'].includes(item.category);
+    const isArmorCategory = ['head', 'chest', 'arms', 'legs'].includes(item.category);
+    const isSpellCategory = ['sorceries', 'incantations'].includes(item.category);
+
+    const showWeapon = item.weapon || isWeaponCategory;
+    const showArmor = item.armor || isArmorCategory;
+    const showSpell = item.spell || isSpellCategory;
+
     return (
         <div className="h-full flex flex-col border-l border-border bg-card overflow-hidden">
             {/* Header */}
@@ -36,15 +47,21 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
             </div>
 
             <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
-                {/* Weight */}
-                {(item.weight || item.weapon?.Weight || item.armor?.Weight) ? (
-                    <div className="flex items-center gap-2">
-                        <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Weight</span>
-                        <span className="text-[11px] font-bold text-foreground">
+                {/* Sub-category + Weight row */}
+                <div className="flex items-center justify-between">
+                    {item.subCategory && (
+                        <div>
+                            <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Type </span>
+                            <span className="text-[10px] font-bold text-foreground">{item.subCategory}</span>
+                        </div>
+                    )}
+                    <div>
+                        <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Weight </span>
+                        <span className="text-[10px] font-bold text-foreground">
                             {item.weapon?.Weight ?? item.armor?.Weight ?? item.weight ?? 0}
                         </span>
                     </div>
-                ) : null}
+                </div>
 
                 {/* Description */}
                 {item.description && (
@@ -56,138 +73,202 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                     </div>
                 )}
 
-                {/* Weapon Stats */}
-                {item.weapon && (
-                    <div className="space-y-2.5">
-                        <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attack Power</h4>
-                        <div className="grid grid-cols-2 gap-1.5">
-                            {[
-                                ['Physical', item.weapon.PhysDamage],
-                                ['Magic', item.weapon.MagDamage],
-                                ['Fire', item.weapon.FireDamage],
-                                ['Lightning', item.weapon.LitDamage],
-                                ['Holy', item.weapon.HolyDamage],
-                            ].filter(([, v]) => v > 0).map(([label, val]) => (
-                                <div key={label as string} className="flex items-center justify-between bg-muted/20 rounded px-2 py-1 border border-border/30">
-                                    <span className="text-[8px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
-                                    <span className="text-[10px] font-black text-foreground">{val}</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground pt-1">Scaling</h4>
-                        <div className="flex gap-1.5 flex-wrap">
-                            {[
-                                ['STR', item.weapon.ScaleStr],
-                                ['DEX', item.weapon.ScaleDex],
-                                ['INT', item.weapon.ScaleInt],
-                                ['FAI', item.weapon.ScaleFai],
-                            ].filter(([, v]) => v > 0).map(([label, val]) => (
-                                <div key={label as string} className="flex flex-col items-center bg-muted/20 rounded px-2.5 py-1 border border-border/30 min-w-[40px]">
-                                    <span className="text-[7px] font-black uppercase tracking-widest text-muted-foreground">{label}</span>
-                                    <span className="text-[10px] font-black text-foreground">{val}</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground pt-1">Requirements</h4>
-                        <div className="flex gap-1.5 flex-wrap">
-                            {[
-                                ['STR', item.weapon.ReqStr],
-                                ['DEX', item.weapon.ReqDex],
-                                ['INT', item.weapon.ReqInt],
-                                ['FAI', item.weapon.ReqFai],
-                                ['ARC', item.weapon.ReqArc],
-                            ].filter(([, v]) => v > 0).map(([label, val]) => (
-                                <div key={label as string} className="flex flex-col items-center bg-muted/20 rounded px-2.5 py-1 border border-border/30 min-w-[40px]">
-                                    <span className="text-[7px] font-black uppercase tracking-widest text-muted-foreground">{label}</span>
-                                    <span className="text-[10px] font-black text-foreground">{val}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
-
-                {/* Armor Stats */}
-                {item.armor && (
-                    <div className="space-y-2.5">
-                        <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Damage Negation</h4>
-                        <div className="grid grid-cols-2 gap-1.5">
-                            {[
-                                ['Physical', item.armor.Physical],
-                                ['Strike', item.armor.Strike],
-                                ['Slash', item.armor.Slash],
-                                ['Pierce', item.armor.Pierce],
-                                ['Magic', item.armor.Magic],
-                                ['Fire', item.armor.Fire],
-                                ['Lightning', item.armor.Lightning],
-                                ['Holy', item.armor.Holy],
-                            ].map(([label, val]) => (
-                                <div key={label as string} className="flex items-center justify-between bg-muted/20 rounded px-2 py-1 border border-border/30">
-                                    <span className="text-[8px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
-                                    <span className="text-[10px] font-black text-foreground">{(val as number).toFixed(1)}%</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground pt-1">Resistance</h4>
-                        <div className="grid grid-cols-2 gap-1.5">
-                            {[
-                                ['Immunity', item.armor.Immunity],
-                                ['Robustness', item.armor.Robustness],
-                                ['Focus', item.armor.Focus],
-                                ['Vitality', item.armor.Vitality],
-                            ].map(([label, val]) => (
-                                <div key={label as string} className="flex items-center justify-between bg-muted/20 rounded px-2 py-1 border border-border/30">
-                                    <span className="text-[8px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
-                                    <span className="text-[10px] font-black text-foreground">{val}</span>
-                                </div>
-                            ))}
-                        </div>
-
-                        {item.armor.Poise > 0 && (
-                            <div className="flex items-center gap-2 pt-1">
-                                <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Poise</span>
-                                <span className="text-[11px] font-bold text-foreground">{item.armor.Poise.toFixed(1)}</span>
-                            </div>
+                {/* Weapon Stats — two-column table layout */}
+                {showWeapon && (() => {
+                    const w = item.weapon;
+                    return (
+                    <div className="space-y-3">
+                        {!w && (
+                            <p className="text-[8px] font-bold uppercase tracking-widest text-amber-500/80 text-center">stats data missing</p>
                         )}
-                    </div>
-                )}
-
-                {/* Spell Stats */}
-                {item.spell && (
-                    <div className="space-y-2.5">
-                        <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Spell Info</h4>
-                        <div className="grid grid-cols-2 gap-1.5">
-                            <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1 border border-border/30">
-                                <span className="text-[8px] font-bold uppercase tracking-wider text-muted-foreground">FP Cost</span>
-                                <span className="text-[10px] font-black text-foreground">{item.spell.FPCost}</span>
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attack Power</h4>
+                                <table className="w-full text-[9px]">
+                                    <tbody>
+                                        {([
+                                            ['Physical', V(w?.PhysDamage)],
+                                            ['Magic', V(w?.MagDamage)],
+                                            ['Fire', V(w?.FireDamage)],
+                                            ['Lightning', V(w?.LitDamage)],
+                                            ['Holy', V(w?.HolyDamage)],
+                                            ['Critical', 'N/A'],
+                                        ] as [string, string][]).map(([label, val]) => (
+                                            <tr key={label} className="border-b border-border/20">
+                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
-                            <div className="flex items-center justify-between bg-muted/20 rounded px-2 py-1 border border-border/30">
-                                <span className="text-[8px] font-bold uppercase tracking-wider text-muted-foreground">Slots</span>
-                                <span className="text-[10px] font-black text-foreground">{item.spell.Slots}</span>
+                            <div className="space-y-1">
+                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Guarded Dmg Negation</h4>
+                                <table className="w-full text-[9px]">
+                                    <tbody>
+                                        {([
+                                            ['Physical', 'N/A'],
+                                            ['Magic', 'N/A'],
+                                            ['Fire', 'N/A'],
+                                            ['Lightning', 'N/A'],
+                                            ['Holy', 'N/A'],
+                                            ['Guard Boost', 'N/A'],
+                                        ] as [string, string][]).map(([label, val]) => (
+                                            <tr key={label} className="border-b border-border/20">
+                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                <td className="py-0.5 text-right font-black text-muted-foreground/40">{val}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
-
-                        {(item.spell.ReqInt > 0 || item.spell.ReqFai > 0 || item.spell.ReqArc > 0) && (
-                            <>
-                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground pt-1">Requirements</h4>
-                                <div className="flex gap-1.5 flex-wrap">
-                                    {[
-                                        ['INT', item.spell.ReqInt],
-                                        ['FAI', item.spell.ReqFai],
-                                        ['ARC', item.spell.ReqArc],
-                                    ].filter(([, v]) => v > 0).map(([label, val]) => (
-                                        <div key={label as string} className="flex flex-col items-center bg-muted/20 rounded px-2.5 py-1 border border-border/30 min-w-[40px]">
-                                            <span className="text-[7px] font-black uppercase tracking-widest text-muted-foreground">{label}</span>
-                                            <span className="text-[10px] font-black text-foreground">{val}</span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </>
-                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attribute Scaling</h4>
+                                <table className="w-full text-[9px]">
+                                    <tbody>
+                                        {([
+                                            ['Str', V(w?.ScaleStr)],
+                                            ['Dex', V(w?.ScaleDex)],
+                                            ['Int', V(w?.ScaleInt)],
+                                            ['Fai', V(w?.ScaleFai)],
+                                            ['Arc', 'N/A'],
+                                        ] as [string, string][]).map(([label, val]) => (
+                                            <tr key={label} className="border-b border-border/20">
+                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="space-y-1">
+                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attributes Required</h4>
+                                <table className="w-full text-[9px]">
+                                    <tbody>
+                                        {([
+                                            ['Str', V(w?.ReqStr)],
+                                            ['Dex', V(w?.ReqDex)],
+                                            ['Int', V(w?.ReqInt)],
+                                            ['Fai', V(w?.ReqFai)],
+                                            ['Arc', V(w?.ReqArc)],
+                                        ] as [string, string][]).map(([label, val]) => (
+                                            <tr key={label} className="border-b border-border/20">
+                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
                     </div>
-                )}
+                    );
+                })()}
+
+                {showArmor && (() => {
+                    const a = item.armor;
+                    return (
+                    <div className="space-y-3">
+                        {!a && (
+                            <p className="text-[8px] font-bold uppercase tracking-widest text-amber-500/80 text-center">stats data missing</p>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Damage Negation</h4>
+                                <table className="w-full text-[9px]">
+                                    <tbody>
+                                        {([
+                                            ['Physical', VF(a?.Physical)],
+                                            ['Strike', VF(a?.Strike)],
+                                            ['Slash', VF(a?.Slash)],
+                                            ['Pierce', VF(a?.Pierce)],
+                                            ['Magic', VF(a?.Magic)],
+                                            ['Fire', VF(a?.Fire)],
+                                            ['Lightning', VF(a?.Lightning)],
+                                            ['Holy', VF(a?.Holy)],
+                                        ] as [string, string][]).map(([label, val]) => (
+                                            <tr key={label} className="border-b border-border/20">
+                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="space-y-1">
+                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Resistance</h4>
+                                <table className="w-full text-[9px]">
+                                    <tbody>
+                                        {([
+                                            ['Immunity', V(a?.Immunity)],
+                                            ['Robustness', V(a?.Robustness)],
+                                            ['Focus', V(a?.Focus)],
+                                            ['Vitality', V(a?.Vitality)],
+                                        ] as [string, string][]).map(([label, val]) => (
+                                            <tr key={label} className="border-b border-border/20">
+                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                                <div className="pt-0.5">
+                                    <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Poise </span>
+                                    <span className={`text-[10px] font-bold ${a ? 'text-foreground' : 'text-muted-foreground/40'}`}>{VF(a?.Poise)}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    );
+                })()}
+
+                {showSpell && (() => {
+                    const sp = item.spell;
+                    return (
+                    <div className="space-y-3">
+                        {!sp && (
+                            <p className="text-[8px] font-bold uppercase tracking-widest text-amber-500/80 text-center">stats data missing</p>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Spell Info</h4>
+                                <table className="w-full text-[9px]">
+                                    <tbody>
+                                        {([
+                                            ['FP Cost', V(sp?.FPCost)],
+                                            ['Slots', V(sp?.Slots)],
+                                        ] as [string, string][]).map(([label, val]) => (
+                                            <tr key={label} className="border-b border-border/20">
+                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="space-y-1">
+                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attributes Required</h4>
+                                <table className="w-full text-[9px]">
+                                    <tbody>
+                                        {([
+                                            ['Int', V(sp?.ReqInt)],
+                                            ['Fai', V(sp?.ReqFai)],
+                                            ['Arc', V(sp?.ReqArc)],
+                                        ] as [string, string][]).map(([label, val]) => (
+                                            <tr key={label} className="border-b border-border/20">
+                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    );
+                })()}
 
                 {/* Item info */}
                 <div className="space-y-1.5 pt-2 border-t border-border/30">
@@ -211,7 +292,7 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                 </div>
 
                 {/* No data fallback */}
-                {!item.description && !item.weapon && !item.armor && !item.spell && (
+                {!item.description && !showWeapon && !showArmor && !showSpell && (
                     <p className="text-[9px] text-muted-foreground/60 italic">No description or stats available for this item.</p>
                 )}
             </div>

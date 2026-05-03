@@ -315,6 +315,7 @@ export namespace db {
 	    iconPath: string;
 	    flags: string[];
 	    description?: string;
+	    location?: string;
 	    weight?: number;
 	    weapon?: data.WeaponStats;
 	    armor?: data.ArmorStats;
@@ -336,6 +337,7 @@ export namespace db {
 	        this.iconPath = source["iconPath"];
 	        this.flags = source["flags"];
 	        this.description = source["description"];
+	        this.location = source["location"];
 	        this.weight = source["weight"];
 	        this.weapon = this.convertValues(source["weapon"], data.WeaponStats);
 	        this.armor = this.convertValues(source["armor"], data.ArmorStats);
