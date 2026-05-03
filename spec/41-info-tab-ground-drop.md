@@ -1,7 +1,7 @@
 # 41 — Info-Tab Item Ground Drop
 
 > **Type**: Investigation (paused)
-> **Extracted from**: ROADMAP.md (2026-05-03 cleanup)
+> **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
 > **Status**: 🐛 Paused — EMEVD decompilation needed
 
 ---

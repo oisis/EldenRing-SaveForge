@@ -1,6 +1,6 @@
 {
   "context": {
-    "fileName": ["CONTEXT.md", "GEMINI.md", "ROADMAP.md", "SPEC.md"],
+    "fileName": ["CONTEXT.md", "GEMINI.md", "./docs/ROADMAP.md", "SPEC.md"],
     "includeDirectories": ["./gemini", "./backend", "./frontend", "./scripts", "./tests"]
   },
   "plans_path": ".gemini/plans"

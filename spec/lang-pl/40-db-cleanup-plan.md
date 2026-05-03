@@ -1,7 +1,7 @@
 # 40 — Czyszczenie bazy danych: rejestr wyciętej zawartości i deduplikacja multiplayer
 
 > **Typ**: Dokument projektowy
-> **Wyciągnięto z**: ROADMAP.md (czyszczenie 2026-05-03)
+> **Wyciągnięto z**: docs/ROADMAP.md (czyszczenie 2026-05-03)
 > **Status**: 🔲 Planowane
 
 ---
@@ -106,8 +106,8 @@ Opcje:
 
 ## Faza G — Dokumentacja
 
-1. `CHANGELOG.md` — wpis per faza
-2. `ROADMAP.md` — oznacz jako ukończone
+1. `docs/CHANGELOG.md` — wpis per faza
+2. `docs/ROADMAP.md` — oznacz jako ukończone
 3. Nowy dokument `spec/` jeśli rejestr wyciętej zawartości urośnie wystarczająco
 
 ---

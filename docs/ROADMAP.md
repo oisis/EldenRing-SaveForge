@@ -45,6 +45,8 @@
 - Transactional item adding (ALL-OR-NOTHING with pre-flight + snapshot/rollback) → spec/43
 - Character Appearance Presets (Mirror Favorites write, 20+ presets, cross-gender) → spec/31
 - SSH Deploy + remote game control (Steam Deck workflow) — target management, SFTP, launch/stop
+- Undo/Redo (stack depth=5, per-slot deep copy, "Undo" button in sidebar)
+- Save file diffing — "Review Changes" dialog before save (inventory, graces, bosses diff)
 
 ### UI/UX Redesign ("Elden Ring SaveForge")
 - Theme system (Dark/Light/Elden Ring), tab consolidation (7→5 tabs)
@@ -88,6 +90,15 @@ Adding Info items (Notes, About tutorials) causes world copies to drop on the gr
 Two approaches tried (world pickup flags + TutorialDataChunk), neither gates the spawn.
 **Research:** [spec/41](spec/41-info-tab-ground-drop.md) | **Blocker:** need EMEVD decompilation
 
+### 🟡 Faster Invasions — NetworkParam matchmaking tweak
+Modify `NetworkParam` in Regulation block (`UserData11`, offset `0x1960070` PC) to reduce matchmaking refresh interval (20s→4s) and expand search scope (simultaneous region polling).
+Toggle in Settings. Popularized by Steelovsky/Meliodas — currently being tested by Steelovsky.
+**Research:** `gemini/ROADMAP.md` Phase 9.1 | **Blocker:** verify PS4 offset, confirm no ban risk
+
+### 🟢 Safe Weapon De-leveling — matchmaking bracket control
+Scan character's max weapon upgrade level (determines PvP matchmaking bracket), offer safe downgrade.
+Useful for PvP builds targeting specific level ranges without starting new character.
+
 ### 🟢 Save Corruption Detection UI
 Backend `DiagnoseSaveCorruption()` exists. Needs frontend display + auto-repair for recoverable issues.
 
@@ -109,6 +120,7 @@ War-Dead Catacombs (requires Radahn defeat), 3 DLC catacombs (m61 tiles, `20{col
 | 🔵 | Achievement / Trophy Progress Viewer |
 | 🔵 | Table virtualization (@tanstack/react-virtual for 1500+ item lists) |
 | 🔵 | Standalone preset editor (offline, no save loaded) |
+| 🔵 | Regulation Param Browser — searchable reference for all 194 game param tables (7500+ fields) |
 
 ---
 

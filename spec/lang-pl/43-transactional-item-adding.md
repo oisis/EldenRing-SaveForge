@@ -1,7 +1,7 @@
 # 43 — Transakcyjne dodawanie przedmiotów (zapobieganie crashom)
 
 > **Typ**: Dokument projektowy
-> **Wyciągnięto z**: ROADMAP.md (czyszczenie 2026-05-03)
+> **Wyciągnięto z**: docs/ROADMAP.md (czyszczenie 2026-05-03)
 > **Status**: ✅ Zaimplementowane (v0.7.2)
 
 ---

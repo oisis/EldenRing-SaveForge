@@ -1,7 +1,7 @@
 # 42 — Summoning Pools: UI Works, No In-Game Effect
 
 > **Type**: Investigation / Bug
-> **Extracted from**: ROADMAP.md (2026-05-03 cleanup)
+> **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
 > **Status**: 🐛 Paused (since 2026-04-25)
 
 ---

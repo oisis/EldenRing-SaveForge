@@ -122,7 +122,7 @@ na Steam Decku. Jeśli gra akceptuje save z DLC pod niekanonicznym offsetem,
 możemy dostarczyć Stage 2 z minimalnym dodatkowym kodem. Jeśli odrzuci save,
 wracamy do Opcji B (pełny rebuild struktur) i planujemy budżet odpowiednio.
 
-Decyzja śledzona w `ROADMAP.md` pod wpisem
+Decyzja śledzona w `docs/ROADMAP.md` pod wpisem
 "Invasion Regions Toggle" → Stage 2.
 
 ---

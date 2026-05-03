@@ -21,7 +21,7 @@
 6. **Agents**: Use agents to do tasks as much as it is possible.
 
 # 📋 TASK MANAGEMENT
-1. Select next task from `ROADMAP.md`.
+1. Select next task from `docs/ROADMAP.md`.
 2. Propose implementation plan.
 3. Execute & Provide verification steps (e.g., `make test` or `make dev`).
 4. Commit with a concise English message after user approval.

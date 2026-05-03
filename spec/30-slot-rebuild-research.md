@@ -120,7 +120,7 @@ If the game accepts a save with DLC at a non-canonical offset, we can
 ship Stage 2 with minimal additional code. If it rejects the save, fall
 back to Option B (full struct rebuild) and budget accordingly.
 
-Tracking decision in `ROADMAP.md` under
+Tracking decision in `docs/ROADMAP.md` under
 "Invasion Regions Toggle" → Stage 2 entry.
 
 ---

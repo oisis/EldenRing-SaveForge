@@ -1,7 +1,7 @@
 # 38 — Przebudowa wieloflagowego zabijania bossów
 
 > **Typ**: Dokument projektowy
-> **Wyodrębniono z**: ROADMAP.md (2026-05-03 cleanup)
+> **Wyodrębniono z**: docs/ROADMAP.md (2026-05-03 cleanup)
 > **Status**: 🔲 Planowany
 
 ---

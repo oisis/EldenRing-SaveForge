@@ -1,7 +1,7 @@
 # 38 — Boss Kill Multi-Flag Rework
 
 > **Type**: Design doc
-> **Extracted from**: ROADMAP.md (2026-05-03 cleanup)
+> **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
 > **Status**: 🔲 Planned
 
 ---

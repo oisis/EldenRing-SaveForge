@@ -1,7 +1,7 @@
 # 40 — DB Cleanup: Cut-Content Registry & Multiplayer Dedup
 
 > **Type**: Design doc
-> **Extracted from**: ROADMAP.md (2026-05-03 cleanup)
+> **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
 > **Status**: 🔲 Planned
 
 ---
@@ -106,8 +106,8 @@ Options:
 
 ## Phase G — Docs
 
-1. `CHANGELOG.md` — entry per phase
-2. `ROADMAP.md` — mark completed
+1. `docs/CHANGELOG.md` — entry per phase
+2. `docs/ROADMAP.md` — mark completed
 3. New `spec/` doc if cut-content registry grows large enough
 
 ---

@@ -1,7 +1,7 @@
 # 37 — Eksport / Import presetów postaci (JSON Profile)
 
 > **Typ**: Dokument projektowy
-> **Wyodrębniono z**: ROADMAP.md (2026-05-03 cleanup)
+> **Wyodrębniono z**: docs/ROADMAP.md (2026-05-03 cleanup)
 > **Status**: 🔲 Planowany
 
 ---

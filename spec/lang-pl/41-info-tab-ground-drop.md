@@ -1,7 +1,7 @@
 # 41 — Wypadanie przedmiotów z zakładki Info na ziemię
 
 > **Typ**: Śledztwo (wstrzymane)
-> **Wyciągnięto z**: ROADMAP.md (czyszczenie 2026-05-03)
+> **Wyciągnięto z**: docs/ROADMAP.md (czyszczenie 2026-05-03)
 > **Status**: 🐛 Wstrzymane — wymagana dekompilacja EMEVD
 
 ---

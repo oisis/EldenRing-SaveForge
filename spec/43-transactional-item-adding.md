@@ -1,7 +1,7 @@
 # 43 — Transactional Item Adding (Crash Prevention)
 
 > **Type**: Design doc
-> **Extracted from**: ROADMAP.md (2026-05-03 cleanup)
+> **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
 > **Status**: ✅ Implemented (v0.7.2)
 
 ---

@@ -29,6 +29,7 @@ Edytor plików zapisu Elden Ring: odczyt/zapis binarnego formatu `.sl2`, krypto,
 ├── tests/               # roundtrip_test.go, steamid_test.go + data/
 ├── tmp/
 │   ├── scripts/         # Skrypty wspomagające (importery, parsery, narzędzia jednorazowe)
+│   ├── regulation-bin-dump/ # Dump regulation.bin: csv/, defs/, params/ (194 tabel parametrów gry)
 │   ├── repos/           # Repozytoria z kodem referencyjnym
 │   └── save/            # Pliki save do testów
 └── Makefile
@@ -45,6 +46,18 @@ Edytor plików zapisu Elden Ring: odczyt/zapis binarnego formatu `.sl2`, krypto,
 - Podkatalogi tematyczne dozwolone: `tmp/scripts/diag/`, `tmp/scripts/debug/`, itd.
 - `tmp/` jest w `.gitignore` — skrypty wspomagające nie wchodzą do repozytorium.
 - Przykład uruchomienia: `go run tmp/scripts/import_descriptions.go <args>`
+
+### Regulation bin dump
+
+- **Lokalizacja**: `tmp/regulation-bin-dump/`
+- **Źródło**: zdekodowany `regulation.bin` z Elden Ring (parametry gry)
+- **Zawartość**:
+  - `csv/` — 194 tabel w formacie CSV (separator `;`), np. `EquipParamWeapon.csv`, `EquipParamProtector.csv`, `SpEffectParam.csv`
+  - `defs/` — 194 definicji XML (schematy pól dla każdej tabeli)
+  - `params/` — 194 plików `.param` (surowe dane binarne)
+  - `regulation.bin` — oryginalny plik źródłowy
+- **Zastosowanie**: źródło danych do importu statystyk broni, zbroi, czarów, efektów itp. do `backend/db/data/`
+- Row ID w CSV odpowiada identyfikatorowi przedmiotu (np. weapon ID 1000000 → Row ID 1000000 w EquipParamWeapon.csv)
 
 ### Platformy i format save file
 
@@ -103,7 +116,7 @@ Edytor plików zapisu Elden Ring: odczyt/zapis binarnego formatu `.sl2`, krypto,
 
 ---
 
-## ROADMAP.md — zasady prowadzenia
+## docs/ROADMAP.md — zasady prowadzenia
 
 ROADMAP to **strategiczny przegląd** projektu — odpowiada na "co robimy i w jakiej kolejności", NIE na "jak to zrobimy".
 
@@ -121,10 +134,10 @@ ROADMAP to **strategiczny przegląd** projektu — odpowiada na "co robimy i w j
 
 ### Co NIE WCHODZI do ROADMAP
 - Implementation details (pliki, offsety, API signatures) → kod jest source-of-truth
-- Post-mortem / root-cause analysis → `CHANGELOG.md`
+- Post-mortem / root-cause analysis → `docs/CHANGELOG.md`
 - Szczegółowy design (fazy, structs, UI mockupy, testy) → `spec/NN-*.md`
 - Research / investigation logs → `spec/NN-*.md`
-- Bugfix lista → `CHANGELOG.md`
+- Bugfix lista → `docs/CHANGELOG.md`
 - Opisy ukończonych feature'ów dłuższe niż 1 linia → wyrzucić (CHANGELOG + spec pokrywają)
 
 ### Objętość docelowa

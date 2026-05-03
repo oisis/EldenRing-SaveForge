@@ -1,7 +1,7 @@
 # 39 — Niestandardowa kolejność ekwipunku (siatka Drag & Drop)
 
 > **Typ**: Dokument projektowy
-> **Wyodrębniono z**: ROADMAP.md (2026-05-03 cleanup)
+> **Wyodrębniono z**: docs/ROADMAP.md (2026-05-03 cleanup)
 > **Status**: 🔲 Planowany — zablokowany przez weryfikację in-game w Fazie 0
 
 ---
