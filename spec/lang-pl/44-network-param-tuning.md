@@ -77,8 +77,8 @@ Kontroluje automatyczne przywołanie przez Blue Cipher Ring i system Hunterów.
 
 | Pole | Typ | Offset | Vanilla | Opis |
 |---|---|---|---|---|
-| `darkPhantomLimitBoostTime` | f32 | 0x1BC | 60.0 | Po tylu sekundach timer invadera zaczyna przyspieszać. Wyżej = invader ma więcej luzu |
-| `darkPhantomLimitBoostScale` | f32 | 0x1C0 | 1.2 | Mnożnik przyspieszenia timera invadera. 1.0 = brak przyspieszenia (wyłączone) |
+| `darkPhantomLimitBoostTime` | f32 | 0x1BC | 60.0 | ⚠️ **LEGACY/NIEZWERYFIKOWANE** — mechanika DS3: po N sekundach timer invadera przyspiesza. W ER invaderzy nie mają obserwowanego limitu czasu — to pole prawdopodobnie nie działa |
+| `darkPhantomLimitBoostScale` | f32 | 0x1C0 | 1.2 | ⚠️ **LEGACY/NIEZWERYFIKOWANE** — mechanika DS3: mnożnik przyspieszenia timera. Prawdopodobnie nieaktywne w ER |
 | `multiplayDisableLifeTime` | f32 | 0x1C4 | 1800.0 | Jak długo multiplayer jest wyłączony po pewnych eventach [s] |
 | `phantomWarpMinimumTime` | u8 | 0x1C9 | 6 | Min czas zanim phantom może się teleportować [s] |
 | `phantomReturnDelayTime` | u8 | 0x1CA | 2 | Opóźnienie po użyciu Black Crystal przed powrotem [s] |
@@ -95,7 +95,7 @@ Kontroluje automatyczne przywołanie przez Blue Cipher Ring i system Hunterów.
 | `signDisplayMax` | u8 | 0x1E4 | 10 | Max znaków renderowanych jednocześnie |
 
 **Uwagi dot. tuningu:**
-- `darkPhantomLimitBoostTime/Scale`: Vanilla karze invaderów przyspieszając timer po 60s. Ustawienie boost na 600s lub scale na 1.0 usuwa tę presję.
+- `darkPhantomLimitBoostTime/Scale`: **Prawdopodobnie legacy z Dark Souls 3.** Invaderzy w ER nie mają obserwowalnego timera sesji — mogą campować bez limitu aż host umrze, odpocznie lub wejdzie w boss fog. Pola istnieją w strukturze ale prawdopodobnie nie są czytane przez logikę gry ER. **Nie uwzględniać w presetach.**
 - `allAreaSearchRate_*` na 100% = zawsze szukaj globalnie. Drastycznie przyspiesza przybycie blue phantomów.
 - `penaltyPoint*`: ustawienie na 0 usuwa kary za rozłączenie po stronie klienta. **WYSOKIE RYZYKO BANA** — serwer może walidować te wartości.
 
@@ -122,7 +122,7 @@ Kontroluje mechanikę Taunter's Tongue / summoning pool visitors.
 | Ryzyko | Parametry | Uzasadnienie |
 |---|---|---|
 | **Niskie** | Grupa 1 (znaki), Grupa 5 (quick match) | Tylko częstotliwość pollingu po stronie klienta; serwer widzi normalny ruch |
-| **Umiarkowane** | Grupa 3 (`maxCoopBlueSummonCount`, `allAreaSearchRate`), Grupa 4 (`darkPhantomLimit*`) | Zmienia widoczne zachowanie matchmakingu ale nie łamie protokołu |
+| **Umiarkowane** | Grupa 3 (`maxCoopBlueSummonCount`, `allAreaSearchRate`), Grupa 6 (visitor timings) | Zmienia widoczne zachowanie matchmakingu ale nie łamie protokołu |
 | **Wysokie** | Grupa 4 (`penaltyPoint*`, `penaltyForgiveItemLimitTime`) | Serwer prawdopodobnie waliduje stan kar; rozbieżność = flagowanie |
 
 ## Sugerowane presety
@@ -148,8 +148,9 @@ reloadSearch_CoopBlue_Min:    30 → 5
 reloadSearch_CoopBlue_Max:   180 → 20
 allAreaSearchRate_CoopBlue:   30 → 100
 allAreaSearchRate_VsBlue:     30 → 100
-darkPhantomLimitBoostTime:    60 → 600
-darkPhantomLimitBoostScale:  1.2 → 1.0
+VisitorListMax:               10 → 30
+VisitorTimeOutTime:           60 → 120
+DownloadSpan (Visitor):       60 → 10
 ```
 
 ### "No Penalty" (Wysokie ryzyko bana)

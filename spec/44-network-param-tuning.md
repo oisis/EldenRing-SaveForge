@@ -87,8 +87,8 @@ Controls Blue Cipher Ring auto-summoning and Hunter system.
 | `srttMaxLimit` | f32 | 0x1B0 | 10000.0 | SRTT (Smoothed RTT) upper limit [ms]. Connection quality gate |
 | `srttMeanLimit` | f32 | 0x1B4 | 10000.0 | Mean SRTT limit [ms]. Affects matchmaking quality filter |
 | `srttMeanDeviationLimit` | f32 | 0x1B8 | 10000.0 | RTT deviation limit [ms]. Connection stability gate |
-| `darkPhantomLimitBoostTime` | f32 | 0x1BC | 60.0 | After this many seconds, invader's timer starts accelerating. Higher = invader has more relaxed time |
-| `darkPhantomLimitBoostScale` | f32 | 0x1C0 | 1.2 | Multiplier for invader timer acceleration. 1.0 = no acceleration (disabled) |
+| `darkPhantomLimitBoostTime` | f32 | 0x1BC | 60.0 | ⚠️ **LEGACY/UNVERIFIED** — DS3 mechanic: after N seconds invader timer accelerates. In ER invaders have no observable time limit — this field likely has no effect |
+| `darkPhantomLimitBoostScale` | f32 | 0x1C0 | 1.2 | ⚠️ **LEGACY/UNVERIFIED** — DS3 mechanic: timer acceleration multiplier. Likely inactive in ER |
 | `multiplayDisableLifeTime` | f32 | 0x1C4 | 1800.0 | How long multiplayer stays disabled after certain events [s] |
 | `abyssMultiplayLimit` | u8 | 0x1C8 | 8 | Max times abyss spirit can enter host's world |
 | `phantomWarpMinimumTime` | u8 | 0x1C9 | 6 | Min time before phantom can warp [s] |
@@ -108,7 +108,7 @@ Controls Blue Cipher Ring auto-summoning and Hunter system.
 | `bloodMessageDisplayMax` | u8 | 0x1E6 | 3 | Max blood messages rendered |
 
 **Tuning notes:**
-- `darkPhantomLimitBoostTime/Scale`: Vanilla punishes invaders by accelerating their timer after 60s. Setting boost to 600s or scale to 1.0 removes this pressure.
+- `darkPhantomLimitBoostTime/Scale`: **Likely legacy from Dark Souls 3.** ER invaders have no observable session timer — they can camp indefinitely until host dies, rests, or enters boss fog. These fields exist in the struct but probably aren't read by ER game logic. **Do not include in presets.**
 - `allAreaSearchRate_*` at 100% = always search globally. Dramatically speeds up blue phantom arrival but increases server load.
 - `penaltyPoint*` fields: setting to 0 removes disconnect penalties client-side. **HIGH BAN RISK** — server may validate these values.
 - `penaltyForgiveItemLimitTime` = 0: instant Way of White Circlet availability. Moderate ban risk.
@@ -141,7 +141,7 @@ Controls the Taunter's Tongue / summoning pool visitor mechanics.
 | Risk | Parameters | Rationale |
 |---|---|---|
 | **Low** | Group 1 (signs), Group 5 (quick match timings) | Client-side polling rates only; server sees normal traffic patterns |
-| **Moderate** | Group 3 (`maxCoopBlueSummonCount`, `allAreaSearchRate`), Group 4 (`darkPhantomLimit*`) | Changes matchmaking behavior visibly but doesn't break protocol |
+| **Moderate** | Group 3 (`maxCoopBlueSummonCount`, `allAreaSearchRate`), Group 6 (visitor timings) | Changes matchmaking behavior visibly but doesn't break protocol |
 | **High** | Group 4 (`penaltyPoint*`, `penaltyForgiveItemLimitTime`) | Server likely validates penalty state; mismatch = flag |
 
 ## Suggested Presets
@@ -167,8 +167,9 @@ reloadSearch_CoopBlue_Min:    30 → 5
 reloadSearch_CoopBlue_Max:   180 → 20
 allAreaSearchRate_CoopBlue:   30 → 100
 allAreaSearchRate_VsBlue:     30 → 100
-darkPhantomLimitBoostTime:    60 → 600
-darkPhantomLimitBoostScale:  1.2 → 1.0
+VisitorListMax:               10 → 30
+VisitorTimeOutTime:           60 → 120
+DownloadSpan (Visitor):       60 → 10
 ```
 
 ### "No Penalty" (High Ban Risk)
