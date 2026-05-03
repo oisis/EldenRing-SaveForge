@@ -593,7 +593,7 @@ func GetAllGraces() []GraceEntry {
 		"Dragonbarrow":           "Dragonbarrow",
 		"Forbidden Lands":        "Forbidden Lands",
 		"Lake of Rot":            "Lake of Rot",
-		"Leyndell Ashen Capital": "Leyndell, Royal Capital",
+		"Leyndell Ashen Capital": "Leyndell, Ashen Capital",
 		"Leyndell Royal Capital": "Leyndell, Royal Capital",
 		"Miquella's Haligtree":   "Miquella's Haligtree",
 		"Mohgwyn Palace":         "Mohgwyn Palace",

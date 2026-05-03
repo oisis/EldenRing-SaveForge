@@ -19,15 +19,7 @@ func TestReadNetworkParams_PC(t *testing.T) {
 		t.Fatalf("ReadNetworkParams: %v", err)
 	}
 
-	if vals.MaxBreakInTargetListCount != 5 {
-		t.Errorf("maxBreakInTargetListCount = %d, want 5", vals.MaxBreakInTargetListCount)
-	}
-	if !floatEq(vals.BreakInRequestIntervalTimeSec, 30.0) {
-		t.Errorf("breakInRequestIntervalTimeSec = %f, want 30.0", vals.BreakInRequestIntervalTimeSec)
-	}
-	if !floatEq(vals.BreakInRequestTimeOutSec, 20.0) {
-		t.Errorf("breakInRequestTimeOutSec = %f, want 20.0", vals.BreakInRequestTimeOutSec)
-	}
+	assertVanillaNetworkParams(t, vals)
 }
 
 func TestReadNetworkParams_PS4(t *testing.T) {
@@ -41,6 +33,12 @@ func TestReadNetworkParams_PS4(t *testing.T) {
 		t.Fatalf("ReadNetworkParams: %v", err)
 	}
 
+	assertVanillaNetworkParams(t, vals)
+}
+
+func assertVanillaNetworkParams(t *testing.T, vals *core.NetworkParamValues) {
+	t.Helper()
+	// Invader
 	if vals.MaxBreakInTargetListCount != 5 {
 		t.Errorf("maxBreakInTargetListCount = %d, want 5", vals.MaxBreakInTargetListCount)
 	}
@@ -50,6 +48,60 @@ func TestReadNetworkParams_PS4(t *testing.T) {
 	if !floatEq(vals.BreakInRequestTimeOutSec, 20.0) {
 		t.Errorf("breakInRequestTimeOutSec = %f, want 20.0", vals.BreakInRequestTimeOutSec)
 	}
+	// Cooperator
+	if !floatEq(vals.ReloadSignIntervalTime2, 60.0) {
+		t.Errorf("reloadSignIntervalTime2 = %f, want 60.0", vals.ReloadSignIntervalTime2)
+	}
+	if vals.ReloadSignTotalCount != 20 {
+		t.Errorf("reloadSignTotalCount = %d, want 20", vals.ReloadSignTotalCount)
+	}
+	if vals.ReloadSignCellCount != 10 {
+		t.Errorf("reloadSignCellCount = %d, want 10", vals.ReloadSignCellCount)
+	}
+	if !floatEq(vals.UpdateSignIntervalTime, 30.0) {
+		t.Errorf("updateSignIntervalTime = %f, want 30.0", vals.UpdateSignIntervalTime)
+	}
+	if vals.SingGetMax != 32 {
+		t.Errorf("singGetMax = %d, want 32", vals.SingGetMax)
+	}
+	if !floatEq(vals.SignDownloadSpan, 30.0) {
+		t.Errorf("signDownloadSpan = %f, want 30.0", vals.SignDownloadSpan)
+	}
+	if !floatEq(vals.SignUpdateSpan, 60.0) {
+		t.Errorf("signUpdateSpan = %f, want 60.0", vals.SignUpdateSpan)
+	}
+	// Blue
+	if !floatEq(vals.ReloadVisitListCoolTime, 20.0) {
+		t.Errorf("reloadVisitListCoolTime = %f, want 20.0", vals.ReloadVisitListCoolTime)
+	}
+	if vals.MaxCoopBlueSummonCount != 2 {
+		t.Errorf("maxCoopBlueSummonCount = %d, want 2", vals.MaxCoopBlueSummonCount)
+	}
+	if vals.MaxVisitListCount != 5 {
+		t.Errorf("maxVisitListCount = %d, want 5", vals.MaxVisitListCount)
+	}
+	if !floatEq(vals.ReloadSearchCoopBlueMin, 30.0) {
+		t.Errorf("reloadSearchCoopBlueMin = %f, want 30.0", vals.ReloadSearchCoopBlueMin)
+	}
+	if !floatEq(vals.ReloadSearchCoopBlueMax, 180.0) {
+		t.Errorf("reloadSearchCoopBlueMax = %f, want 180.0", vals.ReloadSearchCoopBlueMax)
+	}
+	if vals.AllAreaSearchRateCoopBlue != 30 {
+		t.Errorf("allAreaSearchRateCoopBlue = %d, want 30", vals.AllAreaSearchRateCoopBlue)
+	}
+	if vals.AllAreaSearchRateVsBlue != 30 {
+		t.Errorf("allAreaSearchRateVsBlue = %d, want 30", vals.AllAreaSearchRateVsBlue)
+	}
+	// Host
+	if vals.VisitorListMax != 10 {
+		t.Errorf("visitorListMax = %d, want 10", vals.VisitorListMax)
+	}
+	if !floatEq(vals.VisitorTimeOutTime, 60.0) {
+		t.Errorf("visitorTimeOutTime = %f, want 60.0", vals.VisitorTimeOutTime)
+	}
+	if !floatEq(vals.VisitorDownloadSpan, 60.0) {
+		t.Errorf("visitorDownloadSpan = %f, want 60.0", vals.VisitorDownloadSpan)
+	}
 }
 
 func TestPatchNetworkParams_PC_RoundTrip(t *testing.T) {
@@ -58,29 +110,52 @@ func TestPatchNetworkParams_PC_RoundTrip(t *testing.T) {
 		t.Skip("PC save has no UserData11")
 	}
 
-	patch := core.NetworkParamFast()
+	// Apply FastSummons preset (exercises cooperator fields)
+	patch := core.NetworkParamFastSummons()
 	patched, err := core.PatchNetworkParams(save.UserData11, patch)
 	if err != nil {
 		t.Fatalf("PatchNetworkParams: %v", err)
 	}
 
-	// Verify patched values can be read back
 	vals, err := core.ReadNetworkParams(patched)
 	if err != nil {
 		t.Fatalf("ReadNetworkParams after patch: %v", err)
 	}
 
-	if vals.MaxBreakInTargetListCount != 10 {
-		t.Errorf("maxBreakInTargetListCount = %d, want 10", vals.MaxBreakInTargetListCount)
+	if !floatEq(vals.ReloadSignIntervalTime2, 10.0) {
+		t.Errorf("reloadSignIntervalTime2 = %f, want 10.0", vals.ReloadSignIntervalTime2)
 	}
-	if !floatEq(vals.BreakInRequestIntervalTimeSec, 4.0) {
-		t.Errorf("breakInRequestIntervalTimeSec = %f, want 4.0", vals.BreakInRequestIntervalTimeSec)
+	if vals.ReloadSignTotalCount != 64 {
+		t.Errorf("reloadSignTotalCount = %d, want 64", vals.ReloadSignTotalCount)
 	}
-	if !floatEq(vals.BreakInRequestTimeOutSec, 4.0) {
-		t.Errorf("breakInRequestTimeOutSec = %f, want 4.0", vals.BreakInRequestTimeOutSec)
+	if vals.SingGetMax != 64 {
+		t.Errorf("singGetMax = %d, want 64", vals.SingGetMax)
+	}
+	if !floatEq(vals.SignDownloadSpan, 5.0) {
+		t.Errorf("signDownloadSpan = %f, want 5.0", vals.SignDownloadSpan)
 	}
 
-	// Verify reset works
+	// Apply FastBlue preset
+	patchBlue := core.NetworkParamFastBlue()
+	patched2, err := core.PatchNetworkParams(save.UserData11, patchBlue)
+	if err != nil {
+		t.Fatalf("PatchNetworkParams (blue): %v", err)
+	}
+	valsBlue, err := core.ReadNetworkParams(patched2)
+	if err != nil {
+		t.Fatalf("ReadNetworkParams after blue patch: %v", err)
+	}
+	if !floatEq(valsBlue.ReloadVisitListCoolTime, 5.0) {
+		t.Errorf("reloadVisitListCoolTime = %f, want 5.0", valsBlue.ReloadVisitListCoolTime)
+	}
+	if valsBlue.MaxCoopBlueSummonCount != 4 {
+		t.Errorf("maxCoopBlueSummonCount = %d, want 4", valsBlue.MaxCoopBlueSummonCount)
+	}
+	if valsBlue.AllAreaSearchRateCoopBlue != 100 {
+		t.Errorf("allAreaSearchRateCoopBlue = %d, want 100", valsBlue.AllAreaSearchRateCoopBlue)
+	}
+
+	// Reset to defaults and verify
 	reset, err := core.PatchNetworkParams(patched, core.NetworkParamDefaults())
 	if err != nil {
 		t.Fatalf("PatchNetworkParams (reset): %v", err)
@@ -89,12 +164,7 @@ func TestPatchNetworkParams_PC_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadNetworkParams after reset: %v", err)
 	}
-	if valsReset.MaxBreakInTargetListCount != 5 {
-		t.Errorf("reset maxBreakInTargetListCount = %d, want 5", valsReset.MaxBreakInTargetListCount)
-	}
-	if !floatEq(valsReset.BreakInRequestIntervalTimeSec, 30.0) {
-		t.Errorf("reset breakInRequestIntervalTimeSec = %f, want 30.0", valsReset.BreakInRequestIntervalTimeSec)
-	}
+	assertVanillaNetworkParams(t, valsReset)
 }
 
 func TestPatchNetworkParams_PS4_RoundTrip(t *testing.T) {
@@ -103,7 +173,8 @@ func TestPatchNetworkParams_PS4_RoundTrip(t *testing.T) {
 		t.Skip("PS4 save has no UserData11")
 	}
 
-	patch := core.NetworkParamFast()
+	// Apply AggressiveHost preset (exercises host/visitor fields)
+	patch := core.NetworkParamAggressiveHost()
 	patched, err := core.PatchNetworkParams(save.UserData11, patch)
 	if err != nil {
 		t.Fatalf("PatchNetworkParams: %v", err)
@@ -114,38 +185,64 @@ func TestPatchNetworkParams_PS4_RoundTrip(t *testing.T) {
 		t.Fatalf("ReadNetworkParams after patch: %v", err)
 	}
 
-	if vals.MaxBreakInTargetListCount != 10 {
-		t.Errorf("maxBreakInTargetListCount = %d, want 10", vals.MaxBreakInTargetListCount)
+	if vals.VisitorListMax != 30 {
+		t.Errorf("visitorListMax = %d, want 30", vals.VisitorListMax)
 	}
-	if !floatEq(vals.BreakInRequestIntervalTimeSec, 4.0) {
-		t.Errorf("breakInRequestIntervalTimeSec = %f, want 4.0", vals.BreakInRequestIntervalTimeSec)
+	if !floatEq(vals.VisitorTimeOutTime, 120.0) {
+		t.Errorf("visitorTimeOutTime = %f, want 120.0", vals.VisitorTimeOutTime)
 	}
-	if !floatEq(vals.BreakInRequestTimeOutSec, 4.0) {
-		t.Errorf("breakInRequestTimeOutSec = %f, want 4.0", vals.BreakInRequestTimeOutSec)
+	if !floatEq(vals.VisitorDownloadSpan, 10.0) {
+		t.Errorf("visitorDownloadSpan = %f, want 10.0", vals.VisitorDownloadSpan)
+	}
+
+	// FastInvasions backward compat
+	patchInv := core.NetworkParamFast()
+	patched2, err := core.PatchNetworkParams(save.UserData11, patchInv)
+	if err != nil {
+		t.Fatalf("PatchNetworkParams (fast): %v", err)
+	}
+	valsInv, err := core.ReadNetworkParams(patched2)
+	if err != nil {
+		t.Fatalf("ReadNetworkParams after fast patch: %v", err)
+	}
+	if valsInv.MaxBreakInTargetListCount != 10 {
+		t.Errorf("maxBreakInTargetListCount = %d, want 10", valsInv.MaxBreakInTargetListCount)
+	}
+	if !floatEq(valsInv.BreakInRequestIntervalTimeSec, 4.0) {
+		t.Errorf("breakInRequestIntervalTimeSec = %f, want 4.0", valsInv.BreakInRequestIntervalTimeSec)
 	}
 }
 
 func TestPatchNetworkParams_Validation(t *testing.T) {
-	save := loadPCSave(t)
-	if len(save.UserData11) == 0 {
-		t.Skip("PC save has no UserData11")
+	d := core.NetworkParamDefaults()
+
+	mutate := func(f func(*core.NetworkParamValues)) core.NetworkParamValues {
+		cp := d
+		f(&cp)
+		return cp
 	}
 
 	tests := []struct {
 		name  string
 		patch core.NetworkParamValues
 	}{
-		{"targets too low", core.NetworkParamValues{MaxBreakInTargetListCount: 0, BreakInRequestIntervalTimeSec: 4, BreakInRequestTimeOutSec: 4}},
-		{"targets too high", core.NetworkParamValues{MaxBreakInTargetListCount: 21, BreakInRequestIntervalTimeSec: 4, BreakInRequestTimeOutSec: 4}},
-		{"interval too low", core.NetworkParamValues{MaxBreakInTargetListCount: 5, BreakInRequestIntervalTimeSec: 1.0, BreakInRequestTimeOutSec: 4}},
-		{"interval too high", core.NetworkParamValues{MaxBreakInTargetListCount: 5, BreakInRequestIntervalTimeSec: 31.0, BreakInRequestTimeOutSec: 4}},
-		{"timeout too low", core.NetworkParamValues{MaxBreakInTargetListCount: 5, BreakInRequestIntervalTimeSec: 4, BreakInRequestTimeOutSec: 2.0}},
-		{"timeout too high", core.NetworkParamValues{MaxBreakInTargetListCount: 5, BreakInRequestIntervalTimeSec: 4, BreakInRequestTimeOutSec: 21.0}},
+		{"targets too low", mutate(func(p *core.NetworkParamValues) { p.MaxBreakInTargetListCount = 0 })},
+		{"targets too high", mutate(func(p *core.NetworkParamValues) { p.MaxBreakInTargetListCount = 21 })},
+		{"interval too low", mutate(func(p *core.NetworkParamValues) { p.BreakInRequestIntervalTimeSec = 1.0 })},
+		{"interval too high", mutate(func(p *core.NetworkParamValues) { p.BreakInRequestIntervalTimeSec = 31.0 })},
+		{"timeout too low", mutate(func(p *core.NetworkParamValues) { p.BreakInRequestTimeOutSec = 2.0 })},
+		{"timeout too high", mutate(func(p *core.NetworkParamValues) { p.BreakInRequestTimeOutSec = 21.0 })},
+		{"sign interval too low", mutate(func(p *core.NetworkParamValues) { p.ReloadSignIntervalTime2 = 0.0 })},
+		{"sign count too high", mutate(func(p *core.NetworkParamValues) { p.ReloadSignTotalCount = 200 })},
+		{"blue search rate too high", mutate(func(p *core.NetworkParamValues) { p.AllAreaSearchRateCoopBlue = 101 })},
+		{"visitor list too high", mutate(func(p *core.NetworkParamValues) { p.VisitorListMax = 101 })},
+		{"blue summon too high", mutate(func(p *core.NetworkParamValues) { p.MaxCoopBlueSummonCount = 11 })},
+		{"visitor timeout too high", mutate(func(p *core.NetworkParamValues) { p.VisitorTimeOutTime = 601.0 })},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := core.PatchNetworkParams(save.UserData11, tc.patch)
+			err := core.ValidateNetworkParams(tc.patch)
 			if err == nil {
 				t.Errorf("expected validation error for %s", tc.name)
 			}

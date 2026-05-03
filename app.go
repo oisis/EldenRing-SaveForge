@@ -484,6 +484,15 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 				}
 			}
 		}
+		if flagList, ok := data.BolsteringPickupFlags[p.baseID]; ok {
+			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+				for _, f := range flagList {
+					if err := db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], f, true); err != nil {
+						runtime.LogWarningf(a.ctx, "bolstering pickup flag %d: %v", f, err)
+					}
+				}
+			}
+		}
 		if tutorialID, ok := data.AboutTutorialID[p.baseID]; ok {
 			if err := core.AppendTutorialID(slot, tutorialID); err != nil {
 				runtime.LogWarningf(a.ctx, "tutorial ID %d: %v", tutorialID, err)
@@ -1534,6 +1543,85 @@ func (a *App) BulkSetBellBearings(slotIndex int, flagIDs []uint32, unlocked bool
 		syncBellBearingItem(slot, id, unlocked)
 	}
 	return nil
+}
+
+// CollectWorldPickups sets all world pickup flags for a single bolstering
+// material (Golden Seed, Sacred Tear, Scadutree Fragment, Revered Spirit Ash).
+func (a *App) CollectWorldPickups(slotIndex int, itemID uint32) (int, error) {
+	if a.save == nil {
+		return 0, fmt.Errorf("no save loaded")
+	}
+	if slotIndex < 0 || slotIndex >= 10 {
+		return 0, fmt.Errorf("invalid slot index")
+	}
+	flagList, ok := data.BolsteringPickupFlags[itemID]
+	if !ok {
+		return 0, fmt.Errorf("no pickup flags defined for item 0x%08X", itemID)
+	}
+	slot := &a.save.Slots[slotIndex]
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		return 0, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
+	}
+	a.pushUndo(slotIndex)
+	flags := slot.Data[slot.EventFlagsOffset:]
+	set := 0
+	for _, f := range flagList {
+		if err := db.SetEventFlag(flags, f, true); err == nil {
+			set++
+		}
+	}
+	return set, nil
+}
+
+// CollectAllWorldPickups sets all world pickup flags for all bolstering materials.
+func (a *App) CollectAllWorldPickups(slotIndex int) (int, error) {
+	if a.save == nil {
+		return 0, fmt.Errorf("no save loaded")
+	}
+	if slotIndex < 0 || slotIndex >= 10 {
+		return 0, fmt.Errorf("invalid slot index")
+	}
+	slot := &a.save.Slots[slotIndex]
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		return 0, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
+	}
+	a.pushUndo(slotIndex)
+	flags := slot.Data[slot.EventFlagsOffset:]
+	set := 0
+	for _, flagList := range data.BolsteringPickupFlags {
+		for _, f := range flagList {
+			if err := db.SetEventFlag(flags, f, true); err == nil {
+				set++
+			}
+		}
+	}
+	return set, nil
+}
+
+// GetWorldPickupsCollected returns collected/total counts for each bolstering material.
+func (a *App) GetWorldPickupsCollected(slotIndex int) (map[uint32][2]int, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if slotIndex < 0 || slotIndex >= 10 {
+		return nil, fmt.Errorf("invalid slot index")
+	}
+	slot := &a.save.Slots[slotIndex]
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		return nil, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
+	}
+	flags := slot.Data[slot.EventFlagsOffset:]
+	result := make(map[uint32][2]int)
+	for itemID, flagList := range data.BolsteringPickupFlags {
+		collected := 0
+		for _, f := range flagList {
+			if val, err := db.GetEventFlag(flags, f); err == nil && val {
+				collected++
+			}
+		}
+		result[itemID] = [2]int{collected, len(flagList)}
+	}
+	return result, nil
 }
 
 // GetMapProgress returns all map region flags with their current state
@@ -2891,9 +2979,29 @@ func (a *App) SetNetworkParams(params core.NetworkParamValues) error {
 	return nil
 }
 
-// ResetNetworkParams restores vanilla invasion matchmaking parameters.
+// ResetNetworkParams restores vanilla defaults for all network parameters.
 func (a *App) ResetNetworkParams() error {
 	return a.SetNetworkParams(core.NetworkParamDefaults())
+}
+
+// GetNetworkPreset returns preset values by name without applying them.
+func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
+	var p core.NetworkParamValues
+	switch name {
+	case "fast-invasions":
+		p = core.NetworkParamFastInvasions()
+	case "fast-summons":
+		p = core.NetworkParamFastSummons()
+	case "fast-blue":
+		p = core.NetworkParamFastBlue()
+	case "aggressive-host":
+		p = core.NetworkParamAggressiveHost()
+	case "defaults":
+		p = core.NetworkParamDefaults()
+	default:
+		return nil, fmt.Errorf("unknown preset: %s", name)
+	}
+	return &p, nil
 }
 
 // Dummy method to force Wails to export types

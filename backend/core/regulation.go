@@ -35,35 +35,148 @@ const (
 
 	networkParamName = "NetworkParam.param"
 
-	// Byte offsets within NETWORK_PARAM_ST (Row 0 data)
+	// Byte offsets within NETWORK_PARAM_ST (Row 0 data).
+	// Calculated sequentially from NetworkParam.xml PARAMDEF.
+
+	// Group: Summon Signs (Cooperator role)
+	offsetReloadSignIntervalTime2 = 0x1C
+	offsetReloadSignTotalCount    = 0x20
+	offsetReloadSignCellCount     = 0x24
+	offsetUpdateSignIntervalTime  = 0x28
+	offsetSingGetMax              = 0x60
+	offsetSignDownloadSpan        = 0x64
+	offsetSignUpdateSpan          = 0x68
+
+	// Group: Break-In / Invasions (Invader role)
 	offsetMaxBreakInTargets = 0x70
 	offsetBreakInInterval   = 0x74
 	offsetBreakInTimeout    = 0x78
+
+	// Group: Visit / Blue Phantom (Blue + Host role)
+	offsetReloadVisitListCoolTime  = 0x180
+	offsetMaxCoopBlueSummonCount   = 0x184
+	offsetMaxVisitListCount        = 0x18C
+	offsetReloadSearchCoopBlueMin  = 0x190
+	offsetReloadSearchCoopBlueMax  = 0x194
+
+	// Group: Extra (all roles)
+	offsetAllAreaSearchRateCoopBlue = 0x1D8
+	offsetAllAreaSearchRateVsBlue   = 0x1D9
+
+	// Group: Visitor / Taunter's Tongue (Host role)
+	offsetVisitorListMax     = 0x240
+	offsetVisitorTimeOutTime = 0x244
+	offsetVisitorDownloadSpan = 0x248
 )
 
-// NetworkParamValues holds the current invasion matchmaking parameters.
+// NetworkParamValues holds tunable PvP/multiplayer parameters grouped by player role.
 type NetworkParamValues struct {
-	MaxBreakInTargetListCount    int32   `json:"maxBreakInTargetListCount"`
+	// --- Invader role ---
+	MaxBreakInTargetListCount     int32   `json:"maxBreakInTargetListCount"`
 	BreakInRequestIntervalTimeSec float32 `json:"breakInRequestIntervalTimeSec"`
-	BreakInRequestTimeOutSec     float32 `json:"breakInRequestTimeOutSec"`
+	BreakInRequestTimeOutSec      float32 `json:"breakInRequestTimeOutSec"`
+
+	// --- Cooperator role (summon signs) ---
+	ReloadSignIntervalTime2 float32 `json:"reloadSignIntervalTime2"`
+	ReloadSignTotalCount    int32   `json:"reloadSignTotalCount"`
+	ReloadSignCellCount     int32   `json:"reloadSignCellCount"`
+	UpdateSignIntervalTime  float32 `json:"updateSignIntervalTime"`
+	SingGetMax              int32   `json:"singGetMax"`
+	SignDownloadSpan         float32 `json:"signDownloadSpan"`
+	SignUpdateSpan           float32 `json:"signUpdateSpan"`
+
+	// --- Blue role (Blue Cipher Ring) ---
+	ReloadVisitListCoolTime    float32 `json:"reloadVisitListCoolTime"`
+	MaxCoopBlueSummonCount     int32   `json:"maxCoopBlueSummonCount"`
+	MaxVisitListCount          int32   `json:"maxVisitListCount"`
+	ReloadSearchCoopBlueMin    float32 `json:"reloadSearchCoopBlueMin"`
+	ReloadSearchCoopBlueMax    float32 `json:"reloadSearchCoopBlueMax"`
+	AllAreaSearchRateCoopBlue  int32   `json:"allAreaSearchRateCoopBlue"`
+	AllAreaSearchRateVsBlue    int32   `json:"allAreaSearchRateVsBlue"`
+
+	// --- Host role (Taunter's Tongue / visitor) ---
+	VisitorListMax      int32   `json:"visitorListMax"`
+	VisitorTimeOutTime  float32 `json:"visitorTimeOutTime"`
+	VisitorDownloadSpan float32 `json:"visitorDownloadSpan"`
 }
 
-// NetworkParamDefaults returns the vanilla game defaults.
+// NetworkParamDefaults returns the vanilla game defaults for all fields.
 func NetworkParamDefaults() NetworkParamValues {
 	return NetworkParamValues{
-		MaxBreakInTargetListCount:    5,
+		// Invader
+		MaxBreakInTargetListCount:     5,
 		BreakInRequestIntervalTimeSec: 30.0,
-		BreakInRequestTimeOutSec:     20.0,
+		BreakInRequestTimeOutSec:      20.0,
+		// Cooperator
+		ReloadSignIntervalTime2: 60.0,
+		ReloadSignTotalCount:    20,
+		ReloadSignCellCount:     10,
+		UpdateSignIntervalTime:  30.0,
+		SingGetMax:              32,
+		SignDownloadSpan:        30.0,
+		SignUpdateSpan:          60.0,
+		// Blue
+		ReloadVisitListCoolTime:   20.0,
+		MaxCoopBlueSummonCount:    2,
+		MaxVisitListCount:         5,
+		ReloadSearchCoopBlueMin:   30.0,
+		ReloadSearchCoopBlueMax:   180.0,
+		AllAreaSearchRateCoopBlue: 30,
+		AllAreaSearchRateVsBlue:   30,
+		// Host
+		VisitorListMax:      10,
+		VisitorTimeOutTime:  60.0,
+		VisitorDownloadSpan: 60.0,
 	}
 }
 
-// NetworkParamFast returns the "Fast Invasions" preset.
+// NetworkParamFastInvasions returns the "Fast Invasions" preset (Invader role).
+func NetworkParamFastInvasions() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.MaxBreakInTargetListCount = 10
+	d.BreakInRequestIntervalTimeSec = 4.0
+	d.BreakInRequestTimeOutSec = 4.0
+	return d
+}
+
+// NetworkParamFastSummons returns the "Fast Summons" preset (Cooperator role). Low ban risk.
+func NetworkParamFastSummons() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.ReloadSignIntervalTime2 = 10.0
+	d.ReloadSignTotalCount = 64
+	d.ReloadSignCellCount = 20
+	d.UpdateSignIntervalTime = 5.0
+	d.SingGetMax = 64
+	d.SignDownloadSpan = 5.0
+	d.SignUpdateSpan = 10.0
+	return d
+}
+
+// NetworkParamFastBlue returns the "Fast Blue" preset (Blue role). Moderate ban risk.
+func NetworkParamFastBlue() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.ReloadVisitListCoolTime = 5.0
+	d.MaxCoopBlueSummonCount = 4
+	d.MaxVisitListCount = 15
+	d.ReloadSearchCoopBlueMin = 5.0
+	d.ReloadSearchCoopBlueMax = 20.0
+	d.AllAreaSearchRateCoopBlue = 100
+	d.AllAreaSearchRateVsBlue = 100
+	return d
+}
+
+// NetworkParamAggressiveHost returns the "Aggressive Host" preset (Host role). Moderate ban risk.
+func NetworkParamAggressiveHost() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.VisitorListMax = 30
+	d.VisitorTimeOutTime = 120.0
+	d.VisitorDownloadSpan = 10.0
+	return d
+}
+
+// NetworkParamFast returns the legacy "Fast Invasions" preset for backward compatibility.
 func NetworkParamFast() NetworkParamValues {
-	return NetworkParamValues{
-		MaxBreakInTargetListCount:    10,
-		BreakInRequestIntervalTimeSec: 4.0,
-		BreakInRequestTimeOutSec:     4.0,
-	}
+	return NetworkParamFastInvasions()
 }
 
 // ReadNetworkParams extracts current NetworkParam values from UserData11.
@@ -74,22 +187,111 @@ func ReadNetworkParams(ud11 []byte) (*NetworkParamValues, error) {
 	}
 
 	vals := &NetworkParamValues{}
+
+	// Invader
 	vals.MaxBreakInTargetListCount = int32(binary.LittleEndian.Uint32(paramData[offsetMaxBreakInTargets:]))
 	vals.BreakInRequestIntervalTimeSec = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetBreakInInterval:]))
 	vals.BreakInRequestTimeOutSec = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetBreakInTimeout:]))
+
+	// Cooperator
+	vals.ReloadSignIntervalTime2 = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetReloadSignIntervalTime2:]))
+	vals.ReloadSignTotalCount = int32(binary.LittleEndian.Uint32(paramData[offsetReloadSignTotalCount:]))
+	vals.ReloadSignCellCount = int32(binary.LittleEndian.Uint32(paramData[offsetReloadSignCellCount:]))
+	vals.UpdateSignIntervalTime = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetUpdateSignIntervalTime:]))
+	vals.SingGetMax = int32(binary.LittleEndian.Uint32(paramData[offsetSingGetMax:]))
+	vals.SignDownloadSpan = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetSignDownloadSpan:]))
+	vals.SignUpdateSpan = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetSignUpdateSpan:]))
+
+	// Blue
+	vals.ReloadVisitListCoolTime = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetReloadVisitListCoolTime:]))
+	vals.MaxCoopBlueSummonCount = int32(binary.LittleEndian.Uint32(paramData[offsetMaxCoopBlueSummonCount:]))
+	vals.MaxVisitListCount = int32(binary.LittleEndian.Uint32(paramData[offsetMaxVisitListCount:]))
+	vals.ReloadSearchCoopBlueMin = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetReloadSearchCoopBlueMin:]))
+	vals.ReloadSearchCoopBlueMax = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetReloadSearchCoopBlueMax:]))
+	vals.AllAreaSearchRateCoopBlue = int32(paramData[offsetAllAreaSearchRateCoopBlue])
+	vals.AllAreaSearchRateVsBlue = int32(paramData[offsetAllAreaSearchRateVsBlue])
+
+	// Host
+	vals.VisitorListMax = int32(binary.LittleEndian.Uint32(paramData[offsetVisitorListMax:]))
+	vals.VisitorTimeOutTime = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetVisitorTimeOutTime:]))
+	vals.VisitorDownloadSpan = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetVisitorDownloadSpan:]))
+
 	return vals, nil
+}
+
+// ValidateNetworkParams checks all field boundaries. Returns nil if valid.
+func ValidateNetworkParams(p NetworkParamValues) error {
+	// Invader
+	if p.MaxBreakInTargetListCount < 1 || p.MaxBreakInTargetListCount > 20 {
+		return fmt.Errorf("maxBreakInTargetListCount must be 1-20, got %d", p.MaxBreakInTargetListCount)
+	}
+	if p.BreakInRequestIntervalTimeSec < 2.0 || p.BreakInRequestIntervalTimeSec > 30.0 {
+		return fmt.Errorf("breakInRequestIntervalTimeSec must be 2-30, got %.0f", p.BreakInRequestIntervalTimeSec)
+	}
+	if p.BreakInRequestTimeOutSec < 3.0 || p.BreakInRequestTimeOutSec > 20.0 {
+		return fmt.Errorf("breakInRequestTimeOutSec must be 3-20, got %.0f", p.BreakInRequestTimeOutSec)
+	}
+	// Cooperator
+	if p.ReloadSignIntervalTime2 < 1.0 || p.ReloadSignIntervalTime2 > 1000.0 {
+		return fmt.Errorf("reloadSignIntervalTime2 must be 1-1000, got %.0f", p.ReloadSignIntervalTime2)
+	}
+	if p.ReloadSignTotalCount < 1 || p.ReloadSignTotalCount > 128 {
+		return fmt.Errorf("reloadSignTotalCount must be 1-128, got %d", p.ReloadSignTotalCount)
+	}
+	if p.ReloadSignCellCount < 1 || p.ReloadSignCellCount > 99 {
+		return fmt.Errorf("reloadSignCellCount must be 1-99, got %d", p.ReloadSignCellCount)
+	}
+	if p.UpdateSignIntervalTime < 1.0 || p.UpdateSignIntervalTime > 1000.0 {
+		return fmt.Errorf("updateSignIntervalTime must be 1-1000, got %.0f", p.UpdateSignIntervalTime)
+	}
+	if p.SingGetMax < 1 || p.SingGetMax > 128 {
+		return fmt.Errorf("singGetMax must be 1-128, got %d", p.SingGetMax)
+	}
+	if p.SignDownloadSpan < 1.0 || p.SignDownloadSpan > 1000.0 {
+		return fmt.Errorf("signDownloadSpan must be 1-1000, got %.0f", p.SignDownloadSpan)
+	}
+	if p.SignUpdateSpan < 1.0 || p.SignUpdateSpan > 1000.0 {
+		return fmt.Errorf("signUpdateSpan must be 1-1000, got %.0f", p.SignUpdateSpan)
+	}
+	// Blue
+	if p.ReloadVisitListCoolTime < 1.0 || p.ReloadVisitListCoolTime > 1000.0 {
+		return fmt.Errorf("reloadVisitListCoolTime must be 1-1000, got %.0f", p.ReloadVisitListCoolTime)
+	}
+	if p.MaxCoopBlueSummonCount < 1 || p.MaxCoopBlueSummonCount > 10 {
+		return fmt.Errorf("maxCoopBlueSummonCount must be 1-10, got %d", p.MaxCoopBlueSummonCount)
+	}
+	if p.MaxVisitListCount < 1 || p.MaxVisitListCount > 50 {
+		return fmt.Errorf("maxVisitListCount must be 1-50, got %d", p.MaxVisitListCount)
+	}
+	if p.ReloadSearchCoopBlueMin < 1.0 || p.ReloadSearchCoopBlueMin > 999.0 {
+		return fmt.Errorf("reloadSearchCoopBlueMin must be 1-999, got %.0f", p.ReloadSearchCoopBlueMin)
+	}
+	if p.ReloadSearchCoopBlueMax < 1.0 || p.ReloadSearchCoopBlueMax > 999.0 {
+		return fmt.Errorf("reloadSearchCoopBlueMax must be 1-999, got %.0f", p.ReloadSearchCoopBlueMax)
+	}
+	if p.AllAreaSearchRateCoopBlue < 0 || p.AllAreaSearchRateCoopBlue > 100 {
+		return fmt.Errorf("allAreaSearchRateCoopBlue must be 0-100, got %d", p.AllAreaSearchRateCoopBlue)
+	}
+	if p.AllAreaSearchRateVsBlue < 0 || p.AllAreaSearchRateVsBlue > 100 {
+		return fmt.Errorf("allAreaSearchRateVsBlue must be 0-100, got %d", p.AllAreaSearchRateVsBlue)
+	}
+	// Host
+	if p.VisitorListMax < 1 || p.VisitorListMax > 100 {
+		return fmt.Errorf("visitorListMax must be 1-100, got %d", p.VisitorListMax)
+	}
+	if p.VisitorTimeOutTime < 1.0 || p.VisitorTimeOutTime > 600.0 {
+		return fmt.Errorf("visitorTimeOutTime must be 1-600, got %.0f", p.VisitorTimeOutTime)
+	}
+	if p.VisitorDownloadSpan < 1.0 || p.VisitorDownloadSpan > 600.0 {
+		return fmt.Errorf("visitorDownloadSpan must be 1-600, got %.0f", p.VisitorDownloadSpan)
+	}
+	return nil
 }
 
 // PatchNetworkParams modifies NetworkParam in UserData11 and returns the patched UserData11.
 func PatchNetworkParams(ud11 []byte, patch NetworkParamValues) ([]byte, error) {
-	if patch.MaxBreakInTargetListCount < 1 || patch.MaxBreakInTargetListCount > 20 {
-		return nil, fmt.Errorf("maxBreakInTargetListCount must be 1-20, got %d", patch.MaxBreakInTargetListCount)
-	}
-	if patch.BreakInRequestIntervalTimeSec < 2.0 || patch.BreakInRequestIntervalTimeSec > 30.0 {
-		return nil, fmt.Errorf("breakInRequestIntervalTimeSec must be 2.0-30.0, got %.1f", patch.BreakInRequestIntervalTimeSec)
-	}
-	if patch.BreakInRequestTimeOutSec < 3.0 || patch.BreakInRequestTimeOutSec > 20.0 {
-		return nil, fmt.Errorf("breakInRequestTimeOutSec must be 3.0-20.0, got %.1f", patch.BreakInRequestTimeOutSec)
+	if err := ValidateNetworkParams(patch); err != nil {
+		return nil, err
 	}
 
 	regBlob, iv, dcxFormat, err := extractRegulation(ud11)
@@ -102,17 +304,40 @@ func PatchNetworkParams(ud11 []byte, patch NetworkParamValues) ([]byte, error) {
 		return nil, fmt.Errorf("decompress DCX: %w", err)
 	}
 
-	paramOffset, paramSize, rowDataOffset, err := findNetworkParamInBND4(bnd4Data)
+	paramOffset, _, rowDataOffset, err := findNetworkParamInBND4(bnd4Data)
 	if err != nil {
 		return nil, fmt.Errorf("find NetworkParam: %w", err)
 	}
 
-	absDataStart := paramOffset + rowDataOffset
-	binary.LittleEndian.PutUint32(bnd4Data[absDataStart+offsetMaxBreakInTargets:], uint32(patch.MaxBreakInTargetListCount))
-	binary.LittleEndian.PutUint32(bnd4Data[absDataStart+offsetBreakInInterval:], math.Float32bits(patch.BreakInRequestIntervalTimeSec))
-	binary.LittleEndian.PutUint32(bnd4Data[absDataStart+offsetBreakInTimeout:], math.Float32bits(patch.BreakInRequestTimeOutSec))
+	d := bnd4Data[paramOffset+rowDataOffset:]
 
-	_ = paramSize
+	// Invader
+	binary.LittleEndian.PutUint32(d[offsetMaxBreakInTargets:], uint32(patch.MaxBreakInTargetListCount))
+	binary.LittleEndian.PutUint32(d[offsetBreakInInterval:], math.Float32bits(patch.BreakInRequestIntervalTimeSec))
+	binary.LittleEndian.PutUint32(d[offsetBreakInTimeout:], math.Float32bits(patch.BreakInRequestTimeOutSec))
+
+	// Cooperator
+	binary.LittleEndian.PutUint32(d[offsetReloadSignIntervalTime2:], math.Float32bits(patch.ReloadSignIntervalTime2))
+	binary.LittleEndian.PutUint32(d[offsetReloadSignTotalCount:], uint32(patch.ReloadSignTotalCount))
+	binary.LittleEndian.PutUint32(d[offsetReloadSignCellCount:], uint32(patch.ReloadSignCellCount))
+	binary.LittleEndian.PutUint32(d[offsetUpdateSignIntervalTime:], math.Float32bits(patch.UpdateSignIntervalTime))
+	binary.LittleEndian.PutUint32(d[offsetSingGetMax:], uint32(patch.SingGetMax))
+	binary.LittleEndian.PutUint32(d[offsetSignDownloadSpan:], math.Float32bits(patch.SignDownloadSpan))
+	binary.LittleEndian.PutUint32(d[offsetSignUpdateSpan:], math.Float32bits(patch.SignUpdateSpan))
+
+	// Blue
+	binary.LittleEndian.PutUint32(d[offsetReloadVisitListCoolTime:], math.Float32bits(patch.ReloadVisitListCoolTime))
+	binary.LittleEndian.PutUint32(d[offsetMaxCoopBlueSummonCount:], uint32(patch.MaxCoopBlueSummonCount))
+	binary.LittleEndian.PutUint32(d[offsetMaxVisitListCount:], uint32(patch.MaxVisitListCount))
+	binary.LittleEndian.PutUint32(d[offsetReloadSearchCoopBlueMin:], math.Float32bits(patch.ReloadSearchCoopBlueMin))
+	binary.LittleEndian.PutUint32(d[offsetReloadSearchCoopBlueMax:], math.Float32bits(patch.ReloadSearchCoopBlueMax))
+	d[offsetAllAreaSearchRateCoopBlue] = byte(patch.AllAreaSearchRateCoopBlue)
+	d[offsetAllAreaSearchRateVsBlue] = byte(patch.AllAreaSearchRateVsBlue)
+
+	// Host
+	binary.LittleEndian.PutUint32(d[offsetVisitorListMax:], uint32(patch.VisitorListMax))
+	binary.LittleEndian.PutUint32(d[offsetVisitorTimeOutTime:], math.Float32bits(patch.VisitorTimeOutTime))
+	binary.LittleEndian.PutUint32(d[offsetVisitorDownloadSpan:], math.Float32bits(patch.VisitorDownloadSpan))
 
 	recompressed, err := compressDCX(bnd4Data, dcxFormat)
 	if err != nil {

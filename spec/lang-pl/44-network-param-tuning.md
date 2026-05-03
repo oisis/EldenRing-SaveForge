@@ -31,12 +31,12 @@ Kontroluje widoczność, częstotliwość odświeżania i pobieranie znaków (bi
 |---|---|---|---|---|
 | `signPuddleActiveMessageIntervalSec` | f32 | 0x10 | 30.0 | Interwał powiadomienia "summoning pool aktywny" |
 | `reloadSignIntervalTime2` | f32 | 0x1C | 60.0 | Interwał odświeżania listy znaków (tryb normalny). Niżej = znaki pojawiają się szybciej |
-| `reloadSignTotalCount` | u32 | 0x20 | 32 | Max znaków pobieranych na raz (globalnie). Wyżej = widzisz więcej znaków |
-| `reloadSignCellCount` | u32 | 0x24 | 8 | Max znaków per komórka mapy. Wyżej = gęstsza widoczność w okolicy |
+| `reloadSignTotalCount` | u32 | 0x20 | 20 | Max znaków pobieranych na raz (globalnie). Wyżej = widzisz więcej znaków |
+| `reloadSignCellCount` | u32 | 0x24 | 10 | Max znaków per komórka mapy. Wyżej = gęstsza widoczność w okolicy |
 | `updateSignIntervalTime` | f32 | 0x28 | 30.0 | Jak często TWÓJ postawiony sign jest aktualizowany na serwerze |
-| `signDownloadSpan` | f32 | 0x5C | 30.0 | Interwał ściągania listy znaków |
-| `signUpdateSpan` | f32 | 0x60 | 60.0 | Interwał uploadu danych znaków na serwer |
-| `singGetMax` | u32 | 0x58 | 32 | Twardy limit pobranych znaków |
+| `signDownloadSpan` | f32 | 0x64 | 30.0 | Interwał ściągania listy znaków |
+| `signUpdateSpan` | f32 | 0x68 | 60.0 | Interwał uploadu danych znaków na serwer |
+| `singGetMax` | u32 | 0x60 | 32 | Twardy limit pobranych znaków |
 
 **Uwagi dot. tuningu:**
 - `reloadSignIntervalTime2` ma największy wpływ — zmniejszenie z 60→10s = znaki pojawiają się 6x szybciej
@@ -113,9 +113,9 @@ Kontroluje mechanikę Taunter's Tongue / summoning pool visitors.
 
 | Pole | Typ | Offset | Vanilla | Opis |
 |---|---|---|---|---|
-| `VisitorListMax` | u32 | 0x230 | 10 | Max wpisów na liście celów visitor |
-| `VisitorTimeOutTime` | f32 | 0x234 | 60.0 | Timeout oczekiwania na visitora [s] |
-| `DownloadSpan` | f32 | 0x238 | 60.0 | Interwał pobierania listy visitorów [s] |
+| `VisitorListMax` | u32 | 0x240 | 10 | Max wpisów na liście celów visitor |
+| `VisitorTimeOutTime` | f32 | 0x244 | 60.0 | Timeout oczekiwania na visitora [s] |
+| `DownloadSpan` | f32 | 0x248 | 60.0 | Interwał pobierania listy visitorów [s] |
 
 ## Ocena ryzyka bana
 
@@ -130,8 +130,8 @@ Kontroluje mechanikę Taunter's Tongue / summoning pool visitors.
 ### "Fast Summons" (Niskie ryzyko)
 ```
 reloadSignIntervalTime2:  60 → 10
-reloadSignTotalCount:     32 → 64
-reloadSignCellCount:       8 → 20
+reloadSignTotalCount:     20 → 64
+reloadSignCellCount:      10 → 20
 updateSignIntervalTime:   30 → 5
 signDownloadSpan:         30 → 5
 signUpdateSpan:           60 → 10

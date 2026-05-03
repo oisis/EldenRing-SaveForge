@@ -10,6 +10,7 @@ import {ToolsTab} from './components/ToolsTab';
 import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
+import {NetworkTab} from './components/NetworkTab';
 import {ItemDetailPanel} from './components/ItemDetailPanel';
 import {AccordionSection} from './components/AccordionSection';
 import {ToastBar} from './components/ToastBar';
@@ -77,7 +78,7 @@ function App() {
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
 
     const tabs = platform
-        ? ['character', 'inventory', 'world', 'tools', 'settings']
+        ? ['character', 'inventory', 'world', 'network', 'tools', 'settings']
         : ['character', 'inventory', 'settings'];
 
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
@@ -605,6 +606,7 @@ function App() {
                                     </div>
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} />}
+                                {activeTab === 'network' && <NetworkTab platform={platform} />}
                                 {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} />}
                                 </div>
                             </div>

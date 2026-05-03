@@ -32,16 +32,16 @@ Controls visibility, refresh rate, and retrieval of summon signs (white/gold/red
 | `signPuddleActiveMessageIntervalSec` | f32 | 0x10 | 30.0 | Interval for "sign puddle active" notification |
 | `reloadSignIntervalTime1` | f32 | 0x18 | ~0 | Sign refresh wait (low population mode) — effectively unused |
 | `reloadSignIntervalTime2` | f32 | 0x1C | 60.0 | Sign list refresh interval (normal mode). Lower = signs appear faster |
-| `reloadSignTotalCount` | u32 | 0x20 | 32 | Max signs retrieved per download (global). Higher = see more signs |
-| `reloadSignCellCount` | u32 | 0x24 | 8 | Max signs per map cell. Higher = denser sign visibility in area |
+| `reloadSignTotalCount` | u32 | 0x20 | 20 | Max signs retrieved per download (global). Higher = see more signs |
+| `reloadSignCellCount` | u32 | 0x24 | 10 | Max signs per map cell. Higher = denser sign visibility in area |
 | `updateSignIntervalTime` | f32 | 0x28 | 30.0 | How often YOUR placed sign is updated on server |
 | `basicExclusiveRange` | f32 | 0x2C | 2.0 | Min horizontal distance between rendered signs [m] |
 | `basicExclusiveHeight` | f32 | 0x30 | 2.2 | Min vertical distance between rendered signs [m] |
 | `previewChrWaitingTime` | f32 | 0x34 | 0.5 | Delay before sign preview character model renders |
 | `signVisibleRange` | f32 | 0x38 | 30.0 | Max render distance for signs [m] |
-| `singGetMax` | u32 | 0x58 | 32 | Hard cap on total retrievable signs |
-| `signDownloadSpan` | f32 | 0x5C | 30.0 | Sign list download interval |
-| `signUpdateSpan` | f32 | 0x60 | 60.0 | Sign data upload interval to server |
+| `singGetMax` | u32 | 0x60 | 32 | Hard cap on total retrievable signs |
+| `signDownloadSpan` | f32 | 0x64 | 30.0 | Sign list download interval |
+| `signUpdateSpan` | f32 | 0x68 | 60.0 | Sign data upload interval to server |
 
 **Tuning notes:**
 - `reloadSignIntervalTime2` is the most impactful — reducing from 60→10s means signs appear 6x faster
@@ -131,10 +131,10 @@ Controls the Taunter's Tongue / summoning pool visitor mechanics.
 
 | Field | Type | Offset | Vanilla | Description |
 |---|---|---|---|---|
-| `VisitorListMax` | u32 | 0x230 | 10 | Max visitor target list entries |
-| `VisitorTimeOutTime` | f32 | 0x234 | 60.0 | Visitor wait timeout [s] |
-| `DownloadSpan` | f32 | 0x238 | 60.0 | Visitor list download interval [s] |
-| `VisitorGuestRequestMessageIntervalSec` | f32 | 0x23C | 30.0 | "Searching for visit target..." message interval |
+| `VisitorListMax` | u32 | 0x240 | 10 | Max visitor target list entries |
+| `VisitorTimeOutTime` | f32 | 0x244 | 60.0 | Visitor wait timeout [s] |
+| `DownloadSpan` | f32 | 0x248 | 60.0 | Visitor list download interval [s] |
+| `VisitorGuestRequestMessageIntervalSec` | f32 | 0x24C | 30.0 | "Searching for visit target..." message interval |
 
 ## Ban Risk Assessment
 
@@ -149,8 +149,8 @@ Controls the Taunter's Tongue / summoning pool visitor mechanics.
 ### "Fast Summons" (Low Risk)
 ```
 reloadSignIntervalTime2:  60 → 10
-reloadSignTotalCount:     32 → 64
-reloadSignCellCount:       8 → 20
+reloadSignTotalCount:     20 → 64
+reloadSignCellCount:      10 → 20
 updateSignIntervalTime:   30 → 5
 signDownloadSpan:         30 → 5
 signUpdateSpan:           60 → 10

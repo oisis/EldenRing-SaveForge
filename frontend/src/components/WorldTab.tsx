@@ -1,5 +1,5 @@
 import {useEffect, useState} from 'react';
-import {GetGraces, SetGraceVisited, GetBosses, SetBossDefeated, GetSummoningPools, SetSummoningPoolActivated, GetColosseums, SetColosseumUnlocked, GetMapProgress, SetMapFlag, SetMapRegionFlags, RevealAllMap, ResetMapExploration, RemoveFogOfWar, GetCookbooks, SetCookbookUnlocked, BulkSetCookbooksUnlocked, GetGestures, SetGestureUnlocked, BulkSetGesturesUnlocked, GetQuestNPCs, GetQuestProgress, SetQuestStep, GetBellBearings, SetBellBearingUnlocked, BulkSetBellBearings, GetWhetblades, SetWhetbladeUnlocked, GetUnlockedRegions, SetRegionUnlocked, BulkSetUnlockedRegions} from '../../wailsjs/go/main/App';
+import {GetGraces, SetGraceVisited, GetBosses, SetBossDefeated, GetSummoningPools, SetSummoningPoolActivated, GetColosseums, SetColosseumUnlocked, GetMapProgress, SetMapFlag, SetMapRegionFlags, RevealAllMap, ResetMapExploration, RemoveFogOfWar, GetCookbooks, SetCookbookUnlocked, BulkSetCookbooksUnlocked, GetGestures, SetGestureUnlocked, BulkSetGesturesUnlocked, GetQuestNPCs, GetQuestProgress, SetQuestStep, GetBellBearings, SetBellBearingUnlocked, BulkSetBellBearings, GetWhetblades, SetWhetbladeUnlocked, GetUnlockedRegions, SetRegionUnlocked, BulkSetUnlockedRegions, GetWorldPickupsCollected, CollectWorldPickups, CollectAllWorldPickups} from '../../wailsjs/go/main/App';
 import {db} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
@@ -69,6 +69,7 @@ export function WorldTab({charIdx, showFlaggedItems, saveLoadKey, onMutate}: Wor
     const [expandedBBCategories, setExpandedBBCategories] = useState<Record<string, boolean>>({});
     const [expandedCookbookCategories, setExpandedCookbookCategories] = useState<Record<string, boolean>>({});
     const [expandedRegionAreas, setExpandedRegionAreas] = useState<Record<string, boolean>>({});
+    const [worldPickups, setWorldPickups] = useState<Record<string, [number, number]>>({});
     const [expandedMapAreas, setExpandedMapAreas] = useState<Record<string, boolean>>({});
     const [skipBossArenas, setSkipBossArenas] = useState(true);
     const [questNPCs, setQuestNPCs] = useState<string[]>([]);
@@ -103,6 +104,7 @@ export function WorldTab({charIdx, showFlaggedItems, saveLoadKey, onMutate}: Wor
             GetBellBearings(charIdx).then(res => setBellBearings(res || [])),
             GetWhetblades(charIdx).then(res => setWhetblades(res || [])),
             GetUnlockedRegions(charIdx).then(res => setRegionEntries(res || [])),
+            GetWorldPickupsCollected(charIdx).then(res => setWorldPickups(res || {})),
         ]).finally(() => setLoading(false));
     };
     useEffect(() => { loadData(); }, [charIdx]);
@@ -245,6 +247,19 @@ export function WorldTab({charIdx, showFlaggedItems, saveLoadKey, onMutate}: Wor
         setRegionEntries(prev => prev.map(r => r.area === area ? {...r, unlocked: false} : r));
         onMutate?.();
     };
+    const handleCollectPickup = async (itemID: number) => {
+        await CollectWorldPickups(charIdx, itemID);
+        const res = await GetWorldPickupsCollected(charIdx);
+        setWorldPickups(res || {});
+        onMutate?.();
+    };
+    const handleCollectAllPickups = async () => {
+        await CollectAllWorldPickups(charIdx);
+        const res = await GetWorldPickupsCollected(charIdx);
+        setWorldPickups(res || {});
+        onMutate?.();
+    };
+
     const handleUnlockAllRegions = async () => {
         if (!regionEntries.length) return;
         await BulkSetUnlockedRegions(charIdx, regionEntries.map(r => r.id));
@@ -694,6 +709,41 @@ export function WorldTab({charIdx, showFlaggedItems, saveLoadKey, onMutate}: Wor
                                     <span className={`text-[10px] truncate font-semibold ${w.unlocked ? 'text-foreground' : 'text-muted-foreground'}`}>{w.name}</span>
                                 </label>
                             ))}
+                        </div>
+                    </AccordionSection>
+
+                    {/* World Pickups */}
+                    <AccordionSection id="world-pickups" title="World Pickups" resetSignal={saveLoadKey}
+                        actions={<button onClick={handleCollectAllPickups} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Collect All</button>}>
+                        <p className="text-[9px] text-muted-foreground/70 italic px-1 pb-2">
+                            Mark world pickup locations as collected. Prevents duplicate spawns when items are added via inventory.
+                        </p>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {([
+                                {id: 0x4000271A, name: 'Golden Seed', icon: '🌱'},
+                                {id: 0x40002724, name: 'Sacred Tear', icon: '💧'},
+                                {id: 0x401EAB90, name: 'Scadutree Fragment', icon: '🌿'},
+                                {id: 0x401EABF4, name: 'Revered Spirit Ash', icon: '🔥'},
+                            ] as const).map(item => {
+                                const entry = worldPickups[item.id] || worldPickups[String(item.id) as unknown as number] || [0, 0];
+                                const [collected, total] = Array.isArray(entry) ? entry : [0, 0];
+                                const allCollected = collected === total && total > 0;
+                                return (
+                                    <div key={item.id} className="flex items-center justify-between p-2.5 rounded-lg border border-border/50 bg-card hover:bg-muted/20 transition-all">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm">{item.icon}</span>
+                                            <div>
+                                                <span className={`text-[10px] font-bold ${allCollected ? 'text-primary' : 'text-foreground'}`}>{item.name}</span>
+                                                <div className="text-[9px] text-muted-foreground">{collected}/{total} collected</div>
+                                            </div>
+                                        </div>
+                                        <button onClick={() => handleCollectPickup(item.id)} disabled={allCollected}
+                                            className={`px-3 py-1 rounded text-[9px] font-bold uppercase tracking-wider transition-all ${allCollected ? 'bg-primary/20 text-primary cursor-default' : 'bg-muted border border-border hover:bg-primary hover:text-primary-foreground hover:border-primary'}`}>
+                                            {allCollected ? 'Done' : 'Collect'}
+                                        </button>
+                                    </div>
+                                );
+                            })}
                         </div>
                     </AccordionSection>
 
