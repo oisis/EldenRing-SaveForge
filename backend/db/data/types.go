@@ -73,6 +73,7 @@ type SpellStats struct {
 // ItemDescription holds an item's in-game description text and optional stats.
 type ItemDescription struct {
 	Description string
+	Location    string
 	Weight      float64
 	Weapon      *WeaponStats
 	Armor       *ArmorStats
