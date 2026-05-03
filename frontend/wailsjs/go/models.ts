@@ -20,6 +20,23 @@ export namespace core {
 	    maxBreakInTargetListCount: number;
 	    breakInRequestIntervalTimeSec: number;
 	    breakInRequestTimeOutSec: number;
+	    reloadSignIntervalTime2: number;
+	    reloadSignTotalCount: number;
+	    reloadSignCellCount: number;
+	    updateSignIntervalTime: number;
+	    singGetMax: number;
+	    signDownloadSpan: number;
+	    signUpdateSpan: number;
+	    reloadVisitListCoolTime: number;
+	    maxCoopBlueSummonCount: number;
+	    maxVisitListCount: number;
+	    reloadSearchCoopBlueMin: number;
+	    reloadSearchCoopBlueMax: number;
+	    allAreaSearchRateCoopBlue: number;
+	    allAreaSearchRateVsBlue: number;
+	    visitorListMax: number;
+	    visitorTimeOutTime: number;
+	    visitorDownloadSpan: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new NetworkParamValues(source);
@@ -30,6 +47,23 @@ export namespace core {
 	        this.maxBreakInTargetListCount = source["maxBreakInTargetListCount"];
 	        this.breakInRequestIntervalTimeSec = source["breakInRequestIntervalTimeSec"];
 	        this.breakInRequestTimeOutSec = source["breakInRequestTimeOutSec"];
+	        this.reloadSignIntervalTime2 = source["reloadSignIntervalTime2"];
+	        this.reloadSignTotalCount = source["reloadSignTotalCount"];
+	        this.reloadSignCellCount = source["reloadSignCellCount"];
+	        this.updateSignIntervalTime = source["updateSignIntervalTime"];
+	        this.singGetMax = source["singGetMax"];
+	        this.signDownloadSpan = source["signDownloadSpan"];
+	        this.signUpdateSpan = source["signUpdateSpan"];
+	        this.reloadVisitListCoolTime = source["reloadVisitListCoolTime"];
+	        this.maxCoopBlueSummonCount = source["maxCoopBlueSummonCount"];
+	        this.maxVisitListCount = source["maxVisitListCount"];
+	        this.reloadSearchCoopBlueMin = source["reloadSearchCoopBlueMin"];
+	        this.reloadSearchCoopBlueMax = source["reloadSearchCoopBlueMax"];
+	        this.allAreaSearchRateCoopBlue = source["allAreaSearchRateCoopBlue"];
+	        this.allAreaSearchRateVsBlue = source["allAreaSearchRateVsBlue"];
+	        this.visitorListMax = source["visitorListMax"];
+	        this.visitorTimeOutTime = source["visitorTimeOutTime"];
+	        this.visitorDownloadSpan = source["visitorDownloadSpan"];
 	    }
 	}
 	export class SlotDiagnostics {

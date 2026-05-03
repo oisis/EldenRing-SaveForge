@@ -76,6 +76,8 @@ export function GetMapProgress(arg1:number):Promise<Array<db.MapEntry>>;
 
 export function GetNetworkParams():Promise<core.NetworkParamValues>;
 
+export function GetNetworkPreset(arg1:string):Promise<core.NetworkParamValues>;
+
 export function GetQuestNPCs():Promise<Array<string>>;
 
 export function GetQuestProgress(arg1:number,arg2:string):Promise<db.QuestNPC>;

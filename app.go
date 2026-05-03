@@ -2891,9 +2891,29 @@ func (a *App) SetNetworkParams(params core.NetworkParamValues) error {
 	return nil
 }
 
-// ResetNetworkParams restores vanilla invasion matchmaking parameters.
+// ResetNetworkParams restores vanilla defaults for all network parameters.
 func (a *App) ResetNetworkParams() error {
 	return a.SetNetworkParams(core.NetworkParamDefaults())
+}
+
+// GetNetworkPreset returns preset values by name without applying them.
+func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
+	var p core.NetworkParamValues
+	switch name {
+	case "fast-invasions":
+		p = core.NetworkParamFastInvasions()
+	case "fast-summons":
+		p = core.NetworkParamFastSummons()
+	case "fast-blue":
+		p = core.NetworkParamFastBlue()
+	case "aggressive-host":
+		p = core.NetworkParamAggressiveHost()
+	case "defaults":
+		p = core.NetworkParamDefaults()
+	default:
+		return nil, fmt.Errorf("unknown preset: %s", name)
+	}
+	return &p, nil
 }
 
 // Dummy method to force Wails to export types

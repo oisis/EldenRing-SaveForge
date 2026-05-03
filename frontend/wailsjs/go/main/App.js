@@ -142,6 +142,10 @@ export function GetNetworkParams() {
   return window['go']['main']['App']['GetNetworkParams']();
 }
 
+export function GetNetworkPreset(arg1) {
+  return window['go']['main']['App']['GetNetworkPreset'](arg1);
+}
+
 export function GetQuestNPCs() {
   return window['go']['main']['App']['GetQuestNPCs']();
 }
