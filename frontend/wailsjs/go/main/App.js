@@ -42,6 +42,14 @@ export function CloseRemoteGame(arg1) {
   return window['go']['main']['App']['CloseRemoteGame'](arg1);
 }
 
+export function CollectAllWorldPickups(arg1) {
+  return window['go']['main']['App']['CollectAllWorldPickups'](arg1);
+}
+
+export function CollectWorldPickups(arg1, arg2) {
+  return window['go']['main']['App']['CollectWorldPickups'](arg1, arg2);
+}
+
 export function DeleteDeployTarget(arg1) {
   return window['go']['main']['App']['DeleteDeployTarget'](arg1);
 }
@@ -192,6 +200,10 @@ export function GetUnlockedRegions(arg1) {
 
 export function GetWhetblades(arg1) {
   return window['go']['main']['App']['GetWhetblades'](arg1);
+}
+
+export function GetWorldPickupsCollected(arg1) {
+  return window['go']['main']['App']['GetWorldPickupsCollected'](arg1);
 }
 
 export function ImportCharacter(arg1, arg2) {

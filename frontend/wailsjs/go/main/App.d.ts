@@ -26,6 +26,10 @@ export function CloseAndDownload(arg1:string):Promise<string>;
 
 export function CloseRemoteGame(arg1:string):Promise<string>;
 
+export function CollectAllWorldPickups(arg1:number):Promise<number>;
+
+export function CollectWorldPickups(arg1:number,arg2:number):Promise<number>;
+
 export function DeleteDeployTarget(arg1:string):Promise<void>;
 
 export function DeleteSlot(arg1:number):Promise<void>;
@@ -101,6 +105,8 @@ export function GetUndoDepth(arg1:number):Promise<number>;
 export function GetUnlockedRegions(arg1:number):Promise<Array<db.RegionEntry>>;
 
 export function GetWhetblades(arg1:number):Promise<Array<db.WhetbladeEntry>>;
+
+export function GetWorldPickupsCollected(arg1:number):Promise<Record<number, any>>;
 
 export function ImportCharacter(arg1:number,arg2:number):Promise<void>;
 
