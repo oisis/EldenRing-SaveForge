@@ -1,6 +1,6 @@
 # Variables
 BINARY_NAME=Elden Ring SaveForge
-VERSION=0.7.2
+VERSION=0.8.0
 BUILD_DIR=build/bin
 WAILS=/Users/oisis/go/bin/wails
 
