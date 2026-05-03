@@ -102,6 +102,7 @@ The save file consists of the following main blocks (in sequential order):
 | 41 | [Info-Tab Ground Drop](41-info-tab-ground-drop.md) | **Investigation** — world pickup flags + TutorialDataChunk tried, EMEVD gating unknown |
 | 42 | [Summoning Pools Bug](42-summoning-pools-bug.md) | **Investigation** — UI works, no in-game effect; diagnostic checklist + hypotheses |
 | 43 | [Transactional Item Adding](43-transactional-item-adding.md) | **Design doc** (✅ implemented v0.7.2) — ALL-OR-NOTHING architecture, pre-flight + snapshot/rollback |
+| 44 | [NetworkParam PvP Tuning](44-network-param-tuning.md) | **Design doc** (✅ partial) — full field reference for NETWORK_PARAM_ST: offsets, vanilla values, ban risk, presets |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Testing methods, verification checklist, discovery plan |
 
 ---
