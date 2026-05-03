@@ -38,7 +38,7 @@ var Graces = map[uint32]GraceData{
 
 	// --- Leyndell, Royal Capital ---
 	0x000115BC: B("Elden Throne (Leyndell Royal Capital)"),
-	0x000115BD: G("Erdtree Sanctuary (Leyndell Royal Capital)"),
+	0x000115BD: B("Erdtree Sanctuary (Leyndell Royal Capital)"),
 	0x000115BE: G("East Capital Rampart (Leyndell Royal Capital)"),
 	0x000115BF: G("Lower Capital Church (Leyndell Royal Capital)"),
 	0x000115C0: G("Avenue Balcony (Leyndell Royal Capital)"),
@@ -49,7 +49,7 @@ var Graces = map[uint32]GraceData{
 
 	// --- Leyndell, Ashen Capital ---
 	0x000115D0: B("Elden Throne (Leyndell Ashen Capital)"),
-	0x000115D1: G("Erdtree Sanctuary (Leyndell Ashen Capital)"),
+	0x000115D1: B("Erdtree Sanctuary (Leyndell Ashen Capital)"),
 	0x000115D2: G("East Capital Rampart (Leyndell Ashen Capital)"),
 	0x000115D3: G("Leyndell, Capital of Ash (Leyndell Ashen Capital)"),
 	0x000115D4: G("Queen's Bedchamber (Leyndell Ashen Capital)"),

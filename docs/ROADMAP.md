@@ -123,6 +123,7 @@ War-Dead Catacombs (requires Radahn defeat), 3 DLC catacombs (m61 tiles, `20{col
 | 🔵 | Table virtualization (@tanstack/react-virtual for 1500+ item lists) |
 | 🔵 | Standalone preset editor (offline, no save loaded) |
 | 🔵 | Regulation Param Browser — searchable reference for all 194 game param tables (7500+ fields) |
+| 🔵 | Auto-collect world pickups (Golden Seed, Sacred Tear, Scadutree Fragment, Revered Spirit Ash) — set event flags as "picked up" since items are added via inventory directly |
 
 ---
 
@@ -134,6 +135,7 @@ War-Dead Catacombs (requires Radahn defeat), 3 DLC catacombs (m61 tiles, `20{col
 | Colosseum toggle — no visible in-game effect (may need online mode) | unverified | — |
 | Boss Kill single-flag — grants runes but boss alive | planned fix | [spec/38](spec/38-boss-multiflag.md) |
 | Grace toggle — map visible but not fast-travel activated | known limitation | — |
+| Leyndell graces — Royal Capital and Ashen Capital phases mixed into one list | ✅ fixed | — |
 
 ---
 
