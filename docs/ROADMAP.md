@@ -48,6 +48,10 @@
 - Undo/Redo (stack depth=5, per-slot deep copy, "Undo" button in sidebar)
 - Save file diffing — "Review Changes" dialog before save (inventory, graces, bosses diff)
 
+### v0.8 — Network/PvP
+- Faster Invasions — NetworkParam break-in params (interval/timeout/targets) + regulation.bin pipeline (AES→DCX→BND4→PARAM)
+- PvP/Networking tab — role-based tuning (Invader/Host/Cooperator/Blue) with presets → spec/44
+
 ### UI/UX Redesign ("Elden Ring SaveForge")
 - Theme system (Dark/Light/Elden Ring), tab consolidation (7→5 tabs)
 - Reusable AccordionSection, World Tab sub-tabs (Exploration/Progress/Unlocks)
@@ -57,7 +61,10 @@
 
 ## In Progress
 
-(none — branch `main` is clean)
+### 🟡 PvP/Networking Tab — role-based network tuning
+Dedicated tab with 4 role sections (Invader/Host/Cooperator/Blue). Each role has relevant NetworkParam sliders + Fast Preset.
+Migrates existing invasion params from SettingsTab. Adds ~17 new tunable params.
+**Design:** [spec/44](spec/44-network-param-tuning.md) | **Effort:** 6-8h
 
 ---
 
@@ -89,11 +96,6 @@ Auto-set merchant NPC kill event flag when their Bell Bearing is unlocked. Preve
 Adding Info items (Notes, About tutorials) causes world copies to drop on the ground. Cosmetic only, no ban risk.
 Two approaches tried (world pickup flags + TutorialDataChunk), neither gates the spawn.
 **Research:** [spec/41](spec/41-info-tab-ground-drop.md) | **Blocker:** need EMEVD decompilation
-
-### 🟡 Faster Invasions — NetworkParam matchmaking tweak
-Modify `NetworkParam` in Regulation block (`UserData11`, offset `0x1960070` PC) to reduce matchmaking refresh interval (20s→4s) and expand search scope (simultaneous region polling).
-Toggle in Settings. Popularized by Steelovsky/Meliodas — currently being tested by Steelovsky.
-**Research:** `gemini/ROADMAP.md` Phase 9.1 | **Blocker:** verify PS4 offset, confirm no ban risk
 
 ### 🟢 Safe Weapon De-leveling — matchmaking bracket control
 Scan character's max weapon upgrade level (determines PvP matchmaking bracket), offer safe downgrade.
