@@ -1,29 +1,30 @@
-# 15 — Event Flags (Flagi Zdarzeń)
+# 15 — Event Flags
 
-> **Zakres**: Główny mechanizm progresji gry — 1.8 MB flag bitowych sterujących stanem świata, questami, bossami, odkryciami.
+> **Type**: Binary format spec  
+> **Scope**: Main game progression mechanism — 1.8 MB bitfield controlling world state, quests, bosses, discoveries.
 
 ---
 
-## Opis ogólny
+## Overview
 
-Event Flags to tablica 0x1BF99F bajtów (1,833,375 bytes / ~1.75 MB) z flagami bitowymi. Każda flaga to pojedynczy bit kontrolujący jeden aspekt stanu gry:
-- Boss pokonany
+Event Flags is a 0x1BF99F byte array (1,833,375 bytes / ~1.75 MB) of bit flags. Each flag is a single bit controlling one aspect of game state:
+- Boss defeated
 - NPC quest stage
-- Przedmiot podniesiony
-- Mapa odkryta
-- Cutscena obejrzana
-- Mechanika odblokowana
-- i tysiące innych
+- Item picked up
+- Map discovered
+- Cutscene watched
+- Mechanic unlocked
+- and thousands more
 
-Po tablicy flag następuje 4-bajtowy **terminator**.
+After the flag array comes a 4-byte **terminator**.
 
 ---
 
-## Adresowanie flag — BST Lookup
+## Flag addressing — BST Lookup
 
-Flagi nie są mapowane liniowo (flag_id ≠ byte_offset × 8 + bit). Zamiast tego używany jest **Binary Search Tree** (BST) do konwersji:
+Flags are NOT linearly mapped (flag_id ≠ byte_offset × 8 + bit). Instead, a **Binary Search Tree** (BST) is used for conversion:
 
-### Algorytm: Event ID → (byte_offset, bit_index)
+### Algorithm: Event ID → (byte_offset, bit_index)
 
 ```
 BLOCK_SIZE = 125 bytes
@@ -40,13 +41,13 @@ FLAG_DIVISOR = 1000
 
 ### BST Lookup Table
 
-Plik `eventflag_bst.txt` zawiera 11,919 wpisów w formacie `block,offset`:
+File `eventflag_bst.txt` contains 11,919 entries in format `block,offset`:
 - `block` = event_id // 1000
-- `offset` = numer bloku 125-bajtowego w tablicy event_flags
+- `offset` = 125-byte block number in the event_flags array
 
 ---
 
-## Ustawianie flagi
+## Setting a flag
 
 ```
 byte_pos = BST_LOOKUP[block] × 125 + (index / 8)
@@ -58,33 +59,33 @@ CLEAR: event_flags[byte_pos] &= ~(1 << bit_pos)
 
 ---
 
-## Kategorie flag — szczegółowe ID
+## Flag categories — detailed IDs
 
-### Progresja globalna (0–999)
+### Global progression (0–999)
 
-| ID | Opis |
+| ID | Description |
 |---|---|
 | 20–24 | Game Clear (Normal, Ranni, Frenzied Flame endings) |
-| 30 | Przejście do kolejnego cyklu NG+ |
-| 50–58 | Śledzenie ukończonych cykli NG+ |
+| 30 | Transition to next NG+ cycle |
+| 50–58 | Completed NG+ cycle tracking |
 | 180–197 | Great Rune possession tracking |
-| 300–575 | Stan świata (Erdtree, meteoryty, grawitacja) |
+| 300–575 | World state (Erdtree, meteorites, gravity) |
 
-### Mechaniki — Core Unlocks (60000–60999)
+### Mechanics — Core Unlocks (60000–60999)
 
-| ID | Mechanika | Jak odblokować w grze |
+| ID | Mechanic | How to unlock in-game |
 |---|---|---|
-| 60020 | Flask of Wondrous Physick | Trzecia Kościelna Ruina |
-| 60100 | Torrent Whistle (Spectral Steed Ring) | Spotkanie Meliny w Grace |
-| 60110 | Spirit Calling Bell | Ranni w Church of Elleh (noc) |
-| 60120 | Crafting Kit | Kupno od Kale (Merchant) |
-| 60130 | Whetstone Knife | Loot w Gatefront Ruins |
-| 60140 | Tailoring Tools | Loot w Coastal Cave |
+| 60020 | Flask of Wondrous Physick | Third Church of Marika |
+| 60100 | Torrent Whistle (Spectral Steed Ring) | Meeting Melina at Grace |
+| 60110 | Spirit Calling Bell | Ranni at Church of Elleh (night) |
+| 60120 | Crafting Kit | Purchase from Kale (Merchant) |
+| 60130 | Whetstone Knife | Loot in Gatefront Ruins |
+| 60140 | Tailoring Tools | Loot in Coastal Cave |
 | 60150 | Golden Tailoring Tools | Boss drop (Godfrey's shade?) |
 
-### Mechaniki — Whetblades (affinity unlock)
+### Mechanics — Whetblades (affinity unlock)
 
-| ID | Whetblade | Affinity odblokowana |
+| ID | Whetblade | Affinity unlocked |
 |---|---|---|
 | 65610 | Iron Whetblade | Heavy, Keen, Quality |
 | 65640 | Glintstone Whetblade | Magic, Cold |
@@ -92,42 +93,42 @@ CLEAR: event_flags[byte_pos] &= ~(1 << bit_pos)
 | 65680 | Sanctified Whetblade | Lightning, Sacred |
 | 65720 | Black Whetblade | Poison, Blood, Occult |
 
-### Mechaniki — pozostałe (60200–60849)
+### Mechanics — remaining (60200–60849)
 
-| Zakres | Opis |
+| Range | Description |
 |---|---|
 | 60200–60300 | Multiplayer features (signs, invasions, items) |
-| 60400–60590 | Memory slots i talisman slot unlocks |
+| 60400–60590 | Memory slots and talisman slot unlocks |
 | 60800–60849 | Gesture unlocks |
 
-### Bossy (61000–61999)
+### Bosses (61000–61999)
 
-| ID | Opis |
+| ID | Description |
 |---|---|
 | 61100–61135 | Major bosses (Margit, Godrick, Maliketh, Malenia, etc.) |
 | 61200–61220 | Catacomb bosses |
 | 61230–61248 | Cave bosses |
 | 61260–61268 | Mine bosses |
 
-### Mapa — Visibility (62000–62065)
+### Map — Visibility (62000–62065)
 
-Map visibility flags — kontrolują widoczność tekstury regionu na mapie.
+Map visibility flags — control the visibility of region texture on the map.
 
-| ID | Region | Obszar |
+| ID | Region | Area |
 |---|---|---|
-| 62010 | Limgrave West | Zachodnia część Limgrave |
-| 62011 | Limgrave East | Wschodnia część Limgrave |
+| 62010 | Limgrave West | Western Limgrave |
+| 62011 | Limgrave East | Eastern Limgrave |
 | 62012 | Weeping Peninsula | Weeping Peninsula |
-| 62020 | Liurnia South | Południowa Liurnia |
-| 62021 | Liurnia North | Północna Liurnia |
-| 62022 | Liurnia East | Wschodnia Liurnia |
+| 62020 | Liurnia South | Southern Liurnia |
+| 62021 | Liurnia North | Northern Liurnia |
+| 62022 | Liurnia East | Eastern Liurnia |
 | 62030 | Altus Plateau | Altus Plateau |
 | 62031 | Leyndell | Leyndell Royal Capital |
 | 62032 | Mt. Gelmir | Mt. Gelmir |
-| 62040 | Caelid South | Południowy Caelid |
-| 62041 | Caelid North (Dragonbarrow) | Północny Caelid / Dragonbarrow |
-| 62050 | Mountaintops West | Zachodnie Mountaintops |
-| 62051 | Mountaintops East | Wschodnie Mountaintops |
+| 62040 | Caelid South | Southern Caelid |
+| 62041 | Caelid North (Dragonbarrow) | Northern Caelid / Dragonbarrow |
+| 62050 | Mountaintops West | Western Mountaintops |
+| 62051 | Mountaintops East | Eastern Mountaintops |
 | 62052 | Consecrated Snowfield | Consecrated Snowfield |
 | 62060 | Siofra River | Siofra River (underground) |
 | 62061 | Ainsel River | Ainsel River (underground) |
@@ -136,11 +137,11 @@ Map visibility flags — kontrolują widoczność tekstury regionu na mapie.
 | 62064 | Mohgwyn Palace | Mohgwyn Palace |
 | 82001 | Shadow of the Erdtree (DLC) | Realm of Shadow |
 
-### Mapa — Fragment Acquisition (63000–63065)
+### Map — Fragment Acquisition (63000–63065)
 
-Map fragment pickup flags — czy gracz podniósł fragment mapy.
+Map fragment pickup flags — whether the player picked up the map fragment.
 
-| ID | Fragment | Lokalizacja |
+| ID | Fragment | Location |
 |---|---|---|
 | 63010 | Limgrave West Map | Gatefront |
 | 63011 | Limgrave East Map | Waypoint Ruins area |
@@ -164,7 +165,7 @@ Map fragment pickup flags — czy gracz podniósł fragment mapy.
 
 ### Cookbooks (67000–68500)
 
-| Zakres | Cookbook Type | Ilość |
+| Range | Cookbook Type | Count |
 |---|---|---|
 | 67000–67910 | Nomadic Warrior's Cookbook | ~10 entries |
 | 67200–67300 | Armorer's Cookbook | ~7 entries |
@@ -175,9 +176,9 @@ Map fragment pickup flags — czy gracz podniósł fragment mapy.
 | 68200–68230 | Fevor's Cookbook | ~3 entries |
 | 68400–68410 | Frenzied's Cookbook | ~2 entries |
 
-### Przedmioty (65000–68999)
+### Items (65000–68999)
 
-| Zakres | Opis |
+| Range | Description |
 |---|---|
 | 65600–65790 | Ash of War affinity unlocks |
 | 65810–65901 | Skill stone possession |
@@ -185,7 +186,7 @@ Map fragment pickup flags — czy gracz podniósł fragment mapy.
 
 ### Graces — Event Flag IDs
 
-| Flag ID | Grace | Lokalizacja |
+| Flag ID | Grace | Location |
 |---|---|---|
 | 71000 | Godrick the Grafted | Stormveil Castle (post-boss) |
 | 71001 | Margit, the Fell Omen | Stormveil approach |
@@ -196,9 +197,9 @@ Map fragment pickup flags — czy gracz podniósł fragment mapy.
 | 76101 | The First Step | Limgrave (start) |
 | 76111 | Gatefront | Limgrave |
 
-### Graces — Byte Offsets w bitfieldzie (potwierdzone z CT)
+### Graces — Byte Offsets in bitfield (confirmed from CT)
 
-Offset od bazy EventFlags (`[EventFlagMan]+0x28` w pamięci):
+Offset from EventFlags base (`[EventFlagMan]+0x28` in memory):
 
 | Grace | Byte Offset | Bit | Flag ID |
 |---|---|---|---|
@@ -213,9 +214,9 @@ Offset od bazy EventFlags (`[EventFlagMan]+0x28` w pamięci):
 | Cave of Knowledge | +0xAA5 | 7 | 71800 |
 | Stranded Graveyard | +0xAA5 | 6 | — |
 
-### Mapy lokacyjne (30000–60999)
+### Location maps (30000–60999)
 
-| Prefiks | Opis |
+| Prefix | Description |
 |---|---|
 | 30xxx | Catacomb zone flags |
 | 31xxx | Cave system flags |
@@ -224,7 +225,7 @@ Offset od bazy EventFlags (`[EventFlagMan]+0x28` w pamięci):
 
 ### Tutorial/Debug (710000+)
 
-| ID | Opis |
+| ID | Description |
 |---|---|
 | 710000–720200 | Tutorial completion tracking |
 | 780000–780090 | Cinematic context flags |
@@ -232,9 +233,9 @@ Offset od bazy EventFlags (`[EventFlagMan]+0x28` w pamięci):
 
 ---
 
-## Bonfire IDs (Grace Entity IDs — do teleportacji)
+## Bonfire IDs (Grace Entity IDs — for teleportation)
 
-Bonfire IDs to **osobne identyfikatory** od Event Flag IDs. Używane w GameMan do teleportacji (Last Grace, Target Grace):
+Bonfire IDs are **separate identifiers** from Event Flag IDs. Used in GameMan for teleportation (Last Grace, Target Grace):
 
 | BonfireId | Grace | Format |
 |---|---|---|
@@ -252,30 +253,30 @@ Bonfire IDs to **osobne identyfikatory** od Event Flag IDs. Używane w GameMan d
 
 ---
 
-## Znane problemy / soft-locks naprawialne przez edycję flag
+## Known issues / soft-locks fixable by flag editing
 
-1. **Ranni's Tower quest soft-lock** — korygowalna przez reset specyficznych flag questowych
-2. **Warp sickness** (Radahn, Morgott, Radagon, Sealing Tree) — naprawialna edycją flag
-3. **Niekompatybilne kombinacje flag** — np. boss killed + quest stage = before boss → NPC confused
+1. **Ranni's Tower quest soft-lock** — fixable by resetting specific quest flags
+2. **Warp sickness** (Radahn, Morgott, Radagon, Sealing Tree) — fixable by flag editing
+3. **Incompatible flag combinations** — e.g. boss killed + quest stage = before boss → NPC confused
 
 ---
 
-## Implikacje dla edycji
+## Editing implications
 
-- Zmiana flag NIE zmienia rozmiaru sekcji (stała 0x1BF99F)
-- Nie wymaga przesuwania innych sekcji
-- Wymaga BST lookup — nie da się adresować flag bez `eventflag_bst.txt`
-- Ustawianie flagi bossa bez ustawienia powiązanych flag questowych może powodować soft-locks
-- **Map visibility** (62xxx) — ustawienie = mapa widoczna nawet bez fragmentu
-- **Map acquired** (63xxx) — ustawienie = fragment "podniesiony"; powinno też dodać item do inventory
-- **Cookbook flags** — ustawienie = crafting recipes odblokowane
-- **Whetblade flags** — ustawienie = nowe affinity dostępne w crafting
-- Pełna lista flag: https://soulsmods.github.io/elden-ring-eventparam/
+- Changing flags does NOT change section size (fixed 0x1BF99F)
+- Does not require shifting other sections
+- Requires BST lookup — cannot address flags without `eventflag_bst.txt`
+- Setting a boss flag without setting related quest flags may cause soft-locks
+- **Map visibility** (62xxx) — setting = map visible even without fragment
+- **Map acquired** (63xxx) — setting = fragment "picked up"; should also add item to inventory
+- **Cookbook flags** — setting = crafting recipes unlocked
+- **Whetblade flags** — setting = new affinity available in crafting
+- Full flag list: https://soulsmods.github.io/elden-ring-eventparam/
 - Spreadsheet: https://docs.google.com/spreadsheets/d/1Nn-d4_mzEtGUSQXscCkQ41AhtqO_wF2Aw3yoTBdW9lk
 
 ---
 
-## Źródła
+## Sources
 
 - er-save-manager: `parser/event_flags.py` — klasa `EventFlags` (pełny algorytm BST)
 - er-save-manager: `src/resources/eventflag_bst.txt` — 11,919 entries BST mapping

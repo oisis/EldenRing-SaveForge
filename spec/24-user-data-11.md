@@ -1,63 +1,64 @@
 # 24 — UserData11 (regulation.bin)
 
-> **Zakres**: Regulation data — parametry gry (params), ostatnia sekcja pliku.
+> **Type**: Binary format spec  
+> **Scope**: Regulation data — game parameters (params), last section of the file.
 
 ---
 
-## Opis ogólny
+## Overview
 
-UserData11 zawiera `regulation.bin` — plik z parametrami gry. To nie są dane gracza, a definicje game design: statystyki broni, efektów, NPC, balans.
+UserData11 contains `regulation.bin` — a file with game parameters. This is not player data but game design definitions: weapon stats, effects, NPCs, balance.
 
-Rozmiar: ~0x240010 bytes (~2.36 MB).
+Size: ~0x240010 bytes (~2.36 MB).
 
-Na PC: poprzedzone 16-bajtowym MD5 checksumem.
+On PC: preceded by a 16-byte MD5 checksum.
 
 ---
 
-## Zawartość (regulation.bin)
+## Contents (regulation.bin)
 
-Regulation.bin zawiera **200+ tabel parametrów** (params):
+Regulation.bin contains **200+ parameter tables** (params):
 
-| Param Table | Opis |
+| Param Table | Description |
 |---|---|
-| EquipParamWeapon | Statystyki broni |
-| EquipParamProtector | Statystyki zbroi |
-| EquipParamAccessory | Statystyki taliszmanów |
-| EquipParamGoods | Statystyki przedmiotów |
-| SpEffectParam | Definicje efektów statusu |
-| AtkParam_Pc | Parametry ataku gracza |
-| AtkParam_Npc | Parametry ataku NPC |
-| NpcParam | Parametry NPC |
-| BulletParam | Parametry pocisków |
-| Magic | Parametry zaklęć |
-| ... | (200+ dodatkowych) |
+| EquipParamWeapon | Weapon stats |
+| EquipParamProtector | Armor stats |
+| EquipParamAccessory | Talisman stats |
+| EquipParamGoods | Item stats |
+| SpEffectParam | Status effect definitions |
+| AtkParam_Pc | Player attack parameters |
+| AtkParam_Npc | NPC attack parameters |
+| NpcParam | NPC parameters |
+| BulletParam | Projectile parameters |
+| Magic | Spell parameters |
+| ... | (200+ additional) |
 
 ---
 
-## Format wewnętrzny
+## Internal format
 
-Regulation.bin to spakowany kontener BND4 z wieloma plikami `.param`. Każdy `.param` to tablica rekordów o stałym formacie specyficznym dla danego typu.
+Regulation.bin is a packed BND4 container with multiple `.param` files. Each `.param` is a table of records with a fixed format specific to that type.
 
-Parser param:
-1. Rozpakuj BND4
-2. Dla każdego .param: odczytaj header (row size, row count)
-3. Czytaj rekordy sekwencyjnie
-
----
-
-## Implikacje dla edycji
-
-- **Regulation.bin jest identyczny** dla wszystkich graczy z tą samą wersją gry
-- Modyfikacja = "modding" parametrów gry (nie save editing)
-- W kontekście save editora: **readonly** — kopiuj as-is między platformami
-- Przy konwersji platform: regulation.bin powinno być identyczne
-- Mody (Convergence, Reforged) mają zmodyfikowany regulation.bin
+Param parser:
+1. Unpack BND4
+2. For each .param: read header (row size, row count)
+3. Read records sequentially
 
 ---
 
-## Źródła
+## Editing implications
 
-- er-save-manager: `parser/save.py` linie 231-237 (raw read)
+- **Regulation.bin is identical** for all players with the same game version
+- Modification = "modding" game parameters (not save editing)
+- In the context of a save editor: **readonly** — copy as-is between platforms
+- During platform conversion: regulation.bin should be identical
+- Mods (Convergence, Reforged) have modified regulation.bin
+
+---
+
+## Sources
+
+- er-save-manager: `parser/save.py` lines 231-237 (raw read)
 - ER-Save-Editor (Rust): `src/save/common/user_data_11.rs`
 - Souls Modding Wiki: https://www.soulsmodding.com/doku.php?id=format:param
-- Souls Modding Wiki: https://www.soulsmodding.com/doku.php?id=er-refmat:param:equipparamweapon (przykład param table)
+- Souls Modding Wiki: https://www.soulsmodding.com/doku.php?id=er-refmat:param:equipparamweapon (param table example)

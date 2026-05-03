@@ -1,45 +1,46 @@
 # 08 — Spells, Gestures, Projectiles
 
-> **Zakres**: Zapamiętane zaklęcia (attunement), gesty, pociski i powiązane dane ekwipunku.
+> **Type**: Binary format spec  
+> **Scope**: Attuned spells (attunement), gestures, projectiles and related equipment data.
 
 ---
 
-## Opis ogólny
+## Overview
 
-Po inwentarzu następuje seria struktur opisujących:
-1. Equipped Spells — zapamiętane zaklęcia/inkantacje (attunement slots)
-2. Equipped Items — quick slots i pouch
-3. Equipped Gestures — aktywne gesty (przypisane do kółka)
-4. Acquired Projectiles — zebrane pociski (zmienna długość!)
-5. Equipped Armaments & Items — dodatkowe dane ekwipunku
-6. Equipped Physics — mieszanki Wonderous Physick
+After inventory, a series of structures follows describing:
+1. Equipped Spells — attuned spells/incantations (attunement slots)
+2. Equipped Items — quick slots and pouch
+3. Equipped Gestures — active gestures (assigned to gesture ring)
+4. Acquired Projectiles — collected projectiles (variable length!)
+5. Equipped Armaments & Items — additional equipment data
+6. Equipped Physics — Wondrous Physick mixes
 
 ---
 
-## 1. Equipped Spells (14 slotów × 8B = 112 bytes)
+## 1. Equipped Spells (14 slots × 8B = 112 bytes)
 
-14 slotów zaklęć (attunement). Liczba dostępnych slotów zależy od Mind (memory stones).
+14 spell slots (attunement). Number of available slots depends on Mind (memory stones).
 
-### Struktura per slot (8 bytes):
+### Structure per slot (8 bytes):
 
-| Offset | Typ | Pole | Opis |
+| Offset | Type | Field | Description |
 |---|---|---|---|
-| 0x00 | u32 | SpellID | Magic ID zaklęcia (z MagicParam) |
-| 0x04 | u32 | Quantity | Ilość (zwykle 1; 0 lub 0xFFFFFFFF = empty) |
+| 0x00 | u32 | SpellID | Magic ID of the spell (from MagicParam) |
+| 0x04 | u32 | Quantity | Amount (usually 1; 0 or 0xFFFFFFFF = empty) |
 
-### Dodatkowe pole:
-| Offset | Typ | Pole | Opis |
+### Additional field:
+| Offset | Type | Field | Description |
 |---|---|---|---|
-| (end) | i32 | SelectedSlotIdx | Aktualnie wybrany slot (-1 = none, 0–13 = slot) |
+| (end) | i32 | SelectedSlotIdx | Currently selected slot (-1 = none, 0–13 = slot) |
 
-- Każdy slot zawiera Item ID zaklęcia (nie handle — zaklęcia nie mają instancji w GaItem Map)
-- Niewykorzystane sloty: SpellID = `0xFFFFFFFF`, Quantity = 0
-- Stride między slotami: 8 bytes
-- Max 14 slotów (z Memory Stones); dostępność zależy od Mind stat
+- Each slot contains the spell's Item ID (not a handle — spells don't have instances in GaItem Map)
+- Unused slots: SpellID = `0xFFFFFFFF`, Quantity = 0
+- Stride between slots: 8 bytes
+- Max 14 slots (with Memory Stones); availability depends on Mind stat
 
-### Przykładowe Spell IDs (z MagicParam):
+### Example Spell IDs (from MagicParam):
 
-| ID | Zaklęcie | Typ |
+| ID | Spell | Type |
 |---|---|---|
 | 4000 | Glintstone Pebble | Sorcery |
 | 4010 | Glintstone Arc | Sorcery |
@@ -52,33 +53,33 @@ Po inwentarzu następuje seria struktur opisujących:
 
 ## 2. Equipped Items (Quick Slots + Pouch) (64 bytes)
 
-| Sekcja | Ilość | Rozmiar | Opis |
+| Section | Count | Size | Description |
 |---|---|---|---|
-| Quick Slots | 10 | 40B (10 × u32) | Szybki dostęp (D-pad cycling) |
+| Quick Slots | 10 | 40B (10 × u32) | Quick access (D-pad cycling) |
 | Pouch | 6 | 24B (6 × u32) | Pouch slots (hold Y/Triangle + D-pad) |
 
-Każdy slot: u32 Item ID. Wartość `0xFFFFFFFF` = pusty.
+Each slot: u32 Item ID. Value `0xFFFFFFFF` = empty.
 
 ### Quick Slots (10):
-- Slot 1–10: przedmioty dostępne przez cycling (D-pad dół)
-- Gracz widzi aktualnie wybrany i może cycling'ować
+- Slots 1–10: items accessible by cycling (D-pad down)
+- Player sees currently selected and can cycle through
 
 ### Pouch (6):
-- Slots 1–4: dostępne przez skrót (hold Y + kierunek)
-- Slots 5–6: dostępne tylko z menu
+- Slots 1–4: accessible via shortcut (hold Y + direction)
+- Slots 5–6: accessible only from menu
 
 ---
 
 ## 3. Equipped Gestures (gesture ring)
 
-Gesty przypisane do "gesture ring" (szybki dostęp do emotes):
-- 6–7 slotów × u32 gesture ID
+Gestures assigned to the "gesture ring" (quick access to emotes):
+- 6–7 slots × u32 gesture ID
 - Stride: 4 bytes
-- Wartość 254 (0xFE) = None (slot pusty)
+- Value 254 (0xFE) = None (empty slot)
 
 ---
 
-## 4. Acquired Projectiles — UWAGA: ZMIENNA DŁUGOŚĆ
+## 4. Acquired Projectiles — WARNING: VARIABLE LENGTH
 
 ```
 ┌─────────────────────────────────┐
@@ -90,36 +91,36 @@ Gesty przypisane do "gesture ring" (szybki dostęp do emotes):
 └─────────────────────────────────┘
 ```
 
-**To jest jedna z sekcji zmiennej długości** — jej rozmiar zależy od liczby zebranych pocisków. Wszystkie sekcje po niej mają przesunięte offsety.
+**This is one of the variable-length sections** — its size depends on the number of collected projectiles. All sections after it have shifted offsets.
 
 ---
 
 ## 5. Equipped Armaments & Items
 
-Dodatkowa struktura equipment — dane o wyposażeniu broni w kontekście ash of war / affinity. Szczegóły do weryfikacji.
+Additional equipment structure — weapon equipment data in the context of ash of war / affinity. Details to verify.
 
 ---
 
-## 6. Equipped Physics (Wonderous Physick)
+## 6. Equipped Physics (Wondrous Physick)
 
-2 sloty na crystal tears (krystaliczne łzy) do Flask of Wondrous Physick:
+2 slots for crystal tears for Flask of Wondrous Physick:
 
-| Offset | Typ | Pole | Opis |
+| Offset | Type | Field | Description |
 |---|---|---|---|
-| 0x00 | u32 | CrystalTear1 | ID pierwszej łzy |
-| 0x04 | u32 | CrystalTear2 | ID drugiej łzy |
+| 0x00 | u32 | CrystalTear1 | ID of first tear |
+| 0x04 | u32 | CrystalTear2 | ID of second tear |
 
-Wartość `0xFFFFFFFF` = slot pusty.
+Value `0xFFFFFFFF` = empty slot.
 
 ---
 
-## 7. Gestures (pełna lista — 256 bytes)
+## 7. Gestures (full list — 256 bytes)
 
-Oddzielna sekcja (nie mylić z Equipped Gestures!) — pełna lista 64 gesture IDs (64 × u32 = 256 bytes). Zawiera WSZYSTKIE odblokowane gesty, nie tylko te w gesture ring.
+Separate section (not to be confused with Equipped Gestures!) — full list of 64 gesture IDs (64 × u32 = 256 bytes). Contains ALL unlocked gestures, not just those in the gesture ring.
 
-### Kompletna lista Gesture IDs
+### Complete Gesture ID List
 
-| ID | Gesture (EN) | ID | Gesture (EN) |
+| ID | Gesture | ID | Gesture |
 |---|---|---|---|
 | 0 | Bow | 108 | Fire Spur Me |
 | 2 | Polite Bow | 110 | The Carian Oath |
@@ -149,25 +150,25 @@ Oddzielna sekcja (nie mylić z Equipped Gestures!) — pełna lista 64 gesture I
 | — | — | 218 | The Ring (Co-op variant) |
 | — | — | 254 | None (empty slot) |
 
-**Gesture unlock** jest kontrolowane przez Event Flags (zakres 60800–60849).
+**Gesture unlock** is controlled by Event Flags (range 60800–60849).
 
 ---
 
-## Implikacje dla edycji
+## Editing implications
 
-- **Spells**: Zmiana SpellID w equipped slot = natychmiastowa zmiana zaklęcia. Nie wymaga dodawania do inventory.
-- **Quick Slots/Pouch**: Zmiana Item ID = zmiana przedmiotu w slocie. Przedmiot musi istnieć w inventory.
-- **Acquired Projectiles**: Zmienna długość — zmiana count przesuwa wszystko dalej w pliku.
-- **Gestures**: Gesture IDs muszą być prawidłowe (z tabeli powyżej). Nieprawidłowe mogą powodować crash.
-- **Physics**: Crystal Tear IDs z GoodsParam. Nieprawidłowe ID = crash.
-- **14 spell slots**: To max niezależnie od Mind — gra po prostu nie pozwala equip jeśli za mało memory slots.
+- **Spells**: Changing SpellID in an equipped slot = instant spell change. Doesn't require adding to inventory.
+- **Quick Slots/Pouch**: Changing Item ID = changing the item in slot. Item must exist in inventory.
+- **Acquired Projectiles**: Variable length — changing count shifts everything after it in the file.
+- **Gestures**: Gesture IDs must be valid (from the table above). Invalid ones may cause crash.
+- **Physics**: Crystal Tear IDs from GoodsParam. Invalid ID = crash.
+- **14 spell slots**: This is the max regardless of Mind — the game simply won't allow equip if insufficient memory slots.
 
 ---
 
-## Źródła
+## Sources
 
 - er-save-manager: `parser/equipment.py` — `EquippedSpells`, `EquippedItems`, `EquippedGestures`, `AcquiredProjectiles`, `EquippedArmamentsAndItems`, `EquippedPhysics`
-- er-save-manager: `parser/user_data_x.py` linie 108-117
-- er-save-manager: `parser/world.py` — `Gestures` class (linia 63-89, 64 × u32)
+- er-save-manager: `parser/user_data_x.py` lines 108-117
+- er-save-manager: `parser/world.py` — `Gestures` class (line 63-89, 64 × u32)
 - Cheat Engine: `ER_all-in-one_Hexinton_v3.10` — EquipMagicData (14 slots stride 8), GestureGameData, Gesture IDs dropdown
 - Cheat Engine: `ER_TGA_v1.9.0` — EquipMagicData structure, Quick Items, Pouch offsets

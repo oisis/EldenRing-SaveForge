@@ -1,16 +1,17 @@
-# 10 — Storage Box (Skrzynia)
+# 10 — Storage Box
 
-> **Zakres**: Skrzynia dostępna w Site of Grace — przechowywanie przedmiotów poza inwentarzem.
+> **Type**: Binary format spec  
+> **Scope**: Storage box accessible at Site of Grace — item storage outside inventory.
 
 ---
 
-## Opis ogólny
+## Overview
 
-Storage Box (Inventory Storage) ma identyczny format co Inventory Held, ale z innymi rozmiarami:
-- **Common Items**: 0x780 (1920) slotów
-- **Key Items**: 0x80 (128) slotów
+Storage Box (Inventory Storage) has an identical format to Inventory Held, but with different sizes:
+- **Common Items**: 0x780 (1920) slots
+- **Key Items**: 0x80 (128) slots
 
-Każdy slot to 12 bajtów (identyczny format jak w inwentarzu).
+Each slot is 12 bytes (identical format to inventory).
 
 ---
 
@@ -31,9 +32,9 @@ Total: 0x5A00 + 0x600 + 8 = 24,584 bytes (0x6008)
 
 ---
 
-## Format rekordu (12 bytes) — identyczny jak Inventory
+## Record format (12 bytes) — identical to Inventory
 
-| Offset | Typ | Opis |
+| Offset | Type | Description |
 |---|---|---|
 | 0x00 | u32 | GaItem Handle |
 | 0x04 | u32 | Quantity |
@@ -43,19 +44,19 @@ Total: 0x5A00 + 0x600 + 8 = 24,584 bytes (0x6008)
 
 ## Counters
 
-Storage ma własne, niezależne countery Next Equip Index i Next Acquisition Sort ID.
+Storage has its own independent Next Equip Index and Next Acquisition Sort ID counters.
 
 ---
 
-## Implikacje dla edycji
+## Editing implications
 
-- Przenoszenie przedmiotu Inventory↔Storage: przenieś rekord, zaktualizuj oba zestawy counterów
-- Storage shared z GaItem Map — ten sam handle musi istnieć w mapie
-- Capacity: 1920 common + 128 key = max pojemność skrzyni
+- Moving an item between Inventory↔Storage: move the record, update both sets of counters
+- Storage shares the GaItem Map — the same handle must exist in the map
+- Capacity: 1920 common + 128 key = max storage capacity
 
 ---
 
-## Źródła
+## Sources
 
-- er-save-manager: `parser/user_data_x.py` linia 123: `inventory_storage_box: Inventory` (0x780 common, 0x80 key)
-- er-save-manager: `parser/equipment.py` — ta sama klasa `Inventory` z innymi parametrami count
+- er-save-manager: `parser/user_data_x.py` line 123: `inventory_storage_box: Inventory` (0x780 common, 0x80 key)
+- er-save-manager: `parser/equipment.py` — same `Inventory` class with different count parameters

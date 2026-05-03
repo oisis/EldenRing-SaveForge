@@ -1,51 +1,52 @@
 # 21 — DLC (Downloadable Content)
 
-> **Zakres**: Flagi DLC — pre-order gesty i Shadow of the Erdtree entry.
+> **Type**: Binary format spec  
+> **Scope**: DLC flags — pre-order gestures and Shadow of the Erdtree entry.
 
 ---
 
-## Opis ogólny
+## Overview
 
-Sekcja DLC to 50 bajtów (0x32) zawierających flagi ownership i entry dla DLC. Struktura: CSDlc — tablica 1-bajtowych booli.
+The DLC section is 50 bytes (0x32) containing ownership and entry flags for DLC. Structure: CSDlc — array of 1-byte booleans.
 
 ---
 
-## Struktura (50 bytes)
+## Structure (50 bytes)
 
-| Offset | Typ | Opis |
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | u8 | Pre-order Gesture "The Ring" (0=nie, 1=tak) |
-| 0x01 | u8 | Shadow of the Erdtree — entry flag (0=nie wchodzono, 1=wchodzono) |
-| 0x02 | u8 | Pre-order Gesture "Ring of Miquella" (0=nie, 1=tak) |
-| 0x03 | u8[47] | Unused (MUSZĄ być 0x00) |
+| 0x00 | u8 | Pre-order Gesture "The Ring" (0=no, 1=yes) |
+| 0x01 | u8 | Shadow of the Erdtree — entry flag (0=not entered, 1=entered) |
+| 0x02 | u8 | Pre-order Gesture "Ring of Miquella" (0=no, 1=yes) |
+| 0x03 | u8[47] | Unused (MUST be 0x00) |
 
 ---
 
 ## Shadow of the Erdtree Entry Flag
 
-- `0`: Postać nie weszła do DLC
-- `1`: Postać weszła do Shadow of the Erdtree
+- `0`: Character has not entered the DLC
+- `1`: Character has entered the Shadow of the Erdtree
 
-Ta flaga jest jednorazowa — po wejściu nie da się cofnąć w grze. Edycja pozwala na reset.
-
----
-
-## Walidacja — nieużywane bajty
-
-**WAŻNE**: Bajty 3-49 (47 bajtów) MUSZĄ być zerowe. Niezerowe wartości w tej sekcji **uniemożliwiają załadowanie save** — gra odrzuca plik.
+This flag is one-time — once entered, cannot be undone in-game. Editing allows reset.
 
 ---
 
-## Implikacje dla edycji
+## Validation — unused bytes
 
-- **Clear DLC flag**: ustawienie byte[1]=0 pozwala "cofnąć" wejście do DLC
-- **Pre-order gestures**: ustawienie byte[0]=1 lub byte[2]=1 odblokowuje gesty
-- **KRYTYCZNE**: nigdy nie ustawiaj niezerowych wartości w bytes 3-49
-- Bezpieczne do edycji — stała pozycja w slocie (SlotSize - 0xB2 od końca)
+**IMPORTANT**: Bytes 3-49 (47 bytes) MUST be zero. Non-zero values in this section **prevent the save from loading** — the game rejects the file.
 
 ---
 
-## Źródła
+## Editing implications
 
-- er-save-manager: `parser/world.py` — klasa `DLC` (linie 938-987)
-- er-save-manager: `parser/user_data_x.py` linia 194: `dlc: DLC`
+- **Clear DLC flag**: setting byte[1]=0 allows "undoing" DLC entry
+- **Pre-order gestures**: setting byte[0]=1 or byte[2]=1 unlocks gestures
+- **CRITICAL**: never set non-zero values in bytes 3-49
+- Safe to edit — fixed position in slot (SlotSize - 0xB2 from end)
+
+---
+
+## Sources
+
+- er-save-manager: `parser/world.py` — class `DLC` (lines 938-987)
+- er-save-manager: `parser/user_data_x.py` line 194: `dlc: DLC`

@@ -1,75 +1,76 @@
 # 32 — Ban-Risk Awareness System (UI/UX)
 
-> **Zakres**: Architektura systemu ostrzeżeń o ryzykownych edycjach save'a w UI edytora. Tier 0/1/2 + Online Safety Mode + dictionary `RISK_INFO` + komponenty React (`RiskInfoIcon`, `RiskBadge`, `RiskActionButton`, `RiskSectionBanner`).
+> **Type**: Design doc  
+> **Scope**: Architecture of the risky-edit warning system in the editor UI. Tier 0/1/2 + Online Safety Mode + `RISK_INFO` dictionary + React components (`RiskInfoIcon`, `RiskBadge`, `RiskActionButton`, `RiskSectionBanner`).
 
-> **Status**: ✅ Wdrożone na branchu `feat/ban-risk-system` (Apr 2026, fazy 1-5). Faza 6 (polish + dokumentacja) — ten dokument.
+> **Status**: ✅ Deployed on branch `feat/ban-risk-system` (Apr 2026, phases 1-5). Phase 6 (polish + documentation) — this document.
 
 ---
 
-## Cel
+## Goal
 
-Easy Anti-Cheat (EAC) waliduje stan save'a podczas synchronizacji online i flaguje konfiguracje niemożliwe do osiągnięcia w retail. System edukuje użytkownika o **dlaczego** dana edycja może skutkować banem — zamiast tylko blokować lub straszyć.
+Easy Anti-Cheat (EAC) validates save state during online synchronization and flags configurations impossible to achieve in retail. The system educates the user about **why** a given edit may result in a ban — rather than just blocking or scaring them.
 
-**Filozofia**: nigdy nie twierdzimy oficjalnie że "FromSoftware zbanuje za X". Tekstowe opisy używają sformułowań typu *"community-reported"*, *"reported bans on r/Eldenring"*, *"detection rules whose exact mechanism is not publicly documented"*.
+**Philosophy**: we never officially claim that "FromSoftware will ban for X". Text descriptions use phrasing like *"community-reported"*, *"reported bans on r/Eldenring"*, *"detection rules whose exact mechanism is not publicly documented"*.
 
 ---
 
 ## Tier system
 
-| Tier | Znaczenie | Reakcja UI |
+| Tier | Meaning | UI reaction |
 |---|---|---|
-| **0** | Cosmetic / read-only / safe | Brak oznaczenia |
-| **1** | Caution — popularne ale wykrywalne (bulk grace, map reveal, quest skip) | Modal-confirm wyłącznie gdy Online Safety Mode włączony; off-mode = akcja od razu |
-| **2** | High risk — znane z banów (cut content, stat >99, runy >999M) | Modal-confirm (gdy Safety Mode) + outline pól + clamping na inputach |
+| **0** | Cosmetic / read-only / safe | No indicator |
+| **1** | Caution — popular but detectable (bulk grace, map reveal, quest skip) | Modal-confirm only when Online Safety Mode enabled; off-mode = immediate action |
+| **2** | High risk — known to cause bans (cut content, stat >99, runes >999M) | Modal-confirm (when Safety Mode on) + field outline + input clamping |
 
 ---
 
 ## Online Safety Mode
 
-Globalny przełącznik w `Settings → Safety`. Stan: `localStorage.setItem('setting:onlineSafetyMode', 'true'|'false')`.
+Global toggle in `Settings → Safety`. State: `localStorage.setItem('setting:onlineSafetyMode', 'true'|'false')`.
 
-Gdy aktywny:
-- **Globalny banner** na górze aplikacji (żółty pasek `SafetyModeBanner.tsx`)
-- **Tier 1 / Tier 2**: każda akcja z `RiskActionButton` pokazuje modal-confirm; modal nie ma checkboxa "Don't ask again" — zamiast tego stała notka "Online Safety Mode is on — confirmation required"
-- **Tier 2 inputs**: edycje są clampowane do legalnych wartości (np. Runes auto-cap do `999_999_999` z toast)
+When active:
+- **Global banner** at the top of the application (yellow bar `SafetyModeBanner.tsx`)
+- **Tier 1 / Tier 2**: every action with `RiskActionButton` shows a modal-confirm; modal has no "Don't ask again" checkbox — instead a permanent note "Online Safety Mode is on — confirmation required"
+- **Tier 2 inputs**: edits are clamped to legal values (e.g. Runes auto-cap to `999_999_999` with toast)
 
-Gdy wyłączony:
-- **Brak modali** dla `RiskActionButton` — kliknięcie wywołuje akcję od razu. Edukacja pozostaje dostępna na żądanie przez ⚠ info icon obok każdego przycisku
-- **Inputy** dalej walidują/clampują (Tier 2 nie potrzebuje modala — UI nie pozwala wpisać wartości spoza zakresu)
+When disabled:
+- **No modals** for `RiskActionButton` — click triggers action immediately. Education remains available on-demand via the ⚠ info icon next to each button
+- **Inputs** still validate/clamp (Tier 2 doesn't need a modal — UI prevents entering out-of-range values)
 
-Hook: `useSafetyMode()` z `frontend/src/state/safetyMode.tsx` zwraca `{enabled, setEnabled, isDisabledFor(tier), requireConfirmFor(tier)}`. `requireConfirmFor` zwraca `true` tylko gdy `enabled && tier >= 1`.
+Hook: `useSafetyMode()` from `frontend/src/state/safetyMode.tsx` returns `{enabled, setEnabled, isDisabledFor(tier), requireConfirmFor(tier)}`. `requireConfirmFor` returns `true` only when `enabled && tier >= 1`.
 
 ---
 
 ## Dictionary `RISK_INFO`
 
-Lokalizacja: `frontend/src/data/riskInfo.ts`.
+Location: `frontend/src/data/riskInfo.ts`.
 
-Struktura wpisu:
+Entry structure:
 ```ts
 interface RiskEntry {
     tier: 0 | 1 | 2;
-    level: 'low' | 'medium' | 'high';  // wpływa na kolor (yellow/orange/red)
+    level: 'low' | 'medium' | 'high';  // affects color (yellow/orange/red)
     title: string;
-    whyBan: string;       // opis mechaniki detekcji
-    reports: string;      // skala/częstość zgłoszeń bez wymyślania liczb
-    mitigation: string;   // konkretna porada jak ograniczyć ryzyko
-    sources: { label: string; url?: string }[];  // URL opcjonalny (puste gdy niezweryfikowane)
+    whyBan: string;       // detection mechanism description
+    reports: string;      // scale/frequency of reports without inventing numbers
+    mitigation: string;   // specific advice on how to limit risk
+    sources: { label: string; url?: string }[];  // URL optional (empty when unverified)
 }
 ```
 
-`RiskKey` (string union) jest typowany — nowe wpisy rozszerzają unię. TypeScript wymusza obecność każdego klucza w `Record<RiskKey, RiskEntry>`.
+`RiskKey` (string union) is typed — new entries extend the union. TypeScript enforces presence of every key in `Record<RiskKey, RiskEntry>`.
 
-### Aktualne wpisy
+### Current entries
 
-**Per-flag (Tier 2)** — zsynchronizowane z `backend/db/db.go::ItemEntry.Flags`:
+**Per-flag (Tier 2)** — synchronized with `backend/db/db.go::ItemEntry.Flags`:
 - `cut_content`, `pre_order`, `dlc_duplicate`, `ban_risk`
 
-**Per-action / per-field (Tier 2)** — Faza 3:
+**Per-action / per-field (Tier 2)** — Phase 3:
 - `runes_above_999m`, `stat_above_99`, `level_above_713`, `talisman_pouch_above_3`
 - `quantity_above_max`, `spirit_ash_above_10`, `derived_stat_manual`
 
-**Per-bulk-action (Tier 1)** — Faza 4:
+**Per-bulk-action (Tier 1)** — Phase 4:
 - `bulk_grace_unlock`, `bulk_boss_kill`, `bulk_cookbook`, `bulk_bell_bearing`
 - `bulk_gestures_unlock`, `bulk_region_unlock`, `bulk_summoning_pool`, `bulk_colosseum`
 - `map_reveal_full`, `fow_remove`
@@ -86,54 +87,54 @@ getQuantityRiskKey(qty, max): RiskKey | null;             // qty > max
 getSpiritAshRiskKey(upgrade: number): RiskKey | null;     // > 10
 ```
 
-Zwracają `RiskKey` (string) gdy wartość jest Tier 2, `null` w innym wypadku — gotowe do użycia w warunku `value && <Component riskKey={value}/>`.
+These return a `RiskKey` (string) when the value is Tier 2, `null` otherwise — ready for use in conditional rendering `value && <Component riskKey={value}/>`.
 
 ---
 
-## Komponenty
+## Components
 
 ### `<RiskInfoIcon riskKey="..."/>`
-Plik: `frontend/src/components/RiskInfoIcon.tsx`.
+File: `frontend/src/components/RiskInfoIcon.tsx`.
 
-Klikalna ikona ⚠ (kolor zsync z `level`: yellow/orange/red). Klik → popover (positioned via `getBoundingClientRect`, renderowany przez `createPortal(..., document.body)` — niezależny od overflow rodziców).
+Clickable ⚠ icon (color synced with `level`: yellow/orange/red). Click → popover (positioned via `getBoundingClientRect`, rendered through `createPortal(..., document.body)` — independent of parent overflow).
 
-Popover zawiera: tytuł, kropki ryzyka (`● ○ ○` / `● ● ○` / `● ● ●`), 3 sekcje (Why / Reports / Mitigation), listę źródeł, ESC + outside-click + click-toggle dismissal.
+Popover contains: title, risk dots (`● ○ ○` / `● ● ○` / `● ● ●`), 3 sections (Why / Reports / Mitigation), source list, ESC + outside-click + click-toggle dismissal.
 
 ### `<RiskBadge flag="cut_content"/>`
-Plik: `RiskBadge.tsx`.
+File: `RiskBadge.tsx`.
 
-Renderuje stylowany badge (`CUT`, `⚠ BAN`, `PRE-ORDER`, `DLC DUP`) + obok klikalna `RiskInfoIcon`. Tylko dla per-flag riskKeys (per-action keys nie mają badge'a).
+Renders a styled badge (`CUT`, `⚠ BAN`, `PRE-ORDER`, `DLC DUP`) + adjacent clickable `RiskInfoIcon`. Only for per-flag riskKeys (per-action keys don't have a badge).
 
 ### `<RiskActionButton riskKey="..." onConfirm={...}>Label</RiskActionButton>`
-Plik: `RiskActionButton.tsx`.
+File: `RiskActionButton.tsx`.
 
-Wrapper na `<button>`:
-- Renderuje button + obok klikalną ikonę ⚠ (osobny target — klik ikony NIE odpala akcji)
-- Klik buttona: jeśli `RISK_INFO[riskKey]` istnieje i `safetyMode.requireConfirmFor(tier)` → modal-confirm; w przeciwnym razie `onConfirm()` od razu
-- Modal: opis z dictionary, stała notka "Online Safety Mode is on — confirmation required", buttony Cancel/Proceed
-- Bez SafetyMode → ⚠ ikona obok pozostaje jako edukacyjna afordancja na żądanie
+Wrapper around `<button>`:
+- Renders button + adjacent clickable ⚠ icon (separate target — icon click does NOT trigger action)
+- Button click: if `RISK_INFO[riskKey]` exists and `safetyMode.requireConfirmFor(tier)` → modal-confirm; otherwise `onConfirm()` immediately
+- Modal: description from dictionary, permanent note "Online Safety Mode is on — confirmation required", Cancel/Proceed buttons
+- Without SafetyMode → ⚠ icon remains as on-demand educational affordance
 
 ### `<RiskSectionBanner riskKey="..."/>`
-Plik: `RiskSectionBanner.tsx`.
+File: `RiskSectionBanner.tsx`.
 
-Pasek nad sekcją z ostrzeżeniem o ryzykach całej kategorii edycji (np. "Quest Step Skip" nad listą questów). Pierwsze zdanie z `whyBan` + ikona info. Kolor zsync z `level`.
+Banner above a section warning about risks of the entire edit category (e.g. "Quest Step Skip" above the quest list). First sentence from `whyBan` + info icon. Color synced with `level`.
 
 ### `<SafetyModeBanner/>`
-Plik: `SafetyModeBanner.tsx`.
+File: `SafetyModeBanner.tsx`.
 
-Globalny pasek na górze aplikacji widoczny gdy `useSafetyMode().enabled`. Statyczny tekst "Online Safety Mode — Tier 2 edits disabled, Tier 1 requires confirmation".
+Global banner at the top of the application visible when `useSafetyMode().enabled`. Static text "Online Safety Mode — Tier 2 edits disabled, Tier 1 requires confirmation".
 
 ---
 
-## Mapa pokrycia (gdzie używamy)
+## Coverage map (where used)
 
-| Komponent | Tier | Wzorzec |
+| Component | Tier | Pattern |
 |---|---|---|
 | **CharacterTab** | | |
-| ↳ Runes input | 2 | Outline + ikona ⚠ + clamping pod SafetyMode |
+| ↳ Runes input | 2 | Outline + ⚠ icon + clamping under SafetyMode |
 | **InventoryTab / DatabaseTab** | | |
-| ↳ Item z flagą ban_risk/cut_content | 2 | RiskBadge inline |
-| ↳ Modal "Add Anyway" przed dodaniem ban_risk | 2 | Modal warning (osobny od RiskActionButton) |
+| ↳ Item with ban_risk/cut_content flag | 2 | RiskBadge inline |
+| ↳ "Add Anyway" modal before adding ban_risk item | 2 | Modal warning (separate from RiskActionButton) |
 | **WorldTab** | | |
 | ↳ Map → Reveal All | 1 | RiskActionButton (`map_reveal_full`) + section banner |
 | ↳ Graces → Unlock All | 1 | RiskActionButton (`bulk_grace_unlock`) |
@@ -142,43 +143,43 @@ Globalny pasek na górze aplikacji widoczny gdy `useSafetyMode().enabled`. Staty
 | ↳ Bosses → Kill All | 1 | RiskActionButton (`bulk_boss_kill`) |
 | ↳ Quests → Set (per step) | 1 | RiskActionButton (`quest_step_skip`) + section banner |
 | ↳ Gestures → Unlock All | 1 | RiskActionButton (`bulk_gestures_unlock`) |
-| ↳ Gestures z flagą ban_risk | 2 | RiskInfoIcon obok labela |
+| ↳ Gestures with ban_risk flag | 2 | RiskInfoIcon next to label |
 | ↳ Cookbooks → Unlock All | 1 | RiskActionButton (`bulk_cookbook`) |
 | ↳ Bell Bearings → Unlock All | 1 | RiskActionButton (`bulk_bell_bearing`) |
 | ↳ Regions → Unlock All | 1 | RiskActionButton (`bulk_region_unlock`) |
-| **CharacterImporter (Tools)** | 1 | RiskActionButton (`character_import`) na Confirm |
+| **CharacterImporter (Tools)** | 1 | RiskActionButton (`character_import`) on Confirm |
 | **SettingsTab** | | |
-| ↳ Online Safety Mode toggle | — | Checkbox + opis |
+| ↳ Online Safety Mode toggle | — | Checkbox + description |
 | ↳ Show Cut & Ban-Risk Items toggle | — | Checkbox display filter |
 
-**NIE objęte** (świadomie):
-- `Lock All` / `Reset` / `Respawn All` — Tier 0 (revert do bezpiecznego stanu)
-- Talisman pouch / NG+ / atrybuty / quantity inputy — clamping w `onChange` zapobiega Tier 2 przez UI; outline jest martwy dla tych pól
-- Whetblades — niski risk (bonus weapon upgrade), pominięte w pierwszej iteracji
+**NOT covered** (intentionally):
+- `Lock All` / `Reset` / `Respawn All` — Tier 0 (revert to safe state)
+- Talisman pouch / NG+ / attributes / quantity inputs — clamping in `onChange` prevents Tier 2 via UI; outline is dead for these fields
+- Whetblades — low risk (bonus weapon upgrade), skipped in first iteration
 
 ---
 
-## Jak dodać nowy risk
+## How to add a new risk
 
-1. **Dictionary entry**: dodaj klucz do `RiskKey` union i wpis w `RISK_INFO` w `frontend/src/data/riskInfo.ts`. TypeScript wymusi że nie zapomnisz pól.
-2. **Per-flag (badge)**: dodaj wpis w `STYLE` w `RiskBadge.tsx` (label + Tailwind classes).
-3. **Per-action (modal-confirm)**: użyj `<RiskActionButton riskKey="...">` zamiast `<button>` w miejscu wywołującym akcję.
-4. **Per-field (outline)**: dodaj helper `getXxxRiskKey()` w `riskInfo.ts`, w komponencie warunkowo renderuj outline + `<RiskInfoIcon>`.
-5. **Per-section (banner)**: użyj `<RiskSectionBanner riskKey="...">` na górze sekcji.
-
----
-
-## Plan rozszerzeń (przyszłość)
-
-- **Per-action override dla per-flag wpisów**: gdy konkretna akcja ma inny opis niż generic `cut_content` (np. dodanie cut helmu vs cut quest itemu) — można wprowadzić warstwę override.
-- **CharacterTab top banner gdy save ma Tier 2 wartości**: wykryć po loadzie i wyświetlić ostrzeżenie "This save was edited with values flagged as Tier 2 by the community".
-- **Sources URLs**: weryfikacja i uzupełnienie pustych `url` w `sources` (np. linki do konkretnych Reddit threads).
-- **Dictionary completeness test**: skrypt który grepuje wszystkie użycia `riskKey="..."` / `RISK_INFO[...]` i sprawdza spójność z typem `RiskKey`.
+1. **Dictionary entry**: add a key to `RiskKey` union and an entry in `RISK_INFO` in `frontend/src/data/riskInfo.ts`. TypeScript will enforce that you don't forget fields.
+2. **Per-flag (badge)**: add an entry in `STYLE` in `RiskBadge.tsx` (label + Tailwind classes).
+3. **Per-action (modal-confirm)**: use `<RiskActionButton riskKey="...">` instead of `<button>` where the action is triggered.
+4. **Per-field (outline)**: add helper `getXxxRiskKey()` in `riskInfo.ts`, conditionally render outline + `<RiskInfoIcon>` in the component.
+5. **Per-section (banner)**: use `<RiskSectionBanner riskKey="...">` at the top of the section.
 
 ---
 
-## Źródła
+## Extension plan (future)
 
-- **Pliki**: `frontend/src/data/riskInfo.ts`, `frontend/src/state/safetyMode.tsx`, `frontend/src/components/Risk{InfoIcon,Badge,ActionButton,SectionBanner}.tsx`, `frontend/src/components/SafetyModeBanner.tsx`.
-- **Backend tags**: `backend/db/db.go::ItemEntry.Flags` — lista flag (`cut_content`, `pre_order`, `dlc_duplicate`, `ban_risk`, `dlc`, `stackable`).
-- **Społeczność**: r/Eldenring threads o banach (2022-2024), Fextralife notatki o cut content.
+- **Per-action override for per-flag entries**: when a specific action has a different description than generic `cut_content` (e.g. adding a cut helm vs a cut quest item) — an override layer can be introduced.
+- **CharacterTab top banner when save has Tier 2 values**: detect after load and display a warning "This save was edited with values flagged as Tier 2 by the community".
+- **Sources URLs**: verification and completion of empty `url` fields in `sources` (e.g. links to specific Reddit threads).
+- **Dictionary completeness test**: script that greps all uses of `riskKey="..."` / `RISK_INFO[...]` and checks consistency with the `RiskKey` type.
+
+---
+
+## Sources
+
+- **Files**: `frontend/src/data/riskInfo.ts`, `frontend/src/state/safetyMode.tsx`, `frontend/src/components/Risk{InfoIcon,Badge,ActionButton,SectionBanner}.tsx`, `frontend/src/components/SafetyModeBanner.tsx`.
+- **Backend tags**: `backend/db/db.go::ItemEntry.Flags` — flag list (`cut_content`, `pre_order`, `dlc_duplicate`, `ban_risk`, `dlc`, `stackable`).
+- **Community**: r/Eldenring ban threads (2022-2024), Fextralife notes on cut content.
