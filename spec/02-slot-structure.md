@@ -1,71 +1,72 @@
-# 02 — Slot — Struktura Ogólna
+# 02 — Slot — General Structure
 
-> **Zakres**: Ogólna budowa jednego slotu postaci (SaveSlot / UserDataX). Kolejność sekcji, sekcje stałe vs zmienne.
+> **Type**: Binary format spec  
+> **Scope**: General layout of a single character slot (SaveSlot / UserDataX). Section order, fixed vs variable sections.
 
 ---
 
-## Podstawowe fakty
+## Basic Facts
 
-- **Rozmiar slotu**: 0x280000 bytes (2,621,440 bytes) — stały, niezależny od zawartości
+- **Slot size**: 0x280000 bytes (2,621,440 bytes) — fixed, independent of contents
 - **Endianness**: Little-endian
-- **Parsing**: Sekwencyjny — sekcje idą jedna po drugiej, wiele ma zmienną długość
-- **Wersja**: Pierwszy u32 slotu. Określa wariant parsowania (np. 5118 vs 5120 GaItems, dodatkowe pola w nowszych wersjach)
+- **Parsing**: Sequential — sections follow one after another, many have variable length
+- **Version**: First u32 of the slot. Determines parsing variant (e.g. 5118 vs 5120 GaItems, additional fields in newer versions)
 
 ---
 
-## Kolejność sekcji w slocie
+## Section Order Within a Slot
 
-Poniższa lista przedstawia **dokładną sekwencję** w jakiej dane są zapisane w slocie.
-Sekcje oznaczone `[VARIABLE]` mają zmienną długość — kolejne sekcje nie mają stałych offsetów.
+The following list shows the **exact sequence** in which data is stored in the slot.
+Sections marked `[VARIABLE]` have variable length — subsequent sections do not have fixed offsets.
 
 ```
-Offset (przybliżony)   Sekcja                              Rozmiar
+Offset (approximate)   Section                             Size
 ──────────────────────────────────────────────────────────────────────────
 0x00                    Slot Header (version + map + unk)    32 bytes
-0x20                    GaItem Map                           [VARIABLE: 5118×var lub 5120×var]
-(dynamiczny)            PlayerGameData                       0x1B0 (432 bytes)
-(dynamiczny)            SP Effects                           [VARIABLE: 13 entries]
-(dynamiczny)            EquippedItems EquipIndex             0x58 (88 bytes)
-(dynamiczny)            ActiveWeaponSlots + ArmStyle         0x1C (28 bytes)
-(dynamiczny)            EquippedItems ItemIDs                0x58 (88 bytes)
-(dynamiczny)            EquippedItems GaitemHandles          0x58 (88 bytes)
-(dynamiczny)            Inventory Held                       [VARIABLE]
-(dynamiczny)            Equipped Spells                      (stała)
-(dynamiczny)            Equipped Items (quick/pouch)         (stała)
-(dynamiczny)            Equipped Gestures                    (stała)
-(dynamiczny)            Acquired Projectiles                 [VARIABLE: count × 8]
-(dynamiczny)            Equipped Armaments & Items           (stała)
-(dynamiczny)            Equipped Physics                     (stała)
-(dynamiczny)            Face Data                            0x12F (303 bytes)
-(dynamiczny)            Inventory Storage Box                [VARIABLE]
-(dynamiczny)            Gestures                             0x100 (256 bytes = 64 × u32)
-(dynamiczny)            Unlocked Regions                     [VARIABLE: 4 + count×4]
-(dynamiczny)            Torrent / RideGameData               0x28 (40 bytes)
-(dynamiczny)            Control Byte                         1 byte
-(dynamiczny)            Blood Stain                          0x44 (68 bytes)
-(dynamiczny)            Unknown fields (2 × u32)            8 bytes
-(dynamiczny)            Menu Profile SaveLoad                [VARIABLE: 8 + size]
-(dynamiczny)            Trophy Equip Data                    (stała)
-(dynamiczny)            GaItem Game Data                     [VARIABLE: 8 + 7000×16]
-(dynamiczny)            Tutorial Data                        [VARIABLE: 8 + size]
-(dynamiczny)            GameMan bytes                        3 bytes
-(dynamiczny)            Death/Character/Session state        [VARIABLE: ~32 bytes]
-(dynamiczny)            Event Flags                          0x1BF99F (1,833,375 bytes)
-(dynamiczny)            Event Flags Terminator               4 bytes
-(dynamiczny)            FieldArea                            [VARIABLE: 4 + size]
-(dynamiczny)            WorldArea                            [VARIABLE: 4 + size]
-(dynamiczny)            WorldGeomMan (×2)                    [VARIABLE: 4 + size]
-(dynamiczny)            RendMan                              [VARIABLE: 4 + size]
-(dynamiczny)            Player Coordinates                   0x39 (57 bytes)
-(dynamiczny)            GameMan spawn bytes                  ~12-20 bytes (version-dependent)
-(dynamiczny)            NetMan                               0x20004 (131,076 bytes)
-(dynamiczny)            WorldAreaWeather                     0x0C (12 bytes)
-(dynamiczny)            WorldAreaTime                        0x0C (12 bytes)
-(dynamiczny)            BaseVersion                          0x10 (16 bytes)
-(dynamiczny)            Steam ID                             0x08 (8 bytes)
-(dynamiczny)            PS5 Activity                         0x20 (32 bytes)
-(dynamiczny)            DLC                                  0x32 (50 bytes)
-(dynamiczny)            PlayerGameData Hash                  [reszta do końca slotu]
+0x20                    GaItem Map                           [VARIABLE: 5118×var or 5120×var]
+(dynamic)               PlayerGameData                       0x1B0 (432 bytes)
+(dynamic)               SP Effects                           [VARIABLE: 13 entries]
+(dynamic)               EquippedItems EquipIndex             0x58 (88 bytes)
+(dynamic)               ActiveWeaponSlots + ArmStyle         0x1C (28 bytes)
+(dynamic)               EquippedItems ItemIDs                0x58 (88 bytes)
+(dynamic)               EquippedItems GaitemHandles          0x58 (88 bytes)
+(dynamic)               Inventory Held                       [VARIABLE]
+(dynamic)               Equipped Spells                      (fixed)
+(dynamic)               Equipped Items (quick/pouch)         (fixed)
+(dynamic)               Equipped Gestures                    (fixed)
+(dynamic)               Acquired Projectiles                 [VARIABLE: count × 8]
+(dynamic)               Equipped Armaments & Items           (fixed)
+(dynamic)               Equipped Physics                     (fixed)
+(dynamic)               Face Data                            0x12F (303 bytes)
+(dynamic)               Inventory Storage Box                [VARIABLE]
+(dynamic)               Gestures                             0x100 (256 bytes = 64 × u32)
+(dynamic)               Unlocked Regions                     [VARIABLE: 4 + count×4]
+(dynamic)               Torrent / RideGameData               0x28 (40 bytes)
+(dynamic)               Control Byte                         1 byte
+(dynamic)               Blood Stain                          0x44 (68 bytes)
+(dynamic)               Unknown fields (2 × u32)            8 bytes
+(dynamic)               Menu Profile SaveLoad                [VARIABLE: 8 + size]
+(dynamic)               Trophy Equip Data                    (fixed)
+(dynamic)               GaItem Game Data                     [VARIABLE: 8 + 7000×16]
+(dynamic)               Tutorial Data                        [VARIABLE: 8 + size]
+(dynamic)               GameMan bytes                        3 bytes
+(dynamic)               Death/Character/Session state        [VARIABLE: ~32 bytes]
+(dynamic)               Event Flags                          0x1BF99F (1,833,375 bytes)
+(dynamic)               Event Flags Terminator               4 bytes
+(dynamic)               FieldArea                            [VARIABLE: 4 + size]
+(dynamic)               WorldArea                            [VARIABLE: 4 + size]
+(dynamic)               WorldGeomMan (×2)                    [VARIABLE: 4 + size]
+(dynamic)               RendMan                              [VARIABLE: 4 + size]
+(dynamic)               Player Coordinates                   0x39 (57 bytes)
+(dynamic)               GameMan spawn bytes                  ~12-20 bytes (version-dependent)
+(dynamic)               NetMan                               0x20004 (131,076 bytes)
+(dynamic)               WorldAreaWeather                     0x0C (12 bytes)
+(dynamic)               WorldAreaTime                        0x0C (12 bytes)
+(dynamic)               BaseVersion                          0x10 (16 bytes)
+(dynamic)               Steam ID                             0x08 (8 bytes)
+(dynamic)               PS5 Activity                         0x20 (32 bytes)
+(dynamic)               DLC                                  0x32 (50 bytes)
+(dynamic)               PlayerGameData Hash                  [remainder to end of slot]
 ──────────────────────────────────────────────────────────────────────────
 ```
 
@@ -73,48 +74,48 @@ Offset (przybliżony)   Sekcja                              Rozmiar
 
 ## Slot Header (32 bytes)
 
-| Offset | Typ | Opis |
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | u32 | Version — numer wersji formatu save |
-| 0x04 | u8[4] | Map ID — identyfikator aktualnej mapy |
+| 0x00 | u32 | Version — save format version number |
+| 0x04 | u8[4] | Map ID — current map identifier |
 | 0x08 | u8[8] | Unknown |
 | 0x10 | u8[16] | Unknown |
 
-### Wersja slotu
+### Slot Version
 
-- `version == 0` → slot jest pusty
-- `version <= 81` → stary format (5118 GaItems)
-- `version > 81` → nowy format (5120 GaItems)
-- `version >= 65` → dodatkowe pole `temp_spawn_point_entity_id`
-- `version >= 66` → dodatkowe pole `game_man_0xcb3`
+- `version == 0` → slot is empty
+- `version <= 81` → old format (5118 GaItems)
+- `version > 81` → new format (5120 GaItems)
+- `version >= 65` → additional field `temp_spawn_point_entity_id`
+- `version >= 66` → additional field `game_man_0xcb3`
 
 ---
 
-## Sekcje zmiennej długości — kluczowy problem
+## Variable-Length Sections — Key Challenge
 
-Wiele sekcji ma rozmiar zależny od stanu postaci. To oznacza, że **nie da się użyć stałych offsetów** do sekcji po GaItem Map. Trzeba parsować sekwencyjnie.
+Many sections have sizes dependent on character state. This means **fixed offsets cannot be used** for sections after the GaItem Map. Sequential parsing is required.
 
-Główne źródła zmienności:
-1. **GaItem Map** — rozmiar rekordu zależy od typu przedmiotu (broń=21B, zbroja=16B, inne=8B)
+Main sources of variability:
+1. **GaItem Map** — record size depends on item type (weapon=21B, armor=16B, other=8B)
 2. **Acquired Projectiles** — count × 8 bytes
 3. **Unlocked Regions** — count × 4 bytes
-4. **Inventory** — stała liczba slotów, ale powiązane countery
-5. **World areas** — size-prefixed, zmienne
-6. **GaItem Game Data** — 7000 entries ale 8-bajtowy header
+4. **Inventory** — fixed number of slots, but associated counters
+5. **World areas** — size-prefixed, variable
+6. **GaItem Game Data** — 7000 entries but 8-byte header
 
 ---
 
-## Implikacje dla edycji
+## Editing Implications
 
-1. **Modyfikacja sekcji stałej** (np. PlayerGameData) — wystarczy zapisać nowe bajty w tym samym miejscu
-2. **Modyfikacja sekcji zmiennej** (np. Regions) — zmiana rozmiaru wymaga przesunięcia WSZYSTKICH kolejnych sekcji
-3. **Checksum** (PC) — po każdej modyfikacji MUSI być przeliczony MD5 całego slotu
+1. **Modifying a fixed section** (e.g. PlayerGameData) — just write new bytes in the same location
+2. **Modifying a variable section** (e.g. Regions) — size change requires shifting ALL subsequent sections
+3. **Checksum** (PC) — after any modification the MD5 of the entire slot MUST be recalculated
 
 ---
 
-## Klasy startowe — Base Stats Reference
+## Starting Classes — Base Stats Reference
 
-| ID | Klasa | Start Lvl | Vig | Mnd | End | Str | Dex | Int | Fai | Arc | Sum |
+| ID | Class | Start Lvl | Vig | Mnd | End | Str | Dex | Int | Fai | Arc | Sum |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | 0 | Vagabond | 9 | 15 | 10 | 11 | 14 | 13 | 9 | 9 | 7 | 88 |
 | 1 | Warrior | 8 | 11 | 12 | 11 | 10 | 16 | 10 | 8 | 9 | 87 |
@@ -127,16 +128,16 @@ Główne źródła zmienności:
 | 8 | Prisoner | 9 | 11 | 12 | 11 | 11 | 14 | 14 | 6 | 9 | 88 |
 | 9 | Wretch | 1 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 10 | 80 |
 
-**Formuła**: `Level = Sum(all_attributes) - 79`
+**Formula**: `Level = Sum(all_attributes) - 79`
 
-Wartości potwierdzone z dwóch niezależnych Cheat Engine tables (Hexinton + TGA).
+Values confirmed from two independent Cheat Engine tables (Hexinton + TGA).
 
 ---
 
-## Źródła
+## Sources
 
-- er-save-manager: `parser/user_data_x.py` — klasa `UserDataX` z pełną sekwencją pól (linie 54-198)
-- ER-Save-Editor (Rust): `src/save/common/save_slot.rs` — struktury w kolejności parsowania
+- er-save-manager: `parser/user_data_x.py` — class `UserDataX` with full field sequence (lines 54-198)
+- ER-Save-Editor (Rust): `src/save/common/save_slot.rs` — structures in parsing order
 - Cheat Engine: `ER_all-in-one_Hexinton_v3.10` — Class reset scripts (base stats)
 - Cheat Engine: `ER_TGA_v1.9.0` — Class definitions
 - Souls Modding Wiki: https://www.soulsmodding.com/doku.php?id=format:sl2

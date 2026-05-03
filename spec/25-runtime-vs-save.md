@@ -1,36 +1,37 @@
 # 25 — Runtime vs Save File Offsets
 
-> **Zakres**: Mapowanie między offsetami w pamięci (Cheat Engine) a offsetami w pliku save. Ostrzeżenia i konwersje.
+> **Type**: Binary format spec  
+> **Scope**: Mapping between memory offsets (Cheat Engine) and save file offsets. Warnings and conversions.
 
 ---
 
 ## Problem
 
-Cheat Engine tables operują na **runtime memory** — dane w pamięci RAM procesu gry. Plik save (.sl2) ma **inny layout** niż pamięć runtime. Nie można bezpośrednio użyć offsetów z CT jako offsetów w pliku save.
+Cheat Engine tables operate on **runtime memory** — data in the game process RAM. The save file (.sl2) has a **different layout** than runtime memory. You cannot directly use CT offsets as save file offsets.
 
 ---
 
-## Kluczowe różnice
+## Key differences
 
 ### 1. Runtime pointers vs sequential save
 
-W pamięci dane są rozproszone i dostępne przez pointer chains:
+In memory, data is scattered and accessed via pointer chains:
 ```
-GameDataMan → +0x08 → PlayerGameData (struktura w RAM)
+GameDataMan → +0x08 → PlayerGameData (structure in RAM)
 GameDataMan → +0x08 → +0x408 → EquipInventoryData
 GameDataMan → +0x08 → +0x518 → EquipMagicData
 ```
 
-W pliku save dane są **sekwencyjne** — jedna sekcja po drugiej bez pointerów.
+In the save file, data is **sequential** — one section after another without pointers.
 
 ### 2. Runtime header offset
 
-PlayerGameData w pamięci ma dodatkowy runtime header (vtable pointer, PlayerNo):
-- **Memory**: HP na offset +0x10 od base
-- **Save file**: HP na offset ~0x08 od początku PlayerGameData sekcji
+PlayerGameData in memory has an additional runtime header (vtable pointer, PlayerNo):
+- **Memory**: HP at offset +0x10 from base
+- **Save file**: HP at offset ~0x08 from start of PlayerGameData section
 
-Różnica NIE jest stała:
-| Pole | Memory (CT) | Save file | Diff |
+The difference is NOT constant:
+| Field | Memory (CT) | Save file | Diff |
 |---|---|---|---|
 | HP | +0x10 | +0x08 | 0x08 |
 | Vigor | +0x3C | +0x34 | 0x08 |
@@ -38,33 +39,33 @@ Różnica NIE jest stała:
 | Name | +0x9C | +0x94 | 0x08 |
 | Gender | +0xBE | +0xB6 | 0x08 |
 
-Dla PlayerGameData: **save_offset ≈ memory_offset - 0x08** (po odjęciu 8-bajtowego runtime header).
+For PlayerGameData: **save_offset ≈ memory_offset - 0x08** (after subtracting the 8-byte runtime header).
 
-### 3. Struktury dostępne tylko w pamięci
+### 3. Structures available only in memory
 
-Niektóre dane z CT **nie istnieją w pliku save** — są obliczane przy load:
-- Aktualne odporności (Immunity/Robustness/Focus/Vitality current values)
+Some CT data **does not exist in the save file** — computed at load:
+- Current resistances (Immunity/Robustness/Focus/Vitality current values)
 - Character flags (NoDead, NoDamage, etc.)
 - Team type (host/phantom/invader)
 - Poise/Toughness (live calculation)
 - Animation state
 - AI state (NPC)
 
-### 4. Struktury dostępne tylko w save
+### 4. Structures available only in save
 
-Niektóre dane istnieją w save ale nie mają bezpośredniego runtime odpowiednika:
-- GaItem Map (zarządzane przez game engine)
-- Event flags raw bitfield (dostępne przez EventFlagMan API)
+Some data exists in the save but has no direct runtime equivalent:
+- GaItem Map (managed by game engine)
+- Event flags raw bitfield (accessed via EventFlagMan API)
 - World state blobs (FieldArea, WorldGeomMan, RendMan)
 - PlayerGameData Hash
 
 ---
 
-## Bezpieczne mapowanie (potwierdzone)
+## Safe mapping (confirmed)
 
-Te pola mają **potwierdzone** odpowiedniki w obu domenach:
+These fields have **confirmed** equivalents in both domains:
 
-| Dane | CT (memory) | Save file |
+| Data | CT (memory) | Save file |
 |---|---|---|
 | Attributes (8×u32) | GameDataMan+0x08+0x3C..0x58 | PlayerGameData+0x34..0x50 |
 | Level | GameDataMan+0x08+0x68 | PlayerGameData+0x60 |
@@ -78,28 +79,28 @@ Te pola mają **potwierdzone** odpowiedniki w obu domenach:
 
 ---
 
-## Zasady korzystania z CT danych
+## Rules for using CT data
 
-1. **Nazwy i typy pól**: Zawsze wiarygodne (np. "Vigor" = u32, "Gender" = u8)
-2. **Kolejność pól**: Wiarygodna (pola w tej samej strukturze zachowują kolejność)
-3. **Wartości enum**: Wiarygodne (np. Class: 0=Vagabond, ArmStyle: 0=Empty/1=OneHand)
-4. **Offsety bezwzględne**: NIGDY nie używaj bezpośrednio — przelicz lub zweryfikuj hex dumpem
-5. **Pointer chains**: Informują o strukturze logicznej, nie o layout pliku save
-6. **"Runtime only" dane**: Nie szukaj ich w save (HP regen rate, AI flags, poise)
-
----
-
-## Weryfikacja offset — metoda
-
-Aby potwierdzić offset w save file:
-1. Załaduj znany save do hex editora
-2. Znajdź znaną wartość (np. character name w UTF-16LE)
-3. Oblicz offset od początku slotu
-4. Porównaj z oczekiwanym offsetem z parsera (er-save-manager)
+1. **Field names and types**: Always reliable (e.g. "Vigor" = u32, "Gender" = u8)
+2. **Field order**: Reliable (fields in the same structure maintain order)
+3. **Enum values**: Reliable (e.g. Class: 0=Vagabond, ArmStyle: 0=Empty/1=OneHand)
+4. **Absolute offsets**: NEVER use directly — convert or verify with hex dump
+5. **Pointer chains**: Inform about logical structure, not save file layout
+6. **"Runtime only" data**: Don't look for it in the save (HP regen rate, AI flags, poise)
 
 ---
 
-## Źródła
+## Offset verification — method
+
+To confirm an offset in the save file:
+1. Load a known save in a hex editor
+2. Find a known value (e.g. character name in UTF-16LE)
+3. Calculate offset from start of slot
+4. Compare with expected offset from the parser (er-save-manager)
+
+---
+
+## Sources
 
 - Cheat Engine: `ER_all-in-one_Hexinton_v3.10` — runtime pointer chains
 - Cheat Engine: `ER_TGA_v1.9.0` — runtime offsets

@@ -1,33 +1,34 @@
-# 23 — UserData10 (Profil Konta)
+# 23 — UserData10 (Account Profile)
 
-> **Zakres**: Sekcja wspólna dla wszystkich slotów — Mirror Favorites preset slots, ProfileSummary, SteamID, active slots, CSMenuSystemSaveLoad.
+> **Type**: Binary format spec  
+> **Scope**: Section shared across all slots — Mirror Favorites preset slots, ProfileSummary, SteamID, active slots, CSMenuSystemSaveLoad.
 
-> **Status**: ✅ PC i PS4 offsety zweryfikowane na żywych save'ach (Apr 2026): PC z `tmp/re-character/ER0000-{before,after}.sl2`, PS4 z `tmp/save/oisisk_ps4.txt`. **PC i PS4 mają IDENTYCZNY layout UserData10** (różnią się tylko nagłówkami pliku save i obecnością/brakiem checksumu — sama UserData10.Data jest taka sama).
+> **Status**: ✅ PC and PS4 offsets verified on live saves (Apr 2026): PC from `tmp/re-character/ER0000-{before,after}.sl2`, PS4 from `tmp/save/oisisk_ps4.txt`. **PC and PS4 have IDENTICAL UserData10 layout** (they differ only in save file headers and presence/absence of checksum — the UserData10.Data itself is the same).
 
-> **Sekcja powiązana**: [31 — Appearance Presets](31-appearance-presets.md) — szczegółowy layout Mirror Favorites preset slot (0x130 bajtów each).
-
----
-
-## Opis ogólny
-
-UserData10 to sekcja po 10 slotach postaci. Zawiera:
-- Informacje o koncie (Steam ID, ustawienia UI)
-- 15 slotów presetów wyglądu (Mirror Favorites — wspólne dla wszystkich postaci)
-- 10 podsumowań postaci (ProfileSummary) — wyświetlane w menu wyboru postaci
-- Flagi aktywnych slotów (10 bajtów)
-- Dodatkowe dane menu systemowego
-
-Rozmiar: 0x60000 bajtów (393,216 bytes) — stały, niezależnie od liczby aktywnych postaci.
-
-Na PC: poprzedzone 16-bajtowym MD5 checksumem (jak sloty postaci). PS4 nie ma checksumu.
+> **Related section**: [31 — Appearance Presets](31-appearance-presets.md) — detailed layout of Mirror Favorites preset slot (0x130 bytes each).
 
 ---
 
-## Layout (post-checksum, PC zweryfikowane)
+## Overview
+
+UserData10 is the section after the 10 character slots. Contains:
+- Account information (Steam ID, UI settings)
+- 15 appearance preset slots (Mirror Favorites — shared across all characters)
+- 10 character summaries (ProfileSummary) — displayed in character select menu
+- Active slot flags (10 bytes)
+- Additional system menu data
+
+Size: 0x60000 bytes (393,216 bytes) — fixed, regardless of number of active characters.
+
+On PC: preceded by a 16-byte MD5 checksum (like character slots). PS4 has no checksum.
+
+---
+
+## Layout (post-checksum, PC verified)
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│ [PC only] MD5 Checksum (16 bytes)                   │ — przed UserData10.Data
+│ [PC only] MD5 Checksum (16 bytes)                   │ — before UserData10.Data
 ╞═════════════════════════════════════════════════════╡
 │ Steam ID (u64) — 8 bytes                            │ @ 0x00
 ├─────────────────────────────────────────────────────┤
@@ -39,7 +40,7 @@ Na PC: poprzedzone 16-bajtowym MD5 checksumem (jak sloty postaci). PS4 nie ma ch
 │  - Each slot: 0x130 bytes (304)                     │
 │  - Total: 15 × 0x130 = 0x11D0 (4560 bytes)          │
 │  - Span: 0x154..0x1323                              │
-│  - Szczegóły layoutu: spec/31-appearance-presets.md │
+│  - Detailed layout: spec/31-appearance-presets.md   │
 ├─────────────────────────────────────────────────────┤
 │ CSMenuSystemSaveLoad trailer (~0x630 bytes)         │ @ 0x1324
 ├─────────────────────────────────────────────────────┤
@@ -50,85 +51,79 @@ Na PC: poprzedzone 16-bajtowym MD5 checksumem (jak sloty postaci). PS4 nie ma ch
 │  - Total: 10 × 0x24C = 0x16F8 (5880 bytes)          │
 │  - Span: 0x195E..0x3055                             │
 ├─────────────────────────────────────────────────────┤
-│ ... (więcej danych menu, gestures, regulation ver.) │ @ 0x3056
+│ ... (more menu data, gestures, regulation ver.)     │ @ 0x3056
 │                                                     │
-│ Reszta to zera (padding do 0x60000)                 │
+│ Remainder is zeros (padding to 0x60000)             │
 └─────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Offsety (PC i PS4 identyczne, zweryfikowane)
+## Offsets (PC and PS4 identical, verified)
 
-| Pole | Offset | Notes |
+| Field | Offset | Notes |
 |---|---|---|
-| Steam ID | 0x00 (u64) | tylko PC; na PS4 te 8 bajtów ma inne znaczenie / zera |
+| Steam ID | 0x00 (u64) | PC only; on PS4 these 8 bytes have different meaning / zeros |
 | Settings | 0x08..0x147 | UI preferences, account |
 | CSMenuSystemSaveLoad header | 0x148 | unk + length |
-| Mirror Favorites preset[0] | **0x154** | każdy slot 0x130 bytes, 15 slotów |
+| Mirror Favorites preset[0] | **0x154** | each slot 0x130 bytes, 15 slots |
 | Active Slots | **0x1954** | 10 × u8 |
-| ProfileSummary[0] | **0x195E** | każdy 0x24C bytes |
-| ProfileSummary stride | **0x24C** | × 10 slotów = 0x16F8 bajtów |
+| ProfileSummary[0] | **0x195E** | each 0x24C bytes |
+| ProfileSummary stride | **0x24C** | × 10 slots = 0x16F8 bytes |
 
-⚠️ **HISTORYCZNY BUG (do końca Q2 2026)**: Nasz `backend/core/save_manager.go` zapisywał ProfileSummary na `0x31A + i*0x100` (PC) i `0x30A + i*0x100` (PS4). Te offsety leżą **wewnątrz Mirror Favorites preset slot 1** (slot 1 spans 0x284..0x3B3), więc każdy zapis korumpował slot 1 prezeta. Stąd istnienie `FavSafeSlots = [0, 10..14]` jako proteza. Po naprawie offsetu `FavSafeSlots` można usunąć — wszystkie 15 slotów presetów jest dostępnych.
+⚠️ **HISTORICAL BUG (through end of Q2 2026)**: Our `backend/core/save_manager.go` wrote ProfileSummary at `0x31A + i*0x100` (PC) and `0x30A + i*0x100` (PS4). Those offsets lie **inside Mirror Favorites preset slot 1** (slot 1 spans 0x284..0x3B3), so every write corrupted preset slot 1. Hence the existence of `FavSafeSlots = [0, 10..14]` as a workaround. After fixing the offset, `FavSafeSlots` can be removed — all 15 preset slots are usable.
 
 ---
 
 ## ProfileSummary (0x24C = 588 bytes per slot)
 
-Podsumowanie postaci widoczne w menu wyboru postaci. Gra czyta TYLKO te dane przy pokazywaniu listy postaci.
+Character summary visible in the character select menu. The game reads ONLY this data when showing the character list.
 
-| Offset (slot-relative) | Typ | Opis |
+| Offset (slot-relative) | Type | Description |
 |---|---|---|
-| 0x000 | 5 × u8 | Marker bytes (zaobserwowane: `01 01 01 01 01`) |
-| 0x005 | 5 × u8 | Padding (zera) |
-| 0x00A | u16[16] | **Character Name** (UTF-16LE, max 16 znaków + null) |
+| 0x000 | 5 × u8 | Marker bytes (observed: `01 01 01 01 01`) |
+| 0x005 | 5 × u8 | Padding (zeros) |
+| 0x00A | u16[16] | **Character Name** (UTF-16LE, max 16 chars + null) |
 | 0x02A | 4 × u8 | Padding |
 | 0x02E | u32 | Level |
-| 0x032 | ... | (TODO szczegóły — zaobserwowano FACE magic, model IDs, FaceShape, etc.) |
-| 0x040 | u8[0x12C] | FaceData snapshot (mirror slotu) — gra używa do podglądu wyglądu w menu |
-| ... | ... | Pozostałe pola: equipment summary, archetype, starting gift, body_type |
+| 0x032 | ... | (TODO details — observed FACE magic, model IDs, FaceShape, etc.) |
+| 0x040 | u8[0x12C] | FaceData snapshot (mirror of slot) — game uses for appearance preview in menu |
+| ... | ... | Remaining fields: equipment summary, archetype, starting gift, body_type |
 
-**Ważne**: nasz kod aktualnie pisze tylko Name (32 bajty UTF-16) + Level (4 bajty) = 36 bajtów. Pozostałe 552 bajty na slot zachowują wartość ostatnio zapisaną przez grę (poprzedni zapis z gry). To jest **OK funkcjonalnie** — game odczytuje Name i Level (nasze poprawne) plus FaceData snapshot (stare ale zgodne z game data), więc menu pokazuje aktualne imię i poziom, ale snapshot wyglądu może być nieaktualny (kosmetyka).
+**Important**: Our code currently writes only Name (32 bytes UTF-16) + Level (4 bytes) = 36 bytes. The remaining 552 bytes per slot retain the value last written by the game (previous game save). This is **functionally OK** — the game reads Name and Level (our correct values) plus FaceData snapshot (old but consistent with game data), so the menu shows the correct name and level, but the appearance snapshot may be outdated (cosmetic only).
 
-ProfileSummary MUSI być zsynchronizowane z danymi w slocie postaci — inaczej menu pokazuje złe informacje.
+ProfileSummary MUST be synchronized with data in the character slot — otherwise the menu shows incorrect information.
 
 ---
 
 ## Active Slots (10 × u8 @ 0x1954)
 
-Tablica `[10]u8` — wskazuje które sloty postaci (0-9) są aktywne.
-- `0x01` = aktywny (postać istnieje)
-- `0x00` = pusty
+Array `[10]u8` — indicates which character slots (0-9) are active.
+- `0x01` = active (character exists)
+- `0x00` = empty
 
-Modyfikacja: po dodaniu/usunięciu postaci trzeba zaktualizować odpowiedni bajt.
-
----
-
-## Active Slots
-
-Bitfield lub tablica flag — wskazuje które sloty (0-9) mają aktywne postacie.
+Modification: after adding/removing a character, the corresponding byte must be updated.
 
 ---
 
 ## CSMenuSystemSaveLoad (0x60000 bytes)
 
-Duży blok danych systemu menu — ustawienia HUD, preferencje wyświetlania, quickslot konfiguracja na poziomie konta.
+Large block of menu system data — HUD settings, display preferences, quickslot configuration at the account level.
 
 ---
 
-## Implikacje dla edycji
+## Editing implications
 
-- **Steam ID**: musi odpowiadać Steam ID gracza na PC — inaczej save nie załaduje się
-- **ProfileSummary**: po edycji imienia/levelu w slocie TRZEBA zaktualizować też tutaj
-- **Active Slots**: po dodaniu/usunięciu postaci trzeba zaktualizować
-- **MD5**: po modyfikacji UserData10 na PC — przeliczyć checksum
-- **Konwersja platform**: offsety Active Slots i ProfileSummary są RÓŻNE — błędny offset = uszkodzony save
+- **Steam ID**: must match the player's Steam ID on PC — otherwise the save won't load
+- **ProfileSummary**: after editing name/level in a slot, this MUST also be updated
+- **Active Slots**: must be updated after adding/removing a character
+- **MD5**: after modifying UserData10 on PC — recalculate checksum
+- **Platform conversion**: Active Slots and ProfileSummary offsets are DIFFERENT — wrong offset = corrupted save
 
 ---
 
-## Źródła
+## Sources
 
-- er-save-manager: `parser/user_data_10.py` — klasa `UserData10`
-- er-save-manager: `parser/save.py` linie 209-228
+- er-save-manager: `parser/user_data_10.py` — class `UserData10`
+- er-save-manager: `parser/save.py` lines 209-228
 - Steam Guide: https://steamcommunity.com/sharedfiles/filedetails/?id=2797241037

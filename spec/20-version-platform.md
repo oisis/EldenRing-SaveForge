@@ -1,57 +1,58 @@
 # 20 — Version & Platform Data
 
-> **Zakres**: Wersja bazy gry, Steam ID, PS5 Activity.
+> **Type**: Binary format spec  
+> **Scope**: Game base version, Steam ID, PS5 Activity.
 
 ---
 
-## Opis ogólny
+## Overview
 
-Trzy struktury identyfikujące wersję gry i platformę.
+Three structures identifying game version and platform.
 
 ---
 
 ## BaseVersion (16 bytes)
 
-| Offset | Typ | Opis |
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | u32 | Base Version Copy (kopia wersji) |
-| 0x04 | u32 | Base Version (wersja bazy gry) |
-| 0x08 | u32 | Is Latest Version (flaga) |
+| 0x00 | u32 | Base Version Copy (version duplicate) |
+| 0x04 | u32 | Base Version (game base version) |
+| 0x08 | u32 | Is Latest Version (flag) |
 | 0x0C | u32 | Unknown (unk0xc) |
 
 ---
 
 ## Steam ID (8 bytes)
 
-| Offset | Typ | Opis |
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | u64 | Steam ID gracza |
+| 0x00 | u64 | Player's Steam ID |
 
-- Tylko PC — na PS4 ta wartość jest 0 lub ignorowana
-- Przy konwersji PS4→PC: trzeba wpisać prawidłowy Steam ID
-- Przy konwersji PC→PS4: ignorowana
+- PC only — on PS4 this value is 0 or ignored
+- When converting PS4→PC: must write a valid Steam ID
+- When converting PC→PS4: ignored
 
 ---
 
 ## PS5 Activity (32 bytes)
 
-| Offset | Typ | Opis |
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | u8[32] | Opaque data — flagi aktywności PS5 |
+| 0x00 | u8[32] | Opaque data — PS5 activity flags |
 
-Obecne także w save PC (zerowane). Struktura wewnętrzna nieznana.
-
----
-
-## Implikacje dla edycji
-
-- **Steam ID**: krytyczne przy konwersji platform. Zły Steam ID = save odrzucony przez Steam
-- **Base Version**: zmiana może triggerować migrację save lub odrzucenie
-- **PS5 Activity**: bezpieczne do zerowania
+Present also in PC saves (zeroed). Internal structure unknown.
 
 ---
 
-## Źródła
+## Editing implications
 
-- er-save-manager: `parser/world.py` — `BaseVersion` (linie 890-914), `PS5Activity` (922-935)
-- er-save-manager: `parser/user_data_x.py` linie 191-193
+- **Steam ID**: critical during platform conversion. Wrong Steam ID = save rejected by Steam
+- **Base Version**: changing may trigger save migration or rejection
+- **PS5 Activity**: safe to zero out
+
+---
+
+## Sources
+
+- er-save-manager: `parser/world.py` — `BaseVersion` (lines 890-914), `PS5Activity` (922-935)
+- er-save-manager: `parser/user_data_x.py` lines 191-193

@@ -1,60 +1,61 @@
-# 99 — Metodologia Weryfikacji i Odkrywania Parametrów
+# 99 — Verification & Discovery Methodology
 
-> **Zakres**: Procedury testowe do weryfikacji udokumentowanych offsetów oraz odkrywania nieznanych parametrów w pliku save.
+> **Type**: Research / QA  
+> **Scope**: Test procedures for verifying documented offsets and discovering unknown parameters in save files.
 
 ---
 
-## Dostępne zasoby testowe
+## Available test resources
 
-| Zasób | Ścieżka | Opis |
+| Resource | Path | Description |
 |---|---|---|
-| PC Save | `tmp/save/ER0000.sl2` | Prawdziwy save PC (wiele slotów) |
-| PS4 Save | `tmp/save/oisisk_ps4.txt` | Prawdziwy save PS4 |
+| PC Save | `tmp/save/ER0000.sl2` | Real PC save (multiple slots) |
+| PS4 Save | `tmp/save/oisisk_ps4.txt` | Real PS4 save |
 | Reference parser | `tmp/repos/er-save-manager/` | Python parser (ground truth) |
 | Cheat Tables | `tmp/cheat_tables/` | Runtime offsets (Hexinton + TGA) |
 | BST Lookup | `tmp/repos/er-save-manager/src/resources/eventflag_bst.txt` | Event flag addressing |
-| Nasz parser | `backend/core/reader.go` | Go parser (do porównania) |
+| Our parser | `backend/core/reader.go` | Go parser (for comparison) |
 
 ---
 
-## Metoda 1: Hex Dump — Known Value Search
+## Method 1: Hex Dump — Known Value Search
 
-**Cel**: Znaleźć offset pola w pliku save na podstawie znanej wartości.
+**Goal**: Find a field's offset in the save file based on a known value.
 
-### Procedura:
-1. Załaduj save przez nasz parser → wyciągnij znane wartości (name, level, stats)
-2. Hex dump slotu do pliku
-3. Szukaj wzorca znanej wartości (little-endian)
-4. Potwierdź offset — porównaj z dokumentacją
+### Procedure:
+1. Load save through our parser → extract known values (name, level, stats)
+2. Hex dump the slot to file
+3. Search for the known value pattern (little-endian)
+4. Confirm offset — compare with documentation
 
-### Przykład — szukanie Character Name:
+### Example — searching for Character Name:
 ```bash
-# Imię "Zofia" w UTF-16LE = 5A 00 6F 00 66 00 69 00 61 00
+# Name "Zofia" in UTF-16LE = 5A 00 6F 00 66 00 69 00 61 00
 xxd -s $SLOT_START -l 0x280000 save.sl2 | grep "5a00 6f00 6600"
 ```
 
-### Przykład — szukanie Level (np. level 150 = 0x96 = 96 00 00 00 LE):
+### Example — searching for Level (e.g. level 150 = 0x96 = 96 00 00 00 LE):
 ```bash
-# Level 150 w u32 LE
+# Level 150 in u32 LE
 xxd -s $SLOT_START -l 0x280000 save.sl2 | grep "9600 0000"
 ```
 
 ---
 
-## Metoda 2: Binary Diff — Before/After Action
+## Method 2: Binary Diff — Before/After Action
 
-**Cel**: Odkryć które bajty zmieniają się po konkretnej akcji w grze.
+**Goal**: Discover which bytes change after a specific in-game action.
 
-### Procedura:
-1. Zrób backup save PRZED akcją
-2. Wykonaj jedną konkretną akcję w grze (np. level up, pick item, kill boss)
-3. Zapisz grę
-4. Binary diff dwóch save'ów → lista zmienionych bajtów
-5. Odfiltruj znane zmiany (checksum, timestamps) → zostają nowe odkrycia
+### Procedure:
+1. Backup save BEFORE action
+2. Perform one specific action in-game (e.g. level up, pick item, kill boss)
+3. Save the game
+4. Binary diff the two saves → list of changed bytes
+5. Filter out known changes (checksum, timestamps) → new discoveries remain
 
-### Narzędzie:
+### Tool:
 ```bash
-# Wyciągnij konkretny slot (np. slot 0, PC z MD5)
+# Extract specific slot (e.g. slot 0, PC with MD5)
 dd if=save_before.sl2 bs=1 skip=$((0x300 + 0x10)) count=$((0x280000)) of=slot0_before.bin
 dd if=save_after.sl2 bs=1 skip=$((0x300 + 0x10)) count=$((0x280000)) of=slot0_after.bin
 
@@ -63,38 +64,38 @@ cmp -l slot0_before.bin slot0_after.bin | head -50
 # Format: offset byte_before byte_after
 ```
 
-### Akcje testowe do wykonania:
-- Level up (1 atrybut) → zmiana w PlayerGameData
-- Pick up item → zmiana w Inventory + Event Flags
-- Kill boss → zmiana w Event Flags
-- Rest at grace → zmiana w Game State (LastGrace) + HP/FP/SP
-- Change time of day → zmiana w WorldAreaTime
-- Equip/unequip item → zmiana w Equipment structures
+### Test actions to perform:
+- Level up (1 attribute) → change in PlayerGameData
+- Pick up item → change in Inventory + Event Flags
+- Kill boss → change in Event Flags
+- Rest at grace → change in Game State (LastGrace) + HP/FP/SP
+- Change time of day → change in WorldAreaTime
+- Equip/unequip item → change in Equipment structures
 
 ---
 
-## Metoda 3: Cross-Slot Comparison
+## Method 3: Cross-Slot Comparison
 
-**Cel**: Porównać te same offsety między różnymi slotami (postaciami) aby zidentyfikować pola per-character vs stałe.
+**Goal**: Compare the same offsets between different slots (characters) to identify per-character vs constant fields.
 
-### Procedura:
-1. Wyciągnij N slotów z jednego save file
-2. Porównaj bajt po bajcie na tych samych offsetach
-3. Pola identyczne = stałe/template
-4. Pola różne = per-character data
+### Procedure:
+1. Extract N slots from one save file
+2. Compare byte-by-byte at the same offsets
+3. Identical fields = constant/template
+4. Different fields = per-character data
 
-### Co szukamy:
-- Offsety gdzie wartość odpowiada różnicy w levelach między postaciami
-- Offsety gdzie pojawia się imię jednej postaci ale nie drugiej
-- Bloki zerowe w jednym slocie a niezerowe w innym (unused vs used features)
+### What to look for:
+- Offsets where the value corresponds to level differences between characters
+- Offsets where one character's name appears but not another's
+- Zero blocks in one slot but non-zero in another (unused vs used features)
 
 ---
 
-## Metoda 4: Parser Comparison (er-save-manager vs nasz)
+## Method 4: Parser Comparison (er-save-manager vs ours)
 
-**Cel**: Porównać wyniki parsowania tego samego save przez Python reference i nasz Go parser.
+**Goal**: Compare parsing results of the same save by Python reference and our Go parser.
 
-### Procedura:
+### Procedure:
 ```bash
 # Python parser (reference)
 cd tmp/repos/er-save-manager
@@ -110,81 +111,81 @@ print(f'Vigor: {slot.player_game_data.vigor}')
 # ... etc
 "
 
-# Nasz Go parser
+# Our Go parser
 go test -v -run TestParseComparison ./tests/
 ```
 
-### Porównywane wartości:
-- Wszystkie pola PlayerGameData
-- GaItem count i pierwsze/ostatnie wpisy
-- Inventory count + pierwsze items
-- Event flag spot-checks (znane flagi)
+### Compared values:
+- All PlayerGameData fields
+- GaItem count and first/last entries
+- Inventory count + first items
+- Event flag spot-checks (known flags)
 - Dynamic offsets (MagicOffset, EventFlagsOffset, etc.)
 
 ---
 
-## Metoda 5: Targeted Byte Probing (Unknown Fields)
+## Method 5: Targeted Byte Probing (Unknown Fields)
 
-**Cel**: Odkryć znaczenie nieznanych pól przez systematyczne modyfikowanie i obserwację efektu w grze.
+**Goal**: Discover meaning of unknown fields by systematically modifying and observing in-game effect.
 
-### Procedura:
-1. Wybierz nieznany bajt/pole
-2. Zanotuj aktualną wartość
-3. Zmień na wartość skrajną (0x00, 0xFF, lub odwrotność)
-4. Załaduj save w grze
-5. Obserwuj: crash? inne zachowanie? brak efektu?
-6. Dokumentuj wynik
+### Procedure:
+1. Select an unknown byte/field
+2. Note current value
+3. Change to an extreme value (0x00, 0xFF, or inverse)
+4. Load save in game
+5. Observe: crash? different behavior? no effect?
+6. Document result
 
-### Zasady bezpieczeństwa:
-- ZAWSZE pracuj na KOPII save (nigdy oryginał)
-- Zmieniaj JEDNO pole na raz
-- Testuj najpierw wartości "bezpieczne" (0, max) przed losowymi
-- Jeśli crash → pole jest krytyczne, zanotuj
-- Jeśli brak efektu → pole jest prawdopodobnie runtime-only lub unused
+### Safety rules:
+- ALWAYS work on a COPY of the save (never original)
+- Change ONE field at a time
+- Test "safe" values first (0, max) before random ones
+- If crash → field is critical, note it
+- If no effect → field is likely runtime-only or unused
 
 ---
 
-## Metoda 6: Pattern Recognition (MagicPattern Anchor)
+## Method 6: Pattern Recognition (MagicPattern Anchor)
 
-**Cel**: Użyć znanego 192-bajtowego MagicPattern jako kotwicy do obliczenia offsetów.
+**Goal**: Use the known 192-byte MagicPattern as an anchor to calculate offsets.
 
-### Procedura:
-1. Znajdź MagicPattern w slocie (192 bytes znanych wartości)
-2. Oblicz PlayerGameData offset = MagicPattern + 192 + N (gdzie N zależy od wersji)
-3. Od tego punktu — weryfikuj pola sekwencyjnie
+### Procedure:
+1. Find MagicPattern in slot (192 bytes of known values)
+2. Calculate PlayerGameData offset = MagicPattern + 192 + N (where N depends on version)
+3. From that point — verify fields sequentially
 
 ### MagicPattern (hex):
 ```
 00 FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00
 FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
-(powtarza się 12× = 192 bytes total)
+(repeats 12× = 192 bytes total)
 ```
 
 ---
 
-## Metoda 7: Event Flag Spot-Check
+## Method 7: Event Flag Spot-Check
 
-**Cel**: Zweryfikować algorytm BST na konkretnych, znanych flagach.
+**Goal**: Verify the BST algorithm on specific, known flags.
 
-### Procedura:
-1. Weź save z pokonanym bossem (np. Margit — flag 71001)
-2. Oblicz offset przez BST: block=71, index=1, lookup BST[71], byte=offset×125+0, bit=7-1=6
-3. Sprawdź czy bit jest ustawiony w hex dumpie sekcji Event Flags
-4. Powtórz dla kilku znanych flag
+### Procedure:
+1. Take a save with a defeated boss (e.g. Margit — flag 71001)
+2. Calculate offset via BST: block=71, index=1, lookup BST[71], byte=offset×125+0, bit=7-1=6
+3. Check if the bit is set in the hex dump of Event Flags section
+4. Repeat for several known flags
 
 ### Spot-check flags:
-- 60100 (Torrent) — mechanika, łatwa do weryfikacji
+- 60100 (Torrent) — mechanic, easy to verify
 - 71001 (Margit killed) — boss
 - 76101 (The First Step grace) — grace
-- 62010 (Limgrave West map) — mapa
+- 62010 (Limgrave West map) — map
 
 ---
 
 ---
 
-# CHECKLISTA WERYFIKACJI
+# VERIFICATION CHECKLIST
 
-## Status: ✅ = zweryfikowane, ⏳ = w trakcie, ❌ = do zrobienia, ❓ = nieznane/do odkrycia
+## Status: ✅ = verified, ⏳ = in progress, ❌ = to do, ❓ = unknown/to discover
 
 ---
 
@@ -192,27 +193,27 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ### HP / FP / SP Block (0x00–0x33)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
 | 0x00 | unk0x0 | ❓ | Probe | PlayerNo? Internal ID? |
 | 0x04 | unk0x4 | ❓ | Probe | — |
-| 0x08 | HP | ❌ | Known Value | Porównaj z CT value |
+| 0x08 | HP | ❌ | Known Value | Compare with CT value |
 | 0x0C | MaxHP | ❌ | Known Value | — |
-| 0x10 | BaseMaxHP | ❌ | Known Value | Oblicz z Vigor tabeli |
+| 0x10 | BaseMaxHP | ❌ | Known Value | Calculate from Vigor table |
 | 0x14 | FP | ❌ | Known Value | — |
 | 0x18 | MaxFP | ❌ | Known Value | — |
-| 0x1C | BaseMaxFP | ❌ | Known Value | Oblicz z Mind tabeli |
+| 0x1C | BaseMaxFP | ❌ | Known Value | Calculate from Mind table |
 | 0x20 | unk0x20 | ❓ | Probe | FP regen? MaxFP2? BaseMaxMP? |
 | 0x24 | SP | ❌ | Known Value | — |
 | 0x28 | MaxSP | ❌ | Known Value | — |
-| 0x2C | BaseMaxSP | ❌ | Known Value | Oblicz z Endurance tabeli |
+| 0x2C | BaseMaxSP | ❌ | Known Value | Calculate from Endurance table |
 | 0x30 | unk0x30 | ❓ | Probe | SP regen? |
 
 ### Attributes (0x34–0x5F)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
-| 0x34 | Vigor | ❌ | Known Value | Znana wartość z kreatora/level up |
+| 0x34 | Vigor | ❌ | Known Value | Known value from creator/level up |
 | 0x38 | Mind | ❌ | Known Value | — |
 | 0x3C | Endurance | ❌ | Known Value | — |
 | 0x40 | Strength | ❌ | Known Value | — |
@@ -226,18 +227,18 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ### Level & Runes (0x60–0x6F)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
-| 0x60 | Level | ❌ | Known Value | Formuła: sum(attrs) - 79 |
-| 0x64 | Runes | ❌ | Known Value | Aktualnie posiadane |
-| 0x68 | TotalGetSoul | ❌ | Known Value | Lifetime — porównaj high/low level chars |
+| 0x60 | Level | ❌ | Known Value | Formula: sum(attrs) - 79 |
+| 0x64 | Runes | ❌ | Known Value | Currently held |
+| 0x68 | TotalGetSoul | ❌ | Known Value | Lifetime — compare high/low level chars |
 | 0x6C | unk0x6c | ❓ | Diff | Runes lost? Memory runes? |
 
 ### Status Buildups (0x70–0x93)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
-| 0x70 | Immunity (Poison) | ❌ | Probe | Powinno być 0 w czystym save |
+| 0x70 | Immunity (Poison) | ❌ | Probe | Should be 0 in clean save |
 | 0x74 | Immunity2 (Scarlet Rot) | ❌ | Probe | — |
 | 0x78 | Robustness (Bleed) | ❌ | Probe | — |
 | 0x7C | Vitality (Death) | ❌ | Probe | — |
@@ -249,14 +250,14 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ### Character Name (0x94–0xB5)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
-| 0x94 | CharacterName[16] | ❌ | Known Value | UTF-16LE — łatwy anchor |
-| 0xB4 | NullTerminator | ❌ | Pattern | Powinno być 0x0000 |
+| 0x94 | CharacterName[16] | ❌ | Known Value | UTF-16LE — easy anchor |
+| 0xB4 | NullTerminator | ❌ | Pattern | Should be 0x0000 |
 
 ### Creation Data (0xB6–0xBF)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
 | 0xB6 | Gender | ❌ | Known Value | 0=TypeB, 1=TypeA |
 | 0xB7 | ArcheType (Class) | ❌ | Known Value | 0-9 |
@@ -267,17 +268,17 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 | 0xBC | unk0xbc | ❓ | Probe | — |
 | 0xBD | unk0xbd | ❓ | Probe | — |
 | 0xBE | TalismanSlotCount | ❌ | Probe | 0-3 |
-| 0xBF | SummonSpiritLevel | ❓ | Probe | Co to dokładnie robi? |
+| 0xBF | SummonSpiritLevel | ❓ | Probe | What does this do exactly? |
 
 ### Unknown Block (0xC0–0xD7)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
-| 0xC0–0xD7 | 24 bytes unknown | ❓ | Diff + Probe | Porównaj fresh char vs endgame char |
+| 0xC0–0xD7 | 24 bytes unknown | ❓ | Diff + Probe | Compare fresh char vs endgame char |
 
 ### Online Settings (0xD8–0xF8)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
 | 0xD8 | FurlcallingFinger | ❌ | Probe | 0/1 |
 | 0xD9 | unk0xd9 | ❓ | Probe | — |
@@ -292,7 +293,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ### Flask Counts (0xF9–0x10F)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
 | 0xF9 | MaxCrimsonFlask | ❌ | Known Value | 0-14 |
 | 0xFA | MaxCeruleanFlask | ❌ | Known Value | 0-14 |
@@ -301,7 +302,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ### Passwords (0x110–0x17B)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
 | 0x110 | MultiplayerPassword | ❌ | Known Value | UTF-16LE |
 | 0x122 | GroupPassword1 | ❌ | Known Value | — |
@@ -309,7 +310,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ### Trailing Block (0x17C–0x1AF)
 
-| Offset | Pole | Status | Metoda | Notatki |
+| Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
 | 0x17C–0x17F | SwordArtPoint? | ❓ | CT Cross-ref | 4 × u8 scaling? |
 | 0x180–0x1AF | 48 bytes | ❓ | Diff + Probe | Correction stats? Extended data? |
@@ -318,17 +319,17 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ## B. Equipment Structures — spec/06
 
-| Struktura | Status | Metoda | Notatki |
+| Structure | Status | Method | Notes |
 |---|---|---|---|
-| EquippedItemsEquipIndex (88B) | ❌ | Known Value | Porównaj z inventory indices |
+| EquippedItemsEquipIndex (88B) | ❌ | Known Value | Compare with inventory indices |
 | ActiveWeaponSlots (28B) | ❌ | Probe | ArmStyle 0-3, slots 0-2 |
-| EquippedItemsItemIds (88B) | ❌ | Known Value | Item IDs z bazy |
-| EquippedItemsGaitemHandles (88B) | ❌ | Known Value | Handles z GaItem Map |
-| Slot #10 (Arrows 3) | ❓ | Probe | CT mówi że istnieje |
-| Slot #11 (Bolts 3) | ❓ | Probe | CT mówi że istnieje |
-| Slot #16 (Hair) | ❓ | Probe | Wewnętrzny slot |
-| Slot #21 (Accessory 5) | ❓ | Probe | Unused — czy zerowy? |
-| Great Rune field | ❓ | Known Value | Gdzie dokładnie w save? |
+| EquippedItemsItemIds (88B) | ❌ | Known Value | Item IDs from database |
+| EquippedItemsGaitemHandles (88B) | ❌ | Known Value | Handles from GaItem Map |
+| Slot #10 (Arrows 3) | ❓ | Probe | CT says it exists |
+| Slot #11 (Bolts 3) | ❓ | Probe | CT says it exists |
+| Slot #16 (Hair) | ❓ | Probe | Internal slot |
+| Slot #21 (Accessory 5) | ❓ | Probe | Unused — is it zero? |
+| Great Rune field | ❓ | Known Value | Where exactly in save? |
 | Quick Items (10 × u32) | ❌ | Known Value | — |
 | Pouch (6 × u32) | ❌ | Known Value | — |
 
@@ -336,14 +337,14 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ## C. Spells & Gestures — spec/08
 
-| Element | Status | Metoda | Notatki |
+| Element | Status | Method | Notes |
 |---|---|---|---|
-| 14 spell slots (stride 8B) | ❌ | Known Value | Znane zaklęcia postaci |
+| 14 spell slots (stride 8B) | ❌ | Known Value | Known character spells |
 | SelectedSlotIdx | ❓ | Probe | -1 or 0-13 |
 | Quick Slots 10 × u32 | ❌ | Known Value | — |
 | Pouch 6 × u32 | ❌ | Known Value | — |
-| Equipped Gestures (ring) | ❌ | Known Value | ID z tabeli |
-| Acquired Projectiles count | ❌ | Known Value | Porównaj postacie |
+| Equipped Gestures (ring) | ❌ | Known Value | ID from table |
+| Acquired Projectiles count | ❌ | Known Value | Compare characters |
 | Gestures 64 × u32 | ❌ | Cross-Slot | — |
 | Equipped Physics (2 × u32) | ❌ | Known Value | Crystal Tear IDs |
 
@@ -351,26 +352,26 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ## D. Face Data (303 bytes) — spec/09
 
-| Element | Status | Metoda | Notatki |
+| Element | Status | Method | Notes |
 |---|---|---|---|
-| Face_Model_Id (u32) | ❌ | Cross-Slot | Porównaj chars z różnymi twarzami |
-| Hair_Model_Id (u32) | ❌ | Known Value | Znana fryzura |
+| Face_Model_Id (u32) | ❌ | Cross-Slot | Compare chars with different faces |
+| Hair_Model_Id (u32) | ❌ | Known Value | Known hairstyle |
 | Beard_Model_Id (u32) | ❌ | Cross-Slot | — |
-| Face shape params (~50 u8) | ❓ | Diff | Porównaj identyczne vs różne twarze |
+| Face shape params (~50 u8) | ❓ | Diff | Compare identical vs different faces |
 | Skin colors (RGBA) | ❓ | Diff | — |
 | Body Scale (7 values) | ❓ | Probe | float vs u8? |
-| Trailing 15 bytes (slot-only) | ❓ | Probe | Co to? |
+| Trailing 15 bytes (slot-only) | ❓ | Probe | What is this? |
 
 ---
 
 ## E. Inventory & Storage — spec/07, spec/10
 
-| Element | Status | Metoda | Notatki |
+| Element | Status | Method | Notes |
 |---|---|---|---|
 | Common item count (2688 max) | ❌ | Known Value | — |
 | Key item count (384 max) | ❌ | Known Value | — |
 | Item record (12B: handle+qty+idx) | ❌ | Known Value | — |
-| NextEquipIndex | ❌ | Monotonic check | Powinien rosnąć |
+| NextEquipIndex | ❌ | Monotonic check | Should be increasing |
 | NextAcquisitionSortId | ❌ | Monotonic check | — |
 | Storage common (1920 max) | ❌ | Known Value | — |
 | Storage key (128 max) | ❌ | Known Value | — |
@@ -380,22 +381,22 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ## F. GaItem Map — spec/03
 
-| Element | Status | Metoda | Notatki |
+| Element | Status | Method | Notes |
 |---|---|---|---|
-| Entry count (5118 vs 5120) | ❌ | Version check | Zależy od slot.Version |
+| Entry count (5118 vs 5120) | ❌ | Version check | Depends on slot.Version |
 | Weapon record (21B) | ❌ | Known Value | Handle + ItemID + extras |
 | Armor record (16B) | ❌ | Known Value | — |
 | Other record (8B) | ❌ | Known Value | — |
-| Type segregation (AoW first) | ❌ | Scan | Sprawdź czy 0xC0... przed 0x80... |
+| Type segregation (AoW first) | ❌ | Scan | Check if 0xC0... before 0x80... |
 | Empty entry pattern | ❌ | Pattern | 0x00 or 0xFFFFFFFF |
 
 ---
 
 ## G. Event Flags — spec/15
 
-| Element | Status | Metoda | Notatki |
+| Element | Status | Method | Notes |
 |---|---|---|---|
-| BST algorithm correctness | ❌ | Spot-check | 4-5 znanych flag |
+| BST algorithm correctness | ❌ | Spot-check | 4-5 known flags |
 | Size = 0x1BF99F | ❌ | Measure | — |
 | Terminator (4B after) | ❌ | Pattern | — |
 | Grace flag 76101 (First Step) | ❌ | BST + hex | — |
@@ -407,12 +408,12 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ## H. Game State — spec/14
 
-| Element | Status | Metoda | Notatki |
+| Element | Status | Method | Notes |
 |---|---|---|---|
-| ClearCount (NG+) | ❌ | Known Value | Sprawdź postacie pre/post NG+ |
-| Death Count | ❌ | Known Value | Znana wartość z menu? |
-| Last Rested Grace | ❌ | Known Value | BonfireId — zweryfikuj z grace lista |
-| Play Time | ❌ | Known Value | Porównaj z menu display |
+| ClearCount (NG+) | ❌ | Known Value | Check pre/post NG+ characters |
+| Death Count | ❌ | Known Value | Known value from menu? |
+| Last Rested Grace | ❌ | Known Value | BonfireId — verify with grace list |
+| Play Time | ❌ | Known Value | Compare with menu display |
 | GaItem Game Data count | ❌ | Known Value | — |
 | Tutorial Data count | ❌ | Cross-Slot | Fresh vs endgame |
 
@@ -420,16 +421,16 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ## I. World Data — spec/12, 13, 16, 17, 18, 19
 
-| Element | Status | Metoda | Notatki |
+| Element | Status | Method | Notes |
 |---|---|---|---|
 | Torrent State | ❌ | Probe | 1/3/13 |
 | Torrent HP | ❌ | Known Value | — |
-| Blood Stain runes | ❌ | Known Value | Ile run stracono |
-| Player Coords (x,y,z) | ❌ | Known Value | Porównaj z CT readout |
+| Blood Stain runes | ❌ | Known Value | How many runes were lost |
+| Player Coords (x,y,z) | ❌ | Known Value | Compare with CT readout |
 | Map ID | ❌ | Known Value | — |
-| Weather type | ❓ | Diff | Porównaj różne pory dnia |
+| Weather type | ❓ | Diff | Compare different times of day |
 | Time (H/M/S) | ❌ | Known Value | — |
-| Regions count | ❌ | Known Value | Ile regionów odkryto |
+| Regions count | ❌ | Known Value | How many regions discovered |
 | FieldArea size | ❌ | Measure | — |
 | WorldArea size | ❌ | Measure | — |
 | NetMan size (0x20004) | ❌ | Measure | — |
@@ -438,28 +439,28 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 ## J. Platform & Meta — spec/01, 20, 21, 22, 23
 
-| Element | Status | Metoda | Notatki |
+| Element | Status | Method | Notes |
 |---|---|---|---|
 | BND4 header (PC) | ❌ | Pattern | Magic bytes "BND4" |
-| MD5 checksum (PC) | ❌ | Recalculate | Compute i porównaj |
-| PS4 header | ❌ | Pattern | Porównaj z known magic |
-| Active Slots offset PC | ❌ | **KRYTYCZNE** | Spec: 0x1C vs kod: 0x310 |
+| MD5 checksum (PC) | ❌ | Recalculate | Compute and compare |
+| PS4 header | ❌ | Pattern | Compare with known magic |
+| Active Slots offset PC | ❌ | **CRITICAL** | Spec: 0x1C vs code: 0x310 |
 | Active Slots offset PS4 | ❌ | Known Value | 0x300 |
-| ProfileSummary offset PC | ❌ | **KRYTYCZNE** | Spec: 0x26 vs kod: 0x31A |
+| ProfileSummary offset PC | ❌ | **CRITICAL** | Spec: 0x26 vs code: 0x31A |
 | ProfileSummary offset PS4 | ❌ | Known Value | 0x30A |
-| SteamID w UserData10 | ❌ | Known Value | 8 bytes, known Steam ID |
+| SteamID in UserData10 | ❌ | Known Value | 8 bytes, known Steam ID |
 | DLC flags (50B) | ❌ | Pattern | Bytes 3-49 = zero? |
 | DLC entry flag | ❌ | Probe | 0/1 |
 | BaseVersion | ❌ | Known Value | — |
-| PlayerGameData Hash | ❌ | Measure | Reszta do końca slotu |
+| PlayerGameData Hash | ❌ | Measure | Remainder to end of slot |
 
 ---
 
-## K. Dynamic Offset Chain — KRYTYCZNE
+## K. Dynamic Offset Chain — CRITICAL
 
-Weryfikacja łańcucha offsetów obliczanych sekwencyjnie:
+Verification of sequentially calculated offset chain:
 
-| Krok | Od → Do | Status | Metoda |
+| Step | From → To | Status | Method |
 |---|---|---|---|
 | 1 | Slot start → GaItem Map | ❌ | Version + header (32B) |
 | 2 | GaItem Map → PlayerGameData | ❌ | Scan all entries, sum sizes |
@@ -489,84 +490,84 @@ Weryfikacja łańcucha offsetów obliczanych sekwencyjnie:
 | 26 | SteamID → PS5Activity | ❌ | +8B |
 | 27 | PS5Activity → DLC | ❌ | +32B |
 | 28 | DLC → Hash | ❌ | +50B |
-| 29 | Hash → Slot End | ❌ | Reszta do 0x280000 |
+| 29 | Hash → Slot End | ❌ | Remainder to 0x280000 |
 
 ---
 
-## L. ODKRYCIA — Nieznane parametry do zbadania
+## L. DISCOVERIES — Unknown parameters to investigate
 
-### Priorytet WYSOKI (prawdopodobnie edytowalne)
+### HIGH priority (likely editable)
 
-| ID | Lokalizacja | Hipoteza | Plan badania |
+| ID | Location | Hypothesis | Investigation plan |
 |---|---|---|---|
-| L1 | PGD 0x00–0x07 | Runtime-only header? | Sprawdź czy różne między slotami |
-| L2 | PGD 0x20 | FP-related (between MaxFP and SP) | Porównaj z Mind value; probe |
-| L3 | PGD 0x30 | SP-related | Porównaj z Endurance value |
-| L4 | PGD 0x54–0x5C | Extended attrs? DLC? | Sprawdź pre-DLC vs post-DLC save |
+| L1 | PGD 0x00–0x07 | Runtime-only header? | Check if different between slots |
+| L2 | PGD 0x20 | FP-related (between MaxFP and SP) | Compare with Mind value; probe |
+| L3 | PGD 0x30 | SP-related | Compare with Endurance value |
+| L4 | PGD 0x54–0x5C | Extended attrs? DLC? | Check pre-DLC vs post-DLC save |
 | L5 | PGD 0x6C | Runes on bloodstain? | Kill char, compare before/after |
 | L6 | PGD 0x8C–0x90 | DLC buildups? | DLC save vs base save |
-| L7 | PGD 0xFB–0x10F | Flask upgrade level + Physick | Porównaj fresh vs 12 Sacred Tears |
+| L7 | PGD 0xFB–0x10F | Flask upgrade level + Physick | Compare fresh vs 12 Sacred Tears |
 | L8 | PGD 0xC0–0xD7 | Character state flags? | Diff between online/offline save |
 
-### Priorytet ŚREDNI (prawdopodobnie informacyjne)
+### MEDIUM priority (likely informational)
 
-| ID | Lokalizacja | Hipoteza | Plan badania |
+| ID | Location | Hypothesis | Investigation plan |
 |---|---|---|---|
-| L9 | PGD 0xB8–0xB9 | Appearance/VowType? | Cross-ref z CT |
-| L10 | PGD 0xBC–0xBD | Starting equip related? | Porównaj klasy |
-| L11 | PGD 0xBF | SummonSpiritLevel | Co to robi? DLC? |
+| L9 | PGD 0xB8–0xB9 | Appearance/VowType? | Cross-ref with CT |
+| L10 | PGD 0xBC–0xBD | Starting equip related? | Compare classes |
+| L11 | PGD 0xBF | SummonSpiritLevel | What does it do? DLC? |
 | L12 | PGD 0xDD–0xF6 | Extended online settings | Diff online vs offline |
-| L13 | PGD 0xEF | ReinforceLv | Character reinforce — co to? |
+| L13 | PGD 0xEF | ReinforceLv | Character reinforce — what is this? |
 | L14 | PGD 0x180–0x1AF | Trailing 48B | SwordArt? Correction? Overflow? |
 
-### Priorytet NISKI (prawdopodobnie stałe/unused)
+### LOW priority (likely constant/unused)
 
-| ID | Lokalizacja | Hipoteza | Plan badania |
+| ID | Location | Hypothesis | Investigation plan |
 |---|---|---|---|
-| L15 | Equipment slot #21 | Accessory 5 — unused? | Sprawdź czy zawsze 0xFFFFFFFF |
+| L15 | Equipment slot #21 | Accessory 5 — unused? | Check if always 0xFFFFFFFF |
 | L16 | Face Data trailing 15B | Slot-only extra params? | Diff vs ProfileSummary version |
-| L17 | Body Scale format | float vs u8 w save? | Hex dump known proportions |
-| L18 | Correction Stats location | W PGD czy po PGD? | Szukaj kopii atrybutów |
+| L17 | Body Scale format | float vs u8 in save? | Hex dump known proportions |
+| L18 | Correction Stats location | In PGD or after PGD? | Search for attribute copies |
 
 ---
 
-## Procedura sesji weryfikacyjnej
+## Verification session procedure
 
-### Przed sesją:
+### Before session:
 1. `cp tmp/save/ER0000.sl2 tmp/save/ER0000.sl2.bak` — backup
-2. Przygotuj skrypt do wycinania slotów z save file
-3. Przygotuj `xxd` / `hexdump` commands z prawidłowymi offsetami
+2. Prepare script to extract slots from save file
+3. Prepare `xxd` / `hexdump` commands with correct offsets
 
-### Podczas sesji:
-1. Wybierz sekcję do weryfikacji (np. "A. PlayerGameData")
-2. Wykonaj odpowiednią metodę (Known Value / Diff / Probe)
-3. Zapisuj wyniki w kolumnie "Status" i "Notatki"
-4. Przy odkryciu — dodaj do sekcji L z pełnym opisem
+### During session:
+1. Choose section to verify (e.g. "A. PlayerGameData")
+2. Execute appropriate method (Known Value / Diff / Probe)
+3. Record results in "Status" and "Notes" columns
+4. On discovery — add to section L with full description
 
-### Po sesji:
-1. Zaktualizuj ten plik ze statusami
-2. Zaktualizuj odpowiednie pliki spec/ z potwierdzonymi informacjami
-3. Dodaj nowe odkrycia do spec/26-parameter-reference.md
+### After session:
+1. Update this file with statuses
+2. Update corresponding spec/ files with confirmed information
+3. Add new discoveries to spec/26-parameter-reference.md
 
 ---
 
-## Narzędzia pomocnicze (do napisania)
+## Helper tools (to write)
 
-| Narzędzie | Cel | Status |
+| Tool | Purpose | Status |
 |---|---|---|
-| `scripts/dump_slot.py` | Wyciąga surowy slot z .sl2 | ❌ Do napisania |
-| `scripts/find_pattern.py` | Szuka wzorca w hex dump | ❌ Do napisania |
-| `scripts/verify_bst.py` | Testuje algorytm BST na known flags | ❌ Do napisania |
-| `scripts/diff_slots.py` | Porównuje dwa sloty bajt po bajcie | ❌ Do napisania |
-| `scripts/parse_pgd.py` | Parsuje PlayerGameData i wypisuje pola | ❌ Do napisania |
-| `tests/offset_chain_test.go` | Weryfikuje cały łańcuch offsetów | ❌ Do napisania |
+| `scripts/dump_slot.py` | Extracts raw slot from .sl2 | ❌ To write |
+| `scripts/find_pattern.py` | Searches for pattern in hex dump | ❌ To write |
+| `scripts/verify_bst.py` | Tests BST algorithm on known flags | ❌ To write |
+| `scripts/diff_slots.py` | Compares two slots byte-by-byte | ❌ To write |
+| `scripts/parse_pgd.py` | Parses PlayerGameData and prints fields | ❌ To write |
+| `tests/offset_chain_test.go` | Verifies the entire offset chain | ❌ To write |
 
 ---
 
-## Źródła
+## Sources
 
-- Hex editor: `xxd`, `hexdump`, lub GUI (HxD, ImHex)
-- Python: struct module do parsowania binary
+- Hex editor: `xxd`, `hexdump`, or GUI (HxD, ImHex)
+- Python: struct module for binary parsing
 - Go test framework: `go test -v -run TestXxx`
-- er-save-manager: reference parser do porównań
-- Cheat Engine tables: runtime values do cross-reference
+- er-save-manager: reference parser for comparisons
+- Cheat Engine tables: runtime values for cross-reference

@@ -1,81 +1,82 @@
-# 12 — Torrent (Koń)
+# 12 — Torrent (Horse)
 
-> **Zakres**: Dane Torrenta — pozycja, HP, stan.
-
----
-
-## Opis ogólny
-
-RideGameData przechowuje stan konia (Torrent): jego pozycję w świecie, punkty życia i stan aktywności. Rozmiar: 40 bajtów (0x28).
+> **Type**: Binary format spec  
+> **Scope**: Torrent data — position, HP, state.
 
 ---
 
-## Struktura (40 bytes)
+## Overview
 
-| Offset | Typ | Opis |
+RideGameData stores the horse's (Torrent) state: its position in the world, hit points, and activity state. Size: 40 bytes (0x28).
+
+---
+
+## Structure (40 bytes)
+
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | f32 × 3 | Coordinates (x, y, z) — pozycja Torrenta |
-| 0x0C | u8[4] | Map ID (identyfikator mapy) |
-| 0x10 | f32 × 4 | Angle / Quaternion (orientacja) |
-| 0x20 | i32 | HP (punkty życia) |
-| 0x24 | u32 | State (stan) |
+| 0x00 | f32 × 3 | Coordinates (x, y, z) — Torrent's position |
+| 0x0C | u8[4] | Map ID (map identifier) |
+| 0x10 | f32 × 4 | Angle / Quaternion (orientation) |
+| 0x20 | i32 | HP (hit points) |
+| 0x24 | u32 | State |
 
 ---
 
 ## Horse State
 
-| Wartość | Stan | Opis |
+| Value | State | Description |
 |---|---|---|
-| 1 | INACTIVE | Torrent nie jest przywołany |
-| 3 | DEAD | Torrent martwy (wymaga Crimson Flask) |
-| 13 | ACTIVE | Torrent przywołany, gracz jeździ |
+| 1 | INACTIVE | Torrent not summoned |
+| 3 | DEAD | Torrent dead (requires Crimson Flask) |
+| 13 | ACTIVE | Torrent summoned, player is riding |
 
 ---
 
-## Znany bug: Infinite Loading Screen
+## Known bug: Infinite Loading Screen
 
-**Warunek buga**: `HP == 0` AND `State == ACTIVE (13)`
+**Bug condition**: `HP == 0` AND `State == ACTIVE (13)`
 
-Powinno być: `HP == 0` AND `State == DEAD (3)`
+Should be: `HP == 0` AND `State == DEAD (3)`
 
-Ten bug powoduje infinite loading screen przy wejściu do gry. Fix: zmień State na 3 (DEAD) gdy HP == 0.
+This bug causes an infinite loading screen when entering the game. Fix: change State to 3 (DEAD) when HP == 0.
 
 ---
 
 ## Torrent Unlock
 
-Torrent jest odblokowany przez Event Flag **60100** (Spectral Steed Ring, otrzymany po spotkaniu Meliny w Site of Grace).
+Torrent is unlocked by Event Flag **60100** (Spectral Steed Ring, received after meeting Melina at a Site of Grace).
 
-Bez tej flagi gracz nie może przywołać Torrenta nawet jeśli posiada Spectral Steed Ring w inventory.
+Without this flag the player cannot summon Torrent even if they have the Spectral Steed Ring in inventory.
 
 ---
 
 ## Torrent HP Scaling
 
-HP Torrenta skaluje z poziomem gracza. Nie jest to stała wartość — gra oblicza max HP na podstawie player level. Dokładna formuła nieznana, ale:
+Torrent's HP scales with player level. It's not a constant value — the game calculates max HP based on player level. Exact formula unknown, but:
 - ~lvl 1: ~400 HP
 - ~lvl 50: ~800 HP
 - ~lvl 100+: ~1200+ HP
 
-Revived Spirit Ash Blessing (DLC) zwiększa HP i damage negation Torrenta w Realm of Shadow.
+Revered Spirit Ash Blessing (DLC) increases Torrent's HP and damage negation in the Realm of Shadow.
 
 ---
 
-## Implikacje dla edycji
+## Editing implications
 
-- Bezpieczne do modyfikacji
-- **HP**: Wartość z zakresu 0 do max HP Torrenta. Wartość powyżej max = clamped przez grę.
-- **State**: Używaj TYLKO znanych wartości (1, 3, 13). Inne = undefined behavior.
-- **Coordinates**: Zmiana teleportuje Torrenta (ale gra resetuje pozycję przy przywołaniu).
-- **Fix buga**: ZAWSZE koryguj State=3 (DEAD) gdy HP=0. To zapobiega infinite loading.
-- **Unlock check**: Weryfikuj event flag 60100 przed ustawieniem State=ACTIVE.
+- Safe to modify
+- **HP**: Value in range 0 to Torrent's max HP. Value above max = clamped by game.
+- **State**: Use ONLY known values (1, 3, 13). Others = undefined behavior.
+- **Coordinates**: Changing teleports Torrent (but the game resets position on summon).
+- **Bug fix**: ALWAYS correct State=3 (DEAD) when HP=0. This prevents infinite loading.
+- **Unlock check**: Verify event flag 60100 before setting State=ACTIVE.
 
 ---
 
-## Źródła
+## Sources
 
-- er-save-manager: `parser/world.py` — klasa `RideGameData` (linie 126-173)
+- er-save-manager: `parser/world.py` — class `RideGameData` (lines 126-173)
 - er-save-manager: `parser/er_types.py` — enum `HorseState`
-- er-save-manager: `parser/user_data_x.py` linia 130: `horse: RideGameData`
+- er-save-manager: `parser/user_data_x.py` line 130: `horse: RideGameData`
 - Cheat Engine: `ER_all-in-one_Hexinton_v3.10` — Torrent coordinates (WorldChrMan chain)
 - Elden Ring Wiki: https://eldenring.wiki.fextralife.com/Torrent

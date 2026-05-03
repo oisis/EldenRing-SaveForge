@@ -1,48 +1,49 @@
-# 18 — Network Manager (Dane Sieciowe)
+# 18 — Network Manager
 
-> **Zakres**: Dane multiplayer — 131 KB opaque blob.
-
----
-
-## Opis ogólny
-
-NetMan przechowuje dane sesji multiplayer. Duży blok (131,076 bajtów = 0x20004), w dużej mierze niezbadany.
+> **Type**: Binary format spec  
+> **Scope**: Multiplayer data — 131 KB opaque blob.
 
 ---
 
-## Struktura (131,076 bytes)
+## Overview
 
-| Offset | Typ | Opis |
+NetMan stores multiplayer session data. Large block (131,076 bytes = 0x20004), largely unexplored.
+
+---
+
+## Structure (131,076 bytes)
+
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | u32 | Unknown (unk0x0) — prawdopodobnie flaga stanu |
+| 0x00 | u32 | Unknown (unk0x0) — likely a state flag |
 | 0x04 | u8[0x20000] | Data (131,072 bytes) — opaque network state |
 
 ---
 
-## Spawn Point Data (bezpośrednio po RendMan, przed NetMan)
+## Spawn Point Data (directly after RendMan, before NetMan)
 
-Po Player Coordinates i przed NetMan znajdują się dodatkowe pola GameMan:
+After Player Coordinates and before NetMan, additional GameMan fields are present:
 
-| Offset | Typ | Opis |
+| Offset | Type | Description |
 |---|---|---|
 | +0 | u8 | game_man_0x5be |
 | +1 | u8 | game_man_0x5bf |
-| +2 | u32 | spawn_point_entity_id (Grace entity ID dla respawnu) |
+| +2 | u32 | spawn_point_entity_id (Grace entity ID for respawn) |
 | +6 | u32 | game_man_0xb64 |
 | +10 | u32 | temp_spawn_point_entity_id (version >= 65) |
 | +14 | u8 | game_man_0xcb3 (version >= 66) |
 
 ---
 
-## Implikacje dla edycji
+## Editing implications
 
-- **spawn_point_entity_id**: zmiana = gracz respawnuje w innym Site of Grace
-- Network data: typowo nie edytuje się — dane sesji są efemeryczne
-- Cały blob można wyzerować bezpiecznie (multiplayer state resetnięty)
+- **spawn_point_entity_id**: changing = player respawns at a different Site of Grace
+- Network data: typically not edited — session data is ephemeral
+- Entire blob can be safely zeroed (multiplayer state reset)
 
 ---
 
-## Źródła
+## Sources
 
-- er-save-manager: `parser/world.py` — klasa `NetMan` (linie 785-802)
-- er-save-manager: `parser/user_data_x.py` linie 178-186 (GameMan spawn fields)
+- er-save-manager: `parser/world.py` — class `NetMan` (lines 785-802)
+- er-save-manager: `parser/user_data_x.py` lines 178-186 (GameMan spawn fields)

@@ -1,74 +1,75 @@
-# 33 — DB Categorization Audit (Information Tab + Multiplayer/Remembrances/Crystal Tears reclass)
+# 33 — DB Categorization Audit (Information Tab + Multiplayer/Remembrances/Crystal Tears Reclassification)
 
-> **Zakres**: Audyt i migracja itemów w `backend/db/data/*.go` po stronie kategoryzacji per-tab gry. Stworzenie nowej kategorii `info` (Information / Informacje), reorganizacja `tools.go`, `key_items.go`, `crafting_materials.go`. Audyt flag `cut_content` / `ban_risk` przy okazji.
+> **Type**: Design doc  
+> **Scope**: Audit and migration of items in `backend/db/data/*.go` for per-tab game categorization. Creation of new `info` category (Information), reorganization of `tools.go`, `key_items.go`, `crafting_materials.go`. Audit of `cut_content` / `ban_risk` flags.
 
-> **Status**: ✅ Wdrożone na `feat/db-info-category` (Apr 2026).
+> **Status**: ✅ Deployed on `feat/db-info-category` (Apr 2026).
 >
-> **Rozszerzone przez**: [spec/36 — Inventory Categories: Game-Accurate Order &
-> Sub-Grouping](36-inventory-categories-game-order.md). Spec/33 ustaliło source-of-truth
-> (Fextralife per-item) i wyciągnęło Information tab; spec/36 dokończa pracę
-> definiując 18 zakładek głównych w kolejności z gry, mapując sub-grupy i
-> przenosząc ostatnie misclassifications (Larval Tears, Torches, Region Maps,
-> Golden Runes, Whetblades/Cookbooks visibility).
+> **Extended by**: [spec/36 — Inventory Categories: Game-Accurate Order &
+> Sub-Grouping](36-inventory-categories-game-order.md). Spec/33 established the source-of-truth
+> (Fextralife per-item) and extracted the Information tab; spec/36 completes the work
+> by defining 18 main tabs in game order, mapping sub-groups, and moving the last
+> misclassifications (Larval Tears, Torches, Region Maps, Golden Runes,
+> Whetblades/Cookbooks visibility).
 
 ---
 
-## Cel
+## Goal
 
-Aktualne grupowanie itemów w naszym DB nie matchowało 1:1 zakładek inventory w grze. Naprawiamy:
+Current item grouping in our DB did not match the in-game inventory tabs 1:1. Fixes:
 
-- **Information tab w grze** (Polish: Informacje) nie miał odpowiednika w DB. About tutoriale były w `key_items.go`, Letters/Maps/Notes w `tools.go` lub `key_items.go`.
-- **`tools.go` był catch-all** — zawierał Multiplayer Items, Remembrances, Crystal Tears, Keys, Scrolls, Materials. Wszystko to ma osobne sub-kategorie w grze.
-- **`key_items.go` zawierał Multiplayer Items i Remembrances** mimo że gra pokazuje je w Items tab pod sub-kategoriami.
-
----
-
-## Filozofia źródła prawdy
-
-Po dwóch iteracjach pierwsza wersja audytu (oparta o `er-save-manager/Goods/*.txt`) okazała się niewłaściwa — *user zweryfikował in-game że Letters Volcano Manor / Patches / Bernahl są na zakładce Informacje, mimo że er-save-manager klasyfikuje je w `KeyItems.txt`*.
-
-**Nowy ranking źródeł:**
-
-1. **In-game observation** (user na PC z make dev / Steam Deck) — autorytatywne.
-2. **Fextralife per-item page breadcrumb** (np. *Equipment & Magic / Items / Multiplayer Items*) — autorytatywne.
-3. **Fextralife master listy** (Info Items, Multiplayer Items, Crystal Tears) — pomocnicze, mogą się rozjeżdżać z per-item pages.
-4. **er-save-manager `Goods/*.txt`** — wstępny hint, wymaga cross-check (NotesPaintings.txt to ich subiektywna grupa, nie tab gry).
-5. **ER-Save-Editor (Rust) `db/item_name.rs`** — tylko nazwy + ID, brak kategoryzacji per-tab.
+- **Information tab in-game** had no equivalent in DB. About tutorials were in `key_items.go`, Letters/Maps/Notes in `tools.go` or `key_items.go`.
+- **`tools.go` was a catch-all** — contained Multiplayer Items, Remembrances, Crystal Tears, Keys, Scrolls, Materials. All of these have separate sub-categories in-game.
+- **`key_items.go` contained Multiplayer Items and Remembrances** even though the game shows them in the Items tab under sub-categories.
 
 ---
 
-## Mapowanie kategorii DB → in-game tab
+## Source-of-truth philosophy
 
-| `Category` w DB | In-game tab w grze | Notki |
+After two iterations, the first audit version (based on `er-save-manager/Goods/*.txt`) proved unreliable — *user verified in-game that Volcano Manor / Patches / Bernahl Letters are on the Information tab, despite er-save-manager classifying them in `KeyItems.txt`*.
+
+**New source ranking:**
+
+1. **In-game observation** (user on PC with make dev / Steam Deck) — authoritative.
+2. **Fextralife per-item page breadcrumb** (e.g. *Equipment & Magic / Items / Multiplayer Items*) — authoritative.
+3. **Fextralife master lists** (Info Items, Multiplayer Items, Crystal Tears) — supplementary, may diverge from per-item pages.
+4. **er-save-manager `Goods/*.txt`** — initial hint, requires cross-check (NotesPaintings.txt is their subjective grouping, not a game tab).
+5. **ER-Save-Editor (Rust) `db/item_name.rs`** — names + IDs only, no per-tab categorization.
+
+---
+
+## DB category → in-game tab mapping
+
+| `Category` in DB | In-game tab | Notes |
 |---|---|---|
-| `weapons` / `ranged_and_catalysts` / `shields` / `arrows_and_bolts` | Equipment > Weapons | OK, czyste |
-| `head` / `chest` / `arms` / `legs` | Equipment > Armor | OK, czyste |
+| `weapons` / `ranged_and_catalysts` / `shields` / `arrows_and_bolts` | Equipment > Weapons | OK, clean |
+| `head` / `chest` / `arms` / `legs` | Equipment > Armor | OK, clean |
 | `talismans` | Equipment > Talismans | OK |
 | `sorceries` / `incantations` | Equipment > Spells | OK |
-| `gestures` | Gestures menu (osobny) | OK |
+| `gestures` | Gestures menu (separate) | OK |
 | `ashes` | Items > Spirit Ashes | OK |
 | `ashes_of_war` (`aows.go`) | Items > Ashes of War | OK |
 | `crafting_materials` | Items > Materials > Crafting | OK |
-| `bolstering_materials` | Items > Materials > Upgrade (Smithing/Somber Stones, Runes) | Project decyzja: Runy Golden/Hero/Lord/Numen/Lands Between/Rune Arc tu, mimo że er-save-manager ma w Consumables. Defensible. |
-| `key_items` | Key Items tab (z subkategorią Crystal Tears) | po audycie: zawiera Crystal Tears (sub-tab), Cookbooks/Bell Bearings/Whetblades (filtered out via `Is*ItemID()`) |
-| `tools` | Items tab (Consumables, Multiplayer, Remembrances, Throwables, Pots, Greases, Perfumes, Flasks itd.) | Catch-all dla Items. Zawiera 13 Multiplayer Items + 25 Remembrances + 27 Flasks (full) + 27 Flasks (empty) + reszta consumables |
-| `info` (nowy) | Information tab (About tutoriale, Letters, Notes, Paintings, Maps, Cross messages) | 114 entries |
+| `bolstering_materials` | Items > Materials > Upgrade (Smithing/Somber Stones, Runes) | Project decision: Golden/Hero/Lord/Numen/Lands Between Runes + Rune Arc here, despite er-save-manager having them in Consumables. Defensible. |
+| `key_items` | Key Items tab (with Crystal Tears sub-tab) | Post-audit: contains Crystal Tears (sub-tab), Cookbooks/Bell Bearings/Whetblades (filtered out via `Is*ItemID()`) |
+| `tools` | Items tab (Consumables, Multiplayer, Remembrances, Throwables, Pots, Greases, Perfumes, Flasks etc.) | Catch-all for Items. Contains 13 Multiplayer Items + 25 Remembrances + 27 Flasks (full) + 27 Flasks (empty) + remaining consumables |
+| `info` (new) | Information tab (About tutorials, Letters, Notes, Paintings, Maps, Cross messages) | 114 entries |
 
 ---
 
-## Migracje wykonane
+## Migrations performed
 
-### 1. Wyciągnięcie Information tab (105 entries)
+### 1. Extraction of Information tab (105 entries)
 
-**Z `key_items.go` → `info.go`** (52):
-- 35 About* tutoriali (`0x4000238C` — `0x400023B4`, plus `0x400023EB` cut)
+**From `key_items.go` → `info.go`** (52):
+- 35 About* tutorials (`0x4000238C` — `0x400023B4`, plus `0x400023EB` cut)
 - 7 Paintings (`0x40002008` — `0x4000200E`)
 - 1 Map: Dragonbarrow (`0x400021A2`)
 - 2 DLC About (`0x401EA848`, `0x401EA84A`)
 - 7 DLC info messages: Castle Cross, Ancient Ruins Cross, Monk's Missive, Storehouse Cross, Torn Diary, Message from Leda, Tower of Shadow
 
-**Z `tools.go` → `info.go`** (53 + 6 z drugiej iteracji):
-- 1 About the Map (`0x40002393`) — w tools bo IconPath `tools/quest/`
+**From `tools.go` → `info.go`** (53 + 6 from second iteration):
+- 1 About the Map (`0x40002393`) — was in tools due to IconPath `tools/quest/`
 - 19 base region maps (`0x40002198` — `0x400021AA` minus Dragonbarrow)
 - 5 DLC region maps (`0x401EA618` — `0x401EA61C`)
 - 6 Letters: Volcano Manor, Patches, Bernahl, Burial Crow's, Zorayas's, Rogier's
@@ -76,73 +77,73 @@ Po dwóch iteracjach pierwsza wersja audytu (oparta o `er-save-manager/Goods/*.t
 - 1 DLC Letter for Freyja (`0x401EA3CF`)
 - 2 DLC Notes (`0x401EA3D9` Furnace Keeper's, `0x401EA443` Sealed Spiritsprings)
 - 3 DLC Paintings (`0x401EA488` — `0x401EA48A`)
-- **Druga iteracja po user feedback** (6 dodanych — user zauważył brakujące): Irina's Letter (`0x40001FC3`), Red Letter (`0x40001FC5`), Cross Map (`0x401EA3C7`), 3× Ruins Map (`0x401EA3D0` / `D1` / `D2`)
+- **Second iteration after user feedback** (6 added — user noticed missing items): Irina's Letter (`0x40001FC3`), Red Letter (`0x40001FC5`), Cross Map (`0x401EA3C7`), 3× Ruins Map (`0x401EA3D0` / `D1` / `D2`)
 
-### 2. Reklasyfikacja `tools.go` → `key_items.go` (31 entries)
+### 2. Reclassification `tools.go` → `key_items.go` (31 entries)
 
 **Crystal Tears** (11) — Fextralife: *"Crystal Tears in Elden Ring are Key Items that can be mixed in the Flask of Wondrous Physick."*: Speckled Hardtear, Crimson/Opaline Bubbletear, Opaline/Leaden Hardtear, Crimsonwhorl Bubbletear, Cerulean Hidden Tear + 4 DLC (Viridian Hidden, Crimsonburst Dried, Oil-Soaked, Deflecting Hardtear).
 
 **Keys & Scrolls** (13): Stonesword Key, Rusty Key, Drawing-Room Key, Imbued Sword Key, Royal House Scroll, Well Depths Key (DLC), Gaol Upper/Lower Level Key (DLC), Storeroom Key (DLC), Secret Rite Scroll (DLC), Keep Wall Key (DLC, cut_content + ban_risk preserved), Prayer Room Key (DLC), Academy Glintstone Key.
 
-**Items z IconPath `key_items/`** (7): Whetstone Knife, Glintstone Whetblade, Conspectus Scroll, Academy Scroll, Margit's Shackle, Mohg's Shackle, Pureblood Knight's Medal. 5 z 7 miało już IconPath wskazujący `items/key_items/` — `tools.go` był po prostu wrong category.
+**Items with IconPath `key_items/`** (7): Whetstone Knife, Glintstone Whetblade, Conspectus Scroll, Academy Scroll, Margit's Shackle, Mohg's Shackle, Pureblood Knight's Medal. 5 of 7 already had IconPath pointing to `items/key_items/` — `tools.go` simply had the wrong category.
 
-### 3. Reklasyfikacja `tools.go` → `crafting_materials.go` (5 entries)
+### 3. Reclassification `tools.go` → `crafting_materials.go` (5 entries)
 
-Golden Centipede, Sanctuary Stone, Glintstone Firefly, Volcanic Stone, Gravel Stone — wszystkie crafting materials zgodnie z Fextralife per-item pages.
+Golden Centipede, Sanctuary Stone, Glintstone Firefly, Volcanic Stone, Gravel Stone — all crafting materials per Fextralife per-item pages.
 
-### 4. Reklasyfikacja `key_items.go` → `tools.go` (38 entries)
+### 4. Reclassification `key_items.go` → `tools.go` (38 entries)
 
 **Multiplayer Items** (13) — Fextralife breadcrumb *Equipment & Magic / Items / Multiplayer Items*: Bloody Finger, Tarnished's/Phantom Bloody Finger, Tarnished's/Phantom Recusant Finger, Recusant Finger, Festering Bloody Finger, Tarnished's Wizened Finger, Tarnished's/Duelist's Furled Finger, Igon's Furled Finger (DLC), Furlcalling Finger Remedy, Small Golden/Red Effigy, Taunter's Tongue.
 
-**Remembrances** (25, 15 base + 10 DLC) — Fextralife breadcrumb *Equipment & Magic / Items / Remembrances*. Wszystkie boss remembrances do trade z Finger Reader Enia i Twin Maiden Husks.
+**Remembrances** (25, 15 base + 10 DLC) — Fextralife breadcrumb *Equipment & Magic / Items / Remembrances*. All boss remembrances for trading with Finger Reader Enia and Twin Maiden Husks.
 
 ---
 
-## Audyt flag `cut_content` / `ban_risk`
+## `cut_content` / `ban_risk` flag audit
 
-Trzy wpisy oflagowane były jako `cut_content + ban_risk`. Web research zweryfikował:
+Three entries were flagged as `cut_content + ban_risk`. Web research verified:
 
-| ID | Item | Verdict | Akcja |
+| ID | Item | Verdict | Action |
 |---|---|---|---|
-| `0x400023EB` | About Multiplayer | ✅ Cut (Fextralife: "Unavailable" + spawned ma `[ERROR]` prefix) | Keep `cut_content + ban_risk`. Information item. |
-| `0x400023A7` | About Monument Icon | ❌ NOT cut (was reachable v1.0 disc, broken w patch 1.06) | Drop `cut_content`, keep `ban_risk` (EAC nie whitelistuje wersji). Comment wyjaśnia. |
-| `0x4000229D` | Erdtree Codex | ✅ Cut (Fextralife/Fandom/GameRant unanimous) | Keep `cut_content + ban_risk`. **Key Item, NIE Information** — zostaje w `key_items.go`. |
-| `0x40001FF5` | Burial Crow's Letter | ⚠️ Fextralife mówi cut, user widzi w grze | Keep `cut_content + ban_risk`. Information item per user observation. |
-| `0x401EA3CF` | Letter for Freyja | ⚠️ Master list: Info, per-item: Key Item | Information per master list. TODO comment do verify in-game. |
+| `0x400023EB` | About Multiplayer | ✅ Cut (Fextralife: "Unavailable" + spawned has `[ERROR]` prefix) | Keep `cut_content + ban_risk`. Information item. |
+| `0x400023A7` | About Monument Icon | ❌ NOT cut (was reachable v1.0 disc, broken in patch 1.06) | Drop `cut_content`, keep `ban_risk` (EAC doesn't whitelist versions). Comment explains. |
+| `0x4000229D` | Erdtree Codex | ✅ Cut (Fextralife/Fandom/GameRant unanimous) | Keep `cut_content + ban_risk`. **Key Item, NOT Information** — stays in `key_items.go`. |
+| `0x40001FF5` | Burial Crow's Letter | ⚠️ Fextralife says cut, user sees in-game | Keep `cut_content + ban_risk`. Information item per user observation. |
+| `0x401EA3CF` | Letter for Freyja | ⚠️ Master list: Info, per-item: Key Item | Information per master list. TODO comment to verify in-game. |
 
 ---
 
 ## Items intentionally NOT moved
 
-| Item | Tab w grze | Decyzja | Powód |
+| Item | In-game tab | Decision | Reason |
 |---|---|---|---|
-| Empty Flasks (Cerulean/Crimson/Wondrous Physick) | Items > Consumables (Flasks) | Pozostają w `tools.go` | Fextralife: "Items / Consumables" = nasze tools (catch-all consumables). |
-| Dragon Heart (`0x4000274C`) | Key Items | Pozostaje w `key_items.go` | Fextralife eksplicite: *"Dragon Heart is a Key Item"*. (er-save-manager ma w UpgradeMaterials.txt — Fextralife trumps.) |
-| 5 borderline pot/bottle/kit (Cracked Pot, Ritual Pot, Hefty Cracked Pot, Perfume Bottle, Crafting Kit) | Multiple (Key Item + Crafting Material + Keepsake) | Pozostają w `key_items.go` | Fextralife eksplicite dla Cracked Pot: *"Key Item, Crafting Material, and optional Keepsake"* — funkcjonalnie 3 zakładki. |
-| Cookbooks (`IsCookbookItemID`), Bell Bearings (`IsBellBearingItemID`), Whetblades (`IsWhetbladeItemID`) | Key Items / Bell Bearings sub / Whetblades sub | Pozostają w `key_items.go` | Project decision — data home. Filtered out z dropdown poprzez `Is*ItemID()` w `db.go::GetItemsByCategory("key_items")`. |
+| Empty Flasks (Cerulean/Crimson/Wondrous Physick) | Items > Consumables (Flasks) | Remain in `tools.go` | Fextralife: "Items / Consumables" = our tools (catch-all consumables). |
+| Dragon Heart (`0x4000274C`) | Key Items | Remains in `key_items.go` | Fextralife explicitly: *"Dragon Heart is a Key Item"*. (er-save-manager has it in UpgradeMaterials.txt — Fextralife trumps.) |
+| 5 borderline pot/bottle/kit (Cracked Pot, Ritual Pot, Hefty Cracked Pot, Perfume Bottle, Crafting Kit) | Multiple (Key Item + Crafting Material + Keepsake) | Remain in `key_items.go` | Fextralife explicitly for Cracked Pot: *"Key Item, Crafting Material, and optional Keepsake"* — functionally 3 tabs. |
+| Cookbooks (`IsCookbookItemID`), Bell Bearings (`IsBellBearingItemID`), Whetblades (`IsWhetbladeItemID`) | Key Items / Bell Bearings sub / Whetblades sub | Remain in `key_items.go` | Project decision — data home. Filtered out from dropdown via `Is*ItemID()` in `db.go::GetItemsByCategory("key_items")`. |
 
 ---
 
-## Dyskrepancje wymagające in-game verification (TODO)
+## Discrepancies requiring in-game verification (TODO)
 
-| ID | Item | Fextralife master | Fextralife per-item | Decyzja |
+| ID | Item | Fextralife master | Fextralife per-item | Decision |
 |---|---|---|---|---|
-| `0x4000219E` | Meeting Place Map | Information | Key Item | Pozostawione w `tools.go` jako Map (= info via current categorization). User nie zweryfikował. |
-| `0x400021D4` | Mirage Riddle | Information | Key Item | Pozostawione w `info.go` (decimal 8660 jest w er-save-manager NotesPaintings.txt). |
-| `0x401EA3CF` | Letter for Freyja | Information | Key Item | Pozostawione w `info.go` per master list. TODO verify. |
+| `0x4000219E` | Meeting Place Map | Information | Key Item | Left in `tools.go` as Map (= info via current categorization). User did not verify. |
+| `0x400021D4` | Mirage Riddle | Information | Key Item | Left in `info.go` (decimal 8660 is in er-save-manager NotesPaintings.txt). |
+| `0x401EA3CF` | Letter for Freyja | Information | Key Item | Left in `info.go` per master list. TODO verify. |
 
 ---
 
 ## Counts (final)
 
-| Plik | Before | After | Δ |
+| File | Before | After | Δ |
 |---|---|---|---|
 | `info.go` (new) | — | 114 | +114 |
 | `key_items.go` | 396 | 343 | -53 |
 | `tools.go` | 364 | 315 | -49 |
 | `crafting_materials.go` | 80 | 85 | +5 |
 
-Suma: 1,840 → 1,857 entries (+17 net — kilka dodanych po stronie merge'u).
+Total: 1,840 → 1,857 entries (+17 net — a few added during merge).
 
 ---
 
@@ -150,17 +151,17 @@ Suma: 1,840 → 1,857 entries (+17 net — kilka dodanych po stronie merge'u).
 
 ### Prayer Room Key icon
 
-**Problem**: `frontend/public/items/tools/quest/prayer_room_key.png` jest **binarnie identyczny** z `frontend/public/items/gestures/prayer.png` (oba 8762 bajty, identyczne bity). Ktoś podstawił ikonę gestu modlitwy zamiast prawdziwego klucza.
+**Problem**: `frontend/public/items/tools/quest/prayer_room_key.png` is **binary identical** to `frontend/public/items/gestures/prayer.png` (both 8762 bytes, identical bits). Someone substituted the prayer gesture icon instead of the real key.
 
-**Próby fixu**: Pobranie z Fextralife/Fandom CDN przez `curl` zwróciło 27-bajtowy text "Source image is unreachable" — CDNy blokują direct download. Manual download z przeglądarki będzie potrzebny.
+**Fix attempts**: Downloading from Fextralife/Fandom CDN via `curl` returned a 27-byte text "Source image is unreachable" — CDNs block direct download. Manual download from a browser will be needed.
 
-**Workaround**: Kod ma `// TODO icon:` comment przy wpisie. User zweryfikuje i ręcznie podmieni plik.
+**Workaround**: Code has a `// TODO icon:` comment at the entry. User will verify and manually replace the file.
 
 ---
 
-## Źródła
+## Sources
 
-### Web (autorytatywne dla per-item tab)
+### Web (authoritative for per-item tab)
 
 - https://eldenring.wiki.fextralife.com/Crystal+Tears — *"Crystal Tears in Elden Ring are Key Items that can be mixed in the Flask of Wondrous Physick."*
 - https://eldenring.wiki.fextralife.com/Multiplayer+Items — breadcrumb *Items / Multiplayer Items*.
@@ -185,8 +186,8 @@ Suma: 1,840 → 1,857 entries (+17 net — kilka dodanych po stronie merge'u).
 
 ## Future work
 
-1. **Empty Flasks** — może warto extract do osobnego `flasks.go` i sub-kategorii UI "Flasks" (Fextralife eksplicite ma "Flasks" jako sub-tab w Items). Aktualnie zostają w `tools.go` per user decision.
-2. **Crystal Tears subcategory** — aktualnie pod kategorią `key_items`. Jeśli kiedyś będzie potrzeba osobnego filtra w dropdown, można extract do `crystal_tears.go`. 41 entries (11 z tools + 30 już było w key_items).
+1. **Empty Flasks** — may be worth extracting to a separate `flasks.go` and UI sub-category "Flasks" (Fextralife explicitly has "Flasks" as a sub-tab in Items). Currently remain in `tools.go` per user decision.
+2. **Crystal Tears subcategory** — currently under `key_items` category. If a separate filter in the dropdown is ever needed, can be extracted to `crystal_tears.go`. 41 entries (11 from tools + 30 already in key_items).
 3. **Prayer Room Key icon fix** — manual artwork drop-in.
-4. **Tools.go cleanup** — nadal jest catch-all (~315 entries: pots, throwables, perfumes, greases, multiplayer, remembrances, flasks). Może warto sub-foldery DB per Items sub-tab.
-5. **5 borderline items in-game verification** — Cracked Pot / Ritual Pot / Hefty Cracked Pot / Perfume Bottle / Crafting Kit. Fextralife mówi multiple tabs, in-game verification rozstrzygnie.
+4. **Tools.go cleanup** — still a catch-all (~315 entries: pots, throwables, perfumes, greases, multiplayer, remembrances, flasks). May be worth sub-folders in DB per Items sub-tab.
+5. **5 borderline items in-game verification** — Cracked Pot / Ritual Pot / Hefty Cracked Pot / Perfume Bottle / Crafting Kit. Fextralife says multiple tabs, in-game verification will settle it.

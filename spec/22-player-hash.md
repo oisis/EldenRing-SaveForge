@@ -1,42 +1,43 @@
 # 22 — Player Data Hash
 
-> **Zakres**: Hash końcowy danych gracza — ostatnia sekcja w slocie.
+> **Type**: Binary format spec  
+> **Scope**: Final player data hash — last section in the slot.
 
 ---
 
-## Opis ogólny
+## Overview
 
-PlayerGameDataHash to ostatnia sekcja w slocie. Zajmuje resztę bajtów do końca slotu (0x280000). Zawiera hash lub checksum danych gracza.
+PlayerGameDataHash is the last section in the slot. It occupies the remaining bytes until the end of the slot (0x280000). Contains a hash or checksum of player data.
 
 ---
 
-## Struktura
+## Structure
 
-| Offset | Typ | Opis |
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | u8[...] | Hash / checksum data (do końca slotu) |
+| 0x00 | u8[...] | Hash / checksum data (until end of slot) |
 
-Dokładna długość: `slot_end - current_position` po sparsowaniu wszystkich poprzednich sekcji.
-
----
-
-## Znane właściwości
-
-- Gra **NIE waliduje** tego hasha przy ładowaniu (potwierdzone przez ER-Save-Editor)
-- Jest read-only z perspektywy edytora — nie trzeba go przeliczać
-- Zawartość prawdopodobnie to wewnętrzny hash FromSoftware do detekcji tampering (ale nie egzekwowany)
+Exact length: `slot_end - current_position` after parsing all preceding sections.
 
 ---
 
-## Implikacje dla edycji
+## Known properties
 
-- **Nie wymaga przeliczania** — gra go ignoruje
-- Bezpieczne do pozostawienia bez zmian po edycji slotu
-- Przy tworzeniu slotu od zera: wypełnij zerami
+- The game **does NOT validate** this hash on load (confirmed by ER-Save-Editor)
+- It is read-only from the editor's perspective — no recalculation needed
+- Content is likely an internal FromSoftware hash for tampering detection (but not enforced)
 
 ---
 
-## Źródła
+## Editing implications
 
-- er-save-manager: `parser/user_data_x.py` linia 195: `player_data_hash: PlayerGameDataHash`
-- er-save-manager: `parser/world.py` — klasa `PlayerGameDataHash`
+- **No recalculation required** — the game ignores it
+- Safe to leave unchanged after slot editing
+- When creating a slot from scratch: fill with zeros
+
+---
+
+## Sources
+
+- er-save-manager: `parser/user_data_x.py` line 195: `player_data_hash: PlayerGameDataHash`
+- er-save-manager: `parser/world.py` — class `PlayerGameDataHash`

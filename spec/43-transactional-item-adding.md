@@ -55,12 +55,14 @@ Counts: free inventory CommonItems (2688 - used), storage CommonItems (1920 - us
 
 ```go
 type AddResult struct {
-    Added     int          `json:"added"`
-    Requested int          `json:"requested"`
-    Skipped   []SkippedAdd `json:"skipped"`
-    CapHit    string       `json:"capHit"`
-    FreeInv   int          `json:"freeInv"`
-    FreeStore int          `json:"freeStore"`
+    Added       int          `json:"added"`
+    Requested   int          `json:"requested"`
+    Trimmed     []SkippedAdd `json:"trimmed"`
+    CapHit      string       `json:"capHit"`
+    FreeInv     int          `json:"freeInv"`
+    FreeStore   int          `json:"freeStore"`
+    NeededInv   int          `json:"neededInv"`
+    NeededStore int          `json:"neededStore"`
 }
 ```
 

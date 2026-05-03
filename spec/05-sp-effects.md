@@ -1,57 +1,58 @@
-# 05 — SP Effects (Efekty Statusu)
+# 05 — SP Effects (Status Effects)
 
-> **Zakres**: Aktywne efekty na postaci — buffy, debuffy, statusy specjalne.
-
----
-
-## Opis ogólny
-
-Sekcja SP Effects (SpEffect) następuje bezpośrednio po PlayerGameData. Zawiera listę aktywnych efektów statusu na postaci w momencie zapisu.
-
-SpEffect w Elden Ring to uniwersalny mechanizm — obejmuje wszystko od trutek przez Great Rune bonusy po efekty bossowych ataków.
+> **Type**: Binary format spec  
+> **Scope**: Active effects on the character — buffs, debuffs, special statuses
 
 ---
 
-## Struktura
+## Description
 
-### Format wpisu SPEffect
+The SP Effects (SpEffect) section follows directly after PlayerGameData. It contains a list of active status effects on the character at the moment of saving.
 
-| Offset | Typ | Opis |
+SpEffect in Elden Ring is a universal mechanism — it covers everything from antidotes through Great Rune bonuses to boss attack effects.
+
+---
+
+## Structure
+
+### SPEffect Entry Format
+
+| Offset | Type | Description |
 |---|---|---|
-| 0x00 | u32 | SpEffect ID (z tabeli SpEffectParam) |
-| 0x04 | f32 | Remaining duration (sekundy, -1.0 = permanentny) |
+| 0x00 | u32 | SpEffect ID (from SpEffectParam table) |
+| 0x04 | f32 | Remaining duration (seconds, -1.0 = permanent) |
 | 0x08 | u32 | Unknown field 1 |
 | 0x0C | u32 | Unknown field 2 |
 
-### Liczba wpisów
+### Entry Count
 
-Dokładna liczba wpisów jest podana jako prefix lub stała (wymaga weryfikacji):
-- er-save-manager parsuje SPEffect jako strukturę z `param_id` + `remaining_time` + unknown fields
-- ER-Save-Editor (Rust) nie parsuje tej sekcji szczegółowo
+The exact number of entries is given as a prefix or constant (requires verification):
+- er-save-manager parses SPEffect as a structure with `param_id` + `remaining_time` + unknown fields
+- ER-Save-Editor (Rust) does not parse this section in detail
 
 ---
 
-## Przykłady SpEffect IDs
+## SpEffect ID Examples
 
-SpEffect IDs odnoszą się do tabeli `SpEffectParam` w regulation.bin. Kilka znanych kategorii:
+SpEffect IDs refer to the `SpEffectParam` table in regulation.bin. Some known categories:
 
-- **Great Runes**: aktywowane efekty wielkich run
-- **Buffs**: Wonderous Physick mieszanki, consumable
+- **Great Runes**: activated great rune effects
+- **Buffs**: Wondrous Physick mixes, consumables
 - **Debuffs**: poison, rot, frostbite ticking damage
-- **Passive**: equipment bonuses (niektóre talizmany)
+- **Passive**: equipment bonuses (some talismans)
 
 ---
 
-## Implikacje dla edycji
+## Editing Implications
 
-- Usunięcie wszystkich SpEffects jest bezpieczne — efekty zostaną ponownie nałożone przy loginie
-- Modyfikacja duration pozwala na permanentne buffy (ustawienie -1.0f)
-- SpEffect IDs muszą istnieć w SpEffectParam — nieistniejące ID mogą crashować grę
+- Removing all SpEffects is safe — effects will be reapplied on login
+- Modifying duration allows permanent buffs (setting -1.0f)
+- SpEffect IDs must exist in SpEffectParam — non-existent IDs may crash the game
 
 ---
 
-## Źródła
+## Sources
 
-- er-save-manager: `parser/character.py` — klasa `SPEffect`
+- er-save-manager: `parser/character.py` — class `SPEffect`
 - Souls Modding Wiki: https://www.soulsmodding.com/doku.php?id=er-refmat:param:speffectparam
 - TGA CE Table: https://github.com/The-Grand-Archives/Elden-Ring-CT-TGA — param scripts
