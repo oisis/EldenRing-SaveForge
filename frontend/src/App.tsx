@@ -426,7 +426,7 @@ function App() {
                                         Open Save
                                     </button>
                                 </div>
-                                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                <div className={`flex-1 flex flex-col min-h-0 ${activeTab === 'inventory' ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar'}`}>
                                     {activeTab === 'character' && (
                                         <AppearanceTab charIndex={0} onMutate={() => {}} readOnly />
                                     )}
@@ -467,7 +467,7 @@ function App() {
                                         </div>
                                     );
                                 })()}
-                                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                <div className={`flex-1 flex flex-col min-h-0 ${activeTab === 'inventory' ? 'overflow-hidden' : 'overflow-y-auto custom-scrollbar'}`}>
                                 {activeTab === 'character' && <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} refreshKey={inventoryVersion} />}
                                 {activeTab === 'inventory' && (
                                     <div className="flex-1 flex flex-col min-h-0">

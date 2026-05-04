@@ -134,6 +134,10 @@ export function GetInfuseTypes() {
   return window['go']['main']['App']['GetInfuseTypes']();
 }
 
+export function GetItemDetail(arg1) {
+  return window['go']['main']['App']['GetItemDetail'](arg1);
+}
+
 export function GetItemList(arg1) {
   return window['go']['main']['App']['GetItemList'](arg1);
 }

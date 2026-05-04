@@ -213,6 +213,27 @@ func enrichItemEntry(e *ItemEntry) {
 	e.Spell = desc.Spell
 }
 
+// GetItemEntryByID returns a fully enriched ItemEntry for the given base item ID, or nil if not found.
+func GetItemEntryByID(id uint32) *ItemEntry {
+	item := GetItemData(id)
+	if item.Name == "" {
+		return nil
+	}
+	entry := &ItemEntry{
+		ID:           id,
+		Name:         item.Name,
+		Category:     item.Category,
+		SubCategory:  GetItemSubCategory(id, item, item.Category),
+		MaxInventory: item.MaxInventory,
+		MaxStorage:   item.MaxStorage,
+		MaxUpgrade:   item.MaxUpgrade,
+		IconPath:     item.IconPath,
+		Flags:        item.Flags,
+	}
+	enrichItemEntry(entry)
+	return entry
+}
+
 // findAshBase searches StandardAshes for the base (+0) entry matching the given name prefix.
 // baseName must already have any " +N" suffix stripped. Returns (entry, baseID) or zero values.
 func findAshBase(baseName string, idPrefix uint32) (data.ItemData, uint32) {

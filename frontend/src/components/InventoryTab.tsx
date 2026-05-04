@@ -1,11 +1,12 @@
 import {useEffect, useState, useMemo, useRef, useDeferredValue} from 'react';
 import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {GetCharacter, SaveCharacter, RemoveItemsFromCharacter, GetItemList} from '../../wailsjs/go/main/App';
-import {vm} from '../../wailsjs/go/models';
+import {GetCharacter, SaveCharacter, RemoveItemsFromCharacter, GetItemList, GetItemDetail} from '../../wailsjs/go/main/App';
+import {vm, db} from '../../wailsjs/go/models';
 import {CategorySelect} from './CategorySelect';
 import {RiskBadge} from './RiskBadge';
 import {useFavorites} from '../state/favorites';
+import {ItemDetailPanel} from './ItemDetailPanel';
 
 // Categories with sub-groupings — drives the Sub-Category column visibility.
 const CATEGORIES_WITH_SUBGROUPS = new Set([
@@ -62,6 +63,8 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
     const [removeModal, setRemoveModal] = useState<{handles: number[], names: string[]} | null>(null);
     const [isRemoving, setIsRemoving] = useState(false);
     const [brokenIcons, setBrokenIcons] = useState<Set<string>>(new Set());
+    const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
+    const [hoverTooltip, setHoverTooltip] = useState<{name: string, path: string, x: number, y: number} | null>(null);
 
     const toggleSelect = (key: string) => {
         setSelectedKeys(prev => {
@@ -149,7 +152,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
     };
 
     type MergedItem = {
-        id: number; name: string; category: string; subCategory: string; subGroup: string;
+        id: number; baseId: number; name: string; category: string; subCategory: string; subGroup: string;
         nonStackable: boolean; inInventory: boolean; inStorage: boolean;
         invHandle: number; storageHandle: number;
         invQty: number; storageQty: number;
@@ -173,7 +176,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
         charInventory.forEach(item => {
             if (item.maxInventory <= 1) {
                 nonStackableList.push({
-                    id: item.id, name: item.name,
+                    id: item.id, baseId: item.baseId || item.id, name: item.name,
                     category: item.category, subCategory: item.subCategory, subGroup: item.subGroup ?? '',
                     nonStackable: true, inInventory: true, inStorage: false,
                     invHandle: item.handle, storageHandle: 0,
@@ -185,7 +188,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                 });
             } else {
                 stackableMap.set(item.id, {
-                    id: item.id, name: item.name,
+                    id: item.id, baseId: item.baseId || item.id, name: item.name,
                     category: item.category, subCategory: item.subCategory, subGroup: item.subGroup ?? '',
                     nonStackable: false, inInventory: true, inStorage: false,
                     invHandle: item.handle, storageHandle: 0,
@@ -201,7 +204,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
         charStorage.forEach(item => {
             if (item.maxInventory <= 1) {
                 nonStackableList.push({
-                    id: item.id, name: item.name,
+                    id: item.id, baseId: item.baseId || item.id, name: item.name,
                     category: item.category, subCategory: item.subCategory, subGroup: item.subGroup ?? '',
                     nonStackable: true, inInventory: false, inStorage: true,
                     invHandle: 0, storageHandle: item.handle,
@@ -219,7 +222,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                     existing.storageQty = item.quantity;
                 } else {
                     stackableMap.set(item.id, {
-                        id: item.id, name: item.name,
+                        id: item.id, baseId: item.baseId || item.id, name: item.name,
                         category: item.category, subCategory: item.subCategory, subGroup: item.subGroup ?? '',
                         nonStackable: false, inInventory: false, inStorage: true,
                         invHandle: 0, storageHandle: item.handle,
@@ -238,6 +241,15 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
 
     const handleImageError = (iconPath: string) => {
         setBrokenIcons(prev => new Set(prev).add(iconPath));
+    };
+
+    const handleItemClick = async (item: MergedItem) => {
+        try {
+            const detail = await GetItemDetail(item.baseId);
+            if (detail) setDetailItem(detail);
+        } catch (err) {
+            console.error('Failed to load item detail:', err);
+        }
     };
 
     useEffect(() => {
@@ -403,6 +415,15 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                 </div>
             )}
 
+            {/* Hover Icon Tooltip */}
+            {hoverTooltip && (
+                <div className="fixed z-[60] pointer-events-none" style={{left: hoverTooltip.x, top: hoverTooltip.y - 8, transform: 'translate(-50%, -100%)'}}>
+                    <div className="bg-card border border-border rounded-lg shadow-xl p-2">
+                        <img src={hoverTooltip.path} alt="" className="w-24 h-24 object-contain drop-shadow-md" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                    </div>
+                </div>
+            )}
+
             {/* Capacity bar moved to App.tsx (header consolidation, spec/36) */}
 
             {/* Top Bar: [Category] [Owned/Total badge] [Search] */}
@@ -461,10 +482,12 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                 </div>
             </div>
 
-            {/* Content — Table or Grid */}
+            {/* Content — Table or Grid + Detail Panel */}
             <div className="card overflow-hidden flex flex-col flex-1 min-h-0">
+                <div className="flex-1 flex min-h-0 relative">
+                <div className={`flex-1 min-w-0 flex flex-col ${detailItem ? 'max-w-[60%]' : ''}`}>
                 {viewMode === 'grid' ? (
-                    <div className="overflow-y-auto flex-1 custom-scrollbar p-4">
+                    <div className="overflow-y-auto flex-1 custom-scrollbar p-3">
                         {loading ? (
                             <div className="flex flex-col items-center justify-center py-16 space-y-4">
                                 <div className="w-6 h-6 border-2 border-foreground/20 border-t-foreground rounded-full animate-spin" />
@@ -476,12 +499,12 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                 <span className="text-[10px] font-black uppercase tracking-widest">No items found</span>
                             </div>
                         ) : (
-                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                                 {filteredOwnedItems.map(item => {
                                     const key = rowKey(item);
                                     return (
                                         <div key={key}
-                                            className={`relative rounded-xl border bg-card p-3 flex flex-col items-center gap-2 transition-all hover:border-primary/40 hover:bg-primary/[0.03] group ${selectedKeys.has(key) ? 'border-red-500/50 bg-red-500/[0.03]' : 'border-border/50'}`}
+                                            className={`relative rounded-xl border bg-card p-1.5 flex flex-col items-center gap-1 transition-all hover:border-primary/40 hover:bg-primary/[0.03] group ${selectedKeys.has(key) ? 'border-red-500/50 bg-red-500/[0.03]' : 'border-border/50'}`}
                                         >
                                             <button onClick={e => { e.stopPropagation(); toggleFav(item.id); }} className="absolute top-2 right-2 p-0.5 transition-all hover:scale-125 z-10">
                                                 <svg className={`w-3.5 h-3.5 ${isFav(item.id) ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground/20 fill-none hover:text-amber-500/50'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
@@ -495,14 +518,16 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                     </div>
                                                 </button>
                                             )}
-                                            <div className="w-16 h-16 rounded-lg bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden cursor-zoom-in"
-                                                onClick={() => setSelectedIcon({name: item.name, path: item.iconPath})}>
+                                            <div className="w-20 h-20 rounded-lg bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden cursor-pointer"
+                                                onClick={() => handleItemClick(item)}
+                                                onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoverTooltip({name: item.name, path: item.iconPath, x: r.left + r.width / 2, y: r.top}); }}
+                                                onMouseLeave={() => setHoverTooltip(null)}>
                                                 {brokenIcons.has(item.iconPath)
                                                     ? <span className="text-[10px] font-black text-muted-foreground/30">?</span>
-                                                    : <img src={item.iconPath} alt="" className="w-full h-full p-1 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300" onError={() => handleImageError(item.iconPath)} />
+                                                    : <img src={item.iconPath} alt="" className="w-full h-full p-0.5 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300" onError={() => handleImageError(item.iconPath)} />
                                                 }
                                             </div>
-                                            <div className="text-center w-full cursor-pointer" onClick={() => setSelectedIcon({name: item.name, path: item.iconPath})}>
+                                            <div className="text-center w-full cursor-pointer" onClick={() => handleItemClick(item)}>
                                                 <div className="text-[10px] font-bold text-foreground truncate group-hover:text-primary transition-colors" title={item.name}>{item.name}</div>
                                                 {item.maxUpgrade > 0 && (
                                                     <span className="text-[8px] font-mono font-bold text-primary/60">+{item.currentUpgrade}/{item.maxUpgrade}</span>
@@ -605,8 +630,10 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                         </td>
                                         <td className="px-6 py-0.5">
                                             <div
-                                                className="w-12 h-12 rounded bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden group-hover:border-primary/30 transition-all cursor-zoom-in"
-                                                onClick={() => setSelectedIcon({name: item.name, path: item.iconPath})}
+                                                className="w-12 h-12 rounded bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden group-hover:border-primary/30 transition-all cursor-pointer"
+                                                onClick={() => handleItemClick(item)}
+                                                onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoverTooltip({name: item.name, path: item.iconPath, x: r.left + r.width / 2, y: r.top}); }}
+                                                onMouseLeave={() => setHoverTooltip(null)}
                                             >
                                                 {brokenIcons.has(item.iconPath) ? (
                                                     <span className="text-[10px] font-black text-muted-foreground/30 select-none">?</span>
@@ -614,7 +641,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                     <img
                                                         src={item.iconPath}
                                                         alt=""
-                                                        className="w-full h-full p-0.5 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-500"
+                                                        className="w-full h-full object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-500"
                                                         onError={() => handleImageError(item.iconPath)}
                                                     />
                                                 )}
@@ -623,7 +650,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                         <td className="px-6 py-4">
                                             <div className="flex flex-col gap-0.5">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors">{item.name}</span>
+                                                    <span className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors cursor-pointer hover:underline decoration-primary/40 underline-offset-2" onClick={() => handleItemClick(item)}>{item.name}</span>
                                                     {item.flags?.includes('cut_content') && (
                                                         <RiskBadge flag="cut_content" />
                                                     )}
@@ -718,6 +745,14 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                     </table>
                 </div>
                 )}
+                </div>
+
+                {detailItem && (
+                    <div className="absolute top-0 right-0 bottom-0 w-[40%] animate-in slide-in-from-right duration-200">
+                        <ItemDetailPanel item={detailItem} onClose={() => setDetailItem(null)} />
+                    </div>
+                )}
+                </div>
             </div>
         </div>
     );

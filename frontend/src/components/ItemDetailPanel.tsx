@@ -8,6 +8,7 @@ interface ItemDetailPanelProps {
 
 export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     const [brokenIcon, setBrokenIcon] = useState(false);
+    const [iconPreview, setIconPreview] = useState(false);
 
     const V = (v: number | undefined) => v != null ? String(v) : 'N/A';
     const VF = (v: number | undefined) => v != null ? v.toFixed(1) : 'N/A';
@@ -24,11 +25,12 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
         <div className="h-full flex flex-col border-l border-border bg-card overflow-hidden">
             {/* Header */}
             <div className="bg-card/95 backdrop-blur-md border-b border-border p-4 flex items-start gap-3 shrink-0">
-                <div className="w-14 h-14 rounded-lg bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden shrink-0">
+                <div className="w-28 h-28 rounded-lg bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden shrink-0 cursor-pointer hover:border-primary/50 transition-all"
+                    onClick={() => setIconPreview(true)}>
                     {brokenIcon ? (
-                        <span className="text-xl font-black text-muted-foreground/30">?</span>
+                        <span className="text-2xl font-black text-muted-foreground/30">?</span>
                     ) : (
-                        <img src={item.iconPath} alt="" className="w-10 h-10 object-contain drop-shadow-md" onError={() => setBrokenIcon(true)} />
+                        <img src={item.iconPath} alt="" className="w-20 h-20 object-contain drop-shadow-md" onError={() => setBrokenIcon(true)} />
                     )}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -73,7 +75,7 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                     </div>
                 )}
 
-                {/* Weapon Stats — two-column table layout */}
+                {/* Weapon Stats */}
                 {showWeapon && (() => {
                     const w = item.weapon;
                     return (
@@ -296,6 +298,30 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                     <p className="text-[9px] text-muted-foreground/60 italic">No description or stats available for this item.</p>
                 )}
             </div>
+
+            {/* Icon Preview Modal */}
+            {iconPreview && (
+                <div className="fixed inset-0 bg-background/80 backdrop-blur-xl z-[100] flex items-center justify-center p-8 animate-in fade-in duration-300"
+                    onClick={() => setIconPreview(false)}>
+                    <div className="relative max-w-2xl w-full flex flex-col items-center space-y-8 animate-in zoom-in-95 duration-300">
+                        <div className="w-64 h-64 bg-muted/20 rounded-3xl border border-border/50 flex items-center justify-center shadow-2xl shadow-primary/10 relative group">
+                            <div className="absolute inset-0 bg-primary/5 rounded-3xl blur-3xl group-hover:bg-primary/10 transition-all duration-500" />
+                            {brokenIcon ? (
+                                <span className="text-3xl font-black text-muted-foreground/30 select-none">?</span>
+                            ) : (
+                                <img src={item.iconPath} alt={item.name} className="w-48 h-48 object-contain drop-shadow-2xl relative z-10" />
+                            )}
+                        </div>
+                        <div className="text-center space-y-2">
+                            <h3 className="text-2xl font-black uppercase tracking-[0.2em] text-foreground">{item.name}</h3>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.3em]">{item.iconPath}</p>
+                        </div>
+                        <button className="px-8 py-3 bg-primary text-primary-foreground rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all">
+                            Close Preview
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

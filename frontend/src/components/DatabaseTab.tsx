@@ -95,6 +95,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
 
     // Icon preview
     const [selectedIcon, setSelectedIcon] = useState<{name: string, path: string} | null>(null);
+    const [hoverTooltip, setHoverTooltip] = useState<{name: string, path: string, x: number, y: number} | null>(null);
 
     // Detail panel
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
@@ -759,7 +760,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                     </div>
                 )}
 
-                <div className="flex-1 flex min-h-0">
+                <div className="flex-1 flex min-h-0 relative">
                 <div className={`flex-1 min-w-0 flex flex-col ${activeDetail ? 'max-w-[60%]' : ''}`}>
                 {viewMode === 'grid' ? (
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
@@ -790,7 +791,9 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                 </button>
                                             )}
                                             <div className="w-20 h-20 rounded-lg bg-muted/20 border border-border/50 flex items-center justify-center overflow-hidden cursor-pointer"
-                                                onClick={() => onSelectItem ? onSelectItem(item) : setDetailItem(item)}>
+                                                onClick={() => onSelectItem ? onSelectItem(item) : setDetailItem(item)}
+                                                onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoverTooltip({name: item.name, path: item.iconPath, x: r.left + r.width / 2, y: r.top}); }}
+                                                onMouseLeave={() => setHoverTooltip(null)}>
                                                 {brokenIcons.has(item.iconPath)
                                                     ? <span className="text-[10px] font-black text-muted-foreground/30">?</span>
                                                     : <img src={item.iconPath} alt="" className="w-full h-full p-0.5 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300" onError={() => handleImageError(item.iconPath)} />
@@ -888,8 +891,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                         </td>
                                         <td className="px-4 py-0.5">
                                             <div
-                                                className="w-12 h-12 bg-muted/20 rounded-lg border border-border/50 flex items-center justify-center overflow-hidden group-hover:border-primary/30 transition-all cursor-zoom-in"
-                                                onClick={() => setSelectedIcon({name: item.name, path: item.iconPath})}
+                                                className="w-12 h-12 bg-muted/20 rounded-lg border border-border/50 flex items-center justify-center overflow-hidden group-hover:border-primary/30 transition-all cursor-pointer"
+                                                onClick={() => onSelectItem ? onSelectItem(item) : setDetailItem(item)}
+                                                onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoverTooltip({name: item.name, path: item.iconPath, x: r.left + r.width / 2, y: r.top}); }}
+                                                onMouseLeave={() => setHoverTooltip(null)}
                                             >
                                                 {brokenIcons.has(item.iconPath) ? (
                                                     <span className="text-[10px] font-black text-muted-foreground/30 select-none">?</span>
@@ -975,12 +980,21 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 </div>
 
                 {activeDetail && (
-                    <div className="w-[40%] shrink-0 animate-in slide-in-from-right duration-200">
+                    <div className="absolute top-0 right-0 bottom-0 w-[40%] animate-in slide-in-from-right duration-200">
                         <ItemDetailPanel item={activeDetail} onClose={handleCloseDetail} />
                     </div>
                 )}
                 </div>
             </div>
+
+            {/* Hover Icon Tooltip */}
+            {hoverTooltip && (
+                <div className="fixed z-[60] pointer-events-none" style={{left: hoverTooltip.x, top: hoverTooltip.y - 8, transform: 'translate(-50%, -100%)'}}>
+                    <div className="bg-card border border-border rounded-lg shadow-xl p-2">
+                        <img src={hoverTooltip.path} alt="" className="w-24 h-24 object-contain drop-shadow-md" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                    </div>
+                </div>
+            )}
 
             {/* Icon Preview Modal */}
             {selectedIcon && (

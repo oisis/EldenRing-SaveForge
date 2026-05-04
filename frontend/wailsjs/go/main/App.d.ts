@@ -72,6 +72,8 @@ export function GetGraces(arg1:number):Promise<Array<db.GraceEntry>>;
 
 export function GetInfuseTypes():Promise<Array<db.InfuseType>>;
 
+export function GetItemDetail(arg1:number):Promise<db.ItemEntry>;
+
 export function GetItemList(arg1:string):Promise<Array<db.ItemEntry>>;
 
 export function GetItemListChunk(arg1:string):Promise<Array<db.ItemEntry>>;

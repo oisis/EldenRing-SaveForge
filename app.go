@@ -262,6 +262,11 @@ func (a *App) GetItemListChunk(category string) []db.ItemEntry {
 	return db.GetItemsByCategory(category, platform)
 }
 
+// GetItemDetail returns full item data (description, stats) for a single base item ID.
+func (a *App) GetItemDetail(baseId uint32) *db.ItemEntry {
+	return db.GetItemEntryByID(baseId)
+}
+
 // SkippedAdd reports an item whose requested inventory qty was reduced because
 // its container's total-quantity cap was exhausted. CutQty is the number of
 // units removed from the requested add (e.g. asked for 12, got 8 → CutQty=4).
