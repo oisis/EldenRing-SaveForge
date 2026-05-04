@@ -13,6 +13,7 @@ interface Props {
     charIndex: number;
     onNameChange?: () => void;
     onMutate: () => void;
+    refreshKey?: number;
 }
 
 const ATTRIBUTES = [
@@ -26,7 +27,7 @@ const ATTRIBUTES = [
     { id: 'arcane', label: 'Arcane', abbr: 'Arc' },
 ];
 
-export function CharacterTab({charIndex, onNameChange, onMutate}: Props) {
+export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey}: Props) {
     const safetyMode = useSafetyMode();
     const [char, setChar] = useState<vm.CharacterViewModel | null>(null);
     const [loading, setLoading] = useState(false);
@@ -48,7 +49,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate}: Props) {
         GetCharacter(charIndex)
             .then(res => { setChar(res); setLoading(false); })
             .catch(() => setLoading(false));
-    }, [charIndex]);
+    }, [charIndex, refreshKey]);
 
     const refreshFavStatus = () => {
         GetFavoritesStatus().then(setFavSlots).catch(() => {});

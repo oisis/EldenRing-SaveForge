@@ -54,7 +54,8 @@ export type RiskKey =
     | 'fow_remove'
     | 'quest_step_skip'
     | 'ng_plus_write'
-    | 'character_import';
+    | 'character_import'
+    | 'preset_apply';
 
 export const RISK_INFO: Record<RiskKey, RiskEntry> = {
     cut_content: {
@@ -366,6 +367,18 @@ export const RISK_INFO: Record<RiskKey, RiskEntry> = {
             'Risk depends entirely on the source save. Clean source = low risk; edited source with cut content = high risk.',
         mitigation:
             'Audit the source save first. After import, scan the destination for ban badges (CUT / ⚠ BAN) and Tier 2 outlines, and clean before going online.',
+        sources: [],
+    },
+    preset_apply: {
+        tier: 1,
+        level: 'medium',
+        title: 'Apply Character Preset',
+        whyBan:
+            'Applying a preset replaces stats, inventory, or storage wholesale. If the preset contains illegitimate items (cut content, impossible upgrade levels, excessive quantities), those problems transfer to the character.',
+        reports:
+            'Risk depends on the preset source. Clean preset = low risk; preset with cap-breaking or cut-content items = high risk.',
+        mitigation:
+            'Review the preset preview carefully before applying. After apply, scan inventory for ban badges.',
         sources: [],
     },
 };

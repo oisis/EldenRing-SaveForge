@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -486,9 +489,22 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		}
 		if flagList, ok := data.BolsteringPickupFlags[p.baseID]; ok {
 			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-				for _, f := range flagList {
-					if err := db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], f, true); err != nil {
-						runtime.LogWarningf(a.ctx, "bolstering pickup flag %d: %v", f, err)
+				flags := slot.Data[slot.EventFlagsOffset:]
+				sorted := make([]uint32, len(flagList))
+				copy(sorted, flagList)
+				sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+				qty := p.actualInv + p.actualStorage
+				set := 0
+				for _, f := range sorted {
+					if set >= qty {
+						break
+					}
+					if val, err := db.GetEventFlag(flags, f); err == nil && !val {
+						if err := db.SetEventFlag(flags, f, true); err != nil {
+							runtime.LogWarningf(a.ctx, "bolstering pickup flag %d: %v", f, err)
+						} else {
+							set++
+						}
 					}
 				}
 			}
@@ -576,11 +592,45 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 	a.pushUndo(charIdx)
 
 	slot := &a.save.Slots[charIdx]
+
+	// Count removals per bolstering material baseID to restore pickup flags.
+	bolsteringRemovals := make(map[uint32]int)
+	for _, handle := range handles {
+		if itemID, ok := slot.GaMap[handle]; ok {
+			if _, isBolstering := data.BolsteringPickupFlags[itemID]; isBolstering {
+				bolsteringRemovals[itemID]++
+			}
+		}
+	}
+
 	for _, handle := range handles {
 		if err := core.RemoveItemFromSlot(slot, handle, fromInventory, fromStorage); err != nil {
 			return err
 		}
 	}
+
+	// Restore pickup flags for removed bolstering materials (highest flag ID first).
+	if len(bolsteringRemovals) > 0 && slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+		flags := slot.Data[slot.EventFlagsOffset:]
+		for itemID, qty := range bolsteringRemovals {
+			flagList := data.BolsteringPickupFlags[itemID]
+			sorted := make([]uint32, len(flagList))
+			copy(sorted, flagList)
+			sort.Slice(sorted, func(i, j int) bool { return sorted[i] > sorted[j] })
+			restored := 0
+			for _, f := range sorted {
+				if restored >= qty {
+					break
+				}
+				if val, err := db.GetEventFlag(flags, f); err == nil && val {
+					if err := db.SetEventFlag(flags, f, false); err == nil {
+						restored++
+					}
+				}
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -1545,84 +1595,6 @@ func (a *App) BulkSetBellBearings(slotIndex int, flagIDs []uint32, unlocked bool
 	return nil
 }
 
-// CollectWorldPickups sets all world pickup flags for a single bolstering
-// material (Golden Seed, Sacred Tear, Scadutree Fragment, Revered Spirit Ash).
-func (a *App) CollectWorldPickups(slotIndex int, itemID uint32) (int, error) {
-	if a.save == nil {
-		return 0, fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return 0, fmt.Errorf("invalid slot index")
-	}
-	flagList, ok := data.BolsteringPickupFlags[itemID]
-	if !ok {
-		return 0, fmt.Errorf("no pickup flags defined for item 0x%08X", itemID)
-	}
-	slot := &a.save.Slots[slotIndex]
-	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
-		return 0, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
-	}
-	a.pushUndo(slotIndex)
-	flags := slot.Data[slot.EventFlagsOffset:]
-	set := 0
-	for _, f := range flagList {
-		if err := db.SetEventFlag(flags, f, true); err == nil {
-			set++
-		}
-	}
-	return set, nil
-}
-
-// CollectAllWorldPickups sets all world pickup flags for all bolstering materials.
-func (a *App) CollectAllWorldPickups(slotIndex int) (int, error) {
-	if a.save == nil {
-		return 0, fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return 0, fmt.Errorf("invalid slot index")
-	}
-	slot := &a.save.Slots[slotIndex]
-	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
-		return 0, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
-	}
-	a.pushUndo(slotIndex)
-	flags := slot.Data[slot.EventFlagsOffset:]
-	set := 0
-	for _, flagList := range data.BolsteringPickupFlags {
-		for _, f := range flagList {
-			if err := db.SetEventFlag(flags, f, true); err == nil {
-				set++
-			}
-		}
-	}
-	return set, nil
-}
-
-// GetWorldPickupsCollected returns collected/total counts for each bolstering material.
-func (a *App) GetWorldPickupsCollected(slotIndex int) (map[uint32][2]int, error) {
-	if a.save == nil {
-		return nil, fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return nil, fmt.Errorf("invalid slot index")
-	}
-	slot := &a.save.Slots[slotIndex]
-	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
-		return nil, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
-	}
-	flags := slot.Data[slot.EventFlagsOffset:]
-	result := make(map[uint32][2]int)
-	for itemID, flagList := range data.BolsteringPickupFlags {
-		collected := 0
-		for _, f := range flagList {
-			if val, err := db.GetEventFlag(flags, f); err == nil && val {
-				collected++
-			}
-		}
-		result[itemID] = [2]int{collected, len(flagList)}
-	}
-	return result, nil
-}
 
 // GetMapProgress returns all map region flags with their current state
 func (a *App) GetMapProgress(slotIndex int) ([]db.MapEntry, error) {
@@ -3004,7 +2976,248 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 	return &p, nil
 }
 
+const appVersion = "0.8.0"
+
+func (a *App) ExportCharacterPresetToFile(charIdx int) (string, error) {
+	if a.save == nil {
+		return "", fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return "", fmt.Errorf("invalid character index")
+	}
+	slot := &a.save.Slots[charIdx]
+	name := core.UTF16ToString(slot.Player.CharacterName[:])
+	if name == "" {
+		return "", fmt.Errorf("slot %d is empty", charIdx)
+	}
+
+	charVM, err := vm.MapParsedSlotToVM(slot)
+	if err != nil {
+		return "", fmt.Errorf("failed to map slot to VM: %w", err)
+	}
+
+	preset := vm.VMToPreset(charVM, appVersion)
+
+	worldData, err := vm.ExportWorldState(slot)
+	if err == nil {
+		preset.World = worldData
+	}
+
+	jsonData, err := json.MarshalIndent(preset, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal preset: %w", err)
+	}
+
+	defaultName := fmt.Sprintf("%s_%d_%s.preset.json", preset.Character.Name, preset.Character.Level, preset.Character.ClassName)
+
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export Character Preset",
+		DefaultFilename: defaultName,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Character Preset (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", fmt.Errorf("no file selected")
+	}
+
+	if err := os.WriteFile(path, jsonData, 0644); err != nil {
+		return "", fmt.Errorf("failed to write preset: %w", err)
+	}
+
+	return path, nil
+}
+
+func (a *App) LoadCharacterPresetFromFile() (*vm.CharacterPreset, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Import Character Preset",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Character Preset (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, fmt.Errorf("no file selected")
+	}
+
+	fileData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read preset file: %w", err)
+	}
+
+	var preset vm.CharacterPreset
+	if err := json.Unmarshal(fileData, &preset); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	if preset.FormatVersion != vm.PresetFormatVersion {
+		return nil, fmt.Errorf("unsupported preset format version %d (expected %d)", preset.FormatVersion, vm.PresetFormatVersion)
+	}
+
+	return &preset, nil
+}
+
+func (a *App) LoadCharacterPresetFromURL(url string) (*vm.CharacterPreset, error) {
+	if url == "" {
+		return nil, fmt.Errorf("empty URL")
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch URL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var preset vm.CharacterPreset
+	if err := json.Unmarshal(body, &preset); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	if preset.FormatVersion != vm.PresetFormatVersion {
+		return nil, fmt.Errorf("unsupported preset format version %d (expected %d)", preset.FormatVersion, vm.PresetFormatVersion)
+	}
+
+	return &preset, nil
+}
+
+func (a *App) ValidateCharacterPreset(preset vm.CharacterPreset) []string {
+	return vm.ValidatePreset(&preset)
+}
+
+func (a *App) ApplyCharacterPreset(charIdx int, preset vm.CharacterPreset, opts vm.ApplyOptions) (*vm.PresetApplyResult, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return nil, fmt.Errorf("invalid character index")
+	}
+	slot := &a.save.Slots[charIdx]
+	slotName := core.UTF16ToString(slot.Player.CharacterName[:])
+	if slotName == "" {
+		return nil, fmt.Errorf("slot %d is empty", charIdx)
+	}
+
+	a.pushUndo(charIdx)
+	snapshot := core.SnapshotSlot(slot)
+
+	result := &vm.PresetApplyResult{}
+	result.Warnings = vm.ValidatePreset(&preset)
+
+	if opts.ReplaceStats {
+		tempVM := vm.PresetToVM(&preset)
+
+		if opts.KeepName {
+			tempVM.Name = slotName
+		}
+		effectiveClass := preset.Character.Class
+		if opts.KeepClass {
+			effectiveClass = slot.Player.Class
+			tempVM.Class = slot.Player.Class
+			cs := db.GetClassStats(slot.Player.Class)
+			if cs != nil {
+				tempVM.ClassName = cs.Name
+			}
+		}
+
+		tempVM.ClampToClassMinimums(effectiveClass)
+		tempVM.ValidateStats()
+		tempVM.RecalculateLevel()
+
+		if err := vm.ApplyVMToParsedSlot(tempVM, slot); err != nil {
+			core.RestoreSlot(slot, snapshot)
+			return nil, fmt.Errorf("failed to apply stats: %w", err)
+		}
+		slot.SyncPlayerToData()
+		result.StatsApplied = true
+	}
+
+	if opts.ReplaceInventory {
+		removed, err := vm.ClearInventoryItems(slot)
+		if err != nil {
+			core.RestoreSlot(slot, snapshot)
+			return nil, fmt.Errorf("failed to clear inventory: %w", err)
+		}
+		result.ItemsRemoved += removed
+
+		itemsToAdd, addWarnings := vm.PresetItemsToItemsToAdd(preset.Inventory, true)
+		result.Warnings = append(result.Warnings, addWarnings...)
+		result.ItemsSkipped += len(preset.Inventory) - len(itemsToAdd)
+
+		if len(itemsToAdd) > 0 {
+			capReport := core.CheckAddCapacity(slot, itemsToAdd)
+			if !capReport.CanFitAll {
+				core.RestoreSlot(slot, snapshot)
+				return nil, fmt.Errorf("inventory capacity exceeded: %s (need %d inv slots, have %d free)",
+					capReport.CapHit, capReport.NeededInv, capReport.FreeInv)
+			}
+
+			if err := core.AddItemsToSlotBatch(slot, itemsToAdd); err != nil {
+				core.RestoreSlot(slot, snapshot)
+				return nil, fmt.Errorf("failed to add inventory items: %w", err)
+			}
+			result.ItemsAdded += len(itemsToAdd)
+		}
+	}
+
+	if opts.ReplaceStorage {
+		removed, err := vm.ClearStorageItems(slot)
+		if err != nil {
+			core.RestoreSlot(slot, snapshot)
+			return nil, fmt.Errorf("failed to clear storage: %w", err)
+		}
+		result.ItemsRemoved += removed
+
+		itemsToAdd, addWarnings := vm.PresetItemsToItemsToAdd(preset.Storage, false)
+		result.Warnings = append(result.Warnings, addWarnings...)
+		result.ItemsSkipped += len(preset.Storage) - len(itemsToAdd)
+
+		if len(itemsToAdd) > 0 {
+			capReport := core.CheckAddCapacity(slot, itemsToAdd)
+			if !capReport.CanFitAll {
+				core.RestoreSlot(slot, snapshot)
+				return nil, fmt.Errorf("storage capacity exceeded: %s", capReport.CapHit)
+			}
+
+			if err := core.AddItemsToSlotBatch(slot, itemsToAdd); err != nil {
+				core.RestoreSlot(slot, snapshot)
+				return nil, fmt.Errorf("failed to add storage items: %w", err)
+			}
+			result.ItemsAdded += len(itemsToAdd)
+		}
+	}
+
+	if opts.ReplaceWorld && preset.World != nil {
+		worldWarnings := vm.ApplyWorldState(slot, preset.World)
+		result.Warnings = append(result.Warnings, worldWarnings...)
+		result.WorldApplied = true
+	}
+
+	core.ReconcileStorageHeader(slot)
+
+	if violations := core.ValidatePostMutation(slot); len(violations) > 0 {
+		core.RestoreSlot(slot, snapshot)
+		return nil, fmt.Errorf("post-mutation validation failed: %s", violations[0].Error())
+	}
+
+	return result, nil
+}
+
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}
 }
