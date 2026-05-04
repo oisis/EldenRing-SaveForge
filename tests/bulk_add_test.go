@@ -414,18 +414,37 @@ func TestAddThenOverflow(t *testing.T) {
 }
 
 // TestAddWithInventoryAndStorage adds items to both inventory and storage simultaneously.
+//
+// Non-stackable dual-destination semantics: each (item_id, destination) pair
+// receives its OWN GaItem record with a distinct handle. Sharing a handle
+// between inventory and storage corrupts the save (game treats both list
+// entries as the same physical item; observed: AoW applied to one weapon
+// propagates to the duplicate inventory entry).
 func TestAddWithInventoryAndStorage(t *testing.T) {
 	save, slotIdx := loadBulkTestSave(t)
 	slot := &save.Slots[slotIdx]
 	platform := string(save.Platform)
 
-	weaponIDs := collectIDs("melee_armaments", platform, 50)
-	armorIDs := collectIDs("chest", platform, 50)
+	// Reserve capacity for dual-destination non-stackable adds: each item
+	// consumes 2 armament-zone GaItem slots (one for inv handle, one for
+	// storage). The shared test save (`tmp/save/ER0000.sl2`) carries a
+	// near-full armament zone; cap items so we don't exhaust the array.
+	freeArmament := len(slot.GaItems) - slot.NextArmamentIndex
+	perCategoryLimit := freeArmament / 4 // 2 categories × 2 destinations
+	if perCategoryLimit > 30 {
+		perCategoryLimit = 30
+	}
+	if perCategoryLimit < 5 {
+		t.Skipf("test save has insufficient armament-zone capacity (free=%d)", freeArmament)
+	}
+
+	weaponIDs := collectIDs("melee_armaments", platform, perCategoryLimit)
+	armorIDs := collectIDs("chest", platform, perCategoryLimit)
 	talismanIDs := collectIDs("talismans", platform, 50)
 	toolIDs := collectIDs("tools", platform, 50)
 
-	t.Logf("Adding to inv+storage: %d weapons, %d armors, %d talismans, %d tools",
-		len(weaponIDs), len(armorIDs), len(talismanIDs), len(toolIDs))
+	t.Logf("Adding to inv+storage: %d weapons, %d armors, %d talismans, %d tools (free armament=%d)",
+		len(weaponIDs), len(armorIDs), len(talismanIDs), len(toolIDs), freeArmament)
 
 	// Add weapons and armors with invQty=1, storageQty=1.
 	nonStackable := append(weaponIDs, armorIDs...)
@@ -442,7 +461,6 @@ func TestAddWithInventoryAndStorage(t *testing.T) {
 	allIDs := append(nonStackable, stackable...)
 	verifyPostAdd(t, slot, platform, allIDs, "InvAndStorage")
 
-	// Verify inventory has the items.
 	invHandles := make(map[uint32]bool)
 	for _, item := range slot.Inventory.CommonItems {
 		if item.GaItemHandle != 0 && item.GaItemHandle != 0xFFFFFFFF {
@@ -460,32 +478,47 @@ func TestAddWithInventoryAndStorage(t *testing.T) {
 	t.Logf("Inventory distinct handles: %d, Storage distinct handles: %d",
 		len(invHandles), len(storageHandles))
 
-	// Check how many non-stackable items made it into both inventory and storage.
-	// Some may fail due to pre-allocated slot limits (2688 inv / 1920 storage).
-	invMissing, storageMissing := 0, 0
+	// Per non-stackable id, collect every handle that maps to it. Each id
+	// must have ≥1 handle in inventory and ≥1 handle in storage, and the
+	// inv-side and storage-side handles must be DISJOINT (the regression).
+	invMissing, storageMissing, sharedHandle := 0, 0, 0
 	for _, id := range nonStackable {
-		var handle uint32
+		var handlesForID []uint32
 		for h, mapID := range slot.GaMap {
 			if mapID == id {
-				handle = h
-				break
+				handlesForID = append(handlesForID, h)
 			}
 		}
-		if handle == 0 {
+		if len(handlesForID) == 0 {
 			continue
 		}
-		if !invHandles[handle] {
+		invHas, stoHas := false, false
+		for _, h := range handlesForID {
+			inInv := invHandles[h]
+			inSto := storageHandles[h]
+			if inInv && inSto {
+				sharedHandle++
+				t.Errorf("non-stackable id 0x%08X: handle 0x%08X shared between inventory and storage (regression)", id, h)
+			}
+			if inInv {
+				invHas = true
+			}
+			if inSto {
+				stoHas = true
+			}
+		}
+		if !invHas {
 			invMissing++
 		}
-		if !storageHandles[handle] {
+		if !stoHas {
 			storageMissing++
 		}
 	}
 
 	t.Logf("Inventory: %d/%d items present (missing=%d)", len(nonStackable)-invMissing, len(nonStackable), invMissing)
 	t.Logf("Storage: %d/%d items present (missing=%d)", len(nonStackable)-storageMissing, len(nonStackable), storageMissing)
+	t.Logf("Shared handles between inv and storage (must be 0 for non-stackable): %d", sharedHandle)
 
-	// At least 80% should be present (slots may be full from original save data).
 	minPresent := len(nonStackable) * 80 / 100
 	if len(nonStackable)-invMissing < minPresent {
 		t.Errorf("Too many items missing from inventory: %d/%d", invMissing, len(nonStackable))

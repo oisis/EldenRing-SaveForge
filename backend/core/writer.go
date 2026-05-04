@@ -115,58 +115,87 @@ func AddItemsToSlot(slot *SaveSlot, itemIDs []uint32, invQty, storageQty int, fo
 	var pending []pendingInv
 	gaModified := false
 
+	// allocNewGaItem allocates a new GaItem record + handle for a non-stackable
+	// item, registers it in GaMap, and updates GaItemData when needed. Returns
+	// the new handle.
+	allocNewGaItem := func(id, handlePrefix uint32) (uint32, error) {
+		h, err := generateUniqueHandle(slot, handlePrefix)
+		if err != nil {
+			return 0, err
+		}
+		if err := allocateGaItem(slot, h, id); err != nil {
+			return 0, err
+		}
+		slot.GaMap[h] = id
+		if (handlePrefix == ItemTypeWeapon && !db.IsArrowID(id)) || handlePrefix == ItemTypeAow {
+			if err := upsertGaItemData(slot, id); err != nil {
+				return 0, err
+			}
+		}
+		return h, nil
+	}
+
 	// Phase 1: allocate GaItem entries in-memory + GaItemData at old offsets.
 	for _, id := range itemIDs {
 		handlePrefix := db.ItemIDToHandlePrefix(id)
 		isStackable := handlePrefix == ItemTypeItem || handlePrefix == ItemTypeAccessory
 
-		// Search for existing handle in GaMap (for stackable reuse).
-		handle := uint32(0)
 		if isStackable || forceStackable {
+			// Stackable / arrow path: shared handle across inv+storage is correct
+			// because the game resolves stackable handles directly (no GaItem
+			// record) and treats stacks of the same item ID as fungible.
+			handle := uint32(0)
 			for h, i := range slot.GaMap {
 				if i == id {
 					handle = h
 					break
 				}
 			}
-		}
-
-		if handle == 0 {
-			if isStackable {
-				// Stackable goods/talismans: handle = handlePrefix | lower bits of item ID.
-				// Never stored in GaItems array — game resolves directly from handle.
-				handle = (id & 0x0FFFFFFF) | handlePrefix
-				slot.GaMap[handle] = id
-			} else {
-				// Non-stackable: weapons, armor, AoW, arrows.
-				var err error
-				handle, err = generateUniqueHandle(slot, handlePrefix)
-				if err != nil {
-					return err
-				}
-
-				// Allocate in GaItems array (in-memory only — no binary write yet).
-				if err := allocateGaItem(slot, handle, id); err != nil {
-					return err
-				}
-				gaModified = true
-				slot.GaMap[handle] = id
-
-				// Register in GaItemData (writes at old offsets — shift will move them).
-				// Arrows use projectile list instead (not yet implemented).
-				if (handlePrefix == ItemTypeWeapon && !db.IsArrowID(id)) || handlePrefix == ItemTypeAow {
-					if err := upsertGaItemData(slot, id); err != nil {
+			if handle == 0 {
+				if isStackable {
+					handle = (id & 0x0FFFFFFF) | handlePrefix
+					slot.GaMap[handle] = id
+				} else {
+					// forceStackable arrow without existing GaItem — allocate one.
+					var err error
+					handle, err = allocNewGaItem(id, handlePrefix)
+					if err != nil {
 						return err
 					}
+					gaModified = true
 				}
 			}
+			pending = append(pending, pendingInv{
+				handle:     handle,
+				invQty:     uint32(invQty),
+				storageQty: uint32(storageQty),
+			})
+			continue
 		}
 
-		pending = append(pending, pendingInv{
-			handle:     handle,
-			invQty:     uint32(invQty),
-			storageQty: uint32(storageQty),
-		})
+		// Non-stackable path (weapon / armor / AoW): each destination requires
+		// its own GaItem record. Sharing one handle between inventory and
+		// storage causes the game to treat both list entries as the same
+		// physical item — equipping an AoW on one weapon then propagates to the
+		// duplicate list entry, and on next save cycle the game collides them
+		// (observed: same handle in inventory at two positions, items pushed to
+		// invalid Index >= next_equip_index, becoming invisible in-game).
+		if invQty != 0 {
+			h, err := allocNewGaItem(id, handlePrefix)
+			if err != nil {
+				return err
+			}
+			gaModified = true
+			pending = append(pending, pendingInv{handle: h, invQty: uint32(invQty), storageQty: 0})
+		}
+		if storageQty != 0 {
+			h, err := allocNewGaItem(id, handlePrefix)
+			if err != nil {
+				return err
+			}
+			gaModified = true
+			pending = append(pending, pendingInv{handle: h, invQty: 0, storageQty: uint32(storageQty)})
+		}
 	}
 
 	// Phase 2: rebuild slot from scratch with new GaItems (no in-place shift).
@@ -250,49 +279,74 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 	var pending []pendingInv
 	gaModified := false
 
+	allocNewGaItem := func(id, handlePrefix uint32) (uint32, error) {
+		h, err := generateUniqueHandle(slot, handlePrefix)
+		if err != nil {
+			return 0, err
+		}
+		if err := allocateGaItem(slot, h, id); err != nil {
+			return 0, err
+		}
+		slot.GaMap[h] = id
+		if (handlePrefix == ItemTypeWeapon && !db.IsArrowID(id)) || handlePrefix == ItemTypeAow {
+			if err := upsertGaItemData(slot, id); err != nil {
+				return 0, err
+			}
+		}
+		return h, nil
+	}
+
 	for _, item := range items {
 		handlePrefix := db.ItemIDToHandlePrefix(item.ItemID)
 		isStackable := handlePrefix == ItemTypeItem || handlePrefix == ItemTypeAccessory
 
-		handle := uint32(0)
 		if isStackable || item.ForceStackable {
+			handle := uint32(0)
 			for h, id := range slot.GaMap {
 				if id == item.ItemID {
 					handle = h
 					break
 				}
 			}
-		}
-
-		if handle == 0 {
-			if isStackable {
-				handle = (item.ItemID & 0x0FFFFFFF) | handlePrefix
-				slot.GaMap[handle] = item.ItemID
-			} else {
-				var err error
-				handle, err = generateUniqueHandle(slot, handlePrefix)
-				if err != nil {
-					return err
-				}
-				if err := allocateGaItem(slot, handle, item.ItemID); err != nil {
-					return err
-				}
-				gaModified = true
-				slot.GaMap[handle] = item.ItemID
-
-				if (handlePrefix == ItemTypeWeapon && !db.IsArrowID(item.ItemID)) || handlePrefix == ItemTypeAow {
-					if err := upsertGaItemData(slot, item.ItemID); err != nil {
+			if handle == 0 {
+				if isStackable {
+					handle = (item.ItemID & 0x0FFFFFFF) | handlePrefix
+					slot.GaMap[handle] = item.ItemID
+				} else {
+					var err error
+					handle, err = allocNewGaItem(item.ItemID, handlePrefix)
+					if err != nil {
 						return err
 					}
+					gaModified = true
 				}
 			}
+			pending = append(pending, pendingInv{
+				handle:     handle,
+				invQty:     uint32(item.InvQty),
+				storageQty: uint32(item.StorageQty),
+			})
+			continue
 		}
 
-		pending = append(pending, pendingInv{
-			handle:     handle,
-			invQty:     uint32(item.InvQty),
-			storageQty: uint32(item.StorageQty),
-		})
+		// Non-stackable: separate GaItem per destination — see AddItemsToSlot
+		// for the explanation of why sharing a handle corrupts the save.
+		if item.InvQty != 0 {
+			h, err := allocNewGaItem(item.ItemID, handlePrefix)
+			if err != nil {
+				return err
+			}
+			gaModified = true
+			pending = append(pending, pendingInv{handle: h, invQty: uint32(item.InvQty), storageQty: 0})
+		}
+		if item.StorageQty != 0 {
+			h, err := allocNewGaItem(item.ItemID, handlePrefix)
+			if err != nil {
+				return err
+			}
+			gaModified = true
+			pending = append(pending, pendingInv{handle: h, invQty: 0, storageQty: uint32(item.StorageQty)})
+		}
 	}
 
 	if gaModified {

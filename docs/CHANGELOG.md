@@ -4,6 +4,40 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Critical fix — non-stackable items (weapons / armor / AoW) shared a GaItem handle between inventory and storage
+
+User-reported bug: after adding the same Ash of War to inventory and storage via the editor, equipping the AoW on one of two identical shields applied it to BOTH shields simultaneously, and BOTH AoW copies showed "in use" status. Investigation of `tmp/aow-debug/ER0000-aow.sl2` (slot 4 "Random") found 81 non-stackable handles simultaneously present in inventory AND storage, plus 109 inventory/storage entries with `Index >= NextEquipIndex` (invisible in-game — explains "added many items but don't see them").
+
+**Root cause** — `backend/core/writer.go::AddItemsToSlot` and `AddItemsToSlotBatch`:
+
+- Phase 1 allocated **one** GaItem record (one unique handle) per item, regardless of destination(s).
+- Phase 3 wrote that handle into both inventory and storage when the user requested both (`InvQty>0` AND `StorageQty>0`).
+- For stackable items (`B-`/`A-`prefix goods/talismans) the shared handle is correct — handles are deterministic from item ID and the game treats them as fungible stacks.
+- For **non-stackable** items (`0x80…` weapon, `0x90…` armor, `0xC0…` AoW) the handle uniquely identifies a physical item in the GaItems array. Sharing it caused the game to treat both list entries as the same backing object: equip-AoW write updated the GaItem, both list copies reflected it, and on the next save cycle the game pushed the duplicate copies to invalid `Index` values, hiding them from the in-game inventory UI.
+
+**Fix** — `backend/core/writer.go`:
+
+- Both `AddItemsToSlot` and `AddItemsToSlotBatch` Phase 1 now allocate a **separate** GaItem record per destination for non-stackable items: one for inventory and one for storage. Stackable / arrow paths unchanged (they correctly share or skip GaItems per existing rules).
+- Extracted shared `allocNewGaItem(id, prefix)` helper inside both functions covering `generateUniqueHandle` + `allocateGaItem` + `GaMap` registration + `upsertGaItemData` (when needed).
+
+**Capacity check** — `backend/core/capacity.go::CheckAddCapacity`:
+
+- Non-stackable items with both `InvQty>0` and `StorageQty>0` now correctly cost 2 GaItems (and possibly 2 GaItemData entries when the item ID is new). Previously double-counting was elided based on the (incorrect) shared-handle behavior. Pre-flight feasibility now matches the actual mutation cost so users get accurate "inventory full / GaItems full" warnings before the snapshot/rollback path engages.
+
+**New regression test** — `backend/core/aow_dual_destination_test.go::TestNonStackableDualDestinationUniqueHandles`:
+
+- Loads `tmp/save/ER0000.sl2`, picks an active slot with sufficient empty GaItem capacity, adds Lion's Claw AoW (`0x80002710`) with `invQty=1, storageQty=1` via both `AddItemsToSlotBatch` and `AddItemsToSlot`.
+- Asserts: exactly 1 new inventory entry and 1 new storage entry, **handles must differ**, and both new handles are present in the GaItems array as distinct records with the same `ItemID`.
+
+**Updated existing test** — `tests/bulk_add_test.go::TestAddWithInventoryAndStorage`:
+
+- Capped `weaponIDs` / `armorIDs` collection at `min(30, free_armament_zone / 4)` because each non-stackable item now consumes 2 armament-zone GaItem slots; the shared test save's armament zone has only 156 free entries.
+- Added explicit assertion that for each non-stackable item ID the inventory-side and storage-side handles are **disjoint** (`sharedHandle == 0`).
+
+**Test results**: full `go test ./backend/...` passes. `tests/` package retains 4 pre-existing failures (`TestMassiveAddAllCategories`, `TestMaxCapacityFill`, `TestBulkAddPerCategory` — armament-zone capacity exhaustion when adding 1000+ non-stackable items to a near-full save; `TestAddArrowsStackable` — `GaItemData` arrow check) all of which were failing identically on master before this change. `make build` produces a clean Wails app bundle.
+
+**Recovery for users with corrupted saves**: saves where this bug already manifested (handle shared between inventory and storage) cannot be auto-repaired by the editor — the second list copy may already have been moved by the game's load logic and assigned an invalid `Index`. Restore from a `*.bkp` file in the save directory made before the dual-destination add, or remove the non-stackable items from inventory and storage in the editor (Inventory tab → Remove) and re-add them with the fixed code.
+
 ### Critical fix — FlushGaItems in-place shift overwriting DLC + Hash regions (game crash)
 
 User-reported game crash (`EXCEPTION_ACCESS_VIOLATION` at `eldenring.exe+0x1EB9989`) after adding many weapons / armor pieces in a single session. Game read DLC entry-flag byte as non-zero (interpreted as "player entered DLC"), tried to load DLC area state with stale prerequisites, dereferenced NULL pointer.

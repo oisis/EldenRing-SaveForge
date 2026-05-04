@@ -180,6 +180,9 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 				}
 			}
 		} else {
+			// Non-stackable: each destination consumes its own GaItem record
+			// because sharing a handle between inv and storage corrupts the
+			// save (see writer.go::AddItemsToSlot non-stackable path).
 			if item.InvQty > 0 {
 				neededInvSlots++
 				neededGaItems++
@@ -190,12 +193,10 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 			}
 			if item.StorageQty > 0 {
 				neededStorageSlots++
-				if item.InvQty == 0 {
-					neededGaItems++
-					if needsGaItemData(item.ItemID) && !existingGaItemData[item.ItemID] {
-						neededGaItemData++
-						existingGaItemData[item.ItemID] = true
-					}
+				neededGaItems++
+				if needsGaItemData(item.ItemID) && !existingGaItemData[item.ItemID] {
+					neededGaItemData++
+					existingGaItemData[item.ItemID] = true
 				}
 			}
 		}
