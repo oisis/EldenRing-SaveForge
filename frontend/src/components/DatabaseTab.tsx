@@ -60,6 +60,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const {upgrade25, upgrade10, infuseOffset, upgradeAsh} = addSettings;
     const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
+    const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
     const [dbItems, setDbItems] = useState<db.ItemEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
@@ -669,52 +670,61 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 </div>
             )}
 
-            {/* Top Bar: [Category] [Owned/Total badge] [Search] */}
-            <div className="flex items-center justify-between bg-muted/10 p-4 rounded-xl border border-border/50 backdrop-blur-sm sticky top-0 z-20">
-                <div className="flex items-center space-x-4 flex-1">
-                    <CategorySelect value={category} onChange={setCategory} className="w-56 shrink-0" />
+            {/* Top Bar: [Category] [Owned/Total badge] [buttons] [spacer] [view toggle] [Search] */}
+            <div className="flex items-center gap-4 bg-muted/10 p-4 rounded-xl border border-border/50 backdrop-blur-sm sticky top-0 z-20">
+                <CategorySelect value={category} onChange={setCategory} className="w-56 shrink-0" />
 
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                            {category === 'all' ? 'Owned' : (CATEGORY_LABEL[category] ?? category)}
-                        </span>
-                        <span className="text-[10px] font-bold tabular-nums text-foreground">
-                            {ownedCount}/{totalCount}
-                        </span>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                        {category === 'all' ? 'Owned' : (CATEGORY_LABEL[category] ?? category)}
+                    </span>
+                    <span className="text-[10px] font-bold tabular-nums text-foreground">
+                        {ownedCount}/{totalCount}
+                    </span>
+                </div>
+
+                {!readOnly && selectedDbItems.size > 0 && (
+                    <button
+                        onClick={() => openModal(dbItems.filter(i => selectedDbItems.has(i.id)))}
+                        disabled={!platform}
+                        className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
+                    >
+                        Add Selected ({selectedDbItems.size})
+                    </button>
+                )}
+                {!readOnly && favoritesInView.length > 0 && selectedDbItems.size === 0 && (
+                    <button
+                        onClick={() => openModal(favoritesInView)}
+                        disabled={!platform}
+                        className="px-6 py-2 bg-amber-500/90 text-white rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-500/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
+                    >
+                        <svg className="w-3 h-3 fill-white" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                        Add Favorites ({favoritesInView.length})
+                    </button>
+                )}
+
+                <div className="flex-1" />
+
+                <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => setViewMode('table')} className={`p-1.5 rounded transition-all ${viewMode === 'table' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Table view">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                    </button>
+                    <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded transition-all ${viewMode === 'grid' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Grid view">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
+                    </button>
+                </div>
+
+                <div className="relative w-full max-w-xs shrink-0">
+                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                        <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     </div>
-
-                    <div className="relative flex-1 max-w-md group">
-                        <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-                            <svg className="w-3.5 h-3.5 text-muted-foreground group-focus-within:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                        </div>
-                        <input
-                            type="text"
-                            placeholder="Search by name or ID..."
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            className="w-full bg-background border border-border/50 rounded-lg py-2 pl-10 pr-4 text-[10px] font-bold uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                        />
-                    </div>
-
-                    {!readOnly && selectedDbItems.size > 0 && (
-                        <button
-                            onClick={() => openModal(dbItems.filter(i => selectedDbItems.has(i.id)))}
-                            disabled={!platform}
-                            className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
-                        >
-                            Add Selected ({selectedDbItems.size})
-                        </button>
-                    )}
-                    {!readOnly && favoritesInView.length > 0 && selectedDbItems.size === 0 && (
-                        <button
-                            onClick={() => openModal(favoritesInView)}
-                            disabled={!platform}
-                            className="px-6 py-2 bg-amber-500/90 text-white rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-500/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
-                        >
-                            <svg className="w-3 h-3 fill-white" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
-                            Add Favorites ({favoritesInView.length})
-                        </button>
-                    )}
+                    <input
+                        type="text"
+                        placeholder="Search by name or ID..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="w-full bg-background border border-border/50 rounded-lg py-2 pl-10 pr-4 text-[10px] font-bold uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                    />
                 </div>
             </div>
 
@@ -730,7 +740,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 </div>
             )}
 
-            {/* Table */}
+            {/* Content — Table or Grid */}
             <div className="flex-1 bg-muted/5 rounded-xl border border-border/50 overflow-hidden flex flex-col relative">
                 {loading && (
                     <div className="absolute inset-0 bg-background/50 backdrop-blur-[2px] z-30 flex items-center justify-center">
@@ -740,6 +750,60 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         </div>
                     </div>
                 )}
+
+                {viewMode === 'grid' ? (
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+                        {filteredItems.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/50">
+                                <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-2.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
+                                <span className="text-[10px] font-black uppercase tracking-widest">No items found</span>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                                {filteredItems.map(item => {
+                                    const owned = ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
+                                    const hasOwned = owned.inv > 0 || owned.storage > 0;
+                                    return (
+                                        <div key={item.id}
+                                            className={`relative rounded-xl border bg-card p-3 flex flex-col items-center gap-2 transition-all hover:border-primary/40 hover:bg-primary/[0.03] group cursor-pointer ${!readOnly && selectedDbItems.has(item.id) ? 'border-primary/50 bg-primary/[0.05]' : 'border-border/50'}`}
+                                            onClick={() => !readOnly && toggleItem(item.id)}
+                                        >
+                                            <button onClick={e => { e.stopPropagation(); toggleFav(item.id); }} className="absolute top-2 right-2 p-0.5 transition-all hover:scale-125 z-10">
+                                                <svg className={`w-3.5 h-3.5 ${isFav(item.id) ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground/20 fill-none hover:text-amber-500/50'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                </svg>
+                                            </button>
+                                            {!readOnly && selectedDbItems.has(item.id) && (
+                                                <div className="absolute top-2 left-2 w-4 h-4 rounded bg-primary flex items-center justify-center">
+                                                    <svg className="w-3 h-3 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>
+                                                </div>
+                                            )}
+                                            <div className="w-16 h-16 rounded-lg bg-muted/20 border border-border/50 flex items-center justify-center overflow-hidden">
+                                                {brokenIcons.has(item.iconPath)
+                                                    ? <span className="text-[10px] font-black text-muted-foreground/30">?</span>
+                                                    : <img src={item.iconPath} alt="" className="w-full h-full p-1 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300" onError={() => handleImageError(item.iconPath)} />
+                                                }
+                                            </div>
+                                            <div className="text-center w-full">
+                                                <div className="text-[10px] font-bold text-foreground truncate group-hover:text-primary transition-colors" title={item.name}>{item.name}</div>
+                                                <div className="flex items-center justify-center gap-1.5 mt-1">
+                                                    {item.flags?.includes('ban_risk') && <RiskBadge flag="ban_risk" />}
+                                                    {item.flags?.includes('cut_content') && <RiskBadge flag="cut_content" />}
+                                                </div>
+                                            </div>
+                                            {hasOwned && (
+                                                <div className="flex items-center gap-2 text-[8px] font-black tabular-nums">
+                                                    <span className={`px-1.5 py-0.5 rounded border ${owned.inv > 0 ? 'text-green-500 bg-green-500/10 border-green-500/30' : 'text-muted-foreground/30 bg-muted/10 border-border/30'}`}>I:{owned.inv}</span>
+                                                    <span className={`px-1.5 py-0.5 rounded border ${owned.storage > 0 ? 'text-green-500 bg-green-500/10 border-green-500/30' : 'text-muted-foreground/30 bg-muted/10 border-border/30'}`}>S:{owned.storage}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : (
 
                 <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar">
                     <table className="w-full text-left border-collapse">
@@ -895,6 +959,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         </tbody>
                     </table>
                 </div>
+                )}
             </div>
 
             {/* Item Detail Drawer */}

@@ -41,6 +41,7 @@ interface InventoryTabProps {
 export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, showFlaggedItems, category, setCategory, onMutate, showOnlyFavorites = false }: InventoryTabProps) {
     const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
+    const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
     const [charInventory, setCharInventory] = useState<vm.ItemViewModel[]>([]);
     const [charStorage, setCharStorage] = useState<vm.ItemViewModel[]>([]);
     const [loading, setLoading] = useState(false);
@@ -437,7 +438,16 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
 
                 <div className="flex-1" />
 
-                <div className="relative w-full max-w-xs">
+                <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => setViewMode('table')} className={`p-1.5 rounded transition-all ${viewMode === 'table' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Table view">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                    </button>
+                    <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded transition-all ${viewMode === 'grid' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Grid view">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
+                    </button>
+                </div>
+
+                <div className="relative w-full max-w-xs shrink-0">
                     <input
                         type="text"
                         placeholder="Search owned items..."
@@ -451,8 +461,67 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                 </div>
             </div>
 
-            {/* Table Card */}
+            {/* Content — Table or Grid */}
             <div className="card overflow-hidden flex flex-col flex-1 min-h-0">
+                {viewMode === 'grid' ? (
+                    <div className="overflow-y-auto flex-1 custom-scrollbar p-4">
+                        {loading ? (
+                            <div className="flex flex-col items-center justify-center py-16 space-y-4">
+                                <div className="w-6 h-6 border-2 border-foreground/20 border-t-foreground rounded-full animate-spin" />
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Accessing data...</p>
+                            </div>
+                        ) : filteredOwnedItems.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/50">
+                                <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-2.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
+                                <span className="text-[10px] font-black uppercase tracking-widest">No items found</span>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                                {filteredOwnedItems.map(item => {
+                                    const key = rowKey(item);
+                                    return (
+                                        <div key={key}
+                                            className={`relative rounded-xl border bg-card p-3 flex flex-col items-center gap-2 transition-all hover:border-primary/40 hover:bg-primary/[0.03] group ${selectedKeys.has(key) ? 'border-red-500/50 bg-red-500/[0.03]' : 'border-border/50'}`}
+                                        >
+                                            <button onClick={e => { e.stopPropagation(); toggleFav(item.id); }} className="absolute top-2 right-2 p-0.5 transition-all hover:scale-125 z-10">
+                                                <svg className={`w-3.5 h-3.5 ${isFav(item.id) ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground/20 fill-none hover:text-amber-500/50'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                </svg>
+                                            </button>
+                                            {!item.readOnly && (
+                                                <button onClick={() => toggleSelect(key)} className="absolute top-2 left-2 z-10">
+                                                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${selectedKeys.has(key) ? 'bg-red-500 border-red-500' : 'bg-muted/30 border-border hover:border-red-400/50'}`}>
+                                                        {selectedKeys.has(key) && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>}
+                                                    </div>
+                                                </button>
+                                            )}
+                                            <div className="w-16 h-16 rounded-lg bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden">
+                                                {brokenIcons.has(item.iconPath)
+                                                    ? <span className="text-[10px] font-black text-muted-foreground/30">?</span>
+                                                    : <img src={item.iconPath} alt="" className="w-full h-full p-1 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300" onError={() => handleImageError(item.iconPath)} />
+                                                }
+                                            </div>
+                                            <div className="text-center w-full">
+                                                <div className="text-[10px] font-bold text-foreground truncate group-hover:text-primary transition-colors" title={item.name}>{item.name}</div>
+                                                {item.maxUpgrade > 0 && (
+                                                    <span className="text-[8px] font-mono font-bold text-primary/60">+{item.currentUpgrade}/{item.maxUpgrade}</span>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2 text-[8px] font-black tabular-nums">
+                                                <span className={`px-1.5 py-0.5 rounded border ${item.inInventory ? 'text-green-500 bg-green-500/10 border-green-500/30' : 'text-muted-foreground/30 bg-muted/10 border-border/30'}`}>
+                                                    I:{item.nonStackable ? (item.inInventory ? 1 : 0) : item.invQty}
+                                                </span>
+                                                <span className={`px-1.5 py-0.5 rounded border ${item.inStorage ? 'text-green-500 bg-green-500/10 border-green-500/30' : 'text-muted-foreground/30 bg-muted/10 border-border/30'}`}>
+                                                    S:{item.nonStackable ? (item.inStorage ? 1 : 0) : item.storageQty}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : (
                 <div ref={scrollRef} className="overflow-y-auto flex-1 custom-scrollbar">
                     <table className="w-full text-left text-sm border-collapse">
                         <thead className="bg-muted/30 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] sticky top-0 z-10 backdrop-blur-md border-b border-border">
@@ -647,6 +716,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                         </tbody>
                     </table>
                 </div>
+                )}
             </div>
         </div>
     );
