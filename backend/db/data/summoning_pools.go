@@ -260,85 +260,35 @@ var Colosseums = map[uint32]SummoningPoolData{
 	60370: {Name: "Royal Colosseum", Region: "Leyndell"},
 }
 
-// ColosseumFlagSet groups every event flag that fires when a colosseum is
-// legitimately unlocked AND its gate is physically opened in-game.
-//
-// The 60xxx/62xxx/69xxx/710xxx blocks follow a Δ=10 stride matching the
-// activate-flag offset and act as matchmaking + map markers — these
-// alone make the colosseum appear on the map and enable the fight menu,
-// but the GATE STAYS CLOSED.
-//
-// PhysicalGate carries the map-area-specific event flags that fire only
-// when the player physically opens the gate. These were RE'd from saves
-// at tmp/coloseum-debug/:
-//   - limgrave-coloseum-open.sl2: Limgrave gate manually opened
-//   - capitol-coloseum-open.sl2:  Royal (Leyndell) gate manually opened
-//   - after.sl2 (Tester slot 2):  legit Limgrave-only unlock
-//
-// Cross-tabulating reveals 1790 fires on every Limgrave-gate-open (legit
-// and manual) but NOT on Royal gate-open, and 11000520/521/522 form a
-// 3-bit cluster in m11_00 (Leyndell) unique to Royal gate-open.
-//
-// Caelid PhysicalGate is unknown — needs a "Caelid only" save dump.
+// ColosseumFlagSet sets the matchmaking + map-marker flags for a colosseum.
+// These make the arena appear on the world map and enable the fight menu.
+// They DO NOT open the physical gate — that state is stored outside event
+// flags (in WorldGeom binary blob) and cannot be edited from a save editor.
+// Player must open the gate once in-game; thereafter the open state persists.
 type ColosseumFlagSet struct {
-	Activate     uint32   // 60xxx — primary unlock, enables matchmaking
-	MapPOI       uint32   // 62xxx — colosseum icon on world map
-	NPC          uint32   // 69xxx — NPC/event-memory marker
-	Gate         uint32   // 710xxx — matchmaking gate marker (visual only)
-	PhysicalGate []uint32 // map-area flags that physically open the gate
+	Activate uint32 // 60xxx — primary unlock, enables matchmaking
+	MapPOI   uint32 // 62xxx — colosseum icon on world map
+	NPC      uint32 // 69xxx — NPC/event-memory marker
+	Gate     uint32 // 710xxx — matchmaking gate marker
 }
 
-// ColosseumFlagSets keyed by the Activate flag ID.
+// ColosseumFlagSets keyed by the Activate flag ID. Δ=10 stride verified
+// against Tester slot 2 (legit Limgrave-only) at tmp/coloseum-debug/.
 var ColosseumFlagSets = map[uint32]ColosseumFlagSet{
-	// Caelid — PhysicalGate cluster in block 12020 (m12_02 Caelid map area).
-	// 12020510 + 12020519 are X only in all-coloseum-open save; 12020525-530
-	// are also X in Zofia (cheat). Including the full cluster for safety.
-	60350: {Activate: 60350, MapPOI: 62720, NPC: 69450, Gate: 710850,
-		PhysicalGate: []uint32{12020510, 12020519, 12020525, 12020526, 12020527, 12020530}},
-	// Limgrave — PhysicalGate verified by Tester (legit) + Random (manual) diff
-	60360: {Activate: 60360, MapPOI: 62730, NPC: 69460, Gate: 710860,
-		PhysicalGate: []uint32{1790}},
-	// Royal — PhysicalGate is a 3-bit cluster in block 11000 (m11_00 Leyndell)
-	60370: {Activate: 60370, MapPOI: 62740, NPC: 69470, Gate: 710870,
-		PhysicalGate: []uint32{11000520, 11000521, 11000522}},
+	60350: {Activate: 60350, MapPOI: 62720, NPC: 69450, Gate: 710850}, // Caelid
+	60360: {Activate: 60360, MapPOI: 62730, NPC: 69460, Gate: 710860}, // Limgrave
+	60370: {Activate: 60370, MapPOI: 62740, NPC: 69470, Gate: 710870}, // Royal
 }
 
-// ColosseumGlobalFlags fire once any colosseum is unlocked and remain set
-// regardless of which arena the player visits. Cross-checked against four
-// saves at tmp/coloseum-debug/:
-//   - Tester slot 2 with Limgrave only legit (after.sl2)
-//   - Random slot 4 with all three manually opened (coloseum-open.sl2)
-//   - Random slot 4 with only Limgrave gate physically opened
-//     after killing the entrance invader (limgrave-coloseum-open.sl2)
-//   - Zofia slot 1 with all three "unlocked" — but missing 700800/710800,
-//     which strongly suggests her colosseums were set via cheat (only
-//     Activate flag), so her save state is NOT ground truth for gate opening.
-//
-// 700800 and 710800 are the critical gate-trigger flags: X in every save
-// where a colosseum gate was physically opened, missing in Zofia. Earlier
-// iterations mirrored Zofia's flags, leaving gates visually unlocked but
-// physically closed. Setting these two opens the gate.
-//
-// These are intentionally never cleared on de-unlock: they double as
-// progression markers, and clearing risks regressing other systems.
+// ColosseumGlobalFlags fire when any colosseum is unlocked. Verified set
+// in Tester slot 2 (after.sl2) after legit Limgrave-only unlock.
 var ColosseumGlobalFlags = []uint32{
-	6080,   // gameman — any colosseum unlocked
-	60100,  // event/map system global
-	69480,  // block 69 global (NPC/dialog memory)
-	700800, // block 700 — gate-physical-open trigger (X in Tester+R4-Lim+R4-3open, NOT Zofia)
-	710060, // block 710 — gate-system global
-	710520, // block 710 — gate-system global
-	710770, // block 710 — gate-system global
-	710800, // block 710 — gate-physical-open trigger (X in Tester+R4-Lim+R4-3open, NOT Zofia)
-	710880, // block 710 global (m10_00 area marker)
+	6080,  // gameman — any colosseum unlocked
+	60100, // event/map system global
+	69480, // block 69 global
 }
 
-// AllFlags returns every per-colosseum flag in a stable order
-// (Activate, MapPOI, NPC, Gate, PhysicalGate…). Globals are handled
-// separately because they are shared across all colosseums.
+// AllFlags returns every per-colosseum flag in a stable order.
 func (c ColosseumFlagSet) AllFlags() []uint32 {
-	out := make([]uint32, 0, 4+len(c.PhysicalGate))
-	out = append(out, c.Activate, c.MapPOI, c.NPC, c.Gate)
-	out = append(out, c.PhysicalGate...)
-	return out
+	return []uint32{c.Activate, c.MapPOI, c.NPC, c.Gate}
 }
