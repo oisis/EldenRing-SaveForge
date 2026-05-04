@@ -2,7 +2,9 @@ import {useState} from 'react';
 import toast from '../lib/toast';
 import {CharacterImporter} from './CharacterImporter';
 import {PresetImporter} from './PresetImporter';
+import {FavoritesManager} from './FavoritesManager';
 import {ExportCharacterPresetToFile} from '../../wailsjs/go/main/App';
+import {useFavorites} from '../state/favorites';
 
 interface ToolsTabProps {
     charIndex: number;
@@ -10,10 +12,11 @@ interface ToolsTabProps {
     onMutate?: () => void;
 }
 
-type ToolView = 'overview' | 'importer' | 'preset-import';
+type ToolView = 'overview' | 'importer' | 'preset-import' | 'favorites';
 
 export function ToolsTab({charIndex, onComplete, onMutate}: ToolsTabProps) {
     const [view, setView] = useState<ToolView>('overview');
+    const {count: favCount} = useFavorites();
 
     const handleExportPreset = async () => {
         try {
@@ -56,6 +59,21 @@ export function ToolsTab({charIndex, onComplete, onMutate}: ToolsTabProps) {
         );
     }
 
+    if (view === 'favorites') {
+        return (
+            <div className="space-y-3 animate-in fade-in duration-300">
+                <button onClick={() => setView('overview')}
+                    className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Back to Tools
+                </button>
+                <FavoritesManager />
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6 animate-in fade-in duration-500 max-w-4xl mx-auto">
             <div className="flex items-center space-x-2">
@@ -92,6 +110,22 @@ export function ToolsTab({charIndex, onComplete, onMutate}: ToolsTabProps) {
                         <div>
                             <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Import Preset</h4>
                             <p className="text-[9px] text-muted-foreground mt-1">Load a .preset.json file and apply to the current character</p>
+                        </div>
+                    </div>
+                </button>
+
+                {/* Favorite Items */}
+                <button onClick={() => setView('favorites')}
+                    className="card p-5 text-left hover:border-amber-500/40 hover:bg-amber-500/5 transition-all group">
+                    <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-amber-500/20 transition-colors">
+                            <svg className="w-5 h-5 text-amber-500" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Favorite Items</h4>
+                            <p className="text-[9px] text-muted-foreground mt-1">Browse and manage your favorite items{favCount > 0 ? ` (${favCount})` : ''}</p>
                         </div>
                     </div>
                 </button>

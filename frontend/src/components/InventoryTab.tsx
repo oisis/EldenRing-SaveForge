@@ -5,6 +5,7 @@ import {GetCharacter, SaveCharacter, RemoveItemsFromCharacter, GetItemList} from
 import {vm} from '../../wailsjs/go/models';
 import {CategorySelect} from './CategorySelect';
 import {RiskBadge} from './RiskBadge';
+import {useFavorites} from '../state/favorites';
 
 // Categories with sub-groupings — drives the Sub-Category column visibility.
 const CATEGORIES_WITH_SUBGROUPS = new Set([
@@ -34,9 +35,11 @@ interface InventoryTabProps {
     category: string;
     setCategory: (value: string) => void;
     onMutate?: () => void;
+    showOnlyFavorites?: boolean;
 }
 
-export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, showFlaggedItems, category, setCategory, onMutate }: InventoryTabProps) {
+export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, showFlaggedItems, category, setCategory, onMutate, showOnlyFavorites = false }: InventoryTabProps) {
+    const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
     const [charInventory, setCharInventory] = useState<vm.ItemViewModel[]>([]);
     const [charStorage, setCharStorage] = useState<vm.ItemViewModel[]>([]);
@@ -285,6 +288,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
     const deferredSearch = useDeferredValue(search);
 
     const filteredOwnedItems = useMemo(() => sortItems(mergedOwnedItems.filter(item => {
+        if (showOnlyFavorites && !isFav(item.id)) return false;
         // "Cut & Ban-Risk" toggle hides only risky-flagged items, not informational flags
         // (dlc, stackable) which are now present on most entries.
         const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
@@ -297,7 +301,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
         if (category === 'all') return matchesSearch;
 
         return item.subCategory === category && matchesSearch;
-    })), [mergedOwnedItems, deferredSearch, category, sortCol, sortDir, showFlaggedItems]);
+    })), [mergedOwnedItems, deferredSearch, category, sortCol, sortDir, showFlaggedItems, showOnlyFavorites, isFav]);
 
     // Total items in selected category from the database (for the Owned/Total badge).
     const [categoryTotal, setCategoryTotal] = useState<number>(0);
@@ -462,6 +466,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                             <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>}
                                     </div>
                                 </th>
+                                <th className="px-2 py-4 w-8"></th>
                                 <th className="px-6 py-4 w-16">Icon</th>
                                 <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
                                     Name <SortIndicator col="name" />
@@ -520,6 +525,13 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                         <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>}
                                                 </div>
                                             )}
+                                        </td>
+                                        <td className="px-2 text-center">
+                                            <button onClick={e => { e.stopPropagation(); toggleFav(item.id); }} className="p-0.5 transition-all hover:scale-125">
+                                                <svg className={`w-4 h-4 ${isFav(item.id) ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground/20 fill-none hover:text-amber-500/50'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                </svg>
+                                            </button>
                                         </td>
                                         <td className="px-6 py-0.5">
                                             <div

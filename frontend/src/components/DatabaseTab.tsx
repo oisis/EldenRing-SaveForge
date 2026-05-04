@@ -7,6 +7,7 @@ import type {AddSettings} from '../App';
 import {CategorySelect, CATEGORY_VALUES} from './CategorySelect';
 import {RiskBadge} from './RiskBadge';
 import {isLowerTierTalisman} from '../lib/talismanFamilies';
+import {useFavorites} from '../state/favorites';
 
 // Categories whose tab has sub-groupings — drives the Sub-Category column visibility.
 const CATEGORIES_WITH_SUBGROUPS = new Set([
@@ -39,6 +40,7 @@ interface DatabaseTabProps {
     setCategory: (value: string) => void;
     onSelectItem?: (item: db.ItemEntry | null) => void;
     readOnly?: boolean;
+    showOnlyFavorites?: boolean;
 }
 
 // Determine if ALL selected items are non-stackable (max qty == 1)
@@ -54,8 +56,9 @@ function effectiveCap(item: db.ItemEntry, kind: 'inv' | 'storage', clearCount: n
     return base;
 }
 
-export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, readOnly = false}: DatabaseTabProps) {
+export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, readOnly = false, showOnlyFavorites = false}: DatabaseTabProps) {
     const {upgrade25, upgrade10, infuseOffset, upgradeAsh} = addSettings;
+    const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
     const [dbItems, setDbItems] = useState<db.ItemEntry[]>([]);
     const [loading, setLoading] = useState(false);
@@ -195,6 +198,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const deferredSearch = useDeferredValue(search);
 
     const filteredItems = useMemo(() => dbItems.filter(item => {
+        if (showOnlyFavorites && !isFav(item.id)) return false;
         // "Cut & Ban-Risk" toggle hides only risky-flagged items, not informational flags
         // (dlc, stackable) which are now present on most entries.
         const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
@@ -210,7 +214,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
         return 0;
-    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, category, addSettings.talismansHighestOnly]);
+    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, category, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
 
     // Owned count: items with at least 1 in inventory or storage in current category.
     const ownedCount = useMemo(() => {
@@ -224,6 +228,16 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const totalCount = useMemo(() =>
         category === 'all' ? dbItems.length : dbItems.filter(i => i.category === category).length,
         [dbItems, category]);
+
+    const favoritesInView = useMemo(() =>
+        dbItems.filter(item => {
+            if (!isFav(item.id)) return false;
+            const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
+            if (!showFlaggedItems && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
+            if (category === 'talismans' && addSettings.talismansHighestOnly && isLowerTierTalisman(item.id)) return false;
+            return true;
+        }),
+        [dbItems, isFav, showFlaggedItems, category, addSettings.talismansHighestOnly]);
 
     const showSubGroupColumn = category === 'all' || CATEGORIES_WITH_SUBGROUPS.has(category);
 
@@ -378,8 +392,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         overscan: 20,
     });
 
-    // Header has: (optional checkbox) + icon + name (2 fixed) + optional ID + optional Sub-Category + Inv/Storage (always 2)
-    const colCount = 4
+    // Header has: (optional checkbox) + fav + icon + name (3 fixed) + optional ID + optional Sub-Category + Inv/Storage (always 2)
+    const colCount = 5
         + (readOnly ? 0 : 1)
         + (columnVisibility.id ? 1 : 0)
         + (columnVisibility.category && showSubGroupColumn ? 1 : 0);
@@ -691,6 +705,16 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                             Add Selected ({selectedDbItems.size})
                         </button>
                     )}
+                    {!readOnly && favoritesInView.length > 0 && selectedDbItems.size === 0 && (
+                        <button
+                            onClick={() => openModal(favoritesInView)}
+                            disabled={!platform}
+                            className="px-6 py-2 bg-amber-500/90 text-white rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-500/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
+                        >
+                            <svg className="w-3 h-3 fill-white" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                            Add Favorites ({favoritesInView.length})
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -732,6 +756,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                         </div>
                                     </th>
                                 )}
+                                <th className="p-4 w-8"></th>
                                 <th className="p-4 w-12">Icon</th>
                                 <th className="p-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
                                     Name {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
@@ -778,6 +803,13 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                 </div>
                                             </td>
                                         )}
+                                        <td className="p-2 text-center">
+                                            <button onClick={e => { e.stopPropagation(); toggleFav(item.id); }} className="p-0.5 transition-all hover:scale-125">
+                                                <svg className={`w-4 h-4 ${isFav(item.id) ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground/20 fill-none hover:text-amber-500/50'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                </svg>
+                                            </button>
+                                        </td>
                                         <td className="px-4 py-0.5">
                                             <div
                                                 className="w-12 h-12 bg-muted/20 rounded-lg border border-border/50 flex items-center justify-center overflow-hidden group-hover:border-primary/30 transition-all cursor-zoom-in"
