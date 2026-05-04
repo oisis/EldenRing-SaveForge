@@ -11,7 +11,7 @@ import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {NetworkTab} from './components/NetworkTab';
-import {ItemDetailPanel} from './components/ItemDetailPanel';
+
 import {AccordionSection} from './components/AccordionSection';
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
@@ -441,16 +441,13 @@ function App() {
                                             category={category}
                                             setCategory={setCategory}
                                             onSelectItem={setDetailItem}
+                                            selectedDetailItem={detailItem}
+                                            onCloseDetail={() => setDetailItem(null)}
                                             readOnly
                                             showOnlyFavorites={showOnlyFavorites}
                                         />
                                     )}
                                 </div>
-                                {detailItem && (
-                                    <div className="absolute right-6 top-6 bottom-6 w-[40%] z-20 animate-in slide-in-from-right duration-200">
-                                        <ItemDetailPanel item={detailItem} onClose={() => setDetailItem(null)} />
-                                    </div>
-                                )}
                             </div>
                         ) : (
                             <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -594,30 +591,21 @@ function App() {
                                         {invView === 'inventory' ? (
                                             <InventoryTab charIndex={selectedChar} inventoryVersion={inventoryVersion} columnVisibility={columnVisibility} showFlaggedItems={showFlaggedItems} category={category} setCategory={setCategory} onMutate={refreshUndoDepth} showOnlyFavorites={showOnlyFavorites} />
                                         ) : (
-                                            <div className="flex-1 flex min-h-0">
-                                                {/* Database list */}
-                                                <div className={`flex-1 flex flex-col min-h-0 min-w-0 ${detailItem ? 'max-w-[60%]' : ''}`}>
-                                                    <DatabaseTab
-                                                        columnVisibility={columnVisibility}
-                                                        platform={platform}
-                                                        charIndex={selectedChar}
-                                                        inventoryVersion={inventoryVersion}
-                                                        onItemsAdded={() => setInventoryVersion(v => v + 1)}
-                                                        addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS}
-                                                        showFlaggedItems={showFlaggedItems}
-                                                        category={category}
-                                                        setCategory={setCategory}
-                                                        onSelectItem={setDetailItem}
-                                                        showOnlyFavorites={showOnlyFavorites}
-                                                    />
-                                                </div>
-                                                {/* Detail panel */}
-                                                {detailItem && (
-                                                    <div className="w-[40%] shrink-0 animate-in slide-in-from-right duration-200">
-                                                        <ItemDetailPanel item={detailItem} onClose={() => setDetailItem(null)} />
-                                                    </div>
-                                                )}
-                                            </div>
+                                            <DatabaseTab
+                                                columnVisibility={columnVisibility}
+                                                platform={platform}
+                                                charIndex={selectedChar}
+                                                inventoryVersion={inventoryVersion}
+                                                onItemsAdded={() => setInventoryVersion(v => v + 1)}
+                                                addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS}
+                                                showFlaggedItems={showFlaggedItems}
+                                                category={category}
+                                                setCategory={setCategory}
+                                                onSelectItem={setDetailItem}
+                                                selectedDetailItem={detailItem}
+                                                onCloseDetail={() => setDetailItem(null)}
+                                                showOnlyFavorites={showOnlyFavorites}
+                                            />
                                         )}
                                     </div>
                                 )}

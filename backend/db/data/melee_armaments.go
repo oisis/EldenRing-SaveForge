@@ -426,7 +426,7 @@ var Weapons = map[uint32]ItemData{
 	0x0405F9D4: {Name: "Flame Art Milady", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/flame_art_milady.png"},
 	0x04061EF0: {Name: "Leda's Sword", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/melee_armaments/ledas_sword.png", Flags: []string{"dlc"}},
 	0x04064600: {Name: "Rellana's Twin Blades", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/melee_armaments/rellanas_twin_blades.png", Flags: []string{"dlc"}},
-	0x04153A20: {Name: "Beast Claw", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/incantations/beast_claw.png", Flags: []string{"dlc"}},
+
 	0x04153C14: {Name: "Flame Art Beast Claw", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/flame_art_beast_claw.png"},
 	0x04156130: {Name: "Red Bear's Claw", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/melee_armaments/red_bears_claw.png", Flags: []string{"dlc"}},
 }

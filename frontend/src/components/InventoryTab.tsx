@@ -495,13 +495,14 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                     </div>
                                                 </button>
                                             )}
-                                            <div className="w-16 h-16 rounded-lg bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden">
+                                            <div className="w-16 h-16 rounded-lg bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden cursor-zoom-in"
+                                                onClick={() => setSelectedIcon({name: item.name, path: item.iconPath})}>
                                                 {brokenIcons.has(item.iconPath)
                                                     ? <span className="text-[10px] font-black text-muted-foreground/30">?</span>
                                                     : <img src={item.iconPath} alt="" className="w-full h-full p-1 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300" onError={() => handleImageError(item.iconPath)} />
                                                 }
                                             </div>
-                                            <div className="text-center w-full">
+                                            <div className="text-center w-full cursor-pointer" onClick={() => setSelectedIcon({name: item.name, path: item.iconPath})}>
                                                 <div className="text-[10px] font-bold text-foreground truncate group-hover:text-primary transition-colors" title={item.name}>{item.name}</div>
                                                 {item.maxUpgrade > 0 && (
                                                     <span className="text-[8px] font-mono font-bold text-primary/60">+{item.currentUpgrade}/{item.maxUpgrade}</span>

@@ -129,4 +129,5 @@ var Incantations = map[uint32]ItemData{
 	0x401EA0AA: {Name: "Pest-Thread Spears", Category: "incantations", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/incantations/pest_thread_spears.png", Flags: []string{"dlc"}},
 	0x400013B0: {Name: "Death Lightning", Category: "incantations", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/incantations/death_lightning.png"},
 	0x401EA2BC: {Name: "Divine Bird Feathers", Category: "incantations", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/incantations/divine_bird_feathers.png", Flags: []string{"dlc"}},
+	0x04153A20: {Name: "Beast Claw", Category: "incantations", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/incantations/beast_claw.png", Flags: []string{"dlc"}},
 }
