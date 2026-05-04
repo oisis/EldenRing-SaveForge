@@ -942,8 +942,33 @@ func (a *App) SetColosseumUnlocked(slotIndex int, colosseumID uint32, unlocked b
 	}
 
 	flags := slot.Data[slot.EventFlagsOffset:]
-	if err := db.SetEventFlag(flags, colosseumID, unlocked); err != nil {
-		return fmt.Errorf("failed to set colosseum %d: %w", colosseumID, err)
+
+	// Set the primary Activate flag plus every per-colosseum derivative
+	// (MapPOI, NPC, Gate). Without the gate flag the matchmaking menu
+	// reports the arena as unlocked but the physical entrance stays closed
+	// (see tmp/coloseum-debug/ for the RE that established this set).
+	flagSet, ok := data.ColosseumFlagSets[colosseumID]
+	if !ok {
+		flagSet = data.ColosseumFlagSet{Activate: colosseumID}
+	}
+	for _, id := range flagSet.AllFlags() {
+		if id == 0 {
+			continue
+		}
+		if err := db.SetEventFlag(flags, id, unlocked); err != nil {
+			return fmt.Errorf("failed to set colosseum flag %d: %w", id, err)
+		}
+	}
+
+	// Globals fire once any colosseum is unlocked; we set them on unlock
+	// but never clear them, because they double as broader progression
+	// markers and clearing risks regressing unrelated systems.
+	if unlocked {
+		for _, id := range data.ColosseumGlobalFlags {
+			if err := db.SetEventFlag(flags, id, true); err != nil {
+				return fmt.Errorf("failed to set colosseum global flag %d: %w", id, err)
+			}
+		}
 	}
 	return nil
 }
