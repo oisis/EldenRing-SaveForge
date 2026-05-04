@@ -1,7 +1,7 @@
 # 44 — Tuning parametrów sieciowych (NetworkParam)
 
 > **Type**: Design doc
-> **Status**: ✅ Zaimplementowane (częściowo — parametry invasion gotowe, rozszerzone planowane)
+> **Status**: ✅ Zaimplementowane
 > **Scope**: Kompletna referencja pól NETWORK_PARAM_ST z regulation.bin istotnych dla tuningu PvP/multiplayer.
 
 ## Przegląd

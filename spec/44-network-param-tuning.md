@@ -1,7 +1,7 @@
 # 44 — NetworkParam PvP Tuning Reference
 
 > **Type**: Design doc
-> **Status**: ✅ Implemented (partial — invasion params done, extended params planned)
+> **Status**: ✅ Implemented
 > **Scope**: Complete field reference for NETWORK_PARAM_ST regulation.bin parameters relevant to PvP/multiplayer tuning.
 
 ## Overview

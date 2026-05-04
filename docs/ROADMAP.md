@@ -60,15 +60,6 @@
 
 ---
 
-## In Progress
-
-### 🟡 PvP/Networking Tab — role-based network tuning
-Dedicated tab with 4 role sections (Invader/Host/Cooperator/Blue). Each role has relevant NetworkParam sliders + Fast Preset.
-Migrates existing invasion params from SettingsTab. Adds ~17 new tunable params.
-**Design:** [spec/44](spec/44-network-param-tuning.md) | **Effort:** 6-8h
-
----
-
 ## Planned
 
 ### 🟡 Character Preset Export/Import — JSON build sharing
