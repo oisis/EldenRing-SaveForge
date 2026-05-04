@@ -4,8 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
+	"io"
 	"math"
+	"net/http"
 	"os"
 	"sort"
 	"strconv"
@@ -3004,7 +3007,248 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 	return &p, nil
 }
 
+const appVersion = "0.8.0"
+
+func (a *App) ExportCharacterPresetToFile(charIdx int) (string, error) {
+	if a.save == nil {
+		return "", fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return "", fmt.Errorf("invalid character index")
+	}
+	slot := &a.save.Slots[charIdx]
+	name := core.UTF16ToString(slot.Player.CharacterName[:])
+	if name == "" {
+		return "", fmt.Errorf("slot %d is empty", charIdx)
+	}
+
+	charVM, err := vm.MapParsedSlotToVM(slot)
+	if err != nil {
+		return "", fmt.Errorf("failed to map slot to VM: %w", err)
+	}
+
+	preset := vm.VMToPreset(charVM, appVersion)
+
+	worldData, err := vm.ExportWorldState(slot)
+	if err == nil {
+		preset.World = worldData
+	}
+
+	jsonData, err := json.MarshalIndent(preset, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal preset: %w", err)
+	}
+
+	defaultName := fmt.Sprintf("%s_%d_%s.preset.json", preset.Character.Name, preset.Character.Level, preset.Character.ClassName)
+
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export Character Preset",
+		DefaultFilename: defaultName,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Character Preset (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", fmt.Errorf("no file selected")
+	}
+
+	if err := os.WriteFile(path, jsonData, 0644); err != nil {
+		return "", fmt.Errorf("failed to write preset: %w", err)
+	}
+
+	return path, nil
+}
+
+func (a *App) LoadCharacterPresetFromFile() (*vm.CharacterPreset, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Import Character Preset",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Character Preset (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if path == "" {
+		return nil, fmt.Errorf("no file selected")
+	}
+
+	fileData, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read preset file: %w", err)
+	}
+
+	var preset vm.CharacterPreset
+	if err := json.Unmarshal(fileData, &preset); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	if preset.FormatVersion != vm.PresetFormatVersion {
+		return nil, fmt.Errorf("unsupported preset format version %d (expected %d)", preset.FormatVersion, vm.PresetFormatVersion)
+	}
+
+	return &preset, nil
+}
+
+func (a *App) LoadCharacterPresetFromURL(url string) (*vm.CharacterPreset, error) {
+	if url == "" {
+		return nil, fmt.Errorf("empty URL")
+	}
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch URL: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	var preset vm.CharacterPreset
+	if err := json.Unmarshal(body, &preset); err != nil {
+		return nil, fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	if preset.FormatVersion != vm.PresetFormatVersion {
+		return nil, fmt.Errorf("unsupported preset format version %d (expected %d)", preset.FormatVersion, vm.PresetFormatVersion)
+	}
+
+	return &preset, nil
+}
+
+func (a *App) ValidateCharacterPreset(preset vm.CharacterPreset) []string {
+	return vm.ValidatePreset(&preset)
+}
+
+func (a *App) ApplyCharacterPreset(charIdx int, preset vm.CharacterPreset, opts vm.ApplyOptions) (*vm.PresetApplyResult, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return nil, fmt.Errorf("invalid character index")
+	}
+	slot := &a.save.Slots[charIdx]
+	slotName := core.UTF16ToString(slot.Player.CharacterName[:])
+	if slotName == "" {
+		return nil, fmt.Errorf("slot %d is empty", charIdx)
+	}
+
+	a.pushUndo(charIdx)
+	snapshot := core.SnapshotSlot(slot)
+
+	result := &vm.PresetApplyResult{}
+	result.Warnings = vm.ValidatePreset(&preset)
+
+	if opts.ReplaceStats {
+		tempVM := vm.PresetToVM(&preset)
+
+		if opts.KeepName {
+			tempVM.Name = slotName
+		}
+		effectiveClass := preset.Character.Class
+		if opts.KeepClass {
+			effectiveClass = slot.Player.Class
+			tempVM.Class = slot.Player.Class
+			cs := db.GetClassStats(slot.Player.Class)
+			if cs != nil {
+				tempVM.ClassName = cs.Name
+			}
+		}
+
+		tempVM.ClampToClassMinimums(effectiveClass)
+		tempVM.ValidateStats()
+		tempVM.RecalculateLevel()
+
+		if err := vm.ApplyVMToParsedSlot(tempVM, slot); err != nil {
+			core.RestoreSlot(slot, snapshot)
+			return nil, fmt.Errorf("failed to apply stats: %w", err)
+		}
+		slot.SyncPlayerToData()
+		result.StatsApplied = true
+	}
+
+	if opts.ReplaceInventory {
+		removed, err := vm.ClearInventoryItems(slot)
+		if err != nil {
+			core.RestoreSlot(slot, snapshot)
+			return nil, fmt.Errorf("failed to clear inventory: %w", err)
+		}
+		result.ItemsRemoved += removed
+
+		itemsToAdd, addWarnings := vm.PresetItemsToItemsToAdd(preset.Inventory, true)
+		result.Warnings = append(result.Warnings, addWarnings...)
+		result.ItemsSkipped += len(preset.Inventory) - len(itemsToAdd)
+
+		if len(itemsToAdd) > 0 {
+			capReport := core.CheckAddCapacity(slot, itemsToAdd)
+			if !capReport.CanFitAll {
+				core.RestoreSlot(slot, snapshot)
+				return nil, fmt.Errorf("inventory capacity exceeded: %s (need %d inv slots, have %d free)",
+					capReport.CapHit, capReport.NeededInv, capReport.FreeInv)
+			}
+
+			if err := core.AddItemsToSlotBatch(slot, itemsToAdd); err != nil {
+				core.RestoreSlot(slot, snapshot)
+				return nil, fmt.Errorf("failed to add inventory items: %w", err)
+			}
+			result.ItemsAdded += len(itemsToAdd)
+		}
+	}
+
+	if opts.ReplaceStorage {
+		removed, err := vm.ClearStorageItems(slot)
+		if err != nil {
+			core.RestoreSlot(slot, snapshot)
+			return nil, fmt.Errorf("failed to clear storage: %w", err)
+		}
+		result.ItemsRemoved += removed
+
+		itemsToAdd, addWarnings := vm.PresetItemsToItemsToAdd(preset.Storage, false)
+		result.Warnings = append(result.Warnings, addWarnings...)
+		result.ItemsSkipped += len(preset.Storage) - len(itemsToAdd)
+
+		if len(itemsToAdd) > 0 {
+			capReport := core.CheckAddCapacity(slot, itemsToAdd)
+			if !capReport.CanFitAll {
+				core.RestoreSlot(slot, snapshot)
+				return nil, fmt.Errorf("storage capacity exceeded: %s", capReport.CapHit)
+			}
+
+			if err := core.AddItemsToSlotBatch(slot, itemsToAdd); err != nil {
+				core.RestoreSlot(slot, snapshot)
+				return nil, fmt.Errorf("failed to add storage items: %w", err)
+			}
+			result.ItemsAdded += len(itemsToAdd)
+		}
+	}
+
+	if opts.ReplaceWorld && preset.World != nil {
+		worldWarnings := vm.ApplyWorldState(slot, preset.World)
+		result.Warnings = append(result.Warnings, worldWarnings...)
+		result.WorldApplied = true
+	}
+
+	core.ReconcileStorageHeader(slot)
+
+	if violations := core.ValidatePostMutation(slot); len(violations) > 0 {
+		core.RestoreSlot(slot, snapshot)
+		return nil, fmt.Errorf("post-mutation validation failed: %s", violations[0].Error())
+	}
+
+	return result, nil
+}
+
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}
 }

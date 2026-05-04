@@ -749,12 +749,10 @@ func (s *SaveSlot) mapInventory() error {
 	return nil
 }
 
-func (s *SaveSlot) Write(platform string) []byte {
+func (s *SaveSlot) SyncPlayerToData() {
 	sa := NewSlotAccessor(s.Data)
 	mo := s.MagicOffset
 
-	// Errors in Write are programming bugs (offsets already validated in Read),
-	// so we ignore errors here. If any fails, it means Read() had a bug.
 	sa.WriteU32(mo+OffLevel, s.Player.Level)
 	sa.WriteU32(mo+OffVigor, s.Player.Vigor)
 	sa.WriteU32(mo+OffMind, s.Player.Mind)
@@ -773,12 +771,10 @@ func (s *SaveSlot) Write(platform string) []byte {
 	sa.WriteU8(mo+OffScadutreeBlessing, s.Player.ScadutreeBlessing)
 	sa.WriteU8(mo+OffShadowRealmBlessing, s.Player.ShadowRealmBlessing)
 
-	// ClearCount (NG+ cycle) — in dynamic chain, not relative to MagicOffset
 	if s.ClearCountOffset > 0 && s.ClearCountOffset+4 <= len(s.Data) {
 		sa.WriteU32(s.ClearCountOffset, s.Player.ClearCount)
 	}
 
-	// Equipped Great Rune — in EquippedItemsItemIds section
 	grOff := s.EquipItemsIDOffset + DynEquipGreatRune
 	if s.EquipItemsIDOffset > 0 && grOff+4 <= len(s.Data) {
 		sa.WriteU32(grOff, s.Player.EquippedGreatRune)
@@ -788,6 +784,10 @@ func (s *SaveSlot) Write(platform string) []byte {
 	for i := 0; i < 16; i++ {
 		sa.WriteU16(nameOff+i*2, s.Player.CharacterName[i])
 	}
+}
+
+func (s *SaveSlot) Write(platform string) []byte {
+	s.SyncPlayerToData()
 
 	// NOTE: Per-slot SteamID is NOT written here. The offset is at a dynamic position within
 	// the sequential data chain (after BaseVersion, before PS5Activity), NOT at SlotSize-8.

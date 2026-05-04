@@ -6,6 +6,10 @@ export function AddItemsToCharacter(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
   return window['go']['main']['App']['AddItemsToCharacter'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function ApplyCharacterPreset(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyCharacterPreset'](arg1, arg2, arg3);
+}
+
 export function ApplyMirrorFavoriteToCharacter(arg1, arg2) {
   return window['go']['main']['App']['ApplyMirrorFavoriteToCharacter'](arg1, arg2);
 }
@@ -76,6 +80,10 @@ export function DiagnoseSlot(arg1) {
 
 export function DownloadRemoteSave(arg1) {
   return window['go']['main']['App']['DownloadRemoteSave'](arg1);
+}
+
+export function ExportCharacterPresetToFile(arg1) {
+  return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1);
 }
 
 export function GetActiveSlots() {
@@ -218,6 +226,14 @@ export function ListAppearancePresets() {
   return window['go']['main']['App']['ListAppearancePresets']();
 }
 
+export function LoadCharacterPresetFromFile() {
+  return window['go']['main']['App']['LoadCharacterPresetFromFile']();
+}
+
+export function LoadCharacterPresetFromURL(arg1) {
+  return window['go']['main']['App']['LoadCharacterPresetFromURL'](arg1);
+}
+
 export function RemoveFavoritePreset(arg1) {
   return window['go']['main']['App']['RemoveFavoritePreset'](arg1);
 }
@@ -332,6 +348,10 @@ export function SetWhetbladeUnlocked(arg1, arg2, arg3) {
 
 export function TestSSHConnection(arg1) {
   return window['go']['main']['App']['TestSSHConnection'](arg1);
+}
+
+export function ValidateCharacterPreset(arg1) {
+  return window['go']['main']['App']['ValidateCharacterPreset'](arg1);
 }
 
 export function WriteSave(arg1) {

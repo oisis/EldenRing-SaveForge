@@ -469,7 +469,7 @@ function App() {
                                     );
                                 })()}
                                 <div className="flex-1 overflow-y-auto custom-scrollbar">
-                                {activeTab === 'character' && <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} />}
+                                {activeTab === 'character' && <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} refreshKey={inventoryVersion} />}
                                 {activeTab === 'inventory' && (
                                     <div className="flex-1 flex flex-col min-h-0">
                                         {/* Header consolidation (spec/36): toggle pills + capacity bar (Inventory) OR
@@ -607,7 +607,7 @@ function App() {
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} />}
                                 {activeTab === 'network' && <NetworkTab platform={platform} />}
-                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} />}
+                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} />}
                                 </div>
                             </div>
                         )}
