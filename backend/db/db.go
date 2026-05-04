@@ -511,10 +511,13 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 			})
 		}
 	case "key_items":
-		// Bell Bearings remain filtered: managed via dedicated Bell Bearings UI.
-		// Cookbooks and Whetblades are surfaced here per in-game UI (sub-group: Cookbooks).
+		// Bell Bearings: managed via dedicated Bell Bearings UI.
+		// Cookbooks: managed via World → Unlocks. Surfacing them here too
+		// would give two ways to add the same items, which is confusing and
+		// risks double-tracking. Owned cookbooks remain visible in Inventory
+		// as read-only entries (see vm.MapParsedSlotToVM).
 		for id, item := range data.KeyItems {
-			if item.Name == "" || data.IsBellBearingItemID(id) {
+			if item.Name == "" || data.IsBellBearingItemID(id) || data.IsCookbookItemID(id) {
 				continue
 			}
 			items = append(items, ItemEntry{
