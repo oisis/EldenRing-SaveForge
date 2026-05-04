@@ -1047,3 +1047,37 @@ func TestNoWarningsOnCleanSaves(t *testing.T) {
 		})
 	}
 }
+
+// TestAcquisitionSortIdIncrementFix verifies the NextAcquisitionSortId clobber bug is fixed:
+// each item add must increment the counter by exactly 1, independently of NextEquipIndex.
+func TestAcquisitionSortIdIncrementFix(t *testing.T) {
+	save := loadTestSave(t, pcSavePath)
+	slot := &save.Slots[0]
+
+	beforeAcq := slot.Inventory.NextAcquisitionSortId
+	beforeEquip := slot.Inventory.NextEquipIndex
+
+	// 3 stackable goods (Rowa Raisin = 1030, Trina's Lily = 1040, Erdleaf Flower = 1050)
+	itemIDs := []uint32{1030, 1040, 1050}
+	if err := core.AddItemsToSlot(slot, itemIDs, 1, 0, true); err != nil {
+		t.Fatalf("AddItemsToSlot: %v", err)
+	}
+
+	afterAcq := slot.Inventory.NextAcquisitionSortId
+	afterEquip := slot.Inventory.NextEquipIndex
+
+	if afterAcq != beforeAcq+3 {
+		t.Errorf("NextAcquisitionSortId: want %d+3=%d, got %d",
+			beforeAcq, beforeAcq+3, afterAcq)
+	}
+	if afterEquip <= beforeEquip {
+		t.Errorf("NextEquipIndex did not grow: before=%d after=%d", beforeEquip, afterEquip)
+	}
+	// The clobber bug set NextAcquisitionSortId = nextListId+1 ≈ NextEquipIndex
+	if afterEquip == afterAcq {
+		t.Errorf("NextEquipIndex == NextAcquisitionSortId (%d) — clobber bug still present", afterAcq)
+	}
+	t.Logf("OK: AcqSort %d→%d (+%d), EquipIdx %d→%d (+%d)",
+		beforeAcq, afterAcq, afterAcq-beforeAcq,
+		beforeEquip, afterEquip, afterEquip-beforeEquip)
+}

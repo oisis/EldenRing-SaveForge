@@ -1196,6 +1196,28 @@ func (a *App) DiagnoseAllSlots() ([]core.SlotDiagnostics, error) {
 	return results, nil
 }
 
+// RepairInventoryGaItems clears orphaned GaItem records from the specified slot.
+// Orphaned records are GaItem binary entries whose handles no longer appear in
+// held inventory or storage — they accumulate over editing sessions when items
+// are removed without clearing the backing GaItem record. Returns the count of
+// cleared entries so the UI can inform the user what was repaired.
+func (a *App) RepairInventoryGaItems(slotIndex int) (int, error) {
+	if a.save == nil {
+		return 0, fmt.Errorf("no save loaded")
+	}
+	if slotIndex < 0 || slotIndex >= 10 {
+		return 0, fmt.Errorf("invalid slot index")
+	}
+	name := core.UTF16ToString(a.save.Slots[slotIndex].Player.CharacterName[:])
+	if name == "" {
+		return 0, fmt.Errorf("slot %d is empty", slotIndex)
+	}
+	slot := &a.save.Slots[slotIndex]
+	cleared := core.RepairOrphanedGaItems(slot)
+	core.ReconcileInventoryHeader(slot)
+	return cleared, nil
+}
+
 // GetQuestNPCs returns the list of NPC names with quest data.
 func (a *App) GetQuestNPCs() []string {
 	return db.GetAllQuestNPCs()

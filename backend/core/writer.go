@@ -584,6 +584,7 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 
 	if fromInventory {
 		invStart := slot.MagicOffset + InvStartFromMagic
+		removedFromInv := 0
 		for i, item := range slot.Inventory.CommonItems {
 			if item.GaItemHandle == handle {
 				slot.Inventory.CommonItems[i] = InventoryItem{GaItemHandle: 0, Quantity: 0, Index: uint32(i)}
@@ -594,6 +595,7 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 				binary.LittleEndian.PutUint32(slot.Data[off:], 0)
 				binary.LittleEndian.PutUint32(slot.Data[off+4:], 0)
 				binary.LittleEndian.PutUint32(slot.Data[off+8:], uint32(i))
+				removedFromInv++
 			}
 		}
 		for i, item := range slot.Inventory.KeyItems {
@@ -607,6 +609,16 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 				binary.LittleEndian.PutUint32(slot.Data[off:], 0)
 				binary.LittleEndian.PutUint32(slot.Data[off+4:], 0)
 				binary.LittleEndian.PutUint32(slot.Data[off+8:], uint32(i))
+			}
+		}
+		// Decrement common_item_count header at invStart-4 (mirrors the increment in addToInventory).
+		if removedFromInv > 0 {
+			countOff := invStart - 4
+			if err := sa.CheckBounds(countOff, 4, "RemoveItemFromSlot/inv-count"); err == nil {
+				currentCount := binary.LittleEndian.Uint32(slot.Data[countOff:])
+				if currentCount >= uint32(removedFromInv) {
+					binary.LittleEndian.PutUint32(slot.Data[countOff:], currentCount-uint32(removedFromInv))
+				}
 			}
 		}
 	}
@@ -671,6 +683,15 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 	}
 	if !stillPresent {
 		delete(slot.GaMap, handle)
+		// Clear the GaItem in-memory entry so the next RebuildSlotFull doesn't
+		// re-serialize it. Without this, scanGaItems() on re-parse re-adds the
+		// handle to GaMap as an "orphaned" entry, accumulating over sessions.
+		for i := range slot.GaItems {
+			if slot.GaItems[i].Handle == handle {
+				slot.GaItems[i] = GaItemFull{Unk2: -1, Unk3: -1, AoWGaItemHandle: 0xFFFFFFFF}
+				break
+			}
+		}
 	}
 	return nil
 }
@@ -777,9 +798,11 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], newItem.Quantity)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], newItem.Index)
 
-		// Advance BOTH counters and write back (matching Rust ER-Save-Editor).
+		// Advance counters and write back.
+		// NextEquipIndex must stay > all per-item Index values (validity gate).
+		// NextAcquisitionSortId is an independent sort counter — increment by 1 only.
 		slot.Storage.NextEquipIndex = nextListId + 1
-		slot.Storage.NextAcquisitionSortId = nextListId + 1
+		slot.Storage.NextAcquisitionSortId++
 		if slot.Storage.nextEquipIndexOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextEquipIndexOff:], slot.Storage.NextEquipIndex)
 		}
@@ -812,48 +835,44 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 			return io.ErrShortBuffer // All slots occupied
 		}
 
-		// Use next_equip_index as the Index value (matching Rust ER-Save-Editor).
-		// The game uses this as CSGaItemIns index; items with index >= next_equip_index
-		// are considered invalid and cause EXCEPTION_ACCESS_VIOLATION.
-		// Clamp to be > InvEquipReservedMax (432) and > max existing index.
-		nextListId := slot.Inventory.NextEquipIndex
-		if nextListId <= InvEquipReservedMax {
-			nextListId = InvEquipReservedMax + 1
-		}
-		maxExisting := uint32(InvEquipReservedMax)
-		for _, item := range slot.Inventory.CommonItems {
-			if item.GaItemHandle != GaHandleEmpty && item.GaItemHandle != GaHandleInvalid && item.Index > maxExisting {
-				maxExisting = item.Index
-			}
-		}
-		for _, item := range slot.Inventory.KeyItems {
-			if item.GaItemHandle != GaHandleEmpty && item.GaItemHandle != GaHandleInvalid && item.Index > maxExisting {
-				maxExisting = item.Index
-			}
-		}
-		if nextListId <= maxExisting {
-			nextListId = maxExisting + 1
+		// Per-item acquisition index = current NextAcquisitionSortId (before increment).
+		// mapInventory() reconciles this value on load so it is always > all existing
+		// item indices — no per-call scan needed here.
+		acqIdx := slot.Inventory.NextAcquisitionSortId
+		if acqIdx <= InvEquipReservedMax {
+			acqIdx = InvEquipReservedMax + 1
+			slot.Inventory.NextAcquisitionSortId = acqIdx
 		}
 
-		(*items)[emptyIdx] = InventoryItem{GaItemHandle: handle, Quantity: qty, Index: nextListId}
+		(*items)[emptyIdx] = InventoryItem{GaItemHandle: handle, Quantity: qty, Index: acqIdx}
 		off := startOffset + emptyIdx*InvRecordLen
 		if err := sa.CheckBounds(off, InvRecordLen, "addToInventory/inv-insert"); err != nil {
 			return err
 		}
 		binary.LittleEndian.PutUint32(slot.Data[off:], handle)
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
-		binary.LittleEndian.PutUint32(slot.Data[off+8:], nextListId)
+		binary.LittleEndian.PutUint32(slot.Data[off+8:], acqIdx)
 
-		// Advance BOTH counters and write back (matching Rust ER-Save-Editor).
-		// The game requires next_equip_index > all item indices; without this update
-		// the game considers new items invalid → crash.
-		slot.Inventory.NextEquipIndex = nextListId + 1
-		slot.Inventory.NextAcquisitionSortId = nextListId + 1
+		// Both counters advance by exactly 1 — matches Rust ER-Save-Editor behavior.
+		// NextEquipIndex: validity gate (items with Index >= this are invisible to game).
+		// NextAcquisitionSortId: sort order; its pre-increment value is the per-item Index.
+		slot.Inventory.NextEquipIndex++
+		slot.Inventory.NextAcquisitionSortId++
 		if slot.Inventory.nextEquipIndexOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
 		}
 		if slot.Inventory.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
+		}
+
+		// Increment common_item_count header at invStart-4.
+		// The game uses this as the insertion point and full check (== CommonItemCount → full).
+		// Source: er-save-manager inventory.common_item_count += 1,
+		//         Rust ER-Save-Editor storage.common_item_count += 1.
+		countOff := startOffset - 4
+		if err := sa.CheckBounds(countOff, 4, "addToInventory/inv-count"); err == nil {
+			currentCount := binary.LittleEndian.Uint32(slot.Data[countOff:])
+			binary.LittleEndian.PutUint32(slot.Data[countOff:], currentCount+1)
 		}
 	}
 
@@ -948,6 +967,68 @@ func ReconcileStorageHeader(slot *SaveSlot) {
 		}
 	}
 	binary.LittleEndian.PutUint32(slot.Data[slot.StorageBoxOffset:], actualCount)
+}
+
+// ReconcileInventoryHeader sets the held-inventory common_item_count header to the
+// actual number of non-empty common item slots. Mirrors ReconcileStorageHeader.
+// Call this after loading a save that was edited by another tool (er-save-manager,
+// Rust ER-Save-Editor) to guarantee the counter matches what the game will see.
+func ReconcileInventoryHeader(slot *SaveSlot) {
+	if slot.MagicOffset <= 0 {
+		return
+	}
+	invStart := slot.MagicOffset + InvStartFromMagic
+	countOff := invStart - 4
+	if countOff < 0 || countOff+4 >= len(slot.Data) {
+		return
+	}
+	actualCount := uint32(0)
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle != GaHandleEmpty && item.GaItemHandle != GaHandleInvalid {
+			actualCount++
+		}
+	}
+	binary.LittleEndian.PutUint32(slot.Data[countOff:], actualCount)
+}
+
+// RepairOrphanedGaItems clears GaItem records whose handles are not present in
+// either held inventory or storage. These orphans accumulate when RemoveItemFromSlot
+// zeros the inventory slot but does not clear the backing GaItem binary record —
+// scanGaItems() then re-adds them to GaMap on every load.
+//
+// Returns the number of entries cleared.
+func RepairOrphanedGaItems(slot *SaveSlot) int {
+	// Build set of live handles from inventory and storage.
+	live := make(map[uint32]bool, len(slot.Inventory.CommonItems)+len(slot.Inventory.KeyItems)+len(slot.Storage.CommonItems))
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle != GaHandleEmpty && item.GaItemHandle != GaHandleInvalid {
+			live[item.GaItemHandle] = true
+		}
+	}
+	for _, item := range slot.Inventory.KeyItems {
+		if item.GaItemHandle != GaHandleEmpty && item.GaItemHandle != GaHandleInvalid {
+			live[item.GaItemHandle] = true
+		}
+	}
+	for _, item := range slot.Storage.CommonItems {
+		if item.GaItemHandle != GaHandleEmpty && item.GaItemHandle != GaHandleInvalid {
+			live[item.GaItemHandle] = true
+		}
+	}
+
+	cleared := 0
+	for i := range slot.GaItems {
+		g := &slot.GaItems[i]
+		if g.IsEmpty() {
+			continue
+		}
+		if !live[g.Handle] {
+			delete(slot.GaMap, g.Handle)
+			*g = GaItemFull{Unk2: -1, Unk3: -1, AoWGaItemHandle: 0xFFFFFFFF}
+			cleared++
+		}
+	}
+	return cleared
 }
 
 // sortUint32Slice sorts a []uint32 ascending in place.

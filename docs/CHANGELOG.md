@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Critical fix — inventory counter and index bugs causing "inventory full" and invisible items
+
+User-reported: "Inventory full" message when transferring from chest to held inventory despite removing items. Missing ranged weapons, seals, magic staves after editor sessions.
+
+**Root causes identified** (four separate bugs, all fixed):
+
+1. **Per-item acquisition index bloat** (`addToInventory` inventory path):
+   - Old code: `perItemIndex = max(NextEquipIndex, maxExistingIndex+1)`, then `NextEquipIndex = perItemIndex + 1`
+   - On a save where external tools (er-save-manager) had set acquisition indices to 7835+ while `NextEquipIndex` stayed at 1198, our editor's first `addToInventory` jumped `NextEquipIndex` to 15672 for 3 items. Each subsequent session bloated it further.
+   - This did NOT immediately break items added in the same session (all had index < updated NextEquipIndex). However, it created a high NextEquipIndex in the binary that confused future loads.
+
+2. **`NextAcquisitionSortId` clobber**:
+   - `NextAcquisitionSortId` was set equal to `nextListId + 1` (same as NextEquipIndex), destroying its independent sort-counter semantics. Fixed in a prior session but combined with the index bloat.
+
+3. **`common_item_count` header not updated on add/remove**:
+   - At `invStart-4` (= `MagicOffset + InvStartFromMagic - 4`), the game stores a count the runtime uses as the "next insertion index" and for the "inventory full" check (`count == 2688`). Our editor never read or wrote this field.
+   - Without decrement on remove: game thinks inventory is fuller than it is after removals.
+   - Without increment on add: game inserts at wrong slot position on in-game add, potentially overwriting items we placed.
+
+4. **Orphaned GaItem binary records** (root cause of accumulating "invisible" items):
+   - `RemoveItemFromSlot` zeroed the 12-byte inventory slot but left the GaItem binary record (21/16/8 bytes in the GaItems section) intact.
+   - On next load, `scanGaItems()` re-read the binary → orphaned handle reappeared in `GaMap` → next `AddItemsToSlot` → `allocateGaItem` placed new items at increasingly high indices in `slot.GaItems`, competing with orphaned entries.
+   - Diagnostic on user's save: 786 GaItem records, 280 orphaned (in GaMap but not in inventory/storage): 142 weapons + 94 armor + 44 AoW. These occupied `slot.GaItems` capacity without being accessible to the player.
+
+**Fixes** — `backend/core/writer.go` + `structures.go`:
+
+- `addToInventory` (inventory path): per-item `Index = NextAcquisitionSortId` (before increment), `NextEquipIndex++` (simple +1 per item), `common_item_count` incremented at `invStart-4`.
+- `mapInventory()` (`structures.go`): reconciles `NextAcquisitionSortId` to be > all existing item indices on every load (handles saves previously edited with high-index tools without per-call scanning). Also calls `ReconcileInventoryHeader` to correct `common_item_count` on load.
+- `RemoveItemFromSlot`: decrements `common_item_count` for removed inventory items; clears the GaItem in-memory entry (`slot.GaItems[i]`) so the next `RebuildSlotFull` compacts it out of binary.
+- New `ReconcileInventoryHeader(slot)`: sets `common_item_count` to actual non-empty slot count. Called automatically from `mapInventory`. Also exposed for direct repair calls.
+- New `RepairOrphanedGaItems(slot) int`: scans `slot.GaItems`, finds records whose handles are absent from both inventory and storage, clears them in-memory and removes from `GaMap`. Returns count for UI feedback.
+- New `App.RepairInventoryGaItems(slotIndex int) (int, error)`: Wails endpoint calling `RepairOrphanedGaItems` + `ReconcileInventoryHeader`. Use in InventoryTab / DiagnosticsTab to repair saves corrupted by prior editor versions.
+
+**Test results**: `TestAcquisitionSortIdIncrementFix` now shows `AcqSort 15669→15672 (+3), EquipIdx 1198→1201 (+3)` (EquipIdx increments by exactly N per N items added, AcqSort reconciled past existing high indices). `TestStressAddManyItems` passes (no index collisions). `TestArrowsRustCompatibility` and `TestArrowsAddToInventoryOnly` pass. 4 pre-existing failures unchanged.
+
 ### Critical fix — non-stackable items (weapons / armor / AoW) shared a GaItem handle between inventory and storage
 
 User-reported bug: after adding the same Ash of War to inventory and storage via the editor, equipping the AoW on one of two identical shields applied it to BOTH shields simultaneously, and BOTH AoW copies showed "in use" status. Investigation of `tmp/aow-debug/ER0000-aow.sl2` (slot 4 "Random") found 81 non-stackable handles simultaneously present in inventory AND storage, plus 109 inventory/storage entries with `Index >= NextEquipIndex` (invisible in-game — explains "added many items but don't see them").

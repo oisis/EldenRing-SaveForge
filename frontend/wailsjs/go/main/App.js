@@ -238,6 +238,10 @@ export function RemoveItemsFromCharacter(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RemoveItemsFromCharacter'](arg1, arg2, arg3, arg4);
 }
 
+export function RepairInventoryGaItems(arg1) {
+  return window['go']['main']['App']['RepairInventoryGaItems'](arg1);
+}
+
 export function ResetMapExploration(arg1) {
   return window['go']['main']['App']['ResetMapExploration'](arg1);
 }

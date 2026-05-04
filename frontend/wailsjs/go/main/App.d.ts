@@ -124,6 +124,8 @@ export function RemoveFogOfWar(arg1:number):Promise<void>;
 
 export function RemoveItemsFromCharacter(arg1:number,arg2:Array<number>,arg3:boolean,arg4:boolean):Promise<void>;
 
+export function RepairInventoryGaItems(arg1:number):Promise<number>;
+
 export function ResetMapExploration(arg1:number):Promise<void>;
 
 export function ResetNetworkParams():Promise<void>;
