@@ -129,6 +129,7 @@ var KeyItems = map[uint32]ItemData{
 	0x400000A6: {Name: "Vision of Grace", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/vision_of_grace.png"},
 	0x40000073: {Name: "Memory of Grace", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/memory_of_grace.png"},
 	0x4000082A: {Name: "Deathroot", Category: "key_items", MaxInventory: 9, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/deathroot.png", Flags: []string{"stackable"}},
+	0x40002756: {Name: "Lost Ashes of War", Category: "key_items", MaxInventory: 20, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/lost_ashes_of_war.png", Flags: []string{"stackable"}},
 	0x40002299: {Name: "Godskin Prayerbook", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/godskin_prayerbook.png"},
 	0x400022F2: {Name: "Meat Peddler's Bell Bearing", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/meat_peddlers_bell_bearing.png"},
 	0x40002313: {Name: "Beast Eye", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/beast_eye.png"},
