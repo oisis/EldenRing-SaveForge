@@ -853,10 +853,17 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], acqIdx)
 
-		// Both counters advance by exactly 1 — matches Rust ER-Save-Editor behavior.
-		// NextEquipIndex: validity gate (items with Index >= this are invisible to game).
+		// NextEquipIndex: validity gate — items with Index >= this value are invisible to the
+		// game. Must stay strictly greater than the item.Index we just wrote (acqIdx).
+		// If NextAcquisitionSortId jumped ahead of NextEquipIndex (e.g. InvEquipReservedMax
+		// clamp or a save edited by an external tool), a plain ++ leaves the gate behind and
+		// the new item becomes invisible. Use max(NextEquipIndex, acqIdx) + 1 instead.
+		if acqIdx >= slot.Inventory.NextEquipIndex {
+			slot.Inventory.NextEquipIndex = acqIdx + 1
+		} else {
+			slot.Inventory.NextEquipIndex++
+		}
 		// NextAcquisitionSortId: sort order; its pre-increment value is the per-item Index.
-		slot.Inventory.NextEquipIndex++
 		slot.Inventory.NextAcquisitionSortId++
 		if slot.Inventory.nextEquipIndexOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)

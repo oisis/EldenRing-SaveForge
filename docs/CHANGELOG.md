@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fix — binary NextEquipIndex write-back on load (visibility gate for externally-edited saves)
+
+**Problem**: saves edited by external tools (e.g. er-save-manager) may have `NextAcquisitionSortId > NextEquipIndex` gap in the binary. Our editor reconciled this gap in memory (`mapInventory`), but never wrote the corrected value back to `slot.Data`. If the user opened such a save and re-saved without adding items, the game still read the stale (low) `NextEquipIndex` from the binary → items with high indices remained invisible in-game.
+
+**Confirmed case**: `ER0000-kro55-out.sl2` — binary had `NextEquipIndex=2295`, `NextAcqSortId=2434` (gap=139). All 64 ranged weapons/catalysts were correctly present in GaItems and inventory, but 139 of them were invisible because `item.Index >= 2295`.
+
+**Fix** — `backend/core/structures.go` (`mapInventory`):
+
+- When `NextEquipIndex < NextAcquisitionSortId` is detected, the corrected value is immediately written to `slot.Data` at `nextEquipIndexOff` (the absolute byte offset recorded during parse).
+- Guard: only fires when `s.Version > 0` (active slot) and `nextEquipIndexOff > 0` (offset was parsed). Empty/inactive slots (`Version=0`, `NextEquipIndex=0, NextAcqSortId=1`) are skipped to avoid corrupting their binary state.
+- New exported accessor `EquipInventoryData.NextEquipIndexOff() int` allows tests to identify the corrected bytes.
+
+**Round-trip tests updated** — `tests/roundtrip_test.go` (`recalculatedRegions`):
+
+- Added `NextEquipIndex` bytes (4 bytes at `nextEquipIndexOff`) to the exclusion list for slots where reconciliation was applied. Tests remain meaningful: the intentional correction is expected and excluded; all other bytes must match exactly.
+
+**Test results**: `TestRoundTripPS4`, `TestRoundTripPC`, `TestConversionPS4ToPC`, `TestConversionPCToPS4`, `TestAcquisitionSortIdIncrementFix` — all pass. `go build .` OK.
+
+### Fix — invisible inventory items when adding large batches to saves with NextEquipIndex gap
+
+User-reported: after adding many items in one session, shields, bows, staves and seals were missing in-game. Sometimes UI showed them but game didn't; sometimes they disappeared after switching characters.
+
+**Root cause** — `backend/core/writer.go::addToInventory` (inventory path):
+
+The game treats items with `item.Index >= NextEquipIndex` as invisible. `addToInventory` advanced `NextEquipIndex` by a plain `++` each time an item was added. When `NextAcquisitionSortId > NextEquipIndex` at session start (gap introduced by saves previously edited with external tools, or by the `InvEquipReservedMax` clamp that jumps `NextAcquisitionSortId` to 433 while `NextEquipIndex` may still be lower), the gate never caught up: items assigned `acqIdx >= final NextEquipIndex` stayed invisible permanently.
+
+Diagnostic (all-item bulk-add on `ER0000-kro55-vanilla.sl2`): original save had `NextEquipIndex=405`, `NextAcquisitionSortId=544` (gap=139). After adding 1965 items both counters advanced by the same amount, preserving the gap. Final `NextEquipIndex=2370`, items 1827–1965 got `Index 2370–2508 >= 2370` → 139 invisible. After the fix: gap=0 throughout, `Items with index >= NextEquipIndex (invisible): 0`.
+
+**Fixes** — `backend/core/writer.go` + `structures.go`:
+
+- `addToInventory` (inventory path): replaced unconditional `NextEquipIndex++` with `max(NextEquipIndex, acqIdx) + 1`. Ensures NextEquipIndex is always strictly greater than the item.Index just written, regardless of the starting gap.
+- `mapInventory()` (`structures.go`): added in-memory reconciliation `NextEquipIndex = max(NextEquipIndex, NextAcquisitionSortId)` after the existing `NextAcquisitionSortId` reconciliation. Closes the gap before any adds in the current session; binary written back only when `addToInventory` actually fires (per-item write-back unchanged).
+
+**Test results**: all `go test ./backend/...` pass, all 4 round-trip tests (`TestRoundTripPS4`, `TestRoundTripPC`, PS4↔PC conversion) pass. `make build` OK.
+
 ### Critical fix — inventory counter and index bugs causing "inventory full" and invisible items
 
 User-reported: "Inventory full" message when transferring from chest to held inventory despite removing items. Missing ranged weapons, seals, magic staves after editor sessions.

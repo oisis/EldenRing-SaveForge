@@ -99,6 +99,10 @@ type EquipInventoryData struct {
 	nextAcqSortIdOff      int // absolute byte offset in slot.Data (for write-back)
 }
 
+// NextEquipIndexOff returns the absolute byte offset of NextEquipIndex in slot.Data.
+// Used by tests to exclude intentionally-corrected bytes from round-trip comparison.
+func (e *EquipInventoryData) NextEquipIndexOff() int { return e.nextEquipIndexOff }
+
 // Clone returns a deep copy of EquipInventoryData, including unexported offset fields.
 func (e *EquipInventoryData) Clone() EquipInventoryData {
 	c := EquipInventoryData{
@@ -741,6 +745,17 @@ func (s *SaveSlot) mapInventory() error {
 		}
 		if s.Inventory.NextAcquisitionSortId <= maxIdx {
 			s.Inventory.NextAcquisitionSortId = maxIdx + 1
+		}
+		// Reconcile NextEquipIndex: must be >= NextAcquisitionSortId.
+		// External editors may leave NextAcqSortId > NextEquipIndex; correct both
+		// in-memory AND in binary so the game sees the fixed value even if no items
+		// are added in this session. Skip empty slots (Version=0): their counters
+		// are initialised to 0/1 by the game and must not be touched.
+		if s.Inventory.NextEquipIndex < s.Inventory.NextAcquisitionSortId {
+			s.Inventory.NextEquipIndex = s.Inventory.NextAcquisitionSortId
+			if s.Version > 0 && s.Inventory.nextEquipIndexOff > 0 {
+				binary.LittleEndian.PutUint32(s.Data[s.Inventory.nextEquipIndexOff:], s.Inventory.NextEquipIndex)
+			}
 		}
 	}
 

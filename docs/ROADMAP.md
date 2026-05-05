@@ -58,6 +58,13 @@
 - Reusable AccordionSection, World Tab sub-tabs (Exploration/Progress/Unlocks)
 - QuakeConsole + ToastBar, Inventory/Database split view, rebranding
 
+### v0.8.x — Inventory integrity bugfixes
+- **NextEquipIndex visibility gate** — binary write-back on load: saves with `NextEquipIndex < NextAcquisitionSortId` gap (from external editors) are corrected in-binary on open, so items added before are immediately visible in-game without re-adding
+- **NextEquipIndex max-guard on add** — replaced `++` with `max(NextEquipIndex, acqIdx) + 1`: gap can never grow during an editor session regardless of pre-existing counter state
+- **`common_item_count` header** — reconciled on load and updated on add/remove: fixes "inventory full" false-positive and wrong in-game insertion index after external editor sessions
+- **Orphaned GaItem cleanup** — `RemoveItemFromSlot` clears GaItem binary record; `RepairOrphanedGaItems()` purges stale entries from pre-corruption saves
+- **Round-trip tests** — `recalculatedRegions()` excludes intentionally-corrected bytes; `TestAcquisitionSortIdIncrementFix` rewrit to assert visibility invariant
+
 ---
 
 ## Planned

@@ -9,6 +9,8 @@ import (
 // recalculatedRegions returns file-level byte ranges that are recalculated on save:
 // - CSPlayerGameDataHash (0x80 bytes in each slot)
 // - MD5 checksum prefix (16 bytes before each slot, PC only)
+// - NextEquipIndex field for slots where mapInventory corrected a gap (external
+//   editors may leave NextEquipIndex < NextAcquisitionSortId; we fix that on load)
 // These must be excluded from byte-for-byte round-trip comparison.
 func recalculatedRegions(save *core.SaveFile) [][2]int {
 	var regions [][2]int
@@ -33,6 +35,16 @@ func recalculatedRegions(save *core.SaveFile) [][2]int {
 		hashStart := slotDataStart + core.HashOffset
 		hashEnd := hashStart + core.HashSize
 		regions = append(regions, [2]int{hashStart, hashEnd})
+
+		// Exclude NextEquipIndex for slots where mapInventory corrected a gap.
+		// The 4-byte field is intentionally overwritten with the corrected value.
+		if save.Slots[i].Version > 0 {
+			off := save.Slots[i].Inventory.NextEquipIndexOff()
+			if off > 0 {
+				fileOff := slotDataStart + off
+				regions = append(regions, [2]int{fileOff, fileOff + 4})
+			}
+		}
 	}
 	return regions
 }

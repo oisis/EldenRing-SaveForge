@@ -1,7 +1,7 @@
 package data
 
 var RangedAndCatalysts = map[uint32]ItemData{
-0x02625A00: {Name: "Shortbow", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/shortbow.png"},
+	0x02625A00: {Name: "Shortbow", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/shortbow.png"},
 	0x02628110: {Name: "Misbegotten Shortbow", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/misbegotten_shortbow.png"},
 	0x0262A820: {Name: "Red Branch Shortbow", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/red_branch_shortbow.png"},
 	0x0262CF30: {Name: "Harp Bow", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/harp_bow.png"},
@@ -32,7 +32,7 @@ var RangedAndCatalysts = map[uint32]ItemData{
 	0x0291CE70: {Name: "Crepus's Black-Key Crossbow", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/crepuss_black_key_crossbow.png"},
 	0x029F8A10: {Name: "Jar Cannon", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/jar_cannon.png"},
 	0x02A70420: {Name: "Rabbath's Cannon", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/ranged_and_catalysts/rabbaths_cannon.png", Flags: []string{"dlc"}},
-0x016116A0: {Name: "Rotten Staff", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/rotten_staff.png"},
+	0x016116A0: {Name: "Rotten Staff", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/rotten_staff.png"},
 	0x01F78A40: {Name: "Glintstone Staff", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/glintstone_staff.png"},
 	0x01F82680: {Name: "Crystal Staff", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/crystal_staff.png"},
 	0x01F84D90: {Name: "Gelmir Glintstone Staff", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/gelmir_glintstone_staff.png"},
@@ -53,7 +53,7 @@ var RangedAndCatalysts = map[uint32]ItemData{
 	0x01FBD000: {Name: "Staff of Loss", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/staff_of_loss.png"},
 	0x01FF5270: {Name: "Staff of the Great Beyond", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/staff_of_the_great_beyond.png", Flags: []string{"dlc"}},
 	0x01FF7980: {Name: "Maternal Staff", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/maternal_staff.png", Flags: []string{"dlc"}},
-0x0206CC80: {Name: "Finger Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/finger_seal.png"},
+	0x0206CC80: {Name: "Finger Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/finger_seal.png"},
 	0x0206F390: {Name: "Godslayer's Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/godslayers_seal.png"},
 	0x02071AA0: {Name: "Giant's Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/giants_seal.png"},
 	0x020741B0: {Name: "Gravel Stone Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/gravel_stone_seal.png"},
@@ -61,7 +61,7 @@ var RangedAndCatalysts = map[uint32]ItemData{
 	0x0207B6E0: {Name: "Golden Order Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/golden_order_seal.png"},
 	0x0207DDF0: {Name: "Erdtree Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/erdtree_seal.png"},
 	0x02080500: {Name: "Dragon Communion Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/dragon_communion_seal.png"},
-	0x02082C10: {Name: "Frenzied Flame Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/frenzied_flame_seal.png"},
+	0x02082C10: {Name: "Frenzied Flame Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/ranged_and_catalysts/frenzied_flame_seal.png"},
 	0x020E6DA0: {Name: "Dryleaf Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/dryleaf_seal.png", Flags: []string{"dlc"}},
 	0x020E94B0: {Name: "Fire Knight's Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/fire_knight_s_seal.png", Flags: []string{"dlc"}},
 	0x020EBBC0: {Name: "Spiraltree Seal", Category: "ranged_and_catalysts", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/ranged_and_catalysts/spiraltree_seal.png", Flags: []string{"dlc"}},
