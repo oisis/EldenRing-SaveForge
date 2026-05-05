@@ -14,6 +14,7 @@ package data
 //   - Sacred Tear      (0x40002724 / raw 10020)  — 13 locations
 //   - Scadutree Fragment (0x401EAB90 / raw 2010000) — 43 locations (DLC)
 //   - Revered Spirit Ash (0x401EABF4 / raw 2010100) — 18 locations (DLC)
+//   - Memory Stone       (0x4000272E / raw  10030)  — 8 locations (7 world + 1 shop)
 var BolsteringPickupFlags = map[uint32][]uint32{
 
 	// ─── Golden Seed (43 locations) ───
@@ -62,4 +63,9 @@ var BolsteringPickupFlags = map[uint32][]uint32{
 		2047417700, 2047437700, 2049447500, 2050437720,
 		2050447500, 2050467700,
 	},
+
+	// ─── Memory Stone (7 world pickups + 1 shop stock flag) ───
+	// Flags 60400-60460: ItemLotParam_map.csv (world locations).
+	// Flag  60470: ShopLineupParam.csv row 101859 eventFlag_forStock (Twin Maiden Husks).
+	0x4000272E: {60400, 60410, 60420, 60430, 60440, 60450, 60460, 60470},
 }

@@ -167,13 +167,80 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	a.pushUndo(index)
 
+	// Patch Memory Stone qty in vm.Inventory so updateItemsAndSync writes the correct value.
+	desired := charVM.MemoryStones
+	if desired > 8 {
+		desired = 8
+	}
+	stoneFound := false
+	for i := range charVM.Inventory {
+		if charVM.Inventory[i].Handle == 0xB000272E {
+			charVM.Inventory[i].Quantity = desired
+			stoneFound = true
+			break
+		}
+	}
+
 	// 1. Update the slot data
 	if err := vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index]); err != nil {
 		return err
 	}
 
-	// 2. Sync NG+ event flags (50-57) with ClearCount
 	slot := &a.save.Slots[index]
+
+	// Add Memory Stone to inventory if it wasn't there yet.
+	if !stoneFound && desired > 0 {
+		if err := core.AddItemsToSlot(slot, []uint32{0x4000272E}, int(desired), 0, false); err != nil {
+			return fmt.Errorf("add memory stone: %w", err)
+		}
+	}
+
+	// Sync Memory Stone event flags to match desired quantity.
+	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+		flags := slot.Data[slot.EventFlagsOffset:]
+		flagList := data.BolsteringPickupFlags[0x4000272E]
+		sorted := make([]uint32, len(flagList))
+		copy(sorted, flagList)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		currentSet := 0
+		for _, f := range sorted {
+			if val, err := db.GetEventFlag(flags, f); err == nil && val {
+				currentSet++
+			}
+		}
+		if int(desired) > currentSet {
+			toSet := int(desired) - currentSet
+			set := 0
+			for _, f := range sorted {
+				if set >= toSet {
+					break
+				}
+				if val, err := db.GetEventFlag(flags, f); err == nil && !val {
+					if err := db.SetEventFlag(flags, f, true); err == nil {
+						set++
+					}
+				}
+			}
+		} else if int(desired) < currentSet {
+			toUnset := currentSet - int(desired)
+			sortedDesc := make([]uint32, len(sorted))
+			copy(sortedDesc, sorted)
+			sort.Slice(sortedDesc, func(i, j int) bool { return sortedDesc[i] > sortedDesc[j] })
+			unset := 0
+			for _, f := range sortedDesc {
+				if unset >= toUnset {
+					break
+				}
+				if val, err := db.GetEventFlag(flags, f); err == nil && val {
+					if err := db.SetEventFlag(flags, f, false); err == nil {
+						unset++
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Sync NG+ event flags (50-57) with ClearCount
 	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
 		flags := slot.Data[slot.EventFlagsOffset:]
 		for i := uint32(0); i <= 7; i++ {

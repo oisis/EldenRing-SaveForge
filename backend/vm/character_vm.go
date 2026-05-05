@@ -48,6 +48,7 @@ type CharacterViewModel struct {
 	EquippedGreatRune   uint32                `json:"equippedGreatRune"`
 	ScadutreeBlessing   uint8                 `json:"scadutreeBlessing"`
 	ShadowRealmBlessing uint8                 `json:"shadowRealmBlessing"`
+	MemoryStones        uint32                `json:"memoryStones"`
 	Inventory           []ItemViewModel       `json:"inventory"`
 	Storage             []ItemViewModel       `json:"storage"`
 	Warnings            []string              `json:"warnings"`
@@ -112,6 +113,23 @@ func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 
 	// Map Storage
 	vm.Storage = mapItems(slot.Storage, slot.GaMap)
+
+	// Populate MemoryStones — addToInventory writes to CommonItems; stones obtained
+	// in-game may reside in KeyItems. Scan both to handle either case.
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle == 0xB000272E {
+			vm.MemoryStones = item.Quantity & 0x7FFFFFFF
+			break
+		}
+	}
+	if vm.MemoryStones == 0 {
+		for _, item := range slot.Inventory.KeyItems {
+			if item.GaItemHandle == 0xB000272E {
+				vm.MemoryStones = item.Quantity & 0x7FFFFFFF
+				break
+			}
+		}
+	}
 
 	return vm, nil
 }

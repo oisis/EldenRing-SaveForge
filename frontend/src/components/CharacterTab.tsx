@@ -214,12 +214,12 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey}: Pr
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
-                                NG+ Cycle <span className="text-primary font-mono">{char.clearCount || 0}/7</span>
+                                Memory Stones <span className="text-primary font-mono">{char.memoryStones || 0}/8</span>
                             </label>
-                            <input type="number" min={0} max={7} value={char.clearCount || 0}
+                            <input type="number" min={0} max={8} value={char.memoryStones || 0}
                                 onChange={e => {
-                                    const v = Math.min(7, Math.max(0, parseInt(e.target.value) || 0));
-                                    setChar(vm.CharacterViewModel.createFrom({...char, clearCount: v}));
+                                    const v = Math.min(8, Math.max(0, parseInt(e.target.value) || 0));
+                                    setChar(vm.CharacterViewModel.createFrom({...char, memoryStones: v}));
                                 }}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
                         </div>
@@ -251,10 +251,14 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey}: Pr
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
-                                Memory Slots <span className="text-muted-foreground/50 font-mono">—</span>
+                                NG+ Cycle <span className="text-primary font-mono">{char.clearCount || 0}/7</span>
                             </label>
-                            <input type="number" min={0} max={12} value={0} disabled title="Not yet implemented"
-                                className="w-full bg-muted/10 border border-border/50 rounded-md px-3 py-2 text-xs font-black font-mono text-muted-foreground/40 cursor-not-allowed" />
+                            <input type="number" min={0} max={7} value={char.clearCount || 0}
+                                onChange={e => {
+                                    const v = Math.min(7, Math.max(0, parseInt(e.target.value) || 0));
+                                    setChar(vm.CharacterViewModel.createFrom({...char, clearCount: v}));
+                                }}
+                                className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
                         </div>
                     </div>
                 </div>
