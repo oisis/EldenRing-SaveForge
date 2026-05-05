@@ -219,12 +219,24 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (!q) return true;
         return item.name.toLowerCase().includes(q) || item.id.toString(16).includes(q);
     }).sort((a, b) => {
+        if (sortCol === 'weight') {
+            const aW = a.weight, bW = b.weight;
+            const aHas = aW !== undefined && aW > 0;
+            const bHas = bW !== undefined && bW > 0;
+            if (!aHas && !bHas) return a.name.localeCompare(b.name);
+            if (!aHas) return -1;
+            if (!bHas) return 1;
+            const diff = sortDir === 'asc' ? aW! - bW! : bW! - aW!;
+            return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
         const aVal = a[sortCol as keyof db.ItemEntry] ?? '';
         const bVal = b[sortCol as keyof db.ItemEntry] ?? '';
         if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
         return 0;
     }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, category, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
+
+    const showWeightColumn = useMemo(() => filteredItems.some(i => i.weight !== undefined && i.weight > 0), [filteredItems]);
 
     // Owned count: items with at least 1 in inventory or storage in current category.
     const ownedCount = useMemo(() => {
@@ -416,7 +428,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const colCount = 5
         + (readOnly ? 0 : 1)
         + (columnVisibility.id ? 1 : 0)
-        + (columnVisibility.category && showSubGroupColumn ? 1 : 0);
+        + (columnVisibility.category && showSubGroupColumn ? 1 : 0)
+        + (showWeightColumn ? 1 : 0);
 
     // Whether the modal items are all non-stackable (weapons/armor/talismans)
     const modalNonStackable = confirmModal ? allNonStackable(confirmModal) : true;
@@ -860,6 +873,11 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                         Sub-Category {sortCol === (category === 'all' ? 'category' : 'subCategory') && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
+                                {showWeightColumn && (
+                                    <th className="p-4 cursor-pointer hover:text-primary transition-colors text-right w-20" onClick={() => handleSort('weight')}>
+                                        Weight {sortCol === 'weight' && (sortDir === 'asc' ? '↑' : '↓')}
+                                    </th>
+                                )}
                                 <th className="p-4 text-center w-32">Inventory</th>
                                 <th className="p-4 text-center w-32">Storage</th>
                             </tr>
@@ -949,6 +967,11 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                         ? (CATEGORY_LABEL[item.category] ?? item.category.replace(/_/g, ' '))
                                                         : (item.subCategory || '—')}
                                                 </span>
+                                            </td>
+                                        )}
+                                        {showWeightColumn && (
+                                            <td className="p-4 text-right text-[11px] font-mono text-muted-foreground tabular-nums w-20">
+                                                {item.weight !== undefined && item.weight > 0 ? item.weight.toFixed(1) : '—'}
                                             </td>
                                         )}
                                         {(() => {

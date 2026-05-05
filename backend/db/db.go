@@ -28,6 +28,18 @@ type ItemEntry struct {
 	Spell        *data.SpellStats  `json:"spell,omitempty"`
 }
 
+// weightedCategory lists item categories that have physical weight from regulation.bin weapon/armor params.
+// Spells, consumables, key items etc. share ID space with weapon/armor params — excluded to avoid false matches.
+var weightedCategory = map[string]bool{
+	"melee_armaments":     true,
+	"ranged_and_catalysts": true,
+	"shields":             true,
+	"head":                true,
+	"chest":               true,
+	"arms":                true,
+	"legs":                true,
+}
+
 // InfuseType represents a weapon infusion type and its ID offset.
 type InfuseType struct {
 	Name   string `json:"name"`
@@ -198,21 +210,25 @@ func GetItemData(id uint32) data.ItemData {
 	return data.ItemData{}
 }
 
-// enrichItemEntry populates Description, Weight, and stat fields from the Descriptions table.
+// enrichItemEntry populates Description, Weight, and stat fields from the Descriptions table,
+// falling back to ItemWeights for items not in descriptions.
 func enrichItemEntry(e *ItemEntry) {
-	if data.Descriptions == nil {
-		return
+	if data.Descriptions != nil {
+		if desc, ok := data.Descriptions[e.ID]; ok {
+			e.Description = desc.Description
+			e.Location = desc.Location
+			e.Weight = desc.Weight
+			e.Weapon = desc.Weapon
+			e.Armor = desc.Armor
+			e.Spell = desc.Spell
+		}
 	}
-	desc, ok := data.Descriptions[e.ID]
-	if !ok {
-		return
+	// Only physical items carry weight — spells, consumables, key items etc. share ID space with weapon/armor params.
+	if e.Weight == 0 && weightedCategory[e.Category] {
+		if w, ok := data.ItemWeights[e.ID]; ok {
+			e.Weight = w
+		}
 	}
-	e.Description = desc.Description
-	e.Location = desc.Location
-	e.Weight = desc.Weight
-	e.Weapon = desc.Weapon
-	e.Armor = desc.Armor
-	e.Spell = desc.Spell
 }
 
 // GetItemEntryByID returns a fully enriched ItemEntry for the given base item ID, or nil if not found.
