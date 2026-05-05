@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fix — fuzzy weapon lookup for 0x01/0x02 prefix items with byte-carry upgrade offsets
+
+**Problem**: `GetItemDataFuzzy` only fuzzy-searched weapons with prefix `0x00`. Bows, greatbows, crossbows (prefix `0x02`) and staves/seals/catalysts (prefix `0x01`) with upgrade+infusion offsets that crossed a byte boundary (e.g. Greatbow Heavy+25: base `0x02817AC0` + 125 = `0x02817B3D`) had `id & 0xFFFFFF00 ≠ baseID & 0xFFFFFF00`, so the lookup returned empty → items were filtered from editor view as "unknown".
+
+**Fix** — `backend/db/db.go` (`GetItemDataFuzzy`): replaced byte-mask comparison with a range-based check (`id >= baseID && id-baseID <= 1225`) covering prefixes `0x00`, `0x01`, `0x02`. 1225 = max infusion offset (Occult=1200) + max upgrade (25).
+
+### Fix — add-items success log shows combined total across both API calls
+
+**Problem**: for non-stackable items with `invQty > 1` or `storageQty > 1`, the frontend issued two separate `AddItemsToCharacter` calls; `lastResult` was overwritten by the second call, so the log always showed only the storage-call count (e.g. "12/12" instead of "36/36").
+
+**Fix** — `frontend/src/components/DatabaseTab.tsx` (`handleAdd`): added `totalAdded`/`totalRequested` accumulators updated after each call; success message uses the accumulated totals.
+
 ### Fix — binary NextEquipIndex write-back on load (visibility gate for externally-edited saves)
 
 **Problem**: saves edited by external tools (e.g. er-save-manager) may have `NextAcquisitionSortId > NextEquipIndex` gap in the binary. Our editor reconciled this gap in memory (`mapInventory`), but never wrote the corrected value back to `slot.Data`. If the user opened such a save and re-saved without adding items, the game still read the stale (low) `NextEquipIndex` from the binary → items with high indices remained invisible in-game.
