@@ -2,9 +2,11 @@ package db
 
 import (
 	"fmt"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db/data"
+	"slices"
 	"sort"
 	"strings"
+
+	"github.com/oisis/EldenRing-SaveEditor/backend/db/data"
 )
 
 // ItemEntry represents a single item from the game database.
@@ -517,7 +519,7 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 		// risks double-tracking. Owned cookbooks remain visible in Inventory
 		// as read-only entries (see vm.MapParsedSlotToVM).
 		for id, item := range data.KeyItems {
-			if item.Name == "" || data.IsBellBearingItemID(id) || data.IsCookbookItemID(id) {
+			if item.Name == "" || data.IsBellBearingItemID(id) || data.IsCookbookItemID(id) || slices.Contains(item.Flags, "no_database") {
 				continue
 			}
 			items = append(items, ItemEntry{

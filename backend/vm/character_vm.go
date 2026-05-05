@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"slices"
 	"unicode/utf16"
 
 	"github.com/oisis/EldenRing-SaveEditor/backend/core"
@@ -187,7 +188,7 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32) []ItemViewM
 				CurrentUpgrade: currentUpgrade,
 				IconPath:       itemData.IconPath,
 				Flags:          itemData.Flags,
-				ReadOnly:       gamedata.IsCookbookItemID(itemID) || gamedata.IsWhetbladeItemID(itemID) || gamedata.IsBellBearingItemID(itemID),
+				ReadOnly:       gamedata.IsCookbookItemID(itemID) || gamedata.IsWhetbladeItemID(itemID) || gamedata.IsBellBearingItemID(itemID) || slices.Contains(itemData.Flags, "no_database"),
 			})
 		}
 	}

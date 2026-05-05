@@ -35,7 +35,7 @@ var BolsteringMaterials = map[uint32]ItemData{
 	0x40002779: {Name: "Smithing Stone [6]", Category: "bolstering_materials", SubCategory: SubcatBolsteringSmithingStones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/smithing_stone_6.png", Flags: []string{"stackable"}},
 	0x4000277A: {Name: "Smithing Stone [7]", Category: "bolstering_materials", SubCategory: SubcatBolsteringSmithingStones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/smithing_stone_7.png", Flags: []string{"stackable"}},
 	0x4000277B: {Name: "Smithing Stone [8]", Category: "bolstering_materials", SubCategory: SubcatBolsteringSmithingStones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/smithing_stone_8.png", Flags: []string{"stackable"}},
-	0x4000279C: {Name: "Ancient Dragon Smithing Stone", Category: "bolstering_materials", SubCategory: SubcatBolsteringSmithingStones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/ancient_dragon_smithing_stone.png", Flags: []string{"stackable"}},
+	0x4000279C: {Name: "Ancient Dragon Smithing Stone", Category: "bolstering_materials", SubCategory: SubcatBolsteringSmithingStones, MaxInventory: 18, MaxStorage: 18, MaxUpgrade: 0, IconPath: "items/bolstering_materials/ancient_dragon_smithing_stone.png", Flags: []string{"stackable"}},
 
 	// ─── Somberstones [1-9] + Somber Ancient Dragon Smithing Stone ──────
 	0x400027B0: {Name: "Somber Smithing Stone [1]", Category: "bolstering_materials", SubCategory: SubcatBolsteringSomberstones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/somber_smithing_stone_1.png", Flags: []string{"stackable"}},
@@ -47,7 +47,7 @@ var BolsteringMaterials = map[uint32]ItemData{
 	0x400027B6: {Name: "Somber Smithing Stone [7]", Category: "bolstering_materials", SubCategory: SubcatBolsteringSomberstones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/somber_smithing_stone_7.png", Flags: []string{"stackable"}},
 	0x400027B7: {Name: "Somber Smithing Stone [8]", Category: "bolstering_materials", SubCategory: SubcatBolsteringSomberstones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/somber_smithing_stone_8.png", Flags: []string{"stackable"}},
 	0x400027D8: {Name: "Somber Smithing Stone [9]", Category: "bolstering_materials", SubCategory: SubcatBolsteringSomberstones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/somber_smithing_stone_9.png", Flags: []string{"stackable"}},
-	0x400027B8: {Name: "Somber Ancient Dragon Smithing Stone", Category: "bolstering_materials", SubCategory: SubcatBolsteringSomberstones, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/somber_ancient_dragon_smithing_stone.png", Flags: []string{"stackable"}},
+	0x400027B8: {Name: "Somber Ancient Dragon Smithing Stone", Category: "bolstering_materials", SubCategory: SubcatBolsteringSomberstones, MaxInventory: 15, MaxStorage: 15, MaxUpgrade: 0, IconPath: "items/bolstering_materials/somber_ancient_dragon_smithing_stone.png", Flags: []string{"stackable"}},
 
 	// ─── Grave Glovewort [1-9] + Great Grave Glovewort ──────────────────
 	0x40002A94: {Name: "Grave Glovewort [1]", Category: "bolstering_materials", SubCategory: SubcatBolsteringGraveGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/grave_glovewort_1.png", Flags: []string{"stackable"}},
@@ -59,7 +59,7 @@ var BolsteringMaterials = map[uint32]ItemData{
 	0x40002A9A: {Name: "Grave Glovewort [7]", Category: "bolstering_materials", SubCategory: SubcatBolsteringGraveGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/grave_glovewort_7.png", Flags: []string{"stackable"}},
 	0x40002A9B: {Name: "Grave Glovewort [8]", Category: "bolstering_materials", SubCategory: SubcatBolsteringGraveGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/grave_glovewort_8.png", Flags: []string{"stackable"}},
 	0x40002A9C: {Name: "Grave Glovewort [9]", Category: "bolstering_materials", SubCategory: SubcatBolsteringGraveGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/grave_glovewort_9.png", Flags: []string{"stackable"}},
-	0x40002A9D: {Name: "Great Grave Glovewort", Category: "bolstering_materials", SubCategory: SubcatBolsteringGraveGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/great_grave_glovewort.png", Flags: []string{"stackable"}},
+	0x40002A9D: {Name: "Great Grave Glovewort", Category: "bolstering_materials", SubCategory: SubcatBolsteringGraveGlovewort, MaxInventory: 12, MaxStorage: 12, MaxUpgrade: 0, IconPath: "items/bolstering_materials/great_grave_glovewort.png", Flags: []string{"stackable"}},
 
 	// ─── Ghost Glovewort [1-9] + Great Ghost Glovewort ──────────────────
 	0x40002A9E: {Name: "Ghost Glovewort [1]", Category: "bolstering_materials", SubCategory: SubcatBolsteringGhostGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/ghost_glovewort_1.png", Flags: []string{"stackable"}},
@@ -71,5 +71,5 @@ var BolsteringMaterials = map[uint32]ItemData{
 	0x40002AA4: {Name: "Ghost Glovewort [7]", Category: "bolstering_materials", SubCategory: SubcatBolsteringGhostGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/ghost_glovewort_7.png", Flags: []string{"stackable"}},
 	0x40002AA5: {Name: "Ghost Glovewort [8]", Category: "bolstering_materials", SubCategory: SubcatBolsteringGhostGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/ghost_glovewort_8.png", Flags: []string{"stackable"}},
 	0x40002AA6: {Name: "Ghost Glovewort [9]", Category: "bolstering_materials", SubCategory: SubcatBolsteringGhostGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/ghost_glovewort_9.png", Flags: []string{"stackable"}},
-	0x40002AA7: {Name: "Great Ghost Glovewort", Category: "bolstering_materials", SubCategory: SubcatBolsteringGhostGlovewort, MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/bolstering_materials/great_ghost_glovewort.png", Flags: []string{"stackable"}},
+	0x40002AA7: {Name: "Great Ghost Glovewort", Category: "bolstering_materials", SubCategory: SubcatBolsteringGhostGlovewort, MaxInventory: 9, MaxStorage: 9, MaxUpgrade: 0, IconPath: "items/bolstering_materials/great_ghost_glovewort.png", Flags: []string{"stackable"}},
 }
