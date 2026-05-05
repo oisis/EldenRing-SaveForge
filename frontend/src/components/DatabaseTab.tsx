@@ -276,6 +276,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             const baseIds = confirmModal.map(i => i.id);
             type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number };
             let lastResult: AddRes | null = null;
+            let totalAdded = 0;
+            let totalRequested = 0;
             const allTrimmed: { itemID: number; cutQty: number }[] = [];
 
             if (modalNonStackable) {
@@ -283,6 +285,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 if (bothActive && invQtyVal === 1 && storageQtyVal === 1) {
                     const res = await AddItemsToCharacter(charIndex, baseIds, upgrade25, upgrade10, infuseOffset, upgradeAsh, 1, 1) as AddRes;
                     lastResult = res;
+                    totalAdded += res?.added ?? 0;
+                    totalRequested += res?.requested ?? 0;
                     if (res?.trimmed) allTrimmed.push(...res.trimmed);
                 } else {
                     if (addToInv && invQtyVal > 0) {
@@ -291,6 +295,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                             : baseIds;
                         const res = await AddItemsToCharacter(charIndex, ids, upgrade25, upgrade10, infuseOffset, upgradeAsh, 1, 0) as AddRes;
                         lastResult = res;
+                        totalAdded += res?.added ?? 0;
+                        totalRequested += res?.requested ?? 0;
                         if (res?.trimmed) allTrimmed.push(...res.trimmed);
                     }
                     if (!lastResult?.capHit && addToStorage && storageQtyVal > 0) {
@@ -299,6 +305,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                             : baseIds;
                         const res = await AddItemsToCharacter(charIndex, ids, upgrade25, upgrade10, infuseOffset, upgradeAsh, 0, 1) as AddRes;
                         lastResult = res;
+                        totalAdded += res?.added ?? 0;
+                        totalRequested += res?.requested ?? 0;
                         if (res?.trimmed) allTrimmed.push(...res.trimmed);
                     }
                 }
@@ -307,6 +315,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 const storQty = !addToStorage ? 0 : storageMax ? -1 : storageQtyVal;
                 const res = await AddItemsToCharacter(charIndex, baseIds, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storQty) as AddRes;
                 lastResult = res;
+                totalAdded += res?.added ?? 0;
+                totalRequested += res?.requested ?? 0;
                 if (res?.trimmed) allTrimmed.push(...res.trimmed);
             }
 
@@ -338,7 +348,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 return;
             }
 
-            let msg = `Added ${lastResult?.added ?? 0} / ${lastResult?.requested ?? 0} item(s) successfully.`;
+            let msg = `Added ${totalAdded} / ${totalRequested} item(s) successfully.`;
             if (allTrimmed.length > 0) {
                 const totalCut = allTrimmed.reduce((sum, s) => sum + s.cutQty, 0);
                 const distinctItems = new Set(allTrimmed.map(s => s.itemID)).size;
