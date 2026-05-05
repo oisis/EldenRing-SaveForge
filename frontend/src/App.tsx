@@ -607,7 +607,7 @@ function App() {
                                     </div>
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} />}
-                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} />}
+                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>
                         )}

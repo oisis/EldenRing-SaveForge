@@ -42,7 +42,7 @@ export function DiagnoseSlot(arg1:number):Promise<core.SlotDiagnostics>;
 
 export function DownloadRemoteSave(arg1:string):Promise<string>;
 
-export function ExportCharacterPresetToFile(arg1:number):Promise<string>;
+export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSettings):Promise<string>;
 
 export function GetActiveSlots():Promise<Array<boolean>>;
 

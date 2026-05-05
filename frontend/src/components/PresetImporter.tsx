@@ -8,14 +8,16 @@ import {
 } from '../../wailsjs/go/main/App';
 import {vm} from '../../wailsjs/go/models';
 import {RiskActionButton} from './RiskActionButton';
+import type {AddSettings} from '../App';
 
 interface Props {
     charIndex: number;
     onComplete: () => void;
     onMutate?: () => void;
+    onAddSettingsApplied?: (s: AddSettings) => void;
 }
 
-export function PresetImporter({charIndex, onComplete, onMutate}: Props) {
+export function PresetImporter({charIndex, onComplete, onMutate, onAddSettingsApplied}: Props) {
     const [preset, setPreset] = useState<vm.CharacterPreset | null>(null);
     const [warnings, setWarnings] = useState<string[]>([]);
     const [options, setOptions] = useState({
@@ -80,6 +82,15 @@ export function PresetImporter({charIndex, onComplete, onMutate}: Props) {
             const res = await ApplyCharacterPreset(charIndex, preset, opts);
             setResult(res);
             onMutate?.();
+            if (preset.addSettings && onAddSettingsApplied) {
+                onAddSettingsApplied({
+                    upgrade25: preset.addSettings.upgrade25 ?? 0,
+                    upgrade10: preset.addSettings.upgrade10 ?? 0,
+                    infuseOffset: preset.addSettings.infuseOffset ?? 0,
+                    upgradeAsh: preset.addSettings.upgradeAsh ?? 0,
+                    talismansHighestOnly: preset.addSettings.talismansHighestOnly ?? false,
+                });
+            }
             toast.success('Preset applied successfully!');
         } catch (e) {
             toast.error('Apply failed: ' + e);
@@ -271,7 +282,18 @@ export function PresetImporter({charIndex, onComplete, onMutate}: Props) {
                                 <div className="flex gap-4 text-[10px] text-muted-foreground pt-1 border-t border-border/50">
                                     <span>{preset.inventory?.length || 0} inventory items</span>
                                     <span>{preset.storage?.length || 0} storage items</span>
+                                    {preset.character.memoryStones > 0 && <span>{preset.character.memoryStones} memory stones</span>}
                                 </div>
+                                {preset.addSettings && (
+                                    <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground pt-1 border-t border-border/50">
+                                        <span className="text-[9px] font-black uppercase tracking-widest w-full">Add Settings</span>
+                                        {preset.addSettings.upgrade25 > 0 && <span>+{preset.addSettings.upgrade25} (25)</span>}
+                                        {preset.addSettings.upgrade10 > 0 && <span>+{preset.addSettings.upgrade10} (10)</span>}
+                                        {preset.addSettings.upgradeAsh > 0 && <span>ash +{preset.addSettings.upgradeAsh}</span>}
+                                        {preset.addSettings.infuseOffset > 0 && <span>infuse {preset.addSettings.infuseOffset}</span>}
+                                        {preset.addSettings.talismansHighestOnly && <span>talismans: highest only</span>}
+                                    </div>
+                                )}
                                 {hasWorld && (
                                     <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-muted-foreground pt-1 border-t border-border/50">
                                         {(world!.graces?.length || 0) > 0 && <span>{world!.graces!.length} graces</span>}

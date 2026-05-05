@@ -817,6 +817,26 @@ export namespace vm {
 	        this.worldPickups = source["worldPickups"];
 	    }
 	}
+	export class PresetAddSettings {
+	    upgrade25: number;
+	    upgrade10: number;
+	    infuseOffset: number;
+	    upgradeAsh: number;
+	    talismansHighestOnly: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PresetAddSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.upgrade25 = source["upgrade25"];
+	        this.upgrade10 = source["upgrade10"];
+	        this.infuseOffset = source["infuseOffset"];
+	        this.upgradeAsh = source["upgradeAsh"];
+	        this.talismansHighestOnly = source["talismansHighestOnly"];
+	    }
+	}
 	export class PresetItem {
 	    baseId: number;
 	    name: string;
@@ -855,8 +875,7 @@ export namespace vm {
 	    clearCount: number;
 	    greatRuneOn: boolean;
 	    equippedGreatRune: number;
-	    scadutreeBlessing: number;
-	    shadowRealmBlessing: number;
+	    memoryStones: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new CharacterPresetCore(source);
@@ -881,8 +900,7 @@ export namespace vm {
 	        this.clearCount = source["clearCount"];
 	        this.greatRuneOn = source["greatRuneOn"];
 	        this.equippedGreatRune = source["equippedGreatRune"];
-	        this.scadutreeBlessing = source["scadutreeBlessing"];
-	        this.shadowRealmBlessing = source["shadowRealmBlessing"];
+	        this.memoryStones = source["memoryStones"];
 	    }
 	}
 	export class CharacterPreset {
@@ -892,6 +910,7 @@ export namespace vm {
 	    character: CharacterPresetCore;
 	    inventory: PresetItem[];
 	    storage: PresetItem[];
+	    addSettings?: PresetAddSettings;
 	    world?: WorldPresetData;
 	
 	    static createFrom(source: any = {}) {
@@ -906,6 +925,7 @@ export namespace vm {
 	        this.character = this.convertValues(source["character"], CharacterPresetCore);
 	        this.inventory = this.convertValues(source["inventory"], PresetItem);
 	        this.storage = this.convertValues(source["storage"], PresetItem);
+	        this.addSettings = this.convertValues(source["addSettings"], PresetAddSettings);
 	        this.world = this.convertValues(source["world"], WorldPresetData);
 	    }
 	
@@ -1064,6 +1084,7 @@ export namespace vm {
 		    return a;
 		}
 	}
+	
 	
 	export class PresetApplyResult {
 	    statsApplied: boolean;
