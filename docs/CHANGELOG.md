@@ -4,6 +4,122 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fix — fuzzy weapon lookup for 0x01/0x02 prefix items with byte-carry upgrade offsets
+
+**Problem**: `GetItemDataFuzzy` only fuzzy-searched weapons with prefix `0x00`. Bows, greatbows, crossbows (prefix `0x02`) and staves/seals/catalysts (prefix `0x01`) with upgrade+infusion offsets that crossed a byte boundary (e.g. Greatbow Heavy+25: base `0x02817AC0` + 125 = `0x02817B3D`) had `id & 0xFFFFFF00 ≠ baseID & 0xFFFFFF00`, so the lookup returned empty → items were filtered from editor view as "unknown".
+
+**Fix** — `backend/db/db.go` (`GetItemDataFuzzy`): replaced byte-mask comparison with a range-based check (`id >= baseID && id-baseID <= 1225`) covering prefixes `0x00`, `0x01`, `0x02`. 1225 = max infusion offset (Occult=1200) + max upgrade (25).
+
+### Fix — add-items success log shows combined total across both API calls
+
+**Problem**: for non-stackable items with `invQty > 1` or `storageQty > 1`, the frontend issued two separate `AddItemsToCharacter` calls; `lastResult` was overwritten by the second call, so the log always showed only the storage-call count (e.g. "12/12" instead of "36/36").
+
+**Fix** — `frontend/src/components/DatabaseTab.tsx` (`handleAdd`): added `totalAdded`/`totalRequested` accumulators updated after each call; success message uses the accumulated totals.
+
+### Fix — binary NextEquipIndex write-back on load (visibility gate for externally-edited saves)
+
+**Problem**: saves edited by external tools (e.g. er-save-manager) may have `NextAcquisitionSortId > NextEquipIndex` gap in the binary. Our editor reconciled this gap in memory (`mapInventory`), but never wrote the corrected value back to `slot.Data`. If the user opened such a save and re-saved without adding items, the game still read the stale (low) `NextEquipIndex` from the binary → items with high indices remained invisible in-game.
+
+**Confirmed case**: `ER0000-kro55-out.sl2` — binary had `NextEquipIndex=2295`, `NextAcqSortId=2434` (gap=139). All 64 ranged weapons/catalysts were correctly present in GaItems and inventory, but 139 of them were invisible because `item.Index >= 2295`.
+
+**Fix** — `backend/core/structures.go` (`mapInventory`):
+
+- When `NextEquipIndex < NextAcquisitionSortId` is detected, the corrected value is immediately written to `slot.Data` at `nextEquipIndexOff` (the absolute byte offset recorded during parse).
+- Guard: only fires when `s.Version > 0` (active slot) and `nextEquipIndexOff > 0` (offset was parsed). Empty/inactive slots (`Version=0`, `NextEquipIndex=0, NextAcqSortId=1`) are skipped to avoid corrupting their binary state.
+- New exported accessor `EquipInventoryData.NextEquipIndexOff() int` allows tests to identify the corrected bytes.
+
+**Round-trip tests updated** — `tests/roundtrip_test.go` (`recalculatedRegions`):
+
+- Added `NextEquipIndex` bytes (4 bytes at `nextEquipIndexOff`) to the exclusion list for slots where reconciliation was applied. Tests remain meaningful: the intentional correction is expected and excluded; all other bytes must match exactly.
+
+**Test results**: `TestRoundTripPS4`, `TestRoundTripPC`, `TestConversionPS4ToPC`, `TestConversionPCToPS4`, `TestAcquisitionSortIdIncrementFix` — all pass. `go build .` OK.
+
+### Fix — invisible inventory items when adding large batches to saves with NextEquipIndex gap
+
+User-reported: after adding many items in one session, shields, bows, staves and seals were missing in-game. Sometimes UI showed them but game didn't; sometimes they disappeared after switching characters.
+
+**Root cause** — `backend/core/writer.go::addToInventory` (inventory path):
+
+The game treats items with `item.Index >= NextEquipIndex` as invisible. `addToInventory` advanced `NextEquipIndex` by a plain `++` each time an item was added. When `NextAcquisitionSortId > NextEquipIndex` at session start (gap introduced by saves previously edited with external tools, or by the `InvEquipReservedMax` clamp that jumps `NextAcquisitionSortId` to 433 while `NextEquipIndex` may still be lower), the gate never caught up: items assigned `acqIdx >= final NextEquipIndex` stayed invisible permanently.
+
+Diagnostic (all-item bulk-add on `ER0000-kro55-vanilla.sl2`): original save had `NextEquipIndex=405`, `NextAcquisitionSortId=544` (gap=139). After adding 1965 items both counters advanced by the same amount, preserving the gap. Final `NextEquipIndex=2370`, items 1827–1965 got `Index 2370–2508 >= 2370` → 139 invisible. After the fix: gap=0 throughout, `Items with index >= NextEquipIndex (invisible): 0`.
+
+**Fixes** — `backend/core/writer.go` + `structures.go`:
+
+- `addToInventory` (inventory path): replaced unconditional `NextEquipIndex++` with `max(NextEquipIndex, acqIdx) + 1`. Ensures NextEquipIndex is always strictly greater than the item.Index just written, regardless of the starting gap.
+- `mapInventory()` (`structures.go`): added in-memory reconciliation `NextEquipIndex = max(NextEquipIndex, NextAcquisitionSortId)` after the existing `NextAcquisitionSortId` reconciliation. Closes the gap before any adds in the current session; binary written back only when `addToInventory` actually fires (per-item write-back unchanged).
+
+**Test results**: all `go test ./backend/...` pass, all 4 round-trip tests (`TestRoundTripPS4`, `TestRoundTripPC`, PS4↔PC conversion) pass. `make build` OK.
+
+### Critical fix — inventory counter and index bugs causing "inventory full" and invisible items
+
+User-reported: "Inventory full" message when transferring from chest to held inventory despite removing items. Missing ranged weapons, seals, magic staves after editor sessions.
+
+**Root causes identified** (four separate bugs, all fixed):
+
+1. **Per-item acquisition index bloat** (`addToInventory` inventory path):
+   - Old code: `perItemIndex = max(NextEquipIndex, maxExistingIndex+1)`, then `NextEquipIndex = perItemIndex + 1`
+   - On a save where external tools (er-save-manager) had set acquisition indices to 7835+ while `NextEquipIndex` stayed at 1198, our editor's first `addToInventory` jumped `NextEquipIndex` to 15672 for 3 items. Each subsequent session bloated it further.
+   - This did NOT immediately break items added in the same session (all had index < updated NextEquipIndex). However, it created a high NextEquipIndex in the binary that confused future loads.
+
+2. **`NextAcquisitionSortId` clobber**:
+   - `NextAcquisitionSortId` was set equal to `nextListId + 1` (same as NextEquipIndex), destroying its independent sort-counter semantics. Fixed in a prior session but combined with the index bloat.
+
+3. **`common_item_count` header not updated on add/remove**:
+   - At `invStart-4` (= `MagicOffset + InvStartFromMagic - 4`), the game stores a count the runtime uses as the "next insertion index" and for the "inventory full" check (`count == 2688`). Our editor never read or wrote this field.
+   - Without decrement on remove: game thinks inventory is fuller than it is after removals.
+   - Without increment on add: game inserts at wrong slot position on in-game add, potentially overwriting items we placed.
+
+4. **Orphaned GaItem binary records** (root cause of accumulating "invisible" items):
+   - `RemoveItemFromSlot` zeroed the 12-byte inventory slot but left the GaItem binary record (21/16/8 bytes in the GaItems section) intact.
+   - On next load, `scanGaItems()` re-read the binary → orphaned handle reappeared in `GaMap` → next `AddItemsToSlot` → `allocateGaItem` placed new items at increasingly high indices in `slot.GaItems`, competing with orphaned entries.
+   - Diagnostic on user's save: 786 GaItem records, 280 orphaned (in GaMap but not in inventory/storage): 142 weapons + 94 armor + 44 AoW. These occupied `slot.GaItems` capacity without being accessible to the player.
+
+**Fixes** — `backend/core/writer.go` + `structures.go`:
+
+- `addToInventory` (inventory path): per-item `Index = NextAcquisitionSortId` (before increment), `NextEquipIndex++` (simple +1 per item), `common_item_count` incremented at `invStart-4`.
+- `mapInventory()` (`structures.go`): reconciles `NextAcquisitionSortId` to be > all existing item indices on every load (handles saves previously edited with high-index tools without per-call scanning). Also calls `ReconcileInventoryHeader` to correct `common_item_count` on load.
+- `RemoveItemFromSlot`: decrements `common_item_count` for removed inventory items; clears the GaItem in-memory entry (`slot.GaItems[i]`) so the next `RebuildSlotFull` compacts it out of binary.
+- New `ReconcileInventoryHeader(slot)`: sets `common_item_count` to actual non-empty slot count. Called automatically from `mapInventory`. Also exposed for direct repair calls.
+- New `RepairOrphanedGaItems(slot) int`: scans `slot.GaItems`, finds records whose handles are absent from both inventory and storage, clears them in-memory and removes from `GaMap`. Returns count for UI feedback.
+- New `App.RepairInventoryGaItems(slotIndex int) (int, error)`: Wails endpoint calling `RepairOrphanedGaItems` + `ReconcileInventoryHeader`. Use in InventoryTab / DiagnosticsTab to repair saves corrupted by prior editor versions.
+
+**Test results**: `TestAcquisitionSortIdIncrementFix` now shows `AcqSort 15669→15672 (+3), EquipIdx 1198→1201 (+3)` (EquipIdx increments by exactly N per N items added, AcqSort reconciled past existing high indices). `TestStressAddManyItems` passes (no index collisions). `TestArrowsRustCompatibility` and `TestArrowsAddToInventoryOnly` pass. 4 pre-existing failures unchanged.
+
+### Critical fix — non-stackable items (weapons / armor / AoW) shared a GaItem handle between inventory and storage
+
+User-reported bug: after adding the same Ash of War to inventory and storage via the editor, equipping the AoW on one of two identical shields applied it to BOTH shields simultaneously, and BOTH AoW copies showed "in use" status. Investigation of `tmp/aow-debug/ER0000-aow.sl2` (slot 4 "Random") found 81 non-stackable handles simultaneously present in inventory AND storage, plus 109 inventory/storage entries with `Index >= NextEquipIndex` (invisible in-game — explains "added many items but don't see them").
+
+**Root cause** — `backend/core/writer.go::AddItemsToSlot` and `AddItemsToSlotBatch`:
+
+- Phase 1 allocated **one** GaItem record (one unique handle) per item, regardless of destination(s).
+- Phase 3 wrote that handle into both inventory and storage when the user requested both (`InvQty>0` AND `StorageQty>0`).
+- For stackable items (`B-`/`A-`prefix goods/talismans) the shared handle is correct — handles are deterministic from item ID and the game treats them as fungible stacks.
+- For **non-stackable** items (`0x80…` weapon, `0x90…` armor, `0xC0…` AoW) the handle uniquely identifies a physical item in the GaItems array. Sharing it caused the game to treat both list entries as the same backing object: equip-AoW write updated the GaItem, both list copies reflected it, and on the next save cycle the game pushed the duplicate copies to invalid `Index` values, hiding them from the in-game inventory UI.
+
+**Fix** — `backend/core/writer.go`:
+
+- Both `AddItemsToSlot` and `AddItemsToSlotBatch` Phase 1 now allocate a **separate** GaItem record per destination for non-stackable items: one for inventory and one for storage. Stackable / arrow paths unchanged (they correctly share or skip GaItems per existing rules).
+- Extracted shared `allocNewGaItem(id, prefix)` helper inside both functions covering `generateUniqueHandle` + `allocateGaItem` + `GaMap` registration + `upsertGaItemData` (when needed).
+
+**Capacity check** — `backend/core/capacity.go::CheckAddCapacity`:
+
+- Non-stackable items with both `InvQty>0` and `StorageQty>0` now correctly cost 2 GaItems (and possibly 2 GaItemData entries when the item ID is new). Previously double-counting was elided based on the (incorrect) shared-handle behavior. Pre-flight feasibility now matches the actual mutation cost so users get accurate "inventory full / GaItems full" warnings before the snapshot/rollback path engages.
+
+**New regression test** — `backend/core/aow_dual_destination_test.go::TestNonStackableDualDestinationUniqueHandles`:
+
+- Loads `tmp/save/ER0000.sl2`, picks an active slot with sufficient empty GaItem capacity, adds Lion's Claw AoW (`0x80002710`) with `invQty=1, storageQty=1` via both `AddItemsToSlotBatch` and `AddItemsToSlot`.
+- Asserts: exactly 1 new inventory entry and 1 new storage entry, **handles must differ**, and both new handles are present in the GaItems array as distinct records with the same `ItemID`.
+
+**Updated existing test** — `tests/bulk_add_test.go::TestAddWithInventoryAndStorage`:
+
+- Capped `weaponIDs` / `armorIDs` collection at `min(30, free_armament_zone / 4)` because each non-stackable item now consumes 2 armament-zone GaItem slots; the shared test save's armament zone has only 156 free entries.
+- Added explicit assertion that for each non-stackable item ID the inventory-side and storage-side handles are **disjoint** (`sharedHandle == 0`).
+
+**Test results**: full `go test ./backend/...` passes. `tests/` package retains 4 pre-existing failures (`TestMassiveAddAllCategories`, `TestMaxCapacityFill`, `TestBulkAddPerCategory` — armament-zone capacity exhaustion when adding 1000+ non-stackable items to a near-full save; `TestAddArrowsStackable` — `GaItemData` arrow check) all of which were failing identically on master before this change. `make build` produces a clean Wails app bundle.
+
+**Recovery for users with corrupted saves**: saves where this bug already manifested (handle shared between inventory and storage) cannot be auto-repaired by the editor — the second list copy may already have been moved by the game's load logic and assigned an invalid `Index`. Restore from a `*.bkp` file in the save directory made before the dual-destination add, or remove the non-stackable items from inventory and storage in the editor (Inventory tab → Remove) and re-add them with the fixed code.
+
 ### Critical fix — FlushGaItems in-place shift overwriting DLC + Hash regions (game crash)
 
 User-reported game crash (`EXCEPTION_ACCESS_VIOLATION` at `eldenring.exe+0x1EB9989`) after adding many weapons / armor pieces in a single session. Game read DLC entry-flag byte as non-zero (interpreted as "player entered DLC"), tried to load DLC area state with stale prerequisites, dereferenced NULL pointer.

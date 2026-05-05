@@ -251,4 +251,6 @@ var Chest = map[uint32]ItemData{
 	0x1004E264: {Name: "Sanguine Noble Robe", Category: "chest", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/chest/sanguine_noble_robe.png"},
 	0x10097E14: {Name: "Prophet Robe", Category: "chest", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/chest/prophet_robe.png"},
 	0x10113E74: {Name: "Mushroom Body", Category: "chest", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/chest/mushroom_body.png"},
+	0x100FDEE4: {Name: "Goldmask's Rags", Category: "chest", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/chest/goldmask_s_rags.png"},
+	0x104F7FF4: {Name: "Ascetic's Loincloth", Category: "chest", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/chest/ascetic_s_loincloth.png", Flags: []string{"dlc"}},
 }

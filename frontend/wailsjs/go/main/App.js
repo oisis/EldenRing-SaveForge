@@ -134,6 +134,10 @@ export function GetInfuseTypes() {
   return window['go']['main']['App']['GetInfuseTypes']();
 }
 
+export function GetItemDetail(arg1) {
+  return window['go']['main']['App']['GetItemDetail'](arg1);
+}
+
 export function GetItemList(arg1) {
   return window['go']['main']['App']['GetItemList'](arg1);
 }
@@ -232,6 +236,10 @@ export function RemoveFogOfWar(arg1) {
 
 export function RemoveItemsFromCharacter(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RemoveItemsFromCharacter'](arg1, arg2, arg3, arg4);
+}
+
+export function RepairInventoryGaItems(arg1) {
+  return window['go']['main']['App']['RepairInventoryGaItems'](arg1);
 }
 
 export function ResetMapExploration(arg1) {

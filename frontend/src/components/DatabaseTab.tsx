@@ -7,6 +7,8 @@ import type {AddSettings} from '../App';
 import {CategorySelect, CATEGORY_VALUES} from './CategorySelect';
 import {RiskBadge} from './RiskBadge';
 import {isLowerTierTalisman} from '../lib/talismanFamilies';
+import {useFavorites} from '../state/favorites';
+import {ItemDetailPanel} from './ItemDetailPanel';
 
 // Categories whose tab has sub-groupings — drives the Sub-Category column visibility.
 const CATEGORIES_WITH_SUBGROUPS = new Set([
@@ -38,7 +40,10 @@ interface DatabaseTabProps {
     category: string;
     setCategory: (value: string) => void;
     onSelectItem?: (item: db.ItemEntry | null) => void;
+    selectedDetailItem?: db.ItemEntry | null;
+    onCloseDetail?: () => void;
     readOnly?: boolean;
+    showOnlyFavorites?: boolean;
 }
 
 // Determine if ALL selected items are non-stackable (max qty == 1)
@@ -54,9 +59,11 @@ function effectiveCap(item: db.ItemEntry, kind: 'inv' | 'storage', clearCount: n
     return base;
 }
 
-export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, readOnly = false}: DatabaseTabProps) {
+export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, selectedDetailItem, onCloseDetail, readOnly = false, showOnlyFavorites = false}: DatabaseTabProps) {
     const {upgrade25, upgrade10, infuseOffset, upgradeAsh} = addSettings;
+    const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
+    const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
     const [dbItems, setDbItems] = useState<db.ItemEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
@@ -88,9 +95,15 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
 
     // Icon preview
     const [selectedIcon, setSelectedIcon] = useState<{name: string, path: string} | null>(null);
+    const [hoverTooltip, setHoverTooltip] = useState<{name: string, path: string, x: number, y: number} | null>(null);
 
-    // Detail drawer
+    // Detail panel
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
+    const activeDetail = selectedDetailItem ?? detailItem;
+    const handleCloseDetail = () => {
+        if (onCloseDetail) onCloseDetail();
+        setDetailItem(null);
+    };
 
     // Owned items (for "Inventory" / "Storage" columns)
     const [charInventory, setCharInventory] = useState<vm.ItemViewModel[]>([]);
@@ -195,6 +208,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const deferredSearch = useDeferredValue(search);
 
     const filteredItems = useMemo(() => dbItems.filter(item => {
+        if (showOnlyFavorites && !isFav(item.id)) return false;
         // "Cut & Ban-Risk" toggle hides only risky-flagged items, not informational flags
         // (dlc, stackable) which are now present on most entries.
         const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
@@ -210,7 +224,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
         return 0;
-    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, category, addSettings.talismansHighestOnly]);
+    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, category, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
 
     // Owned count: items with at least 1 in inventory or storage in current category.
     const ownedCount = useMemo(() => {
@@ -224,6 +238,16 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const totalCount = useMemo(() =>
         category === 'all' ? dbItems.length : dbItems.filter(i => i.category === category).length,
         [dbItems, category]);
+
+    const favoritesInView = useMemo(() =>
+        dbItems.filter(item => {
+            if (!isFav(item.id)) return false;
+            const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
+            if (!showFlaggedItems && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
+            if (category === 'talismans' && addSettings.talismansHighestOnly && isLowerTierTalisman(item.id)) return false;
+            return true;
+        }),
+        [dbItems, isFav, showFlaggedItems, category, addSettings.talismansHighestOnly]);
 
     const showSubGroupColumn = category === 'all' || CATEGORIES_WITH_SUBGROUPS.has(category);
 
@@ -252,6 +276,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             const baseIds = confirmModal.map(i => i.id);
             type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number };
             let lastResult: AddRes | null = null;
+            let totalAdded = 0;
+            let totalRequested = 0;
             const allTrimmed: { itemID: number; cutQty: number }[] = [];
 
             if (modalNonStackable) {
@@ -259,6 +285,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 if (bothActive && invQtyVal === 1 && storageQtyVal === 1) {
                     const res = await AddItemsToCharacter(charIndex, baseIds, upgrade25, upgrade10, infuseOffset, upgradeAsh, 1, 1) as AddRes;
                     lastResult = res;
+                    totalAdded += res?.added ?? 0;
+                    totalRequested += res?.requested ?? 0;
                     if (res?.trimmed) allTrimmed.push(...res.trimmed);
                 } else {
                     if (addToInv && invQtyVal > 0) {
@@ -267,6 +295,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                             : baseIds;
                         const res = await AddItemsToCharacter(charIndex, ids, upgrade25, upgrade10, infuseOffset, upgradeAsh, 1, 0) as AddRes;
                         lastResult = res;
+                        totalAdded += res?.added ?? 0;
+                        totalRequested += res?.requested ?? 0;
                         if (res?.trimmed) allTrimmed.push(...res.trimmed);
                     }
                     if (!lastResult?.capHit && addToStorage && storageQtyVal > 0) {
@@ -275,6 +305,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                             : baseIds;
                         const res = await AddItemsToCharacter(charIndex, ids, upgrade25, upgrade10, infuseOffset, upgradeAsh, 0, 1) as AddRes;
                         lastResult = res;
+                        totalAdded += res?.added ?? 0;
+                        totalRequested += res?.requested ?? 0;
                         if (res?.trimmed) allTrimmed.push(...res.trimmed);
                     }
                 }
@@ -283,6 +315,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 const storQty = !addToStorage ? 0 : storageMax ? -1 : storageQtyVal;
                 const res = await AddItemsToCharacter(charIndex, baseIds, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storQty) as AddRes;
                 lastResult = res;
+                totalAdded += res?.added ?? 0;
+                totalRequested += res?.requested ?? 0;
                 if (res?.trimmed) allTrimmed.push(...res.trimmed);
             }
 
@@ -314,7 +348,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 return;
             }
 
-            let msg = `Added ${lastResult?.added ?? 0} / ${lastResult?.requested ?? 0} item(s) successfully.`;
+            let msg = `Added ${totalAdded} / ${totalRequested} item(s) successfully.`;
             if (allTrimmed.length > 0) {
                 const totalCut = allTrimmed.reduce((sum, s) => sum + s.cutQty, 0);
                 const distinctItems = new Set(allTrimmed.map(s => s.itemID)).size;
@@ -378,8 +412,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         overscan: 20,
     });
 
-    // Header has: (optional checkbox) + icon + name (2 fixed) + optional ID + optional Sub-Category + Inv/Storage (always 2)
-    const colCount = 4
+    // Header has: (optional checkbox) + fav + icon + name (3 fixed) + optional ID + optional Sub-Category + Inv/Storage (always 2)
+    const colCount = 5
         + (readOnly ? 0 : 1)
         + (columnVisibility.id ? 1 : 0)
         + (columnVisibility.category && showSubGroupColumn ? 1 : 0);
@@ -655,42 +689,61 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 </div>
             )}
 
-            {/* Top Bar: [Category] [Owned/Total badge] [Search] */}
-            <div className="flex items-center justify-between bg-muted/10 p-4 rounded-xl border border-border/50 backdrop-blur-sm sticky top-0 z-20">
-                <div className="flex items-center space-x-4 flex-1">
-                    <CategorySelect value={category} onChange={setCategory} className="w-56 shrink-0" />
+            {/* Top Bar: [Category] [Owned/Total badge] [buttons] [spacer] [view toggle] [Search] */}
+            <div className="flex items-center gap-4 bg-muted/10 p-4 rounded-xl border border-border/50 backdrop-blur-sm sticky top-0 z-20">
+                <CategorySelect value={category} onChange={setCategory} className="w-56 shrink-0" />
 
-                    <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                            {category === 'all' ? 'Owned' : (CATEGORY_LABEL[category] ?? category)}
-                        </span>
-                        <span className="text-[10px] font-bold tabular-nums text-foreground">
-                            {ownedCount}/{totalCount}
-                        </span>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                        {category === 'all' ? 'Owned' : (CATEGORY_LABEL[category] ?? category)}
+                    </span>
+                    <span className="text-[10px] font-bold tabular-nums text-foreground">
+                        {ownedCount}/{totalCount}
+                    </span>
+                </div>
+
+                {!readOnly && selectedDbItems.size > 0 && (
+                    <button
+                        onClick={() => openModal(dbItems.filter(i => selectedDbItems.has(i.id)))}
+                        disabled={!platform}
+                        className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
+                    >
+                        Add Selected ({selectedDbItems.size})
+                    </button>
+                )}
+                {!readOnly && favoritesInView.length > 0 && selectedDbItems.size === 0 && (
+                    <button
+                        onClick={() => openModal(favoritesInView)}
+                        disabled={!platform}
+                        className="px-6 py-2 bg-amber-500/90 text-white rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-500/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
+                    >
+                        <svg className="w-3 h-3 fill-white" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                        Add Favorites ({favoritesInView.length})
+                    </button>
+                )}
+
+                <div className="flex-1" />
+
+                <div className="flex items-center gap-1 shrink-0">
+                    <button onClick={() => setViewMode('table')} className={`p-1.5 rounded transition-all ${viewMode === 'table' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Table view">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
+                    </button>
+                    <button onClick={() => setViewMode('grid')} className={`p-1.5 rounded transition-all ${viewMode === 'grid' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Grid view">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 5a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1V5zM4 15a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1H5a1 1 0 01-1-1v-4zm10 0a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
+                    </button>
+                </div>
+
+                <div className="relative w-full max-w-xs shrink-0">
+                    <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+                        <svg className="w-3.5 h-3.5 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     </div>
-
-                    <div className="relative flex-1 max-w-md group">
-                        <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-                            <svg className="w-3.5 h-3.5 text-muted-foreground group-focus-within:text-primary transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                        </div>
-                        <input
-                            type="text"
-                            placeholder="Search by name or ID..."
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            className="w-full bg-background border border-border/50 rounded-lg py-2 pl-10 pr-4 text-[10px] font-bold uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-                        />
-                    </div>
-
-                    {!readOnly && selectedDbItems.size > 0 && (
-                        <button
-                            onClick={() => openModal(dbItems.filter(i => selectedDbItems.has(i.id)))}
-                            disabled={!platform}
-                            className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
-                        >
-                            Add Selected ({selectedDbItems.size})
-                        </button>
-                    )}
+                    <input
+                        type="text"
+                        placeholder="Search by name or ID..."
+                        value={search}
+                        onChange={e => setSearch(e.target.value)}
+                        className="w-full bg-background border border-border/50 rounded-lg py-2 pl-10 pr-4 text-[10px] font-bold uppercase tracking-wider focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                    />
                 </div>
             </div>
 
@@ -706,7 +759,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 </div>
             )}
 
-            {/* Table */}
+            {/* Content — Table or Grid + Detail Panel */}
             <div className="flex-1 bg-muted/5 rounded-xl border border-border/50 overflow-hidden flex flex-col relative">
                 {loading && (
                     <div className="absolute inset-0 bg-background/50 backdrop-blur-[2px] z-30 flex items-center justify-center">
@@ -716,6 +769,66 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         </div>
                     </div>
                 )}
+
+                <div className="flex-1 flex min-h-0 relative">
+                <div className={`flex-1 min-w-0 flex flex-col ${activeDetail ? 'max-w-[60%]' : ''}`}>
+                {viewMode === 'grid' ? (
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-3">
+                        {filteredItems.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-16 text-muted-foreground/50">
+                                <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-2.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
+                                <span className="text-[10px] font-black uppercase tracking-widest">No items found</span>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+                                {filteredItems.map(item => {
+                                    const owned = ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
+                                    const hasOwned = owned.inv > 0 || owned.storage > 0;
+                                    return (
+                                        <div key={item.id}
+                                            className={`relative rounded-xl border bg-card p-1.5 flex flex-col items-center gap-1 transition-all hover:border-primary/40 hover:bg-primary/[0.03] group ${!readOnly && selectedDbItems.has(item.id) ? 'border-primary/50 bg-primary/[0.05]' : 'border-border/50'}`}
+                                        >
+                                            <button onClick={() => toggleFav(item.id)} className="absolute top-2 right-2 p-0.5 transition-all hover:scale-125 z-10">
+                                                <svg className={`w-3.5 h-3.5 ${isFav(item.id) ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground/20 fill-none hover:text-amber-500/50'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                </svg>
+                                            </button>
+                                            {!readOnly && (
+                                                <button onClick={() => toggleItem(item.id)} className="absolute top-2 left-2 z-10">
+                                                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${selectedDbItems.has(item.id) ? 'bg-primary border-primary' : 'bg-muted/30 border-border hover:border-primary/50'}`}>
+                                                        {selectedDbItems.has(item.id) && <svg className="w-3 h-3 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>}
+                                                    </div>
+                                                </button>
+                                            )}
+                                            <div className="w-20 h-20 rounded-lg bg-muted/20 border border-border/50 flex items-center justify-center overflow-hidden cursor-pointer"
+                                                onClick={() => onSelectItem ? onSelectItem(item) : setDetailItem(item)}
+                                                onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoverTooltip({name: item.name, path: item.iconPath, x: r.left + r.width / 2, y: r.top}); }}
+                                                onMouseLeave={() => setHoverTooltip(null)}>
+                                                {brokenIcons.has(item.iconPath)
+                                                    ? <span className="text-[10px] font-black text-muted-foreground/30">?</span>
+                                                    : <img src={item.iconPath} alt="" className="w-full h-full p-0.5 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300" onError={() => handleImageError(item.iconPath)} />
+                                                }
+                                            </div>
+                                            <div className="text-center w-full cursor-pointer" onClick={() => onSelectItem ? onSelectItem(item) : setDetailItem(item)}>
+                                                <div className="text-[10px] font-bold text-foreground truncate group-hover:text-primary transition-colors" title={item.name}>{item.name}</div>
+                                                <div className="flex items-center justify-center gap-1.5 mt-1">
+                                                    {item.flags?.includes('ban_risk') && <RiskBadge flag="ban_risk" />}
+                                                    {item.flags?.includes('cut_content') && <RiskBadge flag="cut_content" />}
+                                                </div>
+                                            </div>
+                                            {hasOwned && (
+                                                <div className="flex items-center gap-2 text-[8px] font-black tabular-nums">
+                                                    <span className={`px-1.5 py-0.5 rounded border ${owned.inv > 0 ? 'text-green-500 bg-green-500/10 border-green-500/30' : 'text-muted-foreground/30 bg-muted/10 border-border/30'}`}>I:{owned.inv}</span>
+                                                    <span className={`px-1.5 py-0.5 rounded border ${owned.storage > 0 ? 'text-green-500 bg-green-500/10 border-green-500/30' : 'text-muted-foreground/30 bg-muted/10 border-border/30'}`}>S:{owned.storage}</span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                ) : (
 
                 <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar">
                     <table className="w-full text-left border-collapse">
@@ -732,6 +845,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                         </div>
                                     </th>
                                 )}
+                                <th className="p-4 w-8"></th>
                                 <th className="p-4 w-12">Icon</th>
                                 <th className="p-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
                                     Name {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
@@ -778,10 +892,19 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                 </div>
                                             </td>
                                         )}
+                                        <td className="p-2 text-center">
+                                            <button onClick={e => { e.stopPropagation(); toggleFav(item.id); }} className="p-0.5 transition-all hover:scale-125">
+                                                <svg className={`w-4 h-4 ${isFav(item.id) ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground/20 fill-none hover:text-amber-500/50'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                </svg>
+                                            </button>
+                                        </td>
                                         <td className="px-4 py-0.5">
                                             <div
-                                                className="w-12 h-12 bg-muted/20 rounded-lg border border-border/50 flex items-center justify-center overflow-hidden group-hover:border-primary/30 transition-all cursor-zoom-in"
-                                                onClick={() => setSelectedIcon({name: item.name, path: item.iconPath})}
+                                                className="w-12 h-12 bg-muted/20 rounded-lg border border-border/50 flex items-center justify-center overflow-hidden group-hover:border-primary/30 transition-all cursor-pointer"
+                                                onClick={() => onSelectItem ? onSelectItem(item) : setDetailItem(item)}
+                                                onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoverTooltip({name: item.name, path: item.iconPath, x: r.left + r.width / 2, y: r.top}); }}
+                                                onMouseLeave={() => setHoverTooltip(null)}
                                             >
                                                 {brokenIcons.has(item.iconPath) ? (
                                                     <span className="text-[10px] font-black text-muted-foreground/30 select-none">?</span>
@@ -789,7 +912,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                     <img
                                                         src={item.iconPath}
                                                         alt={item.name}
-                                                        className="w-full h-full p-0.5 object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300"
+                                                        className="w-full h-full object-contain drop-shadow-md group-hover:scale-110 transition-transform duration-300"
                                                         onError={() => handleImageError(item.iconPath)}
                                                     />
                                                 )}
@@ -863,301 +986,22 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         </tbody>
                     </table>
                 </div>
+                )}
+                </div>
+
+                {activeDetail && (
+                    <div className="absolute top-0 right-0 bottom-0 w-[40%] animate-in slide-in-from-right duration-200">
+                        <ItemDetailPanel item={activeDetail} onClose={handleCloseDetail} />
+                    </div>
+                )}
+                </div>
             </div>
 
-            {/* Item Detail Drawer */}
-            {detailItem && (
-                <div className="fixed inset-0 z-[100] flex justify-end animate-in fade-in duration-200" onClick={() => setDetailItem(null)}>
-                    <div className="absolute inset-0 bg-background/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-md h-full bg-card border-l border-border shadow-2xl overflow-y-auto animate-in slide-in-from-right duration-300"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="sticky top-0 z-10 bg-card/95 backdrop-blur-md border-b border-border p-6 flex items-start gap-4">
-                            <div className="w-16 h-16 rounded-lg bg-muted/30 border border-border/50 flex items-center justify-center overflow-hidden shrink-0">
-                                {brokenIcons.has(detailItem.iconPath) ? (
-                                    <span className="text-xl font-black text-muted-foreground/30">?</span>
-                                ) : (
-                                    <img src={detailItem.iconPath} alt="" className="w-12 h-12 object-contain drop-shadow-md" onError={() => handleImageError(detailItem.iconPath)} />
-                                )}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <h3 className="text-sm font-black uppercase tracking-widest text-foreground truncate">{detailItem.name}</h3>
-                                <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">
-                                    {detailItem.category === 'info' ? 'Information' : detailItem.category.replace(/_/g, ' ')}
-                                </p>
-                                <p className="text-[9px] font-mono text-muted-foreground/60 mt-0.5">
-                                    0x{detailItem.id.toString(16).toUpperCase()}
-                                </p>
-                            </div>
-                            <button
-                                onClick={() => setDetailItem(null)}
-                                className="p-1.5 rounded-md hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-all shrink-0"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12"/></svg>
-                            </button>
-                        </div>
-
-                        <div className="p-6 space-y-6">
-                            {/* Sub-category + Weight row */}
-                            <div className="flex items-center justify-between">
-                                {detailItem.subCategory && (
-                                    <div>
-                                        <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Type </span>
-                                        <span className="text-[11px] font-bold text-foreground">{detailItem.subCategory}</span>
-                                    </div>
-                                )}
-                                <div>
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Weight </span>
-                                    <span className="text-[11px] font-bold text-foreground">
-                                        {detailItem.weapon?.Weight ?? detailItem.armor?.Weight ?? detailItem.weight ?? 0}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Description */}
-                            {detailItem.description && (
-                                <div className="space-y-2">
-                                    <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Description</h4>
-                                    <p className="text-[11px] leading-relaxed text-foreground/80 whitespace-pre-line">
-                                        {detailItem.description}
-                                    </p>
-                                </div>
-                            )}
-
-                            {/* Weapon Stats — two-column layout matching in-game UI */}
-                            {(detailItem.weapon || ['melee_armaments', 'ranged_and_catalysts', 'shields'].includes(detailItem.category)) && (() => {
-                                const w = detailItem.weapon;
-                                const missing = !w;
-                                const V = (v: number | undefined) => v != null ? String(v) : 'N/A';
-                                return (
-                                <div className="space-y-4">
-                                    {missing && (
-                                        <p className="text-[9px] font-bold uppercase tracking-widest text-amber-500/80 text-center">stats data missing</p>
-                                    )}
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Attack Power</h4>
-                                            <table className="w-full text-[10px]">
-                                                <tbody>
-                                                    {([
-                                                        ['Physical', V(w?.PhysDamage)],
-                                                        ['Magic', V(w?.MagDamage)],
-                                                        ['Fire', V(w?.FireDamage)],
-                                                        ['Lightning', V(w?.LitDamage)],
-                                                        ['Holy', V(w?.HolyDamage)],
-                                                        ['Critical', 'N/A'],
-                                                    ] as [string, string][]).map(([label, val]) => (
-                                                        <tr key={label} className="border-b border-border/20">
-                                                            <td className="py-1 text-muted-foreground font-medium">{label}</td>
-                                                            <td className={`py-1 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Guarded Dmg Negation</h4>
-                                            <table className="w-full text-[10px]">
-                                                <tbody>
-                                                    {([
-                                                        ['Physical', 'N/A'],
-                                                        ['Magic', 'N/A'],
-                                                        ['Fire', 'N/A'],
-                                                        ['Lightning', 'N/A'],
-                                                        ['Holy', 'N/A'],
-                                                        ['Guard Boost', 'N/A'],
-                                                    ] as [string, string][]).map(([label, val]) => (
-                                                        <tr key={label} className="border-b border-border/20">
-                                                            <td className="py-1 text-muted-foreground font-medium">{label}</td>
-                                                            <td className="py-1 text-right font-black text-muted-foreground/40">{val}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Attribute Scaling</h4>
-                                            <table className="w-full text-[10px]">
-                                                <tbody>
-                                                    {([
-                                                        ['Str', V(w?.ScaleStr)],
-                                                        ['Dex', V(w?.ScaleDex)],
-                                                        ['Int', V(w?.ScaleInt)],
-                                                        ['Fai', V(w?.ScaleFai)],
-                                                        ['Arc', 'N/A'],
-                                                    ] as [string, string][]).map(([label, val]) => (
-                                                        <tr key={label} className="border-b border-border/20">
-                                                            <td className="py-1 text-muted-foreground font-medium">{label}</td>
-                                                            <td className={`py-1 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Attributes Required</h4>
-                                            <table className="w-full text-[10px]">
-                                                <tbody>
-                                                    {([
-                                                        ['Str', V(w?.ReqStr)],
-                                                        ['Dex', V(w?.ReqDex)],
-                                                        ['Int', V(w?.ReqInt)],
-                                                        ['Fai', V(w?.ReqFai)],
-                                                        ['Arc', V(w?.ReqArc)],
-                                                    ] as [string, string][]).map(([label, val]) => (
-                                                        <tr key={label} className="border-b border-border/20">
-                                                            <td className="py-1 text-muted-foreground font-medium">{label}</td>
-                                                            <td className={`py-1 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-                                );
-                            })()}
-
-                            {/* Armor Stats — two-column layout */}
-                            {(detailItem.armor || ['head', 'chest', 'arms', 'legs'].includes(detailItem.category)) && (() => {
-                                const a = detailItem.armor;
-                                const missing = !a;
-                                const V = (v: number | undefined) => v != null ? String(v) : 'N/A';
-                                const VF = (v: number | undefined) => v != null ? v.toFixed(1) : 'N/A';
-                                return (
-                                <div className="space-y-4">
-                                    {missing && (
-                                        <p className="text-[9px] font-bold uppercase tracking-widest text-amber-500/80 text-center">stats data missing</p>
-                                    )}
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Damage Negation</h4>
-                                            <table className="w-full text-[10px]">
-                                                <tbody>
-                                                    {([
-                                                        ['Physical', VF(a?.Physical)],
-                                                        ['Strike', VF(a?.Strike)],
-                                                        ['Slash', VF(a?.Slash)],
-                                                        ['Pierce', VF(a?.Pierce)],
-                                                        ['Magic', VF(a?.Magic)],
-                                                        ['Fire', VF(a?.Fire)],
-                                                        ['Lightning', VF(a?.Lightning)],
-                                                        ['Holy', VF(a?.Holy)],
-                                                    ] as [string, string][]).map(([label, val]) => (
-                                                        <tr key={label} className="border-b border-border/20">
-                                                            <td className="py-1 text-muted-foreground font-medium">{label}</td>
-                                                            <td className={`py-1 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Resistance</h4>
-                                            <table className="w-full text-[10px]">
-                                                <tbody>
-                                                    {([
-                                                        ['Immunity', V(a?.Immunity)],
-                                                        ['Robustness', V(a?.Robustness)],
-                                                        ['Focus', V(a?.Focus)],
-                                                        ['Vitality', V(a?.Vitality)],
-                                                    ] as [string, string][]).map(([label, val]) => (
-                                                        <tr key={label} className="border-b border-border/20">
-                                                            <td className="py-1 text-muted-foreground font-medium">{label}</td>
-                                                            <td className={`py-1 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                            <div className="pt-1">
-                                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Poise </span>
-                                                <span className={`text-[11px] font-bold ${a ? 'text-foreground' : 'text-muted-foreground/40'}`}>{VF(a?.Poise)}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                );
-                            })()}
-
-                            {/* Spell Stats — two-column layout */}
-                            {(detailItem.spell || ['sorceries', 'incantations'].includes(detailItem.category)) && (() => {
-                                const sp = detailItem.spell;
-                                const missing = !sp;
-                                const V = (v: number | undefined) => v != null ? String(v) : 'N/A';
-                                return (
-                                <div className="space-y-4">
-                                    {missing && (
-                                        <p className="text-[9px] font-bold uppercase tracking-widest text-amber-500/80 text-center">stats data missing</p>
-                                    )}
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Spell Info</h4>
-                                            <table className="w-full text-[10px]">
-                                                <tbody>
-                                                    {([
-                                                        ['FP Cost', V(sp?.FPCost)],
-                                                        ['Slots', V(sp?.Slots)],
-                                                    ] as [string, string][]).map(([label, val]) => (
-                                                        <tr key={label} className="border-b border-border/20">
-                                                            <td className="py-1 text-muted-foreground font-medium">{label}</td>
-                                                            <td className={`py-1 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Attributes Required</h4>
-                                            <table className="w-full text-[10px]">
-                                                <tbody>
-                                                    {([
-                                                        ['Int', V(sp?.ReqInt)],
-                                                        ['Fai', V(sp?.ReqFai)],
-                                                        ['Arc', V(sp?.ReqArc)],
-                                                    ] as [string, string][]).map(([label, val]) => (
-                                                        <tr key={label} className="border-b border-border/20">
-                                                            <td className="py-1 text-muted-foreground font-medium">{label}</td>
-                                                            <td className={`py-1 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    </div>
-                                </div>
-                                );
-                            })()}
-
-                            {/* Item info */}
-                            <div className="space-y-2 pt-2 border-t border-border/30">
-                                <h4 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Item Info</h4>
-                                <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                    <div className="flex justify-between bg-muted/10 rounded px-2 py-1">
-                                        <span className="text-muted-foreground font-bold">Max Inventory</span>
-                                        <span className="font-black text-foreground">{detailItem.maxInventory}</span>
-                                    </div>
-                                    <div className="flex justify-between bg-muted/10 rounded px-2 py-1">
-                                        <span className="text-muted-foreground font-bold">Max Storage</span>
-                                        <span className="font-black text-foreground">{detailItem.maxStorage}</span>
-                                    </div>
-                                    {detailItem.maxUpgrade > 0 && (
-                                        <div className="flex justify-between bg-muted/10 rounded px-2 py-1">
-                                            <span className="text-muted-foreground font-bold">Max Upgrade</span>
-                                            <span className="font-black text-foreground">+{detailItem.maxUpgrade}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-
-                            {/* No data fallback */}
-                            {!detailItem.description && !detailItem.weapon && !detailItem.armor && !detailItem.spell && (
-                                <p className="text-[10px] text-muted-foreground/60 italic">No description or stats available for this item.</p>
-                            )}
-                        </div>
+            {/* Hover Icon Tooltip */}
+            {hoverTooltip && (
+                <div className="fixed z-[60] pointer-events-none" style={{left: hoverTooltip.x, top: hoverTooltip.y - 8, transform: 'translate(-50%, -100%)'}}>
+                    <div className="bg-card border border-border rounded-lg shadow-xl p-2">
+                        <img src={hoverTooltip.path} alt="" className="w-24 h-24 object-contain drop-shadow-md" onError={(e) => (e.currentTarget.style.display = 'none')} />
                     </div>
                 </div>
             )}

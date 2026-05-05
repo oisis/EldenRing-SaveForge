@@ -259,3 +259,36 @@ var Colosseums = map[uint32]SummoningPoolData{
 	60360: {Name: "Limgrave Colosseum", Region: "Limgrave"},
 	60370: {Name: "Royal Colosseum", Region: "Leyndell"},
 }
+
+// ColosseumFlagSet sets the matchmaking + map-marker flags for a colosseum.
+// These make the arena appear on the world map and enable the fight menu.
+// They DO NOT open the physical gate — that state is stored outside event
+// flags (in WorldGeom binary blob) and cannot be edited from a save editor.
+// Player must open the gate once in-game; thereafter the open state persists.
+type ColosseumFlagSet struct {
+	Activate uint32 // 60xxx — primary unlock, enables matchmaking
+	MapPOI   uint32 // 62xxx — colosseum icon on world map
+	NPC      uint32 // 69xxx — NPC/event-memory marker
+	Gate     uint32 // 710xxx — matchmaking gate marker
+}
+
+// ColosseumFlagSets keyed by the Activate flag ID. Δ=10 stride verified
+// against Tester slot 2 (legit Limgrave-only) at tmp/coloseum-debug/.
+var ColosseumFlagSets = map[uint32]ColosseumFlagSet{
+	60350: {Activate: 60350, MapPOI: 62720, NPC: 69450, Gate: 710850}, // Caelid
+	60360: {Activate: 60360, MapPOI: 62730, NPC: 69460, Gate: 710860}, // Limgrave
+	60370: {Activate: 60370, MapPOI: 62740, NPC: 69470, Gate: 710870}, // Royal
+}
+
+// ColosseumGlobalFlags fire when any colosseum is unlocked. Verified set
+// in Tester slot 2 (after.sl2) after legit Limgrave-only unlock.
+var ColosseumGlobalFlags = []uint32{
+	6080,  // gameman — any colosseum unlocked
+	60100, // event/map system global
+	69480, // block 69 global
+}
+
+// AllFlags returns every per-colosseum flag in a stable order.
+func (c ColosseumFlagSet) AllFlags() []uint32 {
+	return []uint32{c.Activate, c.MapPOI, c.NPC, c.Gate}
+}

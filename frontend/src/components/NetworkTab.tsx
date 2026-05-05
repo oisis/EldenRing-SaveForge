@@ -62,6 +62,13 @@ const ROLE_PRESETS: Record<RoleTab, {name: string; presetId: string}[]> = {
     host: [{name: 'Aggressive Host', presetId: 'aggressive-host'}],
 };
 
+const ROLE_FIELDS: Record<RoleTab, string[]> = {
+    invader: INVADER_SLIDERS.map(s => s.key),
+    cooperator: COOPERATOR_SLIDERS.map(s => s.key),
+    blue: BLUE_SLIDERS.map(s => s.key),
+    host: HOST_SLIDERS.map(s => s.key),
+};
+
 const ROLE_META: Record<RoleTab, {label: string; icon: string; color: string; desc: string}> = {
     invader: {label: 'Invader', icon: '⚔', color: 'text-red-400', desc: 'Invasion matchmaking speed'},
     cooperator: {label: 'Cooperator', icon: '☀', color: 'text-yellow-400', desc: 'Summon sign visibility & refresh'},
@@ -111,7 +118,13 @@ export function NetworkTab({platform}: NetworkTabProps) {
         setApplying(true);
         try {
             const p = await GetNetworkPreset(presetId);
-            setDraft(paramsToDict(p));
+            const presetDict = paramsToDict(p);
+            const roleKeys = ROLE_FIELDS[role];
+            setDraft(prev => {
+                const next = {...prev};
+                for (const key of roleKeys) next[key] = presetDict[key];
+                return next;
+            });
             setDirty(true);
             toast.success(`Preset "${presetId}" loaded — click Apply to save`);
         } catch (e) { toast.error(String(e)); }

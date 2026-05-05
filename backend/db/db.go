@@ -2,25 +2,27 @@ package db
 
 import (
 	"fmt"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db/data"
+	"slices"
 	"sort"
 	"strings"
+
+	"github.com/oisis/EldenRing-SaveEditor/backend/db/data"
 )
 
 // ItemEntry represents a single item from the game database.
 type ItemEntry struct {
-	ID           uint32       `json:"id"`
-	Name         string       `json:"name"`
-	Category     string       `json:"category"`
-	SubCategory  string       `json:"subCategory,omitempty"`
-	MaxInventory uint32       `json:"maxInventory"`
-	MaxStorage   uint32       `json:"maxStorage"`
-	MaxUpgrade   uint32       `json:"maxUpgrade"`
-	IconPath     string       `json:"iconPath"`
-	Flags        []string     `json:"flags"`
-	Description  string       `json:"description,omitempty"`
-	Location     string       `json:"location,omitempty"`
-	Weight       float64      `json:"weight,omitempty"`
+	ID           uint32            `json:"id"`
+	Name         string            `json:"name"`
+	Category     string            `json:"category"`
+	SubCategory  string            `json:"subCategory,omitempty"`
+	MaxInventory uint32            `json:"maxInventory"`
+	MaxStorage   uint32            `json:"maxStorage"`
+	MaxUpgrade   uint32            `json:"maxUpgrade"`
+	IconPath     string            `json:"iconPath"`
+	Flags        []string          `json:"flags"`
+	Description  string            `json:"description,omitempty"`
+	Location     string            `json:"location,omitempty"`
+	Weight       float64           `json:"weight,omitempty"`
 	Weapon       *data.WeaponStats `json:"weapon,omitempty"`
 	Armor        *data.ArmorStats  `json:"armor,omitempty"`
 	Spell        *data.SpellStats  `json:"spell,omitempty"`
@@ -126,7 +128,7 @@ func GetAllGestureSlots() []GestureEntry {
 
 // CookbookEntry represents a cookbook with its unlock state.
 type CookbookEntry struct {
-	ID       uint32 `json:"id"`       // event flag ID
+	ID       uint32 `json:"id"` // event flag ID
 	Name     string `json:"name"`
 	Category string `json:"category"` // series name for grouping
 	Unlocked bool   `json:"unlocked"`
@@ -213,12 +215,33 @@ func enrichItemEntry(e *ItemEntry) {
 	e.Spell = desc.Spell
 }
 
+// GetItemEntryByID returns a fully enriched ItemEntry for the given base item ID, or nil if not found.
+func GetItemEntryByID(id uint32) *ItemEntry {
+	item := GetItemData(id)
+	if item.Name == "" {
+		return nil
+	}
+	entry := &ItemEntry{
+		ID:           id,
+		Name:         item.Name,
+		Category:     item.Category,
+		SubCategory:  GetItemSubCategory(id, item, item.Category),
+		MaxInventory: item.MaxInventory,
+		MaxStorage:   item.MaxStorage,
+		MaxUpgrade:   item.MaxUpgrade,
+		IconPath:     item.IconPath,
+		Flags:        item.Flags,
+	}
+	enrichItemEntry(entry)
+	return entry
+}
+
 // findAshBase searches StandardAshes for the base (+0) entry matching the given name prefix.
 // baseName must already have any " +N" suffix stripped. Returns (entry, baseID) or zero values.
 func findAshBase(baseName string, idPrefix uint32) (data.ItemData, uint32) {
 	for ashID, ashEntry := range data.StandardAshes {
 		if ashEntry.Name == baseName {
-			return ashEntry, (ashID&0x0FFFFFFF)|idPrefix
+			return ashEntry, (ashID & 0x0FFFFFFF) | idPrefix
 		}
 	}
 	return data.ItemData{}, 0
@@ -267,15 +290,20 @@ func GetItemDataFuzzy(id uint32) (data.ItemData, uint32) {
 		}
 	}
 
-	// Weapon fuzzy search: upgraded/infused weapons with 0x00... item IDs.
-	// Uses a byte-masked comparison (id & 0xFFFFFF00) which is accurate for standard upgrades
-	// (offset 0–25). Heavily infused weapons (offset > 255) are not matched here.
-	if prefix == 0 {
+	// Weapon fuzzy search: upgraded/infused weapons (prefixes 0x00, 0x01, 0x02).
+	// Range-based: any id in [baseID, baseID+1225] maps to its base entry.
+	// 1225 = max infusion offset (Occult=1200) + max upgrade level (25).
+	// This handles byte-carry cases where (id & 0xFFFFFF00) != (baseID & 0xFFFFFF00),
+	// which occurs for bows/greatbows/seals/staves when upgrade+infuse >= 0x100 - (baseID & 0xFF).
+	if prefix == 0 || prefix == 0x01000000 || prefix == 0x02000000 {
+		const maxCombinedOffset = uint32(1225)
 		weaponMaps := []map[uint32]data.ItemData{data.Weapons, data.RangedAndCatalysts, data.Shields}
-		masked := id & 0xFFFFFF00
 		for _, m := range weaponMaps {
 			for baseID, item := range m {
-				if baseID&0xFFFFFF00 == masked && item.Name != "" {
+				if item.Name == "" || baseID&0xF0000000 != prefix {
+					continue
+				}
+				if id >= baseID && id-baseID <= maxCombinedOffset {
 					return item, baseID
 				}
 			}
@@ -490,10 +518,13 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 			})
 		}
 	case "key_items":
-		// Bell Bearings remain filtered: managed via dedicated Bell Bearings UI.
-		// Cookbooks and Whetblades are surfaced here per in-game UI (sub-group: Cookbooks).
+		// Bell Bearings: managed via dedicated Bell Bearings UI.
+		// Cookbooks: managed via World → Unlocks. Surfacing them here too
+		// would give two ways to add the same items, which is confusing and
+		// risks double-tracking. Owned cookbooks remain visible in Inventory
+		// as read-only entries (see vm.MapParsedSlotToVM).
 		for id, item := range data.KeyItems {
-			if item.Name == "" || data.IsBellBearingItemID(id) {
+			if item.Name == "" || data.IsBellBearingItemID(id) || data.IsCookbookItemID(id) || slices.Contains(item.Flags, "no_database") {
 				continue
 			}
 			items = append(items, ItemEntry{
@@ -855,10 +886,10 @@ type QuestNPC struct {
 
 // QuestStep represents one step in an NPC questline with current flag state.
 type QuestStep struct {
-	Description string          `json:"description"`
-	Location    string          `json:"location,omitempty"`
+	Description string           `json:"description"`
+	Location    string           `json:"location,omitempty"`
 	Flags       []QuestFlagState `json:"flags"`
-	Complete    bool            `json:"complete"` // all flags match target values
+	Complete    bool             `json:"complete"` // all flags match target values
 }
 
 // QuestFlagState is a flag with its target and current value.

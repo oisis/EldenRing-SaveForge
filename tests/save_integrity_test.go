@@ -1047,3 +1047,49 @@ func TestNoWarningsOnCleanSaves(t *testing.T) {
 		})
 	}
 }
+
+// TestAcquisitionSortIdIncrementFix verifies that after adding N items:
+//   - NextAcquisitionSortId increments by exactly N
+//   - NextEquipIndex increments by exactly N (stays equal to NextAcqSortId — the
+//     visibility gate must stay ahead of all newly written item.Index values)
+//   - All newly added items have Index < NextEquipIndex (visible to the game)
+func TestAcquisitionSortIdIncrementFix(t *testing.T) {
+	save := loadTestSave(t, pcSavePath)
+	slot := &save.Slots[0]
+
+	beforeAcq := slot.Inventory.NextAcquisitionSortId
+	beforeEquip := slot.Inventory.NextEquipIndex
+
+	// 3 stackable goods (Rowa Raisin = 1030, Trina's Lily = 1040, Erdleaf Flower = 1050)
+	itemIDs := []uint32{1030, 1040, 1050}
+	if err := core.AddItemsToSlot(slot, itemIDs, 1, 0, true); err != nil {
+		t.Fatalf("AddItemsToSlot: %v", err)
+	}
+
+	afterAcq := slot.Inventory.NextAcquisitionSortId
+	afterEquip := slot.Inventory.NextEquipIndex
+
+	if afterAcq != beforeAcq+3 {
+		t.Errorf("NextAcquisitionSortId: want %d+3=%d, got %d",
+			beforeAcq, beforeAcq+3, afterAcq)
+	}
+	if afterEquip != beforeEquip+3 {
+		t.Errorf("NextEquipIndex: want %d+3=%d, got %d",
+			beforeEquip, beforeEquip+3, afterEquip)
+	}
+	// Visibility invariant: all items must have Index < NextEquipIndex.
+	// mapInventory reconciles NextEquipIndex = NextAcqSortId on load, so with a
+	// clean save both counters stay in sync — afterEquip == afterAcq is correct.
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle == 0 || item.GaItemHandle == 0xFFFFFFFF {
+			continue
+		}
+		if item.Index >= afterEquip {
+			t.Errorf("item 0x%X is invisible: Index=%d >= NextEquipIndex=%d",
+				item.GaItemHandle, item.Index, afterEquip)
+		}
+	}
+	t.Logf("OK: AcqSort %d→%d (+%d), EquipIdx %d→%d (+%d)",
+		beforeAcq, afterAcq, afterAcq-beforeAcq,
+		beforeEquip, afterEquip, afterEquip-beforeEquip)
+}

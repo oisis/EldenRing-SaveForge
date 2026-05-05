@@ -1,6 +1,9 @@
 package data
 
 var KeyItems = map[uint32]ItemData{
+	// ─── Celestial Dew — in-game Key Items tab, consumable (absolves NPC kills) ────
+	0x40000852: {Name: "Celestial Dew", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/celestial_dew.png", Flags: []string{"stackable"}},
+
 	// ─── Crystal Tears — moved from tools.go (in-game Key Items tab) ────
 	// Fextralife: "Crystal Tears in Elden Ring are Key Items that can be mixed
 	// in the Flask of Wondrous Physick." (https://eldenring.wiki.fextralife.com/Crystal+Tears)
@@ -29,21 +32,19 @@ var KeyItems = map[uint32]ItemData{
 	0x401EA3CD: {Name: "Storeroom Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/storeroom_key.png", Flags: []string{"dlc"}},
 	0x401EA3CE: {Name: "Secret Rite Scroll", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/secret_rite_scroll.png", Flags: []string{"dlc"}},
 	0x401EA3D7: {Name: "Keep Wall Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/keep_wall_key.png", Flags: []string{"cut_content", "ban_risk", "dlc"}},
-	// TODO icon: prayer_room_key.png is a binary copy of gestures/prayer.png
-	// (both 8762 B, identical bytes) — placeholder, needs real key artwork.
-	0x401EA3E4: {Name: "Prayer Room Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/prayer_room_key.png", Flags: []string{"dlc"}},
+	0x401EA3E4: {Name: "Prayer Room Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "", Flags: []string{"dlc"}},
 	0x40001FEE: {Name: "Academy Glintstone Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/academy_glintstone_key.png"},
 	0x4000218E: {Name: "Whetstone Knife", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/whetstone_knife.png"},
-	0x4000230D: {Name: "Glintstone Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/glintstone_whetblade.png"},
+	0x4000230D: {Name: "Glintstone Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/glintstone_whetblade.png", Flags: []string{"no_database"}},
 	0x40002292: {Name: "Conspectus Scroll", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/conspectus_scroll.png"},
 	0x400022A2: {Name: "Academy Scroll", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/academy_scroll.png"},
 
-	0x4000230A: {Name: "Iron Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/iron_whetblade.png"},
-	0x4000230B: {Name: "Red-Hot Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/red_hot_whetblade.png"},
-	0x4000230C: {Name: "Sanctified Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/sanctified_whetblade.png"},
-	0x4000230E: {Name: "Black Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/black_whetblade.png"},
-	0x4000272E: {Name: "Memory Stone", Category: "key_items", MaxInventory: 8, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/memory_stone.png", Flags: []string{"stackable"}},
-	0x40002738: {Name: "Talisman Pouch", Category: "key_items", MaxInventory: 3, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/talisman_pouch.png", Flags: []string{"stackable"}},
+	0x4000230A: {Name: "Iron Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/iron_whetblade.png", Flags: []string{"no_database"}},
+	0x4000230B: {Name: "Red-Hot Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/red_hot_whetblade.png", Flags: []string{"no_database"}},
+	0x4000230C: {Name: "Sanctified Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/sanctified_whetblade.png", Flags: []string{"no_database"}},
+	0x4000230E: {Name: "Black Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/black_whetblade.png", Flags: []string{"no_database"}},
+	0x4000272E: {Name: "Memory Stone", Category: "key_items", MaxInventory: 8, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/memory_stone.png", Flags: []string{"stackable", "no_database"}},
+	0x40002738: {Name: "Talisman Pouch", Category: "key_items", MaxInventory: 3, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/talisman_pouch.png", Flags: []string{"stackable", "no_database"}},
 	0x400004D8: {Name: "Shabriri Grape", Category: "key_items", MaxInventory: 3, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/shabriri_grape.png"},
 	0x400022A1: {Name: "Ancient Dragon Prayerbook", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/ancient_dragon_prayerbook.png"},
 	0x40001FD9: {Name: "Malenia's Great Rune", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/malenias_great_rune.png"},
@@ -121,10 +122,10 @@ var KeyItems = map[uint32]ItemData{
 	0x4000201E: {Name: "Alexander's Innards", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/alexanders_innards.png"},
 	0x40002134: {Name: "Crafting Kit", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/crafting_kit.png"},
 	0x40002007: {Name: "Discarded Palace Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/discarded_palace_key.png"},
-	0x4000251C: {Name: "Cracked Pot", Category: "key_items", MaxInventory: 20, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/cracked_pot.png", Flags: []string{"stackable"}},
-	0x4000251D: {Name: "Ritual Pot", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/ritual_pot.png", Flags: []string{"stackable"}},
+	0x4000251C: {Name: "Cracked Pot", Category: "key_items", MaxInventory: 20, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/cracked_pot.png", Flags: []string{"stackable", "no_database"}},
+	0x4000251D: {Name: "Ritual Pot", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/ritual_pot.png", Flags: []string{"stackable", "no_database"}},
 	0x40002526: {Name: "Perfume Bottle", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/perfume_bottle.png", Flags: []string{"stackable"}},
-	0x401EA99C: {Name: "Hefty Cracked Pot", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/hefty_cracked_pot.png", Flags: []string{"stackable"}},
+	0x401EA99C: {Name: "Hefty Cracked Pot", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/hefty_cracked_pot.png", Flags: []string{"stackable", "no_database"}},
 	0x400000A6: {Name: "Vision of Grace", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/vision_of_grace.png"},
 	0x40000073: {Name: "Memory of Grace", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/memory_of_grace.png"},
 	0x4000082A: {Name: "Deathroot", Category: "key_items", MaxInventory: 9, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/deathroot.png", Flags: []string{"stackable"}},

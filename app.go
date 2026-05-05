@@ -167,13 +167,80 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	a.pushUndo(index)
 
+	// Patch Memory Stone qty in vm.Inventory so updateItemsAndSync writes the correct value.
+	desired := charVM.MemoryStones
+	if desired > 8 {
+		desired = 8
+	}
+	stoneFound := false
+	for i := range charVM.Inventory {
+		if charVM.Inventory[i].Handle == 0xB000272E {
+			charVM.Inventory[i].Quantity = desired
+			stoneFound = true
+			break
+		}
+	}
+
 	// 1. Update the slot data
 	if err := vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index]); err != nil {
 		return err
 	}
 
-	// 2. Sync NG+ event flags (50-57) with ClearCount
 	slot := &a.save.Slots[index]
+
+	// Add Memory Stone to inventory if it wasn't there yet.
+	if !stoneFound && desired > 0 {
+		if err := core.AddItemsToSlot(slot, []uint32{0x4000272E}, int(desired), 0, false); err != nil {
+			return fmt.Errorf("add memory stone: %w", err)
+		}
+	}
+
+	// Sync Memory Stone event flags to match desired quantity.
+	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+		flags := slot.Data[slot.EventFlagsOffset:]
+		flagList := data.BolsteringPickupFlags[0x4000272E]
+		sorted := make([]uint32, len(flagList))
+		copy(sorted, flagList)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		currentSet := 0
+		for _, f := range sorted {
+			if val, err := db.GetEventFlag(flags, f); err == nil && val {
+				currentSet++
+			}
+		}
+		if int(desired) > currentSet {
+			toSet := int(desired) - currentSet
+			set := 0
+			for _, f := range sorted {
+				if set >= toSet {
+					break
+				}
+				if val, err := db.GetEventFlag(flags, f); err == nil && !val {
+					if err := db.SetEventFlag(flags, f, true); err == nil {
+						set++
+					}
+				}
+			}
+		} else if int(desired) < currentSet {
+			toUnset := currentSet - int(desired)
+			sortedDesc := make([]uint32, len(sorted))
+			copy(sortedDesc, sorted)
+			sort.Slice(sortedDesc, func(i, j int) bool { return sortedDesc[i] > sortedDesc[j] })
+			unset := 0
+			for _, f := range sortedDesc {
+				if unset >= toUnset {
+					break
+				}
+				if val, err := db.GetEventFlag(flags, f); err == nil && val {
+					if err := db.SetEventFlag(flags, f, false); err == nil {
+						unset++
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Sync NG+ event flags (50-57) with ClearCount
 	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
 		flags := slot.Data[slot.EventFlagsOffset:]
 		for i := uint32(0); i <= 7; i++ {
@@ -260,6 +327,11 @@ func (a *App) GetItemListChunk(category string) []db.ItemEntry {
 		platform = string(a.save.Platform)
 	}
 	return db.GetItemsByCategory(category, platform)
+}
+
+// GetItemDetail returns full item data (description, stats) for a single base item ID.
+func (a *App) GetItemDetail(baseId uint32) *db.ItemEntry {
+	return db.GetItemEntryByID(baseId)
 }
 
 // SkippedAdd reports an item whose requested inventory qty was reduced because
@@ -937,8 +1009,33 @@ func (a *App) SetColosseumUnlocked(slotIndex int, colosseumID uint32, unlocked b
 	}
 
 	flags := slot.Data[slot.EventFlagsOffset:]
-	if err := db.SetEventFlag(flags, colosseumID, unlocked); err != nil {
-		return fmt.Errorf("failed to set colosseum %d: %w", colosseumID, err)
+
+	// Set the primary Activate flag plus every per-colosseum derivative
+	// (MapPOI, NPC, Gate). Without the gate flag the matchmaking menu
+	// reports the arena as unlocked but the physical entrance stays closed
+	// (see tmp/coloseum-debug/ for the RE that established this set).
+	flagSet, ok := data.ColosseumFlagSets[colosseumID]
+	if !ok {
+		flagSet = data.ColosseumFlagSet{Activate: colosseumID}
+	}
+	for _, id := range flagSet.AllFlags() {
+		if id == 0 {
+			continue
+		}
+		if err := db.SetEventFlag(flags, id, unlocked); err != nil {
+			return fmt.Errorf("failed to set colosseum flag %d: %w", id, err)
+		}
+	}
+
+	// Globals fire once any colosseum is unlocked; we set them on unlock
+	// but never clear them, because they double as broader progression
+	// markers and clearing risks regressing unrelated systems.
+	if unlocked {
+		for _, id := range data.ColosseumGlobalFlags {
+			if err := db.SetEventFlag(flags, id, true); err != nil {
+				return fmt.Errorf("failed to set colosseum global flag %d: %w", id, err)
+			}
+		}
 	}
 	return nil
 }
@@ -1164,6 +1261,28 @@ func (a *App) DiagnoseAllSlots() ([]core.SlotDiagnostics, error) {
 		results = append(results, result)
 	}
 	return results, nil
+}
+
+// RepairInventoryGaItems clears orphaned GaItem records from the specified slot.
+// Orphaned records are GaItem binary entries whose handles no longer appear in
+// held inventory or storage — they accumulate over editing sessions when items
+// are removed without clearing the backing GaItem record. Returns the count of
+// cleared entries so the UI can inform the user what was repaired.
+func (a *App) RepairInventoryGaItems(slotIndex int) (int, error) {
+	if a.save == nil {
+		return 0, fmt.Errorf("no save loaded")
+	}
+	if slotIndex < 0 || slotIndex >= 10 {
+		return 0, fmt.Errorf("invalid slot index")
+	}
+	name := core.UTF16ToString(a.save.Slots[slotIndex].Player.CharacterName[:])
+	if name == "" {
+		return 0, fmt.Errorf("slot %d is empty", slotIndex)
+	}
+	slot := &a.save.Slots[slotIndex]
+	cleared := core.RepairOrphanedGaItems(slot)
+	core.ReconcileInventoryHeader(slot)
+	return cleared, nil
 }
 
 // GetQuestNPCs returns the list of NPC names with quest data.

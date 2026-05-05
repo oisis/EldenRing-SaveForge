@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"slices"
 	"unicode/utf16"
 
 	"github.com/oisis/EldenRing-SaveEditor/backend/core"
@@ -47,6 +48,7 @@ type CharacterViewModel struct {
 	EquippedGreatRune   uint32                `json:"equippedGreatRune"`
 	ScadutreeBlessing   uint8                 `json:"scadutreeBlessing"`
 	ShadowRealmBlessing uint8                 `json:"shadowRealmBlessing"`
+	MemoryStones        uint32                `json:"memoryStones"`
 	Inventory           []ItemViewModel       `json:"inventory"`
 	Storage             []ItemViewModel       `json:"storage"`
 	Warnings            []string              `json:"warnings"`
@@ -111,6 +113,23 @@ func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 
 	// Map Storage
 	vm.Storage = mapItems(slot.Storage, slot.GaMap)
+
+	// Populate MemoryStones — addToInventory writes to CommonItems; stones obtained
+	// in-game may reside in KeyItems. Scan both to handle either case.
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle == 0xB000272E {
+			vm.MemoryStones = item.Quantity & 0x7FFFFFFF
+			break
+		}
+	}
+	if vm.MemoryStones == 0 {
+		for _, item := range slot.Inventory.KeyItems {
+			if item.GaItemHandle == 0xB000272E {
+				vm.MemoryStones = item.Quantity & 0x7FFFFFFF
+				break
+			}
+		}
+	}
 
 	return vm, nil
 }
@@ -187,7 +206,7 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32) []ItemViewM
 				CurrentUpgrade: currentUpgrade,
 				IconPath:       itemData.IconPath,
 				Flags:          itemData.Flags,
-				ReadOnly:       gamedata.IsCookbookItemID(itemID) || gamedata.IsWhetbladeItemID(itemID) || gamedata.IsBellBearingItemID(itemID),
+				ReadOnly:       gamedata.IsCookbookItemID(itemID) || gamedata.IsWhetbladeItemID(itemID) || gamedata.IsBellBearingItemID(itemID) || slices.Contains(itemData.Flags, "no_database"),
 			})
 		}
 	}

@@ -249,10 +249,13 @@ func TestArrowsRustCompatibility(t *testing.T) {
 			gaItemDataCountBefore, gaItemDataCountAfter)
 	}
 
-	// 5. Verify arrow is in inventory with qty=99.
+	// 5. Verify arrow (any handle for arrowID) is in inventory with qty=99.
+	// GaMap may have multiple handles for the same item ID (pre-existing duplicates
+	// from the test save), so we search inventory for any handle that maps to arrowID
+	// rather than relying on a single randomly-selected handle from map iteration.
 	foundInInv := false
 	for _, item := range slot.Inventory.CommonItems {
-		if item.GaItemHandle == arrowHandle {
+		if mapID, ok := slot.GaMap[item.GaItemHandle]; ok && mapID == arrowID {
 			foundInInv = true
 			if item.Quantity != 99 {
 				t.Errorf("Arrow quantity in inventory: expected 99, got %d", item.Quantity)
@@ -261,10 +264,10 @@ func TestArrowsRustCompatibility(t *testing.T) {
 		}
 	}
 	if !foundInInv {
-		t.Error("Arrow handle not found in inventory CommonItems")
+		t.Error("No arrow handle for arrowID found in inventory CommonItems")
 	}
 
-	// 6. Verify arrow is in GaMap.
+	// 6. Verify arrowHandle is in GaMap (may be one of several handles for arrowID).
 	if mapID, ok := slot.GaMap[arrowHandle]; !ok || mapID != arrowID {
 		t.Errorf("Arrow handle 0x%X not correctly in GaMap (id=0x%X, ok=%v)", arrowHandle, mapID, ok)
 	}

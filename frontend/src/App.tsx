@@ -11,7 +11,7 @@ import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {NetworkTab} from './components/NetworkTab';
-import {ItemDetailPanel} from './components/ItemDetailPanel';
+
 import {AccordionSection} from './components/AccordionSection';
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
@@ -64,6 +64,7 @@ function App() {
     const [selectedDeployTarget, setSelectedDeployTarget] = useState<string>(() => localStorage.getItem('selectedDeployTarget') || '');
     const [targetPlatform, setTargetPlatform] = useState<string>('PC');
     const [showEmptySlots, setShowEmptySlots] = useState(false);
+    const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
     const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
     const [invView, setInvView] = useState<'inventory' | 'database'>('inventory');
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
@@ -425,7 +426,7 @@ function App() {
                                         Open Save
                                     </button>
                                 </div>
-                                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                <div className={activeTab === 'inventory' ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
                                     {activeTab === 'character' && (
                                         <AppearanceTab charIndex={0} onMutate={() => {}} readOnly />
                                     )}
@@ -440,15 +441,13 @@ function App() {
                                             category={category}
                                             setCategory={setCategory}
                                             onSelectItem={setDetailItem}
+                                            selectedDetailItem={detailItem}
+                                            onCloseDetail={() => setDetailItem(null)}
                                             readOnly
+                                            showOnlyFavorites={showOnlyFavorites}
                                         />
                                     )}
                                 </div>
-                                {detailItem && (
-                                    <div className="absolute right-6 top-6 bottom-6 w-[40%] z-20 animate-in slide-in-from-right duration-200">
-                                        <ItemDetailPanel item={detailItem} onClose={() => setDetailItem(null)} />
-                                    </div>
-                                )}
                             </div>
                         ) : (
                             <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
@@ -468,7 +467,7 @@ function App() {
                                         </div>
                                     );
                                 })()}
-                                <div className="flex-1 overflow-y-auto custom-scrollbar">
+                                <div className={activeTab === 'inventory' ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
                                 {activeTab === 'character' && <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} refreshKey={inventoryVersion} />}
                                 {activeTab === 'inventory' && (
                                     <div className="flex-1 flex flex-col min-h-0">
@@ -486,10 +485,23 @@ function App() {
                                                 </div>
                                             );
 
+                                            const favToggle = (
+                                                <button
+                                                    onClick={() => setShowOnlyFavorites(v => !v)}
+                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.12em] transition-all ${showOnlyFavorites ? 'bg-amber-500/20 text-amber-500 border border-amber-500/40' : 'text-muted-foreground hover:text-amber-500/70 hover:bg-muted/30 border border-transparent'}`}
+                                                >
+                                                    <svg className={`w-3 h-3 ${showOnlyFavorites ? 'fill-amber-500' : 'fill-none'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                                    </svg>
+                                                    Favorites
+                                                </button>
+                                            );
+
                                             if (invView === 'inventory') {
                                                 return (
                                                     <div className="flex items-center gap-4 mb-3 shrink-0">
                                                         {togglePills}
+                                                        {favToggle}
                                                         {capacity && (
                                                             <div className="flex flex-wrap items-center gap-3 flex-1">
                                                                 {[
@@ -520,7 +532,7 @@ function App() {
                                             const infuseName = infuseTypes.find(t => t.offset === s.infuseOffset)?.name ?? 'Standard';
                                             return (
                                                 <div className="flex items-start gap-4 mb-3 shrink-0">
-                                                    <div className="pt-2">{togglePills}</div>
+                                                    <div className="pt-2 flex items-center gap-2">{togglePills}{favToggle}</div>
                                                     <div className="flex-1 min-w-0">
                                                         <AccordionSection id="inv-add-settings" title="Add Settings"
                                                             summary={`+${s.upgrade25} · +${s.upgrade10} · ${infuseName} · Ash +${s.upgradeAsh}`}
@@ -577,31 +589,23 @@ function App() {
                                         })()}
 
                                         {invView === 'inventory' ? (
-                                            <InventoryTab charIndex={selectedChar} inventoryVersion={inventoryVersion} columnVisibility={columnVisibility} showFlaggedItems={showFlaggedItems} category={category} setCategory={setCategory} onMutate={refreshUndoDepth} />
+                                            <InventoryTab charIndex={selectedChar} inventoryVersion={inventoryVersion} columnVisibility={columnVisibility} showFlaggedItems={showFlaggedItems} category={category} setCategory={setCategory} onMutate={refreshUndoDepth} showOnlyFavorites={showOnlyFavorites} />
                                         ) : (
-                                            <div className="flex-1 flex min-h-0">
-                                                {/* Database list */}
-                                                <div className={`flex-1 flex flex-col min-h-0 min-w-0 ${detailItem ? 'max-w-[60%]' : ''}`}>
-                                                    <DatabaseTab
-                                                        columnVisibility={columnVisibility}
-                                                        platform={platform}
-                                                        charIndex={selectedChar}
-                                                        inventoryVersion={inventoryVersion}
-                                                        onItemsAdded={() => setInventoryVersion(v => v + 1)}
-                                                        addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS}
-                                                        showFlaggedItems={showFlaggedItems}
-                                                        category={category}
-                                                        setCategory={setCategory}
-                                                        onSelectItem={setDetailItem}
-                                                    />
-                                                </div>
-                                                {/* Detail panel */}
-                                                {detailItem && (
-                                                    <div className="w-[40%] shrink-0 animate-in slide-in-from-right duration-200">
-                                                        <ItemDetailPanel item={detailItem} onClose={() => setDetailItem(null)} />
-                                                    </div>
-                                                )}
-                                            </div>
+                                            <DatabaseTab
+                                                columnVisibility={columnVisibility}
+                                                platform={platform}
+                                                charIndex={selectedChar}
+                                                inventoryVersion={inventoryVersion}
+                                                onItemsAdded={() => setInventoryVersion(v => v + 1)}
+                                                addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS}
+                                                showFlaggedItems={showFlaggedItems}
+                                                category={category}
+                                                setCategory={setCategory}
+                                                onSelectItem={setDetailItem}
+                                                selectedDetailItem={detailItem}
+                                                onCloseDetail={() => setDetailItem(null)}
+                                                showOnlyFavorites={showOnlyFavorites}
+                                            />
                                         )}
                                     </div>
                                 )}

@@ -426,7 +426,14 @@ var Weapons = map[uint32]ItemData{
 	0x0405F9D4: {Name: "Flame Art Milady", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/flame_art_milady.png"},
 	0x04061EF0: {Name: "Leda's Sword", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/melee_armaments/ledas_sword.png", Flags: []string{"dlc"}},
 	0x04064600: {Name: "Rellana's Twin Blades", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/melee_armaments/rellanas_twin_blades.png", Flags: []string{"dlc"}},
-	0x04153A20: {Name: "Beast Claw", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/incantations/beast_claw.png", Flags: []string{"dlc"}},
+
 	0x04153C14: {Name: "Flame Art Beast Claw", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/flame_art_beast_claw.png"},
 	0x04156130: {Name: "Red Bear's Claw", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/melee_armaments/red_bears_claw.png", Flags: []string{"dlc"}},
+
+	0x010B5580: {Name: "Barbed Staff-Spear", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/barbed_staff_spear.png"},
+	0x00A98670: {Name: "Scepter of the All-Knowing", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/scepter_of_the_all_knowing.png"},
+	0x00BA2840: {Name: "Devourer's Scepter", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/devourers_scepter.png"},
+	0x015F1AD0: {Name: "Watchdog's Staff", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/watchdogs_staff.png"},
+	0x01600530: {Name: "Staff of the Avatar", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/staff_of_the_avatar.png"},
+	0x00F55C80: {Name: "Torchpole", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/torchpole.png"},
 }

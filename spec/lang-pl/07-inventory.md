@@ -26,31 +26,73 @@ Każdy slot to 12 bajtów. Puste sloty mają `gaitem_handle == 0` lub `gaitem_ha
 
 ## Layout sekcji Inventory Held
 
+Sekcja jest poprzedzona 4-bajtowym nagłówkiem count (`common_item_count`) bezpośrednio przed
+pierwszym slotem common item (`MagicOffset + InvStartFromMagic - 4`):
+
 ```
 ┌────────────────────────────────────────┐
+│ common_item_count (u32)                 │  4 bajty  ← na MagicOffset + 0x1F9
+├────────────────────────────────────────┤
 │ Common Items: 2688 × 12 = 32,256 bytes │  (0x7E00)
 ├────────────────────────────────────────┤
 │ Key Items: 384 × 12 = 4,608 bytes      │  (0x1200)
 ├────────────────────────────────────────┤
-│ Next Equip Index (u32)                  │  4 bytes
+│ Next Equip Index (u32)                  │  4 bajty
 ├────────────────────────────────────────┤
-│ Next Acquisition Sort ID (u32)          │  4 bytes
+│ Next Acquisition Sort ID (u32)          │  4 bajty
 └────────────────────────────────────────┘
-Total: 0x7E00 + 0x1200 + 8 = 36,872 bytes (0x9008)
+Razem (bez nagłówka): 0x7E00 + 0x1200 + 8 = 36,872 bajtów (0x9008)
 ```
 
 ---
 
-## Counters (trailing)
+## Countery (trailing)
 
 Po tablicach przedmiotów:
 
 | Pole | Typ | Opis |
 |---|---|---|
-| Next Equip Index | u32 | Następny wolny equip index (inkrementowany przy pickup) |
-| Next Acquisition Sort ID | u32 | Następny sort ID (porządek wyświetlania) |
+| Next Equip Index | u32 | Bramka widoczności — itemy z `Acquisition Index >= NextEquipIndex` są niewidoczne dla gry |
+| Next Acquisition Sort ID | u32 | Następny sort ID przypisywany kolejnemu dodanemu przedmiotowi |
 
-Te countery MUSZĄ być aktualizowane przy dodawaniu nowych przedmiotów.
+### Bramka widoczności (krytyczne)
+
+Gra traktuje `item.AcquisitionIndex >= NextEquipIndex` jako **niewidoczny** — przedmiot istnieje
+w binarce, ale equip system go ignoruje. To mechanizm odpowiedzialny za buga "item dodany, ale
+niewidoczny w grze".
+
+**Niezmiennik**: po każdym dodaniu, `NextEquipIndex` MUSI być ściśle większy niż `AcquisitionIndex`
+każdego itema. Poprawna aktualizacja:
+
+```
+item.AcquisitionIndex = NextAcquisitionSortId   // przypisz przed inkrementacją
+NextAcquisitionSortId++
+if item.AcquisitionIndex >= NextEquipIndex {
+    NextEquipIndex = item.AcquisitionIndex + 1
+} else {
+    NextEquipIndex++
+}
+```
+
+Zewnętrzne edytory (np. `er-save-manager`) czasem inkrementują `NextAcquisitionSortId` bez
+przesuwania `NextEquipIndex`, tworząc lukę. Itemy dodane przez takie edytory z wysokim
+`AcquisitionIndex` pozostają na stałe niewidoczne dopóki luka nie zostanie zamknięta.
+
+**Przy ładowaniu**: nasz edytor wykrywa `NextEquipIndex < NextAcquisitionSortId` w `mapInventory()`
+i koryguje zarówno wartość w pamięci, jak i bajty binarne pod `nextEquipIndexOff`. Samo otwarcie
+i ponowny zapis pliku save naprawia bramkę widoczności dla gry.
+
+### Nagłówek `common_item_count`
+
+4-bajtowy count pod `invStart - 4` jest odczytywany przez runtime gry jako "następny wolny index
+wstawiania" dla in-game pickupów i próg dla "inventory full" (`count == 2688`). Musi być równy
+rzeczywistej liczbie niepustych slotów common item.
+
+- Przestarzały count (za niski po dodaniach przez zewnętrzne narzędzia): gra wstawia pod złą
+  pozycją, potencjalnie nadpisując prawidłowe itemy.
+- Przestarzały count (za wysoki po usunięciach): gra przedwcześnie zgłasza "inventory full".
+
+**Przy ładowaniu**: `ReconcileInventoryHeader()` przelicza i zapisuje poprawną wartość do binarki.
 
 ---
 
@@ -72,6 +114,15 @@ GaItem Map Entry [5]:
 
 ---
 
+## Osierocone rekordy GaItem (Orphaned GaItems)
+
+Rekord GaItem, którego handle nie pojawia się w żadnym slocie inventory ani storage, jest
+**osierocony**. Takie rekordy zajmują pojemność GaItem (łącznie 5118–5120 wpisów) bez bycia
+dostępnymi dla gracza. Akumulują się gdy itemy są usuwane z inventory/storage bez czyszczenia
+binarnego wpisu GaItem. Użyj `RepairOrphanedGaItems(slot)` aby je przeskanować i wyczyścić.
+
+---
+
 ## Typy przedmiotów (z item_id)
 
 Item ID ma prefiks określający kategorię:
@@ -88,9 +139,11 @@ Item ID ma prefiks określający kategorię:
 
 ## Implikacje dla edycji
 
-- Dodanie przedmiotu: znajdź wolny slot (handle==0), wpisz handle+qty+index, zaktualizuj counter
+- Dodanie przedmiotu: znajdź wolny slot (handle==0), wpisz handle+qty+index, zaktualizuj wszystkie
+  trzy countery (`NextEquipIndex`, `NextAcquisitionSortId`, `common_item_count`)
+- Usunięcie przedmiotu: wyzeruj slot, dekrementuj `common_item_count`, wyczyść binarny wpis GaItem
 - Nowy handle musi mieć odpowiedni wpis w GaItem Map
-- `acq_index` musi być unikalny w obrębie inventory — użyj Next Equip Index i zinkrementuj
+- `AcquisitionIndex` musi spełniać `< NextEquipIndex` bezpośrednio po dodaniu
 - Max quantity zależy od typu przedmiotu (bronie=1, materiały=999, itd.)
 - Key Items to osobna sekcja — nie mieszaj z common
 
@@ -101,3 +154,6 @@ Item ID ma prefiks określający kategorię:
 - er-save-manager: `parser/equipment.py` — klasa `InventoryItem` (linia 191+), `Inventory`
 - ER-Save-Editor (Rust): `src/save/common/save_slot.rs` — inventory structures
 - er-save-manager: `parser/user_data_x.py` linia 104-105: `inventory_held: Inventory` (0xa80 common, 0x180 key)
+- `backend/core/offset_defs.go`: `InvStartFromMagic = 505`
+- `backend/core/structures.go`: `mapInventory()`, `ReconcileInventoryHeader()`
+- `backend/core/writer.go`: `addToInventory()`, `RepairOrphanedGaItems()`
