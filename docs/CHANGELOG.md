@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(db): weight column and sorting in Database tab
+
+- Weight column auto-imported from `regulation.bin` CSV (`EquipParamWeapon` + `EquipParamProtector`) via `tmp/scripts/import_weights.go` → `backend/db/data/weights.go` (4252 entries)
+- Armor ID mapping fixed: `saveID = 0x10000000 + rowID` (protector param offset)
+- Weight lookup restricted to physical categories only (`melee_armaments`, `ranged_and_catalysts`, `shields`, `head`/`chest`/`arms`/`legs`) — prevents false weight on incantations/sorceries sharing ID space
+- Weight column hidden automatically when no item in current filtered view has weight
+- Sort by weight: items without weight always at top (alphabetically), items with weight sorted numerically with name tie-break
+- "Talismans: highest only" toggle now always visible in Add Settings (not gated on talismans category)
+
 ### feat(world): Networking moved into World tab as collapsible sub-tab
 
 - Removed standalone Network tab; networking panel is now a 4th sub-tab inside World
