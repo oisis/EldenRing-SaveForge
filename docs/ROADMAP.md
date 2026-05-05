@@ -96,6 +96,46 @@ Adding Info items (Notes, About tutorials) causes world copies to drop on the gr
 Two approaches tried (world pickup flags + TutorialDataChunk), neither gates the spawn.
 **Research:** [spec/41](spec/41-info-tab-ground-drop.md) | **Blocker:** need EMEVD decompilation
 
+### 🟢 AoW Socketing + Infusion Edit — in-editor weapon customization
+
+Edit socketed Ash of War and infusion affinity per weapon directly from Inventory tab.
+
+**UI:** "AoW/Infuse Edit" toggle button (next to Add Favorites in InventoryTab) switches table to edit mode.
+In edit mode: only eligible weapons shown (melee_armaments + ranged_armaments that support gem socketing), two dropdown columns — **Infusion** and **Ash of War**.
+
+**AoW rules:**
+- Dropdown shows only AoW from player's **inventory** (not storage — must be moved first, matching in-game behavior).
+- AoW items display "In Use · WeaponName" badge when already socketed on another weapon.
+- Weapons that don't support AoW (Seals, Staves, fixed-skill weapons) are hidden from edit mode view.
+
+**Infusion rules:**
+- Infusion is baked into `GaItemFull.ItemID` (`BaseID + infuseOffset + upgrade`); changing affinity = rewriting ItemID.
+- Only affinities allowed by the weapon are shown (source: `EquipParamWeapon.disableGemAttr` bitmask from regulation.bin CSV — **needs pre-import into db**).
+
+**Implementation phases:**
+
+1. **Research** — parse `EquipParamWeapon.gemMountType` (column 248) to build a set of weapon BaseIDs that support AoW socketing; parse `disableGemAttr` (column 134) per weapon to know which affinities are valid. Import both as lookup maps into `backend/db/data/`.
+
+2. **Backend: read** — extend `ItemViewModel` with:
+   - `AttachedAoWID uint32`, `AttachedAoWName string` (read from `GaItemFull.AoWGaItemHandle`)
+   - `InUseByWeapon string` (resolved by scanning all weapon GaItems for matching `AoWGaItemHandle`)
+   - `AllowedInfusions []int` (from `disableGemAttr` lookup)
+
+3. **Backend: write** — two new endpoints in `app.go`:
+   - `SetWeaponAoW(charIdx, weaponHandle, aowItemID uint32) error` — updates `GaItemFull.AoWGaItemHandle`; aowItemID=0 clears it (`0xFFFFFFFF`)
+   - `SetWeaponInfusion(charIdx, weaponHandle, infuseOffset uint32) error` — rewrites `GaItemFull.ItemID` = `BaseID + infuseOffset + currentUpgrade`; validates infuseOffset against `disableGemAttr`
+
+4. **Frontend** — `InventoryTab.tsx`:
+   - "AoW/Infuse Edit" button toggles `editMode` state
+   - In edit mode: filter to eligible armaments, show two dropdown columns
+   - AoW dropdown sources from inventory AoW items (`category === "Ash of War"`, not storage)
+   - Infusion dropdown sources from `AllowedInfusions` on the weapon ViewModel
+
+**Mockup (v1, superseded):** `tmp/mockups/aow-socketing-mockup.html`
+
+### 🟢 Lost Ash of War — Key Items support
+"Lost Ash of War" (used at Sites of Grace to duplicate AoWs) must be addable from Key Items tab. Verify item is correctly categorized as `key_items` in `backend/db/data/` and not missing or miscategorized. Also check `Lost Spirit Ash` (same mechanic for spirit ashes).
+
 ### 🟢 Safe Weapon De-leveling — matchmaking bracket control
 Scan character's max weapon upgrade level (determines PvP matchmaking bracket), offer safe downgrade.
 Useful for PvP builds targeting specific level ranges without starting new character.

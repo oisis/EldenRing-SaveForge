@@ -19,6 +19,7 @@ type CharacterPreset struct {
 	Character     CharacterPresetCore `json:"character"`
 	Inventory     []PresetItem        `json:"inventory"`
 	Storage       []PresetItem        `json:"storage"`
+	AddSettings   *PresetAddSettings  `json:"addSettings,omitempty"`
 	World         *WorldPresetData    `json:"world,omitempty"`
 }
 
@@ -37,25 +38,32 @@ type WorldPresetData struct {
 }
 
 type CharacterPresetCore struct {
-	Name                string `json:"name"`
-	Class               uint8  `json:"class"`
-	ClassName           string `json:"className"`
-	Level               uint32 `json:"level"`
-	Souls               uint32 `json:"souls"`
-	Vigor               uint32 `json:"vigor"`
-	Mind                uint32 `json:"mind"`
-	Endurance           uint32 `json:"endurance"`
-	Strength            uint32 `json:"strength"`
-	Dexterity           uint32 `json:"dexterity"`
-	Intelligence        uint32 `json:"intelligence"`
-	Faith               uint32 `json:"faith"`
-	Arcane              uint32 `json:"arcane"`
-	TalismanSlots       uint8  `json:"talismanSlots"`
-	ClearCount          uint32 `json:"clearCount"`
-	GreatRuneOn         bool   `json:"greatRuneOn"`
-	EquippedGreatRune   uint32 `json:"equippedGreatRune"`
-	ScadutreeBlessing   uint8  `json:"scadutreeBlessing"`
-	ShadowRealmBlessing uint8  `json:"shadowRealmBlessing"`
+	Name              string `json:"name"`
+	Class             uint8  `json:"class"`
+	ClassName         string `json:"className"`
+	Level             uint32 `json:"level"`
+	Souls             uint32 `json:"souls"`
+	Vigor             uint32 `json:"vigor"`
+	Mind              uint32 `json:"mind"`
+	Endurance         uint32 `json:"endurance"`
+	Strength          uint32 `json:"strength"`
+	Dexterity         uint32 `json:"dexterity"`
+	Intelligence      uint32 `json:"intelligence"`
+	Faith             uint32 `json:"faith"`
+	Arcane            uint32 `json:"arcane"`
+	TalismanSlots     uint8  `json:"talismanSlots"`
+	ClearCount        uint32 `json:"clearCount"`
+	GreatRuneOn       bool   `json:"greatRuneOn"`
+	EquippedGreatRune uint32 `json:"equippedGreatRune"`
+	MemoryStones      uint32 `json:"memoryStones"`
+}
+
+type PresetAddSettings struct {
+	Upgrade25            int  `json:"upgrade25"`
+	Upgrade10            int  `json:"upgrade10"`
+	InfuseOffset         int  `json:"infuseOffset"`
+	UpgradeAsh           int  `json:"upgradeAsh"`
+	TalismansHighestOnly bool `json:"talismansHighestOnly"`
 }
 
 type PresetItem struct {
@@ -95,25 +103,24 @@ func VMToPreset(vm *CharacterViewModel, appVersion string) *CharacterPreset {
 		ExportedAt:    time.Now().UTC().Format(time.RFC3339),
 		AppVersion:    appVersion,
 		Character: CharacterPresetCore{
-			Name:                vm.Name,
-			Class:               vm.Class,
-			ClassName:           vm.ClassName,
-			Level:               vm.Level,
-			Souls:               vm.Souls,
-			Vigor:               vm.Vigor,
-			Mind:                vm.Mind,
-			Endurance:           vm.Endurance,
-			Strength:            vm.Strength,
-			Dexterity:           vm.Dexterity,
-			Intelligence:        vm.Intelligence,
-			Faith:               vm.Faith,
-			Arcane:              vm.Arcane,
-			TalismanSlots:       vm.TalismanSlots,
-			ClearCount:          vm.ClearCount,
-			GreatRuneOn:         vm.GreatRuneOn,
-			EquippedGreatRune:   vm.EquippedGreatRune,
-			ScadutreeBlessing:   vm.ScadutreeBlessing,
-			ShadowRealmBlessing: vm.ShadowRealmBlessing,
+			Name:              vm.Name,
+			Class:             vm.Class,
+			ClassName:         vm.ClassName,
+			Level:             vm.Level,
+			Souls:             vm.Souls,
+			Vigor:             vm.Vigor,
+			Mind:              vm.Mind,
+			Endurance:         vm.Endurance,
+			Strength:          vm.Strength,
+			Dexterity:         vm.Dexterity,
+			Intelligence:      vm.Intelligence,
+			Faith:             vm.Faith,
+			Arcane:            vm.Arcane,
+			TalismanSlots:     vm.TalismanSlots,
+			ClearCount:        vm.ClearCount,
+			GreatRuneOn:       vm.GreatRuneOn,
+			EquippedGreatRune: vm.EquippedGreatRune,
+			MemoryStones:      vm.MemoryStones,
 		},
 		Inventory: vmItemsToPresetItems(vm.Inventory),
 		Storage:   vmItemsToPresetItems(vm.Storage),
@@ -309,14 +316,13 @@ func PresetToVM(preset *CharacterPreset) *CharacterViewModel {
 		Intelligence:        c.Intelligence,
 		Faith:               c.Faith,
 		Arcane:              c.Arcane,
-		TalismanSlots:       c.TalismanSlots,
-		ClearCount:          c.ClearCount,
-		GreatRuneOn:         c.GreatRuneOn,
-		EquippedGreatRune:   c.EquippedGreatRune,
-		ScadutreeBlessing:   c.ScadutreeBlessing,
-		ShadowRealmBlessing: c.ShadowRealmBlessing,
-		Inventory:           []ItemViewModel{},
-		Storage:             []ItemViewModel{},
+		TalismanSlots:     c.TalismanSlots,
+		ClearCount:        c.ClearCount,
+		GreatRuneOn:       c.GreatRuneOn,
+		EquippedGreatRune: c.EquippedGreatRune,
+		MemoryStones:      c.MemoryStones,
+		Inventory:         []ItemViewModel{},
+		Storage:           []ItemViewModel{},
 	}
 	return vm
 }

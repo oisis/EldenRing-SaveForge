@@ -10,7 +10,6 @@ import {ToolsTab} from './components/ToolsTab';
 import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
-import {NetworkTab} from './components/NetworkTab';
 
 import {AccordionSection} from './components/AccordionSection';
 import {ToastBar} from './components/ToastBar';
@@ -79,7 +78,7 @@ function App() {
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
 
     const tabs = platform
-        ? ['character', 'inventory', 'world', 'network', 'tools', 'settings']
+        ? ['character', 'inventory', 'world', 'tools', 'settings']
         : ['character', 'inventory', 'settings'];
 
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
@@ -488,9 +487,9 @@ function App() {
                                             const favToggle = (
                                                 <button
                                                     onClick={() => setShowOnlyFavorites(v => !v)}
-                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.12em] transition-all ${showOnlyFavorites ? 'bg-amber-500/20 text-amber-500 border border-amber-500/40' : 'text-muted-foreground hover:text-amber-500/70 hover:bg-muted/30 border border-transparent'}`}
+                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.12em] transition-all ${showOnlyFavorites ? 'bg-blue-900/30 text-blue-800 border border-blue-800/50' : 'text-muted-foreground hover:text-blue-800 hover:bg-blue-900/10 border border-transparent'}`}
                                                 >
-                                                    <svg className={`w-3 h-3 ${showOnlyFavorites ? 'fill-amber-500' : 'fill-none'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                                    <svg className={`w-3 h-3 ${showOnlyFavorites ? 'fill-amber-600' : 'fill-none stroke-amber-600'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                                                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                                                     </svg>
                                                     Favorites
@@ -572,13 +571,11 @@ function App() {
                                                                                 className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
                                                                             <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{s.upgradeAsh}</span>
                                                                         </div>
-                                                                        {category === 'talismans' && (
-                                                                            <label title="When enabled, only the highest-tier variant of each talisman family (Greatshield, Golden Braid, +3 medallions, Two-Headed Turtle, Soreseals etc.) is shown — lower upgrade levels are hidden." className="flex items-center space-x-3 cursor-pointer md:col-span-2">
-                                                                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-fit shrink-0">Talismans: highest only</span>
-                                                                                <input type="checkbox" checked={s.talismansHighestOnly} onChange={e => set({talismansHighestOnly: e.target.checked})}
-                                                                                    className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
-                                                                            </label>
-                                                                        )}
+                                                                        <label title="When enabled, only the highest-tier variant of each talisman family (Greatshield, Golden Braid, +3 medallions, Two-Headed Turtle, Soreseals etc.) is shown — lower upgrade levels are hidden." className="flex items-center space-x-3 cursor-pointer md:col-span-2">
+                                                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-fit shrink-0">Talismans: highest only</span>
+                                                                            <input type="checkbox" checked={s.talismansHighestOnly} onChange={e => set({talismansHighestOnly: e.target.checked})}
+                                                                                className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
+                                                                        </label>
                                                                     </div>
                                                                 );
                                                             })()}
@@ -609,9 +606,8 @@ function App() {
                                         )}
                                     </div>
                                 )}
-                                {activeTab === 'world' && <WorldTab charIdx={selectedChar} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} />}
-                                {activeTab === 'network' && <NetworkTab platform={platform} />}
-                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} />}
+                                {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} />}
+                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>
                         )}

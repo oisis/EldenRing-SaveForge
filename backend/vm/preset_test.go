@@ -54,9 +54,6 @@ func TestVMToPresetRoundTrip(t *testing.T) {
 	if c.Vigor != 60 {
 		t.Errorf("Vigor = %d, want 60", c.Vigor)
 	}
-	if c.ScadutreeBlessing != 20 {
-		t.Errorf("ScadutreeBlessing = %d, want 20", c.ScadutreeBlessing)
-	}
 	if !c.GreatRuneOn {
 		t.Error("GreatRuneOn = false, want true")
 	}
@@ -97,9 +94,6 @@ func TestVMToPresetRoundTrip(t *testing.T) {
 	}
 	if backVM.Vigor != vm.Vigor {
 		t.Errorf("Roundtrip Vigor = %d, want %d", backVM.Vigor, vm.Vigor)
-	}
-	if backVM.ScadutreeBlessing != vm.ScadutreeBlessing {
-		t.Errorf("Roundtrip ScadutreeBlessing = %d, want %d", backVM.ScadutreeBlessing, vm.ScadutreeBlessing)
 	}
 }
 

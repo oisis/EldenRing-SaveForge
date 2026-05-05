@@ -74,8 +74,8 @@ export function DownloadRemoteSave(arg1) {
   return window['go']['main']['App']['DownloadRemoteSave'](arg1);
 }
 
-export function ExportCharacterPresetToFile(arg1) {
-  return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1);
+export function ExportCharacterPresetToFile(arg1, arg2) {
+  return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1, arg2);
 }
 
 export function GetActiveSlots() {

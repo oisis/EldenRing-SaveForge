@@ -5,22 +5,33 @@ import {PresetImporter} from './PresetImporter';
 import {FavoritesManager} from './FavoritesManager';
 import {ExportCharacterPresetToFile} from '../../wailsjs/go/main/App';
 import {useFavorites} from '../state/favorites';
+import type {AddSettings} from '../App';
+import {vm} from '../../wailsjs/go/models';
 
 interface ToolsTabProps {
     charIndex: number;
     onComplete: () => void;
     onMutate?: () => void;
+    addSettings: AddSettings;
+    onAddSettingsApplied?: (s: AddSettings) => void;
 }
 
 type ToolView = 'overview' | 'importer' | 'preset-import' | 'favorites';
 
-export function ToolsTab({charIndex, onComplete, onMutate}: ToolsTabProps) {
+export function ToolsTab({charIndex, onComplete, onMutate, addSettings, onAddSettingsApplied}: ToolsTabProps) {
     const [view, setView] = useState<ToolView>('overview');
     const {count: favCount} = useFavorites();
 
     const handleExportPreset = async () => {
         try {
-            const path = await ExportCharacterPresetToFile(charIndex);
+            const s = new vm.PresetAddSettings({
+                upgrade25: addSettings.upgrade25,
+                upgrade10: addSettings.upgrade10,
+                infuseOffset: addSettings.infuseOffset,
+                upgradeAsh: addSettings.upgradeAsh,
+                talismansHighestOnly: addSettings.talismansHighestOnly,
+            });
+            const path = await ExportCharacterPresetToFile(charIndex, s);
             if (path) {
                 toast.success('Preset exported to: ' + path);
             }
@@ -54,7 +65,7 @@ export function ToolsTab({charIndex, onComplete, onMutate}: ToolsTabProps) {
                     </svg>
                     Back to Tools
                 </button>
-                <PresetImporter charIndex={charIndex} onComplete={onComplete} onMutate={onMutate} />
+                <PresetImporter charIndex={charIndex} onComplete={onComplete} onMutate={onMutate} onAddSettingsApplied={onAddSettingsApplied} />
             </div>
         );
     }

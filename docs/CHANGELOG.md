@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(db): weight column and sorting in Database tab
+
+- Weight column auto-imported from `regulation.bin` CSV (`EquipParamWeapon` + `EquipParamProtector`) via `tmp/scripts/import_weights.go` → `backend/db/data/weights.go` (4252 entries)
+- Armor ID mapping fixed: `saveID = 0x10000000 + rowID` (protector param offset)
+- Weight lookup restricted to physical categories only (`melee_armaments`, `ranged_and_catalysts`, `shields`, `head`/`chest`/`arms`/`legs`) — prevents false weight on incantations/sorceries sharing ID space
+- Weight column hidden automatically when no item in current filtered view has weight
+- Sort by weight: items without weight always at top (alphabetically), items with weight sorted numerically with name tie-break
+- "Talismans: highest only" toggle now always visible in Add Settings (not gated on talismans category)
+
+### feat(world): Networking moved into World tab as collapsible sub-tab
+
+- Removed standalone Network tab; networking panel is now a 4th sub-tab inside World
+- Four role sections (Invader, Summon, Hunter, Host) rendered as individually collapsible accordions, collapsed by default
+- Per-section preset buttons (Fast Invasion / Fast Summons / Fast Hunter / Aggressive Host) with green/red status dot indicating whether sliders are at defaults
+- Per-section Reset button; one global Apply button
+- Slider descriptions hidden by default behind `?` toggle
+- Section header: role label left-aligned, buttons right-aligned with ban-risk badge
+
+### fix(ui): light theme contrast improvements
+
+- `--muted-foreground` darkened from `44%` to `28%` lightness — readable at `/70` opacity (≈4.5:1 WCAG AA)
+- `--border` darkened from `89%` to `72%` — visible section separators
+- `--muted` / `--secondary` / `--accent` darkened from `94%` to `88%` — distinguishable from card background
+
 ### Fix — fuzzy weapon lookup for 0x01/0x02 prefix items with byte-carry upgrade offsets
 
 **Problem**: `GetItemDataFuzzy` only fuzzy-searched weapons with prefix `0x00`. Bows, greatbows, crossbows (prefix `0x02`) and staves/seals/catalysts (prefix `0x01`) with upgrade+infusion offsets that crossed a byte boundary (e.g. Greatbow Heavy+25: base `0x02817AC0` + 125 = `0x02817B3D`) had `id & 0xFFFFFF00 ≠ baseID & 0xFFFFFF00`, so the lookup returned empty → items were filtered from editor view as "unknown".

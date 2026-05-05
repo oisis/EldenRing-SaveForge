@@ -167,20 +167,6 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	a.pushUndo(index)
 
-	// Patch Memory Stone qty in vm.Inventory so updateItemsAndSync writes the correct value.
-	desired := charVM.MemoryStones
-	if desired > 8 {
-		desired = 8
-	}
-	stoneFound := false
-	for i := range charVM.Inventory {
-		if charVM.Inventory[i].Handle == 0xB000272E {
-			charVM.Inventory[i].Quantity = desired
-			stoneFound = true
-			break
-		}
-	}
-
 	// 1. Update the slot data
 	if err := vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index]); err != nil {
 		return err
@@ -188,56 +174,8 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	slot := &a.save.Slots[index]
 
-	// Add Memory Stone to inventory if it wasn't there yet.
-	if !stoneFound && desired > 0 {
-		if err := core.AddItemsToSlot(slot, []uint32{0x4000272E}, int(desired), 0, false); err != nil {
-			return fmt.Errorf("add memory stone: %w", err)
-		}
-	}
-
-	// Sync Memory Stone event flags to match desired quantity.
-	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-		flags := slot.Data[slot.EventFlagsOffset:]
-		flagList := data.BolsteringPickupFlags[0x4000272E]
-		sorted := make([]uint32, len(flagList))
-		copy(sorted, flagList)
-		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-		currentSet := 0
-		for _, f := range sorted {
-			if val, err := db.GetEventFlag(flags, f); err == nil && val {
-				currentSet++
-			}
-		}
-		if int(desired) > currentSet {
-			toSet := int(desired) - currentSet
-			set := 0
-			for _, f := range sorted {
-				if set >= toSet {
-					break
-				}
-				if val, err := db.GetEventFlag(flags, f); err == nil && !val {
-					if err := db.SetEventFlag(flags, f, true); err == nil {
-						set++
-					}
-				}
-			}
-		} else if int(desired) < currentSet {
-			toUnset := currentSet - int(desired)
-			sortedDesc := make([]uint32, len(sorted))
-			copy(sortedDesc, sorted)
-			sort.Slice(sortedDesc, func(i, j int) bool { return sortedDesc[i] > sortedDesc[j] })
-			unset := 0
-			for _, f := range sortedDesc {
-				if unset >= toUnset {
-					break
-				}
-				if val, err := db.GetEventFlag(flags, f); err == nil && val {
-					if err := db.SetEventFlag(flags, f, false); err == nil {
-						unset++
-					}
-				}
-			}
-		}
+	if err := a.applyMemoryStonesToSlot(slot, charVM.MemoryStones); err != nil {
+		return err
 	}
 
 	// 2. Sync NG+ event flags (50-57) with ClearCount
@@ -3097,7 +3035,70 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 
 const appVersion = "0.8.0"
 
-func (a *App) ExportCharacterPresetToFile(charIdx int) (string, error) {
+func (a *App) applyMemoryStonesToSlot(slot *core.SaveSlot, desired uint32) error {
+	if desired > 8 {
+		desired = 8
+	}
+	stoneFound := false
+	for i := range slot.Inventory.CommonItems {
+		if slot.Inventory.CommonItems[i].GaItemHandle == 0xB000272E {
+			slot.Inventory.CommonItems[i].Quantity = desired
+			stoneFound = true
+			break
+		}
+	}
+	if !stoneFound && desired > 0 {
+		if err := core.AddItemsToSlot(slot, []uint32{0x4000272E}, int(desired), 0, false); err != nil {
+			return fmt.Errorf("add memory stone: %w", err)
+		}
+	}
+	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+		flags := slot.Data[slot.EventFlagsOffset:]
+		flagList := data.BolsteringPickupFlags[0x4000272E]
+		sorted := make([]uint32, len(flagList))
+		copy(sorted, flagList)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		currentSet := 0
+		for _, f := range sorted {
+			if val, err := db.GetEventFlag(flags, f); err == nil && val {
+				currentSet++
+			}
+		}
+		if int(desired) > currentSet {
+			toSet := int(desired) - currentSet
+			set := 0
+			for _, f := range sorted {
+				if set >= toSet {
+					break
+				}
+				if val, err := db.GetEventFlag(flags, f); err == nil && !val {
+					if err := db.SetEventFlag(flags, f, true); err == nil {
+						set++
+					}
+				}
+			}
+		} else if int(desired) < currentSet {
+			toUnset := currentSet - int(desired)
+			sortedDesc := make([]uint32, len(sorted))
+			copy(sortedDesc, sorted)
+			sort.Slice(sortedDesc, func(i, j int) bool { return sortedDesc[i] > sortedDesc[j] })
+			unset := 0
+			for _, f := range sortedDesc {
+				if unset >= toUnset {
+					break
+				}
+				if val, err := db.GetEventFlag(flags, f); err == nil && val {
+					if err := db.SetEventFlag(flags, f, false); err == nil {
+						unset++
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (a *App) ExportCharacterPresetToFile(charIdx int, addSettings vm.PresetAddSettings) (string, error) {
 	if a.save == nil {
 		return "", fmt.Errorf("no save loaded")
 	}
@@ -3116,6 +3117,7 @@ func (a *App) ExportCharacterPresetToFile(charIdx int) (string, error) {
 	}
 
 	preset := vm.VMToPreset(charVM, appVersion)
+	preset.AddSettings = &addSettings
 
 	worldData, err := vm.ExportWorldState(slot)
 	if err == nil {
@@ -3240,6 +3242,10 @@ func (a *App) ApplyCharacterPreset(charIdx int, preset vm.CharacterPreset, opts 
 	if opts.ReplaceStats {
 		tempVM := vm.PresetToVM(&preset)
 
+		// Preserve blessings not stored in preset — do not zero them out.
+		tempVM.ScadutreeBlessing = slot.Player.ScadutreeBlessing
+		tempVM.ShadowRealmBlessing = slot.Player.ShadowRealmBlessing
+
 		if opts.KeepName {
 			tempVM.Name = slotName
 		}
@@ -3262,6 +3268,14 @@ func (a *App) ApplyCharacterPreset(charIdx int, preset vm.CharacterPreset, opts 
 			return nil, fmt.Errorf("failed to apply stats: %w", err)
 		}
 		slot.SyncPlayerToData()
+
+		// When inventory is NOT replaced, apply MemoryStones from preset separately.
+		if !opts.ReplaceInventory && preset.Character.MemoryStones > 0 {
+			if err := a.applyMemoryStonesToSlot(slot, preset.Character.MemoryStones); err != nil {
+				result.Warnings = append(result.Warnings, "memory stones: "+err.Error())
+			}
+		}
+
 		result.StatsApplied = true
 	}
 
