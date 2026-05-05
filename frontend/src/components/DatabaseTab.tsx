@@ -728,9 +728,9 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                     <button
                         onClick={() => openModal(favoritesInView)}
                         disabled={!platform}
-                        className="px-6 py-2 bg-amber-500/90 text-white rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-amber-500/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
+                        className="px-6 py-2 bg-blue-900/80 text-white rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-blue-900/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
-                        <svg className="w-3 h-3 fill-white" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                        <svg className="w-3 h-3 fill-amber-600" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
                         Add Favorites ({favoritesInView.length})
                     </button>
                 )}
@@ -1024,7 +1024,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             {hoverTooltip && (
                 <div className="fixed z-[60] pointer-events-none" style={{left: hoverTooltip.x, top: hoverTooltip.y - 8, transform: 'translate(-50%, -100%)'}}>
                     <div className="bg-card border border-border rounded-lg shadow-xl p-2">
-                        <img src={hoverTooltip.path} alt="" className="w-24 h-24 object-contain drop-shadow-md" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                        <img src={hoverTooltip.path} alt="" className="w-36 h-36 object-contain drop-shadow-md" onError={(e) => (e.currentTarget.style.display = 'none')} />
                     </div>
                 </div>
             )}
