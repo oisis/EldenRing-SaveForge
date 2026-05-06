@@ -7,6 +7,7 @@ import {RiskInfoIcon} from './RiskInfoIcon';
 import {getRunesRiskKey} from '../data/riskInfo';
 import {useSafetyMode} from '../state/safetyMode';
 import type {AddSettings} from '../App';
+import {WarningModal} from './WarningModal';
 
 const RUNES_LEGAL_MAX = 999_999_999;
 
@@ -43,6 +44,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
     const [favSlots, setFavSlots] = useState<main.FavoriteSlotInfo[]>([]);
     const [zoomed, setZoomed] = useState<string | null>(null);
+    const [typeBWarning, setTypeBWarning] = useState<string | null>(null);
     const [presetSearch, setPresetSearch] = useState('');
     const [showMale, setShowMale] = useState(true);
     const [showFemale, setShowFemale] = useState(true);
@@ -134,6 +136,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         // as raw 0x130-byte blobs. Apply to Character still works for in-game presets.
         if (bodyType === 'Type B') {
             toast.error(`Type B (female) presets cannot be written to Mirror — would create bald, male-faced slot. Create the preset in-game instead.`);
+            setTypeBWarning(name);
             return;
         }
         setAddingPreset(name);
@@ -528,6 +531,16 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                         </svg>
                     </button>
                 </div>
+            )}
+            {typeBWarning && (
+                <WarningModal title="Cannot write to Mirror Favorites" onClose={() => setTypeBWarning(null)}>
+                    <p>
+                        <strong>Type B (female)</strong> presets cannot be written to Mirror Favorites.
+                        Writing them would leave Model IDs at zero — resulting in a bald, male-faced slot.
+                    </p>
+                    <p>Preset: <strong>{typeBWarning.split(',')[0].trim()}</strong></p>
+                    <p>Use <strong>Apply to Character</strong> instead, or create the preset directly in-game.</p>
+                </WarningModal>
             )}
         </div>
     );
