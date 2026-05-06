@@ -72,7 +72,13 @@ func writePresetAppearance(slot *core.SaveSlot, fd int, preset *data.AppearanceP
 		writePartsID(core.FDOffEyelashModel, f.EyelashModel)
 	}
 
+	// Zero trailing sex-flag bytes — game resets these on apply; leaving them
+	// at non-zero causes Type A body even when Gender is set to female.
+	slot.Data[fd+0x125] = 0
+	slot.Data[fd+0x126] = 0
+
 	slot.Player.Gender = preset.BodyType
+	slot.Player.VoiceType = preset.VoiceType
 }
 
 // findPresetByName returns a pointer to the named preset or nil if not found.

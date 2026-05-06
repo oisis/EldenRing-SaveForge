@@ -459,7 +459,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                                     onClick={() => handleApplyPreset(p.name)}
                                                     disabled={!canApply || isApplying}
                                                     title="Apply appearance to current character"
-                                                    className="px-2 py-0.5 border border-green-500/40 text-green-400 rounded text-[9px] font-black uppercase tracking-wider hover:bg-green-500/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
+                                                    className="px-2 py-0.5 border border-blue-700/50 text-blue-700 rounded text-[9px] font-black uppercase tracking-wider hover:bg-blue-700/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
                                                     {isApplying ? '…' : 'Apply'}
                                                 </button>
                                                 <button
