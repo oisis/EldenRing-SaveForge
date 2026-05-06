@@ -41,7 +41,8 @@ type slotSnapshot struct {
 	FaceDataOffset    int
 	StorageBoxOffset  int
 	IngameTimerOffset int
-	GaItemDataOffset  int
+	GaItemDataOffset      int
+	TutorialDataOffset    int
 	// GaItem tracked indices
 	NextAoWIndex      int
 	NextArmamentIndex int
@@ -2160,8 +2161,9 @@ func (a *App) pushUndo(idx int) {
 		FaceDataOffset:    slot.FaceDataOffset,
 		StorageBoxOffset:  slot.StorageBoxOffset,
 		IngameTimerOffset: slot.IngameTimerOffset,
-		GaItemDataOffset:  slot.GaItemDataOffset,
-		NextAoWIndex:      slot.NextAoWIndex,
+		GaItemDataOffset:   slot.GaItemDataOffset,
+		TutorialDataOffset: slot.TutorialDataOffset,
+		NextAoWIndex:       slot.NextAoWIndex,
 		NextArmamentIndex: slot.NextArmamentIndex,
 		NextGaItemHandle:  slot.NextGaItemHandle,
 		PartGaItemHandle:  slot.PartGaItemHandle,
@@ -2207,6 +2209,7 @@ func (a *App) RevertSlot(idx int) error {
 	slot.StorageBoxOffset = snap.StorageBoxOffset
 	slot.IngameTimerOffset = snap.IngameTimerOffset
 	slot.GaItemDataOffset = snap.GaItemDataOffset
+	slot.TutorialDataOffset = snap.TutorialDataOffset
 	slot.NextAoWIndex = snap.NextAoWIndex
 	slot.NextArmamentIndex = snap.NextArmamentIndex
 	slot.NextGaItemHandle = snap.NextGaItemHandle
