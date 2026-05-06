@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
 import toast from '../lib/toast';
-import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset} from '../../wailsjs/go/main/App';
+import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses} from '../../wailsjs/go/main/App';
 import {vm, main, db} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
@@ -35,16 +35,20 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const safetyMode = useSafetyMode();
     const [char, setChar] = useState<vm.CharacterViewModel | null>(null);
     const [loading, setLoading] = useState(false);
+    const [startingClasses, setStartingClasses] = useState<db.ClassStats[]>([]);
 
     // Appearance state
     const [presets, setPresets] = useState<main.PresetInfo[]>([]);
-    const [checked, setChecked] = useState<Set<string>>(new Set());
-    const [writingFav, setWritingFav] = useState(false);
+    const [addingPreset, setAddingPreset] = useState<string | null>(null);
     const [favSlots, setFavSlots] = useState<main.FavoriteSlotInfo[]>([]);
     const [zoomed, setZoomed] = useState<string | null>(null);
+    const [presetSearch, setPresetSearch] = useState('');
+    const [showMale, setShowMale] = useState(true);
+    const [showFemale, setShowFemale] = useState(true);
 
     useEffect(() => {
         ListAppearancePresets().then(setPresets).catch(e => toast.error("" + e));
+        GetStartingClasses().then(setStartingClasses).catch(e => toast.error("" + e));
         refreshFavStatus();
     }, []);
 
@@ -62,6 +66,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const freeSlots = favSlots.filter(s => s.safe && !s.active).length;
     const usedSafeSlots = favSlots.filter(s => s.safe && s.active);
 
+
     const getStatMin = (statId: string): number => {
         return char?.classBaseStats?.[statId] || 1;
     };
@@ -77,6 +82,28 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         setChar(vm.CharacterViewModel.createFrom(updatedData));
     };
 
+    const handleClassChange = (classId: number) => {
+        if (!char) return;
+        const nc = startingClasses.find(c => c.id === classId);
+        if (!nc) return;
+        const vigor        = Math.max(char.vigor,        nc.vigor);
+        const mind         = Math.max(char.mind,         nc.mind);
+        const endurance    = Math.max(char.endurance,    nc.endurance);
+        const strength     = Math.max(char.strength,     nc.strength);
+        const dexterity    = Math.max(char.dexterity,    nc.dexterity);
+        const intelligence = Math.max(char.intelligence, nc.intelligence);
+        const faith        = Math.max(char.faith,        nc.faith);
+        const arcane       = Math.max(char.arcane,       nc.arcane);
+        const level = Math.max(1, vigor + mind + endurance + strength + dexterity + intelligence + faith + arcane - 79);
+        setChar(vm.CharacterViewModel.createFrom({
+            ...char,
+            class: classId,
+            className: nc.name,
+            classBaseStats: { vigor: nc.vigor, mind: nc.mind, endurance: nc.endurance, strength: nc.strength, dexterity: nc.dexterity, intelligence: nc.intelligence, faith: nc.faith, arcane: nc.arcane },
+            vigor, mind, endurance, strength, dexterity, intelligence, faith, arcane, level,
+        }));
+    };
+
     const handleSave = () => {
         if (char) {
             SaveCharacter(charIndex, char)
@@ -86,33 +113,22 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     };
 
     // Appearance handlers
-    const toggleCheck = (name: string) => {
-        setChecked(prev => {
-            const next = new Set(prev);
-            next.has(name) ? next.delete(name) : next.add(name);
-            return next;
-        });
-    };
-
-    const handleWriteFavorites = async () => {
-        if (checked.size === 0 || checked.size > freeSlots) return;
+    const handleAddPreset = async (name: string, bodyType: string) => {
+        if (freeSlots === 0 || addingPreset !== null) return;
         // Type B presets currently corrupt Mirror slots (Model IDs left at zero by
         // WriteSelectedToFavorites — see spec/31). Block until presets.go is re-sourced
         // as raw 0x130-byte blobs. Apply to Character still works for in-game presets.
-        const typeB = Array.from(checked).filter(n =>
-            presets.find(p => p.name === n)?.bodyType === 'Type B');
-        if (typeB.length > 0) {
+        if (bodyType === 'Type B') {
             toast.error(`Type B (female) presets cannot be written to Mirror — would create bald, male-faced slot. Create the preset in-game instead.`);
             return;
         }
-        setWritingFav(true);
+        setAddingPreset(name);
         try {
-            const count = await WriteSelectedToFavorites(charIndex, Array.from(checked));
-            toast.success(`Wrote ${count} presets to Mirror Favorites`);
-            setChecked(new Set());
+            await WriteSelectedToFavorites(charIndex, [name]);
+            toast.success(`Added "${name.split(',')[0].trim()}" to Mirror Favorites`);
             refreshFavStatus();
         } catch (e) { toast.error("" + e); }
-        finally { setWritingFav(false); }
+        finally { setAddingPreset(null); }
     };
 
     const handleRemoveFav = async (slotIndex: number) => {
@@ -135,7 +151,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const profileSummary = char
         ? <span className="flex items-center gap-2 text-center">
             <span className="text-xs font-black text-primary">{char.name}</span>
-            <span className="text-[9px] text-muted-foreground font-medium">RL {char.level} | NG+{char.clearCount || 0} | {(char.souls || 0).toLocaleString()} Runes</span>
+            <span className="text-[11px] text-muted-foreground font-medium">RL {char.level} | NG+{char.clearCount || 0} | {(char.souls || 0).toLocaleString()} Runes</span>
           </span>
         : undefined;
 
@@ -165,7 +181,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 summary={profileSummary}
                 headerRight={
                     <div className="flex items-center gap-1.5">
-                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.2em]">RL</span>
+                        <span className="text-[11px] font-black text-muted-foreground uppercase tracking-[0.2em]">RL</span>
                         <span className="text-lg font-black tracking-tighter text-primary leading-none">{char.level}</span>
                     </div>
                 }
@@ -173,19 +189,23 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Starting Class</label>
-                            <div className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-black text-primary">
-                                {char.className || 'Unknown'}
-                            </div>
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Character Name</label>
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Character Name</label>
                             <input type="text" value={char.name} maxLength={16}
                                 onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, name: e.target.value}))}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1 flex items-center gap-1.5">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Starting Class</label>
+                            <select value={char.class ?? 0}
+                                onChange={e => handleClassChange(parseInt(e.target.value))}
+                                className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-black text-primary focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer h-[34px]">
+                                {startingClasses.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1 flex items-center gap-1.5">
                                 <span>Runes</span>
                                 {getRunesRiskKey(char.souls) && <RiskInfoIcon riskKey={getRunesRiskKey(char.souls)!} />}
                             </label>
@@ -206,7 +226,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                 } />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
                                 Talisman Slots <span className="text-primary font-mono">{1 + (char.talismanSlots || 0)}/4</span>
                             </label>
                             <input type="number" min={0} max={3} value={char.talismanSlots || 0}
@@ -217,7 +237,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
                                 Memory Stones <span className="text-primary font-mono">{char.memoryStones || 0}/8</span>
                             </label>
                             <input type="number" min={0} max={8} value={char.memoryStones || 0}
@@ -231,30 +251,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Equipped Great Rune</label>
-                            <select value={char.equippedGreatRune || 0}
-                                onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, equippedGreatRune: parseInt(e.target.value)}))}
-                                className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer h-[34px]">
-                                <option value={0}>None</option>
-                                <option value={0x40000053}>Godrick's Great Rune</option>
-                                <option value={0x40000054}>Radahn's Great Rune</option>
-                                <option value={0x40000055}>Morgott's Great Rune</option>
-                                <option value={0x40000056}>Rykard's Great Rune</option>
-                                <option value={0x40000057}>Malenia's Great Rune</option>
-                                <option value={0x40000058}>Mohg's Great Rune</option>
-                            </select>
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Great Rune Buff</label>
-                            <label className="flex items-center space-x-2 bg-muted/20 border border-border rounded-md px-3 py-2 cursor-pointer hover:border-primary/30 transition-all">
-                                <input type="checkbox" checked={char.greatRuneOn || false}
-                                    onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, greatRuneOn: e.target.checked}))}
-                                    className="accent-primary" />
-                                <span className="text-xs">{char.greatRuneOn ? 'Active' : 'Inactive'}</span>
-                            </label>
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
                                 NG+ Cycle <span className="text-primary font-mono">{char.clearCount || 0}/7</span>
                             </label>
                             <input type="number" min={0} max={7} value={char.clearCount || 0}
@@ -316,26 +313,26 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                     return (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-5 py-2">
                             <div className="flex items-center space-x-3">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +25</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +25</span>
                                 <input type="range" min={0} max={25} value={addSettings.upgrade25} onChange={e => set({upgrade25: parseInt(e.target.value)})}
                                     className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
                                 <span className="text-[10px] font-mono font-bold text-primary w-6 text-right">+{addSettings.upgrade25}</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +10</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +10</span>
                                 <input type="range" min={0} max={10} value={addSettings.upgrade10} onChange={e => set({upgrade10: parseInt(e.target.value)})}
                                     className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
                                 <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{addSettings.upgrade10}</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Infuse</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Infuse</span>
                                 <select value={addSettings.infuseOffset} onChange={e => set({infuseOffset: parseInt(e.target.value)})}
                                     className="flex-1 bg-muted/20 border border-border rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer">
                                     {infuseTypes.map(t => <option key={t.offset} value={t.offset}>{t.name}</option>)}
                                 </select>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Spirit Ash</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Spirit Ash</span>
                                 <input type="range" min={0} max={10} value={addSettings.upgradeAsh} onChange={e => set({upgradeAsh: parseInt(e.target.value)})}
                                     className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
                                 <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{addSettings.upgradeAsh}</span>
@@ -344,12 +341,12 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                 <label title="When enabled, only the highest-tier variant of each talisman family is shown — lower upgrade levels are hidden." className="flex items-center gap-2 cursor-pointer">
                                     <input type="checkbox" checked={addSettings.talismansHighestOnly} onChange={e => set({talismansHighestOnly: e.target.checked})}
                                         className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Talismans: highest only</span>
+                                    <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Talismans: highest only</span>
                                 </label>
                                 <label title="When enabled, 'Unlock All' Sites of Grace in World tab will also include Leyndell, Ashen Capital graces. Disable if you haven't triggered the capital's transformation yet." className="flex items-center gap-2 cursor-pointer">
                                     <input type="checkbox" checked={addSettings.includeAshenCapital} onChange={e => set({includeAshenCapital: e.target.checked})}
                                         className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">SoG: Leyndell, Ashen Capital</span>
+                                    <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">SoG: Leyndell, Ashen Capital</span>
                                 </label>
                             </div>
                         </div>
@@ -362,39 +359,41 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 id="char-presets"
                 title="Appearance Presets"
                 badge={`${presets.length} presets`}
-                actions={
-                    checked.size > 0 ? (
-                        <div className="flex items-center gap-2">
-                            <span className="text-[8px] font-bold text-amber-500 uppercase tracking-wider">{checked.size} selected</span>
-                            <button onClick={handleWriteFavorites} disabled={writingFav || checked.size > freeSlots}
-                                className="px-2 py-0.5 border border-primary/30 text-primary rounded text-[8px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-50">
-                                Add to Mirror ({freeSlots} free)
-                            </button>
-                        </div>
-                    ) : undefined
-                }
             >
                 <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="text"
+                            placeholder="Search…"
+                            value={presetSearch}
+                            onChange={e => setPresetSearch(e.target.value)}
+                            className="flex-1 bg-muted/20 border border-border rounded-md px-3 py-1.5 text-xs focus:ring-1 focus:ring-primary/30 outline-none transition-all"
+                        />
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input type="checkbox" checked={showMale} onChange={e => setShowMale(e.target.checked)} className="accent-primary" />
+                            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Male</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input type="checkbox" checked={showFemale} onChange={e => setShowFemale(e.target.checked)} className="accent-primary" />
+                            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Female</span>
+                        </label>
+                    </div>
+
                     <p className="text-[10px] text-muted-foreground">
-                        Click image to preview. Checkbox to select. Add to Mirror to make presets available in-game. Apply ✓ on a Mirror slot to copy preset onto current character.
+                        Click image to preview. Checkbox to select. Apply ✓ on a Mirror slot to copy preset onto current character.
                     </p>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                        {presets.map(p => {
-                            const isChecked = checked.has(p.name);
+                        {presets.filter(p => {
+                            if (p.bodyType === 'Type A' && !showMale) return false;
+                            if (p.bodyType === 'Type B' && !showFemale) return false;
+                            if (presetSearch && !p.name.toLowerCase().includes(presetSearch.toLowerCase())) return false;
+                            return true;
+                        }).map(p => {
+                            const isAdding = addingPreset === p.name;
+                            const canAdd = freeSlots > 0 && addingPreset === null;
                             return (
-                                <div key={p.name} className={`group relative rounded-lg border overflow-hidden transition-all
-                                    ${isChecked ? 'border-primary ring-1 ring-primary shadow-lg shadow-primary/10' : 'border-border hover:border-primary/30'}`}>
-                                    <div className="absolute top-2 left-2 z-10 cursor-pointer" onClick={() => toggleCheck(p.name)}>
-                                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all
-                                            ${isChecked ? 'bg-primary border-primary' : 'border-white/50 bg-black/40 hover:border-white/80'}`}>
-                                            {isChecked && (
-                                                <svg className="w-3 h-3 text-primary-foreground" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                </svg>
-                                            )}
-                                        </div>
-                                    </div>
+                                <div key={p.name} className="group relative rounded-lg border border-border hover:border-primary/30 overflow-hidden transition-all">
                                     <div className="relative aspect-[3/4] bg-muted/30 overflow-hidden cursor-pointer"
                                          onClick={() => setZoomed(p.image ? `presets/${p.image}` : null)}>
                                         {p.image ? (
@@ -409,9 +408,18 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                         )}
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                                     </div>
-                                    <div className={`p-2.5 text-center transition-colors ${isChecked ? 'bg-primary/5' : 'bg-background'}`}>
-                                        <div className={`text-[10px] font-black uppercase tracking-wider leading-tight ${isChecked ? 'text-primary' : 'text-foreground'}`}>{p.name}</div>
-                                        <div className="text-[8px] text-muted-foreground font-medium uppercase tracking-widest mt-0.5">{p.bodyType}</div>
+                                    <div className="p-2 bg-background">
+                                        <div className="text-[10px] font-black uppercase tracking-wider leading-tight text-foreground truncate">{p.name}</div>
+                                        <div className="flex items-center justify-between mt-1 gap-1">
+                                            <span className="text-[9px] text-muted-foreground font-medium uppercase tracking-widest">{p.bodyType}</span>
+                                            <button
+                                                onClick={() => handleAddPreset(p.name, p.bodyType)}
+                                                disabled={!canAdd || isAdding}
+                                                title={freeSlots === 0 ? 'No free Mirror slots' : 'Add to Mirror Favorites'}
+                                                className="px-2 py-0.5 border border-primary/40 text-primary rounded text-[9px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
+                                                {isAdding ? '…' : 'Add'}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -421,11 +429,14 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                     {/* Mirror Favorites */}
                     {usedSafeSlots.length > 0 && (
                         <div className="pt-3 border-t border-border/50">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">Mirror Favorites ({usedSafeSlots.length} used)</p>
+                            <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground mb-2">Mirror Favorites ({usedSafeSlots.length} used · {freeSlots} free)</p>
                             <div className="flex flex-wrap gap-2">
                                 {usedSafeSlots.map(s => (
                                     <div key={s.index} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-1.5">
-                                        <span className="text-[10px] font-bold uppercase tracking-wider">Slot {s.index + 1}</span>
+                                        <div className="flex flex-col leading-tight min-w-[40px]">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider">{s.name ? s.name.split(',')[0].trim() : 'N/A'}</span>
+                                            <span className="text-[9px] text-muted-foreground">Slot {s.index + 1}</span>
+                                        </div>
                                         <button onClick={() => handleApplyFromMirror(s.index)}
                                             className="text-primary hover:text-primary/80 transition-colors" title="Apply this preset to character">
                                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -448,7 +459,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
             {/* ═══ APPLY CHANGES ═══ */}
             <div className="flex justify-end items-center space-x-4 pt-4 pb-2 border-t border-border/30">
-                <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest italic opacity-50">Staged in memory</p>
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest italic opacity-50">Staged in memory</p>
                 <button onClick={handleSave}
                     className="bg-primary text-primary-foreground hover:brightness-110 active:scale-95 transition-all font-black px-6 py-2 rounded-md text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20">
                     Apply Changes

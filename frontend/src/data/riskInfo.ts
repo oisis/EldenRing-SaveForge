@@ -276,13 +276,13 @@ export const RISK_INFO: Record<RiskKey, RiskEntry> = {
     bulk_region_unlock: {
         tier: 1,
         level: 'low',
-        title: 'Bulk Invasion Region Unlock',
+        title: 'Invasion Region Unlock',
         whyBan:
-            'Unlocked invasion regions affect online matchmaking pools and phantom slot availability. Mass unlocking the entire region list creates a state most players reach only after very long playtime.',
+            'Invasion regions control PvP matchmaking eligibility per map area. The list includes areas that cannot be invaded in normal play — most notably Roundtable Hold — so unlocking them creates a save state inconsistent with any legitimate playthrough.',
         reports:
-            'Very few reports.',
+            'Very few ban reports tied specifically to region flags. Risk is low in practice but the Roundtable Hold entry is an anomalous game state.',
         mitigation:
-            'Low risk for solo play. If you actively play online invasions, prefer naturally discovered regions.',
+            'Unlock only regions you have actually visited. Avoid enabling areas flagged as non-invadeable in-game (Roundtable Hold, Stranded Graveyard). For online play, prefer the natural state.',
         sources: [],
     },
     bulk_summoning_pool: {

@@ -59,11 +59,12 @@ type App struct {
 	deployStore  *deploy.TargetStore
 	deploySSH    *deploy.SSHManager
 	deployLocal  *deploy.LocalManager
+	favSlotNames map[int]string // preset name written to each Favorites slot; empty = loaded from save (unknown)
 }
 
 // NewApp creates a new App struct
 func NewApp() *App {
-	return &App{}
+	return &App{favSlotNames: make(map[int]string)}
 }
 
 // startup is called when the app starts. The context is saved
@@ -115,6 +116,7 @@ func (a *App) SelectAndOpenSave() (string, error) {
 	}
 	a.save = save
 	a.lastSavePath = path
+	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	return string(save.Platform), nil
 }
@@ -674,6 +676,10 @@ func resolveQty(qty, max int) int {
 // GetInfuseTypes returns all weapon infusion types with their ID offsets
 func (a *App) GetInfuseTypes() []db.InfuseType {
 	return db.GetInfuseTypes()
+}
+
+func (a *App) GetStartingClasses() []db.ClassStats {
+	return db.GetAllClassStats()
 }
 
 // GetAllGraces returns all Sites of Grace (no visited state)
@@ -2631,6 +2637,7 @@ func (a *App) DownloadRemoteSave(targetName string) (string, error) {
 	}
 	a.save = save
 	a.lastSavePath = ""
+	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	return string(save.Platform), nil
 }
@@ -2782,6 +2789,7 @@ func (a *App) GetFavoritesStatus() []FavoriteSlotInfo {
 			Index:  i,
 			Active: active,
 			Safe:   safeSet[i],
+			Name:   a.favSlotNames[i],
 		}
 	}
 	return result
@@ -2806,6 +2814,7 @@ func (a *App) RemoveFavoritePreset(slotIndex int) error {
 	for i := 0; i < core.FavSlotSize; i++ {
 		ud[off+i] = 0
 	}
+	delete(a.favSlotNames, slotIndex)
 	return nil
 }
 
@@ -2986,6 +2995,7 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 		copy(buf[core.FavOffSkin:], preset.Skin[:])
 
 		copy(ud[slotOff:], buf)
+		a.favSlotNames[safeIdx] = name
 		written++
 	}
 

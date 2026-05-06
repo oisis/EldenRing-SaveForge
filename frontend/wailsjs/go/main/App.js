@@ -182,6 +182,10 @@ export function GetSourceActiveSlots() {
   return window['go']['main']['App']['GetSourceActiveSlots']();
 }
 
+export function GetStartingClasses() {
+  return window['go']['main']['App']['GetStartingClasses']();
+}
+
 export function GetSteamID() {
   return window['go']['main']['App']['GetSteamID']();
 }
