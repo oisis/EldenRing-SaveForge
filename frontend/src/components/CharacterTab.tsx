@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
 import toast from '../lib/toast';
-import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses, SetCharacterGender} from '../../wailsjs/go/main/App';
+import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses, SetCharacterGender, ApplyPresetToCharacter} from '../../wailsjs/go/main/App';
 import {vm, main, db} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
@@ -40,6 +40,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     // Appearance state
     const [presets, setPresets] = useState<main.PresetInfo[]>([]);
     const [addingPreset, setAddingPreset] = useState<string | null>(null);
+    const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
     const [favSlots, setFavSlots] = useState<main.FavoriteSlotInfo[]>([]);
     const [zoomed, setZoomed] = useState<string | null>(null);
     const [presetSearch, setPresetSearch] = useState('');
@@ -142,6 +143,19 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
             refreshFavStatus();
         } catch (e) { toast.error("" + e); }
         finally { setAddingPreset(null); }
+    };
+
+    const handleApplyPreset = async (name: string) => {
+        if (applyingPreset !== null) return;
+        setApplyingPreset(name);
+        try {
+            await ApplyPresetToCharacter(charIndex, name);
+            const updated = await GetCharacter(charIndex);
+            setChar(updated);
+            toast.success(`Applied "${name.split(',')[0].trim()}" to character`);
+            onMutate();
+        } catch (e) { toast.error('Apply failed: ' + e); }
+        finally { setApplyingPreset(null); }
     };
 
     const handleRemoveFav = async (slotIndex: number) => {
@@ -414,7 +428,9 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             return true;
                         }).map(p => {
                             const isAdding = addingPreset === p.name;
+                            const isApplying = applyingPreset === p.name;
                             const canAdd = freeSlots > 0 && addingPreset === null;
+                            const canApply = applyingPreset === null;
                             return (
                                 <div key={p.name} className="group relative rounded-lg border border-border hover:border-primary/30 overflow-hidden transition-all">
                                     <div className="relative aspect-[3/4] bg-muted/30 overflow-hidden cursor-pointer"
@@ -435,13 +451,22 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                         <div className="text-[10px] font-black uppercase tracking-wider leading-tight text-foreground truncate">{p.name}</div>
                                         <div className="flex items-center justify-between mt-1 gap-1">
                                             <span className="text-[9px] text-muted-foreground font-medium uppercase tracking-widest">{p.bodyType}</span>
-                                            <button
-                                                onClick={() => handleAddPreset(p.name, p.bodyType)}
-                                                disabled={!canAdd || isAdding}
-                                                title={freeSlots === 0 ? 'No free Mirror slots' : 'Add to Mirror Favorites'}
-                                                className="px-2 py-0.5 border border-primary/40 text-primary rounded text-[9px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
-                                                {isAdding ? '…' : 'Add'}
-                                            </button>
+                                            <div className="flex gap-1">
+                                                <button
+                                                    onClick={() => handleApplyPreset(p.name)}
+                                                    disabled={!canApply || isApplying}
+                                                    title="Apply appearance to current character"
+                                                    className="px-2 py-0.5 border border-green-500/40 text-green-400 rounded text-[9px] font-black uppercase tracking-wider hover:bg-green-500/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
+                                                    {isApplying ? '…' : 'Apply'}
+                                                </button>
+                                                <button
+                                                    onClick={() => handleAddPreset(p.name, p.bodyType)}
+                                                    disabled={!canAdd || isAdding}
+                                                    title={freeSlots === 0 ? 'No free Mirror slots' : 'Add to Mirror Favorites'}
+                                                    className="px-2 py-0.5 border border-primary/40 text-primary rounded text-[9px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
+                                                    {isAdding ? '…' : 'Add'}
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
