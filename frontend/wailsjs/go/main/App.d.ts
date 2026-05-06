@@ -150,6 +150,8 @@ export function SetBellBearingUnlocked(arg1:number,arg2:number,arg3:boolean):Pro
 
 export function SetBossDefeated(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
+export function SetCharacterGender(arg1:number,arg2:number):Promise<void>;
+
 export function SetColosseumUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
 export function SetCookbookUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
