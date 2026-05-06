@@ -262,6 +262,38 @@ export namespace db {
 	        this.defeated = source["defeated"];
 	    }
 	}
+	export class ClassStats {
+	    id: number;
+	    name: string;
+	    level: number;
+	    vigor: number;
+	    mind: number;
+	    endurance: number;
+	    strength: number;
+	    dexterity: number;
+	    intelligence: number;
+	    faith: number;
+	    arcane: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ClassStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.level = source["level"];
+	        this.vigor = source["vigor"];
+	        this.mind = source["mind"];
+	        this.endurance = source["endurance"];
+	        this.strength = source["strength"];
+	        this.dexterity = source["dexterity"];
+	        this.intelligence = source["intelligence"];
+	        this.faith = source["faith"];
+	        this.arcane = source["arcane"];
+	    }
+	}
 	export class ColosseumEntry {
 	    id: number;
 	    name: string;

@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
 import toast from '../lib/toast';
-import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset} from '../../wailsjs/go/main/App';
+import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses} from '../../wailsjs/go/main/App';
 import {vm, main, db} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
@@ -20,19 +20,6 @@ interface Props {
     infuseTypes: db.InfuseType[];
 }
 
-const STARTING_CLASSES = [
-    { id: 0, name: 'Vagabond',   vigor: 15, mind: 10, endurance: 11, strength: 14, dexterity: 13, intelligence:  9, faith:  9, arcane:  7 },
-    { id: 1, name: 'Warrior',    vigor: 11, mind: 12, endurance: 11, strength: 10, dexterity: 16, intelligence: 10, faith:  8, arcane:  9 },
-    { id: 2, name: 'Hero',       vigor: 14, mind:  9, endurance: 12, strength: 16, dexterity:  9, intelligence:  7, faith:  8, arcane: 11 },
-    { id: 3, name: 'Bandit',     vigor: 10, mind: 11, endurance: 10, strength:  9, dexterity: 13, intelligence:  9, faith:  8, arcane: 14 },
-    { id: 4, name: 'Astrologer', vigor:  9, mind: 15, endurance:  9, strength:  8, dexterity: 12, intelligence: 16, faith:  7, arcane:  9 },
-    { id: 5, name: 'Prophet',    vigor: 10, mind: 14, endurance:  8, strength: 11, dexterity: 10, intelligence:  7, faith: 16, arcane: 10 },
-    { id: 6, name: 'Samurai',    vigor: 12, mind: 11, endurance: 13, strength: 12, dexterity: 15, intelligence:  9, faith:  8, arcane:  8 },
-    { id: 7, name: 'Prisoner',   vigor: 11, mind: 12, endurance: 11, strength: 11, dexterity: 14, intelligence: 14, faith:  6, arcane:  9 },
-    { id: 8, name: 'Confessor',  vigor: 10, mind: 13, endurance: 10, strength: 12, dexterity: 12, intelligence:  9, faith: 14, arcane:  9 },
-    { id: 9, name: 'Wretch',     vigor: 10, mind: 10, endurance: 10, strength: 10, dexterity: 10, intelligence: 10, faith: 10, arcane: 10 },
-] as const;
-
 const ATTRIBUTES = [
     { id: 'vigor', label: 'Vigor', abbr: 'Vig' },
     { id: 'mind', label: 'Mind', abbr: 'Min' },
@@ -48,6 +35,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const safetyMode = useSafetyMode();
     const [char, setChar] = useState<vm.CharacterViewModel | null>(null);
     const [loading, setLoading] = useState(false);
+    const [startingClasses, setStartingClasses] = useState<db.ClassStats[]>([]);
 
     // Appearance state
     const [presets, setPresets] = useState<main.PresetInfo[]>([]);
@@ -58,6 +46,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
     useEffect(() => {
         ListAppearancePresets().then(setPresets).catch(e => toast.error("" + e));
+        GetStartingClasses().then(setStartingClasses).catch(e => toast.error("" + e));
         refreshFavStatus();
     }, []);
 
@@ -92,7 +81,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
     const handleClassChange = (classId: number) => {
         if (!char) return;
-        const nc = STARTING_CLASSES.find(c => c.id === classId);
+        const nc = startingClasses.find(c => c.id === classId);
         if (!nc) return;
         const vigor        = Math.max(char.vigor,        nc.vigor);
         const mind         = Math.max(char.mind,         nc.mind);
@@ -218,7 +207,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             <select value={char.class ?? 0}
                                 onChange={e => handleClassChange(parseInt(e.target.value))}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-black text-primary focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer h-[34px]">
-                                {STARTING_CLASSES.map(c => (
+                                {startingClasses.map(c => (
                                     <option key={c.id} value={c.id}>{c.name}</option>
                                 ))}
                             </select>

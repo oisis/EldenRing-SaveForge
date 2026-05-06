@@ -676,6 +676,10 @@ func (a *App) GetInfuseTypes() []db.InfuseType {
 	return db.GetInfuseTypes()
 }
 
+func (a *App) GetStartingClasses() []db.ClassStats {
+	return db.GetAllClassStats()
+}
+
 // GetAllGraces returns all Sites of Grace (no visited state)
 func (a *App) GetAllGraces() []db.GraceEntry {
 	return db.GetAllGraces()

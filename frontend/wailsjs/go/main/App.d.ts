@@ -96,6 +96,8 @@ export function GetSlotDiff(arg1:number):Promise<Array<main.DiffEntry>>;
 
 export function GetSourceActiveSlots():Promise<Array<boolean>>;
 
+export function GetStartingClasses():Promise<Array<db.ClassStats>>;
+
 export function GetSteamID():Promise<number>;
 
 export function GetSteamIDString():Promise<string>;
