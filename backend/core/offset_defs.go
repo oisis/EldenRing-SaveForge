@@ -83,10 +83,10 @@ const (
 const (
 	DynPlayerData           = 0x1B0
 	DynSpEffect             = 0xD0
-	DynEquipedItemIndex     = 0x58
+	DynEquipedItemIndex     = 0x58 // these three share the same offset value by coincidence of the save layout
 	DynActiveEquipedItems   = 0x1C
-	DynEquipedItemsID       = 0x58
-	DynActiveEquipedItemsGa = 0x58
+	DynEquipedItemsID       = 0x58 // same value as DynEquipedItemIndex — different struct contexts
+	DynActiveEquipedItemsGa = 0x58 // same value — GaItem variant of the same offset
 	DynInventoryHeld        = 0x9011
 	DynEquipedSpells        = 0x74
 	DynEquipedItems         = 0x8C
@@ -132,7 +132,18 @@ const (
 )
 
 // FavHeaderUnk is the constant u32 at preset header offset 0x04 (observed in all active presets).
-const FavHeaderUnk = 0x11D0
+// FavHeaderMagicU16 is the u16 written at offset 0x00 of the Favorites slot header.
+const (
+	FavHeaderUnk      = 0x11D0
+	FavHeaderMagicU16 = 0xFACE
+)
+
+// Fog of War bitfield offsets relative to afterRegs.
+// See spec/27-map-reveal.md §4.
+const (
+	FoWBlobStart = 0x087E
+	FoWBlobEnd   = 0x10B0
+)
 
 // FaceData blob layout constants.
 // FaceData is a 303-byte (0x12F) block stored at FaceDataOffset-FaceDataBlobSize.
