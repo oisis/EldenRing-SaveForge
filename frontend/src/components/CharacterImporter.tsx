@@ -43,7 +43,10 @@ export function CharacterImporter({destSlot, onComplete}: Props) {
 
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="card p-10 text-center max-w-2xl mx-auto relative overflow-hidden group">
+            <div className="px-4 py-3 rounded-md border border-yellow-500/40 bg-yellow-500/10 text-yellow-400 text-xs font-semibold text-center max-w-2xl mx-auto">
+                This feature is temporarily disabled and will be available in a future update.
+            </div>
+            <div className="card p-10 text-center max-w-2xl mx-auto relative overflow-hidden group opacity-50 pointer-events-none">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 group-hover:bg-primary/10 transition-all duration-1000" />
                 
                 <div className="relative space-y-6">

@@ -66,14 +66,6 @@ export function DeploySave(arg1) {
   return window['go']['main']['App']['DeploySave'](arg1);
 }
 
-export function DiagnoseAllSlots() {
-  return window['go']['main']['App']['DiagnoseAllSlots']();
-}
-
-export function DiagnoseSlot(arg1) {
-  return window['go']['main']['App']['DiagnoseSlot'](arg1);
-}
-
 export function DownloadRemoteSave(arg1) {
   return window['go']['main']['App']['DownloadRemoteSave'](arg1);
 }
@@ -84,10 +76,6 @@ export function ExportCharacterPresetToFile(arg1, arg2) {
 
 export function GetActiveSlots() {
   return window['go']['main']['App']['GetActiveSlots']();
-}
-
-export function GetAllGraces() {
-  return window['go']['main']['App']['GetAllGraces']();
 }
 
 export function GetAshOfWarFlags(arg1) {
@@ -190,10 +178,6 @@ export function GetStartingClasses() {
   return window['go']['main']['App']['GetStartingClasses']();
 }
 
-export function GetSteamID() {
-  return window['go']['main']['App']['GetSteamID']();
-}
-
 export function GetSteamIDString() {
   return window['go']['main']['App']['GetSteamIDString']();
 }
@@ -244,10 +228,6 @@ export function RemoveFogOfWar(arg1) {
 
 export function RemoveItemsFromCharacter(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RemoveItemsFromCharacter'](arg1, arg2, arg3, arg4);
-}
-
-export function RepairInventoryGaItems(arg1) {
-  return window['go']['main']['App']['RepairInventoryGaItems'](arg1);
 }
 
 export function ResetMapExploration(arg1) {
@@ -336,10 +316,6 @@ export function SetRegionUnlocked(arg1, arg2, arg3) {
 
 export function SetSlotActivity(arg1, arg2) {
   return window['go']['main']['App']['SetSlotActivity'](arg1, arg2);
-}
-
-export function SetSteamID(arg1) {
-  return window['go']['main']['App']['SetSteamID'](arg1);
 }
 
 export function SetSteamIDFromString(arg1) {

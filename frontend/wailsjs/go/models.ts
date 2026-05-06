@@ -1,21 +1,5 @@
 export namespace core {
 	
-	export class DiagnosticIssue {
-	    severity: string;
-	    category: string;
-	    description: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new DiagnosticIssue(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.severity = source["severity"];
-	        this.category = source["category"];
-	        this.description = source["description"];
-	    }
-	}
 	export class NetworkParamValues {
 	    maxBreakInTargetListCount: number;
 	    breakInRequestIntervalTimeSec: number;
@@ -65,38 +49,6 @@ export namespace core {
 	        this.visitorTimeOutTime = source["visitorTimeOutTime"];
 	        this.visitorDownloadSpan = source["visitorDownloadSpan"];
 	    }
-	}
-	export class SlotDiagnostics {
-	    slotIndex: number;
-	    issues: DiagnosticIssue[];
-	
-	    static createFrom(source: any = {}) {
-	        return new SlotDiagnostics(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.slotIndex = source["slotIndex"];
-	        this.issues = this.convertValues(source["issues"], DiagnosticIssue);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 
 }

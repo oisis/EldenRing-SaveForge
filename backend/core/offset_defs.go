@@ -131,13 +131,6 @@ const (
 	FavOffSkin      = 0xCB // 91 bytes: skin & cosmetics (same length as slot's FaceData skin block)
 )
 
-// FavSafeSlots — historic band-aid; slots 1-9 used to collide with our (incorrect)
-// ProfileSummary writes at 0x31A+i*0x100. After the offset fix (Apr 2026 — ProfileSummary
-// now correctly writes at 0x195E+i*0x24C, well past all 15 preset slots), every preset
-// slot index 0..14 is safe. Kept for backward compatibility but should be deprecated.
-// New code should iterate 0..14 directly.
-var FavSafeSlots = [15]int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
-
 // FavHeaderUnk is the constant u32 at preset header offset 0x04 (observed in all active presets).
 const FavHeaderUnk = 0x11D0
 

@@ -259,15 +259,9 @@ func (a *App) GetItemList(category string) []db.ItemEntry {
 	return db.GetItemsByCategory(category, platform)
 }
 
-// GetItemListChunk returns items for a single category. Used by the frontend
-// to load the "All Categories" view progressively (one chunk per category)
-// instead of blocking on a single large IPC roundtrip.
+// GetItemListChunk is the progressive-load alias for GetItemList.
 func (a *App) GetItemListChunk(category string) []db.ItemEntry {
-	platform := "PS4"
-	if a.save != nil {
-		platform = string(a.save.Platform)
-	}
-	return db.GetItemsByCategory(category, platform)
+	return a.GetItemList(category)
 }
 
 // GetItemDetail returns full item data (description, stats) for a single base item ID.
@@ -681,11 +675,6 @@ func (a *App) GetInfuseTypes() []db.InfuseType {
 
 func (a *App) GetStartingClasses() []db.ClassStats {
 	return db.GetAllClassStats()
-}
-
-// GetAllGraces returns all Sites of Grace (no visited state)
-func (a *App) GetAllGraces() []db.GraceEntry {
-	return db.GetAllGraces()
 }
 
 // GetGraces returns all Sites of Grace with visited state from the specified character slot
@@ -1183,63 +1172,6 @@ func (a *App) BulkSetGesturesUnlocked(slotIndex int, gestureIDs []uint32, unlock
 
 	writeGestureSlots(slot.Data, gestureDataOff, gestureSlots)
 	return nil
-}
-
-// DiagnoseSlot performs comprehensive corruption detection on a character slot.
-func (a *App) DiagnoseSlot(slotIndex int) (*core.SlotDiagnostics, error) {
-	if a.save == nil {
-		return nil, fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return nil, fmt.Errorf("invalid slot index")
-	}
-	name := core.UTF16ToString(a.save.Slots[slotIndex].Player.CharacterName[:])
-	if name == "" {
-		return nil, fmt.Errorf("slot %d is empty", slotIndex)
-	}
-
-	result := core.DiagnoseSaveCorruption(&a.save.Slots[slotIndex], slotIndex)
-	return &result, nil
-}
-
-// DiagnoseAllSlots runs corruption detection on all active slots.
-func (a *App) DiagnoseAllSlots() ([]core.SlotDiagnostics, error) {
-	if a.save == nil {
-		return nil, fmt.Errorf("no save loaded")
-	}
-
-	var results []core.SlotDiagnostics
-	for i := 0; i < 10; i++ {
-		name := core.UTF16ToString(a.save.Slots[i].Player.CharacterName[:])
-		if name == "" {
-			continue
-		}
-		result := core.DiagnoseSaveCorruption(&a.save.Slots[i], i)
-		results = append(results, result)
-	}
-	return results, nil
-}
-
-// RepairInventoryGaItems clears orphaned GaItem records from the specified slot.
-// Orphaned records are GaItem binary entries whose handles no longer appear in
-// held inventory or storage — they accumulate over editing sessions when items
-// are removed without clearing the backing GaItem record. Returns the count of
-// cleared entries so the UI can inform the user what was repaired.
-func (a *App) RepairInventoryGaItems(slotIndex int) (int, error) {
-	if a.save == nil {
-		return 0, fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return 0, fmt.Errorf("invalid slot index")
-	}
-	name := core.UTF16ToString(a.save.Slots[slotIndex].Player.CharacterName[:])
-	if name == "" {
-		return 0, fmt.Errorf("slot %d is empty", slotIndex)
-	}
-	slot := &a.save.Slots[slotIndex]
-	cleared := core.RepairOrphanedGaItems(slot)
-	core.ReconcileInventoryHeader(slot)
-	return cleared, nil
 }
 
 // GetQuestNPCs returns the list of NPC names with quest data.
@@ -1839,13 +1771,10 @@ func revealDLCMap(slot *core.SaveSlot) error {
 	// Phase 3: Remove DLC black tiles.
 	// Write DLC-area coordinates into the BloodStain section so the game
 	// treats the DLC map cover layer as discovered.
-	storageEnd := slot.StorageBoxOffset + core.DynStorageBox
-	gesturesOff := storageEnd + core.DynStorageToGestures
-	if gesturesOff+4 > len(slot.Data) {
-		return fmt.Errorf("gesturesOff 0x%X out of bounds", gesturesOff)
+	afterRegs, err := resolveAfterRegs(slot)
+	if err != nil {
+		return err
 	}
-	regCount := int(binary.LittleEndian.Uint32(slot.Data[gesturesOff : gesturesOff+4]))
-	afterRegs := gesturesOff + 4 + regCount*4
 
 	// Zero out the position data range
 	for i := afterRegs + core.DLCTileZeroStart; i < afterRegs+core.DLCTileZeroEnd; i++ {
@@ -1863,6 +1792,18 @@ func revealDLCMap(slot *core.SaveSlot) error {
 	slot.Data[afterRegs+core.DLCTileRec2Flag] = 0x01
 
 	return nil
+}
+
+// resolveAfterRegs computes the byte offset immediately after the UnlockedRegions array.
+// Layout: StorageBox → gesturesOff (count u32) → count × 4-byte region IDs → afterRegs.
+func resolveAfterRegs(slot *core.SaveSlot) (int, error) {
+	storageEnd := slot.StorageBoxOffset + core.DynStorageBox
+	gesturesOff := storageEnd + core.DynStorageToGestures
+	if gesturesOff+4 > len(slot.Data) {
+		return 0, fmt.Errorf("gesturesOff 0x%X out of bounds", gesturesOff)
+	}
+	regCount := int(binary.LittleEndian.Uint32(slot.Data[gesturesOff : gesturesOff+4]))
+	return gesturesOff + 4 + regCount*4, nil
 }
 
 // putF32 writes a float32 value at the given offset in little-endian format.
@@ -1921,15 +1862,10 @@ func (a *App) RemoveFogOfWar(slotIndex int) error {
 	a.pushUndo(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
-	storageEnd := slot.StorageBoxOffset + core.DynStorageBox
-	gesturesOff := storageEnd + core.DynStorageToGestures
-
-	if gesturesOff+4 > len(slot.Data) {
-		return fmt.Errorf("gesturesOff 0x%X out of bounds", gesturesOff)
+	afterRegs, err := resolveAfterRegs(slot)
+	if err != nil {
+		return err
 	}
-
-	regCount := int(binary.LittleEndian.Uint32(slot.Data[gesturesOff : gesturesOff+4]))
-	afterRegs := gesturesOff + 4 + regCount*4
 
 	fowStart := afterRegs + 0x087E
 	fowEnd := afterRegs + 0x10B0
@@ -2083,23 +2019,6 @@ func (a *App) SetSlotActivity(index int, active bool) error {
 		return fmt.Errorf("no save loaded")
 	}
 	a.save.ActiveSlots[index] = active
-	return nil
-}
-
-// GetSteamID returns the global SteamID from UserData10
-func (a *App) GetSteamID() uint64 {
-	if a.save == nil {
-		return 0
-	}
-	return a.save.SteamID
-}
-
-// SetSteamID updates the global SteamID
-func (a *App) SetSteamID(id uint64) error {
-	if a.save == nil {
-		return fmt.Errorf("no save loaded")
-	}
-	a.save.SteamID = id
 	return nil
 }
 
@@ -2903,18 +2822,14 @@ func (a *App) GetFavoritesStatus() []FavoriteSlotInfo {
 	}
 
 	ud := a.save.UserData10.Data
-	safeSet := make(map[int]bool, len(core.FavSafeSlots))
-	for _, s := range core.FavSafeSlots {
-		safeSet[s] = true
-	}
 
 	for i := 0; i < core.FavSlotCount; i++ {
 		off := core.FavBaseOffset + i*core.FavSlotSize
-		active := off+0x1C <= len(ud) && string(ud[off+0x18:off+0x1C]) == "FACE"
+		active := off+core.FavOffAlignment <= len(ud) && string(ud[off+core.FavOffMagic:off+core.FavOffMagic+4]) == "FACE"
 		result[i] = FavoriteSlotInfo{
 			Index:  i,
 			Active: active,
-			Safe:   safeSet[i],
+			Safe:   true,
 			Name:   a.favSlotNames[i],
 		}
 	}
@@ -3035,15 +2950,14 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 	ud := a.save.UserData10.Data
 	slot := &a.save.Slots[charIndex]
 
-	// Find available safe slots
+	// Find available slots
 	var freeSlots []int
-	for _, s := range core.FavSafeSlots {
+	for s := 0; s < core.FavSlotCount; s++ {
 		off := core.FavBaseOffset + s*core.FavSlotSize
-		if off+0x1C > len(ud) {
+		if off+core.FavOffAlignment > len(ud) {
 			continue
 		}
-		magic := string(ud[off+0x18 : off+0x1C])
-		if magic != "FACE" {
+		if string(ud[off+core.FavOffMagic:off+core.FavOffMagic+4]) != "FACE" {
 			freeSlots = append(freeSlots, s)
 		}
 	}
