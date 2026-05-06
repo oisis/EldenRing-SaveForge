@@ -103,6 +103,7 @@ The save file consists of the following main blocks (in sequential order):
 | 42 | [Summoning Pools Bug](42-summoning-pools-bug.md) | **Investigation** — UI works, no in-game effect; diagnostic checklist + hypotheses |
 | 43 | [Transactional Item Adding](43-transactional-item-adding.md) | **Design doc** (✅ implemented v0.7.2) — ALL-OR-NOTHING architecture, pre-flight + snapshot/rollback |
 | 44 | [NetworkParam PvP Tuning](44-network-param-tuning.md) | **Design doc** (✅ partial) — full field reference for NETWORK_PARAM_ST: offsets, vanilla values, ban risk, presets |
+| 45 | [Ban Risk Reference](45-ban-risk-reference.md) | Community-reported ban triggers, penalty tiers (180-day softban mechanics, save-embedded flag), safe-editing practices — informs spec/32 risk tiers |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Testing methods, verification checklist, discovery plan |
 
 ---
