@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(add): infuse offset not applied to ranged weapons and catalysts
+
+Bows, crossbows, greatbows, staves, and seals cannot be infused in Elden Ring. Previously, `AddItemsToCharacter` applied `infuseOffset` unconditionally to all items with `MaxUpgrade == 25`, including `ranged_and_catalysts`. This produced ItemIDs the game does not recognise (e.g. "Heavy Bone Bow +4" → `0x0269FB88`), making the items invisible in-game after loading the save.
+
+**Root cause** — `app.go::AddItemsToCharacter`: the `MaxUpgrade == 25` branch applied `id + infuseOffset + upgrade25` regardless of whether the weapon category supports infusion.
+
+**Fix** — new helper `weaponCategorySupportsInfusion(category string) bool` returns `true` only for `melee_armaments` and `shields`. `infuseOffset` is now skipped for all other categories (`ranged_and_catalysts` and anything else). The `upgrade25` level is still applied correctly. Melee weapons and shields are unaffected.
+
+Confirmed against `ER0000-kro55-out.sl2`: Bone Bow, Golem Greatbow, Greatbow were added as `base+104` (infuseOffset 100 Heavy + upgrade 4) instead of `base+4`. Items with `MaxUpgrade == 10` (Frenzied Flame Seal, Rabbath's Cannon) were unaffected — they use the `upgrade10` branch which never applied `infuseOffset`.
+
 ### feat(db): weight column and sorting in Database tab
 
 - Weight column auto-imported from `regulation.bin` CSV (`EquipParamWeapon` + `EquipParamProtector`) via `tmp/scripts/import_weights.go` → `backend/db/data/weights.go` (4252 entries)

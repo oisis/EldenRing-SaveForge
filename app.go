@@ -292,6 +292,14 @@ type AddResult struct {
 	NeededStore int          `json:"neededStore"`
 }
 
+// weaponCategorySupportsInfusion returns true for categories whose weapons can
+// receive affinities. Ranged weapons (bows, crossbows, greatbows) and catalysts
+// (staves, seals) cannot be infused in Elden Ring — applying an infuse offset to
+// their ID produces an ID the game does not recognise, making the item invisible.
+func weaponCategorySupportsInfusion(category string) bool {
+	return category == "melee_armaments" || category == "shields"
+}
+
 // AddItemsToCharacter adds multiple items from the database to a character slot.
 // ALL-OR-NOTHING for capacity: either all items are added or none. If capacity is
 // insufficient, returns AddResult with CapHit set and Added=0 — no mutation occurs.
@@ -396,7 +404,11 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		case itemData.Category == "ashes":
 			finalID = id + uint32(upgradeAsh)
 		case itemData.MaxUpgrade == 25:
-			finalID = id + uint32(infuseOffset) + uint32(upgrade25)
+			if infuseOffset != 0 && weaponCategorySupportsInfusion(itemData.Category) {
+				finalID = id + uint32(infuseOffset) + uint32(upgrade25)
+			} else {
+				finalID = id + uint32(upgrade25)
+			}
 		case itemData.MaxUpgrade == 10:
 			finalID = id + uint32(upgrade10)
 		}
