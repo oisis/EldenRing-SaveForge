@@ -78,7 +78,7 @@ Powodem kolejnych banów po tym samym save: **flagowana zawartość** (nielegaln
 
 Bezpieczna ścieżka odzyskania: przywróć czysty backup sprzed flagowanych edycji.
 
-### 2.2 "Bany we wtorek" — Niespotwierdzone
+### 2.2 "Bany we wtorek" — Niepotwierdzone
 
 **[Niezweryfikowana plotka]** — Bany są przetwarzane falami, nie w czasie rzeczywistym (potwierdzony przypadek 5-miesięcznego opóźnienia). Schemat konkretnego dnia tygodnia nie ma potwierdzonego źródła.
 

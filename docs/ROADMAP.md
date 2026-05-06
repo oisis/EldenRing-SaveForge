@@ -136,6 +136,22 @@ In edit mode: only eligible weapons shown (melee_armaments + ranged_armaments th
 ### 🟢 Lost Ash of War — Key Items support
 "Lost Ash of War" (used at Sites of Grace to duplicate AoWs) must be addable from Key Items tab. Verify item is correctly categorized as `key_items` in `backend/db/data/` and not missing or miscategorized. Also check `Lost Spirit Ash` (same mechanic for spirit ashes).
 
+### 🟢 Ban Detector — save file risk scan
+Scan a save file for content that is known or suspected to trigger server-side bans. Surfaces findings per-slot in the Tools tab without requiring the file to be loaded for editing.
+
+**Checks (✅ = data available now):**
+- ✅ Cut content / `ban_risk` items in inventory + storage (uses existing `db.go` flags)
+- ✅ Any attribute > 99
+- ✅ Character level > 713
+- ✅ Weapon upgrade level above vanilla cap (+25 standard / +10 somber; encoded in item ID)
+- ✅ SteamID embedded in save vs. expected account
+- ⚠️ Soul Memory mismatch (`current_runes + spent_runes ≠ total_runes_earned`) — needs `total_runes_earned` offset RE
+- ⚠️ Boss loot without kill event flags — needs boss_item_id → event_flag mapping
+
+**Output:** per-slot report with risk tier (High / Medium / Info), item list, and plain-language explanation. Optional JSON export.
+
+**Design:** → spec/45 §3 (trigger reference)
+
 ### 🟢 Safe Weapon De-leveling — matchmaking bracket control
 Scan character's max weapon upgrade level (determines PvP matchmaking bracket), offer safe downgrade.
 Useful for PvP builds targeting specific level ranges without starting new character.
