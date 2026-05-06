@@ -367,21 +367,10 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 id="char-presets"
                 title="Appearance Presets"
                 badge={`${presets.length} presets`}
-                actions={
-                    checked.size > 0 ? (
-                        <div className="flex items-center gap-2">
-                            <span className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">{checked.size} selected</span>
-                            <button onClick={handleWriteFavorites} disabled={writingFav || checked.size > freeSlots}
-                                className="px-2 py-0.5 border border-primary/30 text-primary rounded text-[11px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-50">
-                                Add to Mirror ({freeSlots} free)
-                            </button>
-                        </div>
-                    ) : undefined
-                }
             >
                 <div className="space-y-3">
                     <p className="text-[10px] text-muted-foreground">
-                        Click image to preview. Checkbox to select. Add to Mirror to make presets available in-game. Apply ✓ on a Mirror slot to copy preset onto current character.
+                        Click image to preview. Checkbox to select. Apply ✓ on a Mirror slot to copy preset onto current character.
                     </p>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -430,7 +419,10 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             <div className="flex flex-wrap gap-2">
                                 {usedSafeSlots.map(s => (
                                     <div key={s.index} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-1.5">
-                                        <span className="text-[10px] font-bold uppercase tracking-wider">Slot {s.index + 1}</span>
+                                        <div className="flex flex-col leading-tight min-w-[40px]">
+                                            <span className="text-[10px] font-bold uppercase tracking-wider">{s.name ? s.name.split(',')[0].trim() : 'N/A'}</span>
+                                            <span className="text-[9px] text-muted-foreground">Slot {s.index + 1}</span>
+                                        </div>
                                         <button onClick={() => handleApplyFromMirror(s.index)}
                                             className="text-primary hover:text-primary/80 transition-colors" title="Apply this preset to character">
                                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -446,6 +438,17 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    )}
+
+                    {/* Add to presets button */}
+                    {checked.size > 0 && (
+                        <div className="flex items-center justify-end gap-3 pt-3 border-t border-border/30">
+                            <span className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">{checked.size} selected</span>
+                            <button onClick={handleWriteFavorites} disabled={writingFav || checked.size > freeSlots}
+                                className="px-3 py-1.5 border border-primary/30 text-primary rounded text-[11px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-50">
+                                Add to presets ({freeSlots} free)
+                            </button>
                         </div>
                     )}
                 </div>
