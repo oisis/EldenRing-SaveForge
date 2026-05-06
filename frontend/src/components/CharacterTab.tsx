@@ -135,7 +135,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const profileSummary = char
         ? <span className="flex items-center gap-2 text-center">
             <span className="text-xs font-black text-primary">{char.name}</span>
-            <span className="text-[9px] text-muted-foreground font-medium">RL {char.level} | NG+{char.clearCount || 0} | {(char.souls || 0).toLocaleString()} Runes</span>
+            <span className="text-[11px] text-muted-foreground font-medium">RL {char.level} | NG+{char.clearCount || 0} | {(char.souls || 0).toLocaleString()} Runes</span>
           </span>
         : undefined;
 

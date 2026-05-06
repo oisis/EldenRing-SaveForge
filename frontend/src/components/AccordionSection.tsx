@@ -86,7 +86,7 @@ export function AccordionSection({
                 </span>
 
                 {badge !== undefined && (
-                    <span className="text-[8px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded-full flex-shrink-0">
+                    <span className="text-[11px] font-bold bg-primary/10 text-primary px-1.5 py-0.5 rounded-full flex-shrink-0">
                         {badge}
                     </span>
                 )}
@@ -104,7 +104,7 @@ export function AccordionSection({
                                 {actions}
                             </div>
                         )}
-                        <span className="text-[9px] font-mono text-muted-foreground flex-shrink-0">
+                        <span className="text-[11px] font-mono text-muted-foreground flex-shrink-0">
                             {progress!.current}/{progress!.total}
                         </span>
                     </div>
@@ -113,7 +113,7 @@ export function AccordionSection({
                 {!open && summary && !progress && (
                     <div className="flex items-center justify-center flex-1 min-w-0 ml-2 truncate">
                         {typeof summary === 'string'
-                            ? <span className="text-[9px] text-muted-foreground font-medium truncate">{summary}</span>
+                            ? <span className="text-[11px] text-muted-foreground font-medium truncate">{summary}</span>
                             : summary
                         }
                     </div>
