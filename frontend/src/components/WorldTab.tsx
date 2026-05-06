@@ -971,6 +971,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                             <RiskActionButton riskKey="bulk_region_unlock" onConfirm={handleUnlockAllRegions} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Unlock All</RiskActionButton>
                             <button onClick={handleLockAllRegions} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Lock All</button>
                         </>}>
+                        <RiskSectionBanner riskKey="bulk_region_unlock" className="mb-3" />
                         <p className="text-[9px] text-muted-foreground/70 italic px-1 pb-2">
                             Map regions stored in the save's Regions struct. Controls invasion eligibility (PvP / NPC) and blue summons.
                         </p>
