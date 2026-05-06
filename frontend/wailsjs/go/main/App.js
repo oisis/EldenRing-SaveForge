@@ -14,6 +14,10 @@ export function ApplyMirrorFavoriteToCharacter(arg1, arg2) {
   return window['go']['main']['App']['ApplyMirrorFavoriteToCharacter'](arg1, arg2);
 }
 
+export function ApplyPresetToCharacter(arg1, arg2) {
+  return window['go']['main']['App']['ApplyPresetToCharacter'](arg1, arg2);
+}
+
 export function BulkSetAshOfWarFlags(arg1, arg2, arg3) {
   return window['go']['main']['App']['BulkSetAshOfWarFlags'](arg1, arg2, arg3);
 }

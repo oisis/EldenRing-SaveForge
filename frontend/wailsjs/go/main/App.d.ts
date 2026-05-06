@@ -12,6 +12,8 @@ export function ApplyCharacterPreset(arg1:number,arg2:vm.CharacterPreset,arg3:vm
 
 export function ApplyMirrorFavoriteToCharacter(arg1:number,arg2:number):Promise<void>;
 
+export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
+
 export function BulkSetAshOfWarFlags(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
 
 export function BulkSetBellBearings(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
