@@ -39,10 +39,12 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
     // Appearance state
     const [presets, setPresets] = useState<main.PresetInfo[]>([]);
-    const [checked, setChecked] = useState<Set<string>>(new Set());
-    const [writingFav, setWritingFav] = useState(false);
+    const [addingPreset, setAddingPreset] = useState<string | null>(null);
     const [favSlots, setFavSlots] = useState<main.FavoriteSlotInfo[]>([]);
     const [zoomed, setZoomed] = useState<string | null>(null);
+    const [presetSearch, setPresetSearch] = useState('');
+    const [showMale, setShowMale] = useState(true);
+    const [showFemale, setShowFemale] = useState(true);
 
     useEffect(() => {
         ListAppearancePresets().then(setPresets).catch(e => toast.error("" + e));
@@ -63,6 +65,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
     const freeSlots = favSlots.filter(s => s.safe && !s.active).length;
     const usedSafeSlots = favSlots.filter(s => s.safe && s.active);
+
 
     const getStatMin = (statId: string): number => {
         return char?.classBaseStats?.[statId] || 1;
@@ -110,33 +113,22 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     };
 
     // Appearance handlers
-    const toggleCheck = (name: string) => {
-        setChecked(prev => {
-            const next = new Set(prev);
-            next.has(name) ? next.delete(name) : next.add(name);
-            return next;
-        });
-    };
-
-    const handleWriteFavorites = async () => {
-        if (checked.size === 0 || checked.size > freeSlots) return;
+    const handleAddPreset = async (name: string, bodyType: string) => {
+        if (freeSlots === 0 || addingPreset !== null) return;
         // Type B presets currently corrupt Mirror slots (Model IDs left at zero by
         // WriteSelectedToFavorites — see spec/31). Block until presets.go is re-sourced
         // as raw 0x130-byte blobs. Apply to Character still works for in-game presets.
-        const typeB = Array.from(checked).filter(n =>
-            presets.find(p => p.name === n)?.bodyType === 'Type B');
-        if (typeB.length > 0) {
+        if (bodyType === 'Type B') {
             toast.error(`Type B (female) presets cannot be written to Mirror — would create bald, male-faced slot. Create the preset in-game instead.`);
             return;
         }
-        setWritingFav(true);
+        setAddingPreset(name);
         try {
-            const count = await WriteSelectedToFavorites(charIndex, Array.from(checked));
-            toast.success(`Wrote ${count} presets to Mirror Favorites`);
-            setChecked(new Set());
+            await WriteSelectedToFavorites(charIndex, [name]);
+            toast.success(`Added "${name.split(',')[0].trim()}" to Mirror Favorites`);
             refreshFavStatus();
         } catch (e) { toast.error("" + e); }
-        finally { setWritingFav(false); }
+        finally { setAddingPreset(null); }
     };
 
     const handleRemoveFav = async (slotIndex: number) => {
@@ -369,26 +361,39 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 badge={`${presets.length} presets`}
             >
                 <div className="space-y-3">
+                    <div className="flex items-center gap-3">
+                        <input
+                            type="text"
+                            placeholder="Search…"
+                            value={presetSearch}
+                            onChange={e => setPresetSearch(e.target.value)}
+                            className="flex-1 bg-muted/20 border border-border rounded-md px-3 py-1.5 text-xs focus:ring-1 focus:ring-primary/30 outline-none transition-all"
+                        />
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input type="checkbox" checked={showMale} onChange={e => setShowMale(e.target.checked)} className="accent-primary" />
+                            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Male</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                            <input type="checkbox" checked={showFemale} onChange={e => setShowFemale(e.target.checked)} className="accent-primary" />
+                            <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Female</span>
+                        </label>
+                    </div>
+
                     <p className="text-[10px] text-muted-foreground">
                         Click image to preview. Checkbox to select. Apply ✓ on a Mirror slot to copy preset onto current character.
                     </p>
 
                     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-                        {presets.map(p => {
-                            const isChecked = checked.has(p.name);
+                        {presets.filter(p => {
+                            if (p.bodyType === 'Type A' && !showMale) return false;
+                            if (p.bodyType === 'Type B' && !showFemale) return false;
+                            if (presetSearch && !p.name.toLowerCase().includes(presetSearch.toLowerCase())) return false;
+                            return true;
+                        }).map(p => {
+                            const isAdding = addingPreset === p.name;
+                            const canAdd = freeSlots > 0 && addingPreset === null;
                             return (
-                                <div key={p.name} className={`group relative rounded-lg border overflow-hidden transition-all
-                                    ${isChecked ? 'border-primary ring-1 ring-primary shadow-lg shadow-primary/10' : 'border-border hover:border-primary/30'}`}>
-                                    <div className="absolute top-2 left-2 z-10 cursor-pointer" onClick={() => toggleCheck(p.name)}>
-                                        <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all
-                                            ${isChecked ? 'bg-primary border-primary' : 'border-white/50 bg-black/40 hover:border-white/80'}`}>
-                                            {isChecked && (
-                                                <svg className="w-3 h-3 text-primary-foreground" fill="currentColor" viewBox="0 0 20 20">
-                                                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                                </svg>
-                                            )}
-                                        </div>
-                                    </div>
+                                <div key={p.name} className="group relative rounded-lg border border-border hover:border-primary/30 overflow-hidden transition-all">
                                     <div className="relative aspect-[3/4] bg-muted/30 overflow-hidden cursor-pointer"
                                          onClick={() => setZoomed(p.image ? `presets/${p.image}` : null)}>
                                         {p.image ? (
@@ -403,9 +408,18 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                         )}
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
                                     </div>
-                                    <div className={`p-2.5 text-center transition-colors ${isChecked ? 'bg-primary/5' : 'bg-background'}`}>
-                                        <div className={`text-[10px] font-black uppercase tracking-wider leading-tight ${isChecked ? 'text-primary' : 'text-foreground'}`}>{p.name}</div>
-                                        <div className="text-[11px] text-muted-foreground font-medium uppercase tracking-widest mt-0.5">{p.bodyType}</div>
+                                    <div className="p-2 bg-background">
+                                        <div className="text-[10px] font-black uppercase tracking-wider leading-tight text-foreground truncate">{p.name}</div>
+                                        <div className="flex items-center justify-between mt-1 gap-1">
+                                            <span className="text-[9px] text-muted-foreground font-medium uppercase tracking-widest">{p.bodyType}</span>
+                                            <button
+                                                onClick={() => handleAddPreset(p.name, p.bodyType)}
+                                                disabled={!canAdd || isAdding}
+                                                title={freeSlots === 0 ? 'No free Mirror slots' : 'Add to Mirror Favorites'}
+                                                className="px-2 py-0.5 border border-primary/40 text-primary rounded text-[9px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
+                                                {isAdding ? '…' : 'Add'}
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -415,7 +429,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                     {/* Mirror Favorites */}
                     {usedSafeSlots.length > 0 && (
                         <div className="pt-3 border-t border-border/50">
-                            <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground mb-2">Mirror Favorites ({usedSafeSlots.length} used)</p>
+                            <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground mb-2">Mirror Favorites ({usedSafeSlots.length} used · {freeSlots} free)</p>
                             <div className="flex flex-wrap gap-2">
                                 {usedSafeSlots.map(s => (
                                     <div key={s.index} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-1.5">
@@ -438,17 +452,6 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                     </div>
                                 ))}
                             </div>
-                        </div>
-                    )}
-
-                    {/* Add to presets button */}
-                    {checked.size > 0 && (
-                        <div className="flex items-center justify-end gap-3 pt-3 border-t border-border/30">
-                            <span className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">{checked.size} selected</span>
-                            <button onClick={handleWriteFavorites} disabled={writingFav || checked.size > freeSlots}
-                                className="px-3 py-1.5 border border-primary/30 text-primary rounded text-[11px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-50">
-                                Add to presets ({freeSlots} free)
-                            </button>
                         </div>
                     )}
                 </div>
