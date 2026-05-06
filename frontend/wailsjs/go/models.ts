@@ -905,8 +905,6 @@ export namespace vm {
 	    arcane: number;
 	    talismanSlots: number;
 	    clearCount: number;
-	    greatRuneOn: boolean;
-	    equippedGreatRune: number;
 	    memoryStones: number;
 	
 	    static createFrom(source: any = {}) {
@@ -930,8 +928,6 @@ export namespace vm {
 	        this.arcane = source["arcane"];
 	        this.talismanSlots = source["talismanSlots"];
 	        this.clearCount = source["clearCount"];
-	        this.greatRuneOn = source["greatRuneOn"];
-	        this.equippedGreatRune = source["equippedGreatRune"];
 	        this.memoryStones = source["memoryStones"];
 	    }
 	}
@@ -1052,8 +1048,6 @@ export namespace vm {
 	    arcane: number;
 	    talismanSlots: number;
 	    clearCount: number;
-	    greatRuneOn: boolean;
-	    equippedGreatRune: number;
 	    scadutreeBlessing: number;
 	    shadowRealmBlessing: number;
 	    memoryStones: number;
@@ -1085,8 +1079,6 @@ export namespace vm {
 	        this.arcane = source["arcane"];
 	        this.talismanSlots = source["talismanSlots"];
 	        this.clearCount = source["clearCount"];
-	        this.greatRuneOn = source["greatRuneOn"];
-	        this.equippedGreatRune = source["equippedGreatRune"];
 	        this.scadutreeBlessing = source["scadutreeBlessing"];
 	        this.shadowRealmBlessing = source["shadowRealmBlessing"];
 	        this.memoryStones = source["memoryStones"];
