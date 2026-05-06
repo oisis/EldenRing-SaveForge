@@ -20,6 +20,19 @@ interface Props {
     infuseTypes: db.InfuseType[];
 }
 
+const STARTING_CLASSES = [
+    { id: 0, name: 'Vagabond',   vigor: 15, mind: 10, endurance: 11, strength: 14, dexterity: 13, intelligence:  9, faith:  9, arcane:  7 },
+    { id: 1, name: 'Warrior',    vigor: 11, mind: 12, endurance: 11, strength: 10, dexterity: 16, intelligence: 10, faith:  8, arcane:  9 },
+    { id: 2, name: 'Hero',       vigor: 14, mind:  9, endurance: 12, strength: 16, dexterity:  9, intelligence:  7, faith:  8, arcane: 11 },
+    { id: 3, name: 'Bandit',     vigor: 10, mind: 11, endurance: 10, strength:  9, dexterity: 13, intelligence:  9, faith:  8, arcane: 14 },
+    { id: 4, name: 'Astrologer', vigor:  9, mind: 15, endurance:  9, strength:  8, dexterity: 12, intelligence: 16, faith:  7, arcane:  9 },
+    { id: 5, name: 'Prophet',    vigor: 10, mind: 14, endurance:  8, strength: 11, dexterity: 10, intelligence:  7, faith: 16, arcane: 10 },
+    { id: 6, name: 'Samurai',    vigor: 12, mind: 11, endurance: 13, strength: 12, dexterity: 15, intelligence:  9, faith:  8, arcane:  8 },
+    { id: 7, name: 'Prisoner',   vigor: 11, mind: 12, endurance: 11, strength: 11, dexterity: 14, intelligence: 14, faith:  6, arcane:  9 },
+    { id: 8, name: 'Confessor',  vigor: 10, mind: 13, endurance: 10, strength: 12, dexterity: 12, intelligence:  9, faith: 14, arcane:  9 },
+    { id: 9, name: 'Wretch',     vigor: 10, mind: 10, endurance: 10, strength: 10, dexterity: 10, intelligence: 10, faith: 10, arcane: 10 },
+] as const;
+
 const ATTRIBUTES = [
     { id: 'vigor', label: 'Vigor', abbr: 'Vig' },
     { id: 'mind', label: 'Mind', abbr: 'Min' },
@@ -75,6 +88,28 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                     updatedData.dexterity + updatedData.intelligence + updatedData.faith + updatedData.arcane;
         updatedData.level = Math.max(1, sum - 79);
         setChar(vm.CharacterViewModel.createFrom(updatedData));
+    };
+
+    const handleClassChange = (classId: number) => {
+        if (!char) return;
+        const nc = STARTING_CLASSES.find(c => c.id === classId);
+        if (!nc) return;
+        const vigor        = Math.max(char.vigor,        nc.vigor);
+        const mind         = Math.max(char.mind,         nc.mind);
+        const endurance    = Math.max(char.endurance,    nc.endurance);
+        const strength     = Math.max(char.strength,     nc.strength);
+        const dexterity    = Math.max(char.dexterity,    nc.dexterity);
+        const intelligence = Math.max(char.intelligence, nc.intelligence);
+        const faith        = Math.max(char.faith,        nc.faith);
+        const arcane       = Math.max(char.arcane,       nc.arcane);
+        const level = Math.max(1, vigor + mind + endurance + strength + dexterity + intelligence + faith + arcane - 79);
+        setChar(vm.CharacterViewModel.createFrom({
+            ...char,
+            class: classId,
+            className: nc.name,
+            classBaseStats: { vigor: nc.vigor, mind: nc.mind, endurance: nc.endurance, strength: nc.strength, dexterity: nc.dexterity, intelligence: nc.intelligence, faith: nc.faith, arcane: nc.arcane },
+            vigor, mind, endurance, strength, dexterity, intelligence, faith, arcane, level,
+        }));
     };
 
     const handleSave = () => {
@@ -165,7 +200,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 summary={profileSummary}
                 headerRight={
                     <div className="flex items-center gap-1.5">
-                        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.2em]">RL</span>
+                        <span className="text-[11px] font-black text-muted-foreground uppercase tracking-[0.2em]">RL</span>
                         <span className="text-lg font-black tracking-tighter text-primary leading-none">{char.level}</span>
                     </div>
                 }
@@ -173,19 +208,23 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 <div className="space-y-4">
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Starting Class</label>
-                            <div className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-black text-primary">
-                                {char.className || 'Unknown'}
-                            </div>
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Character Name</label>
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Character Name</label>
                             <input type="text" value={char.name} maxLength={16}
                                 onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, name: e.target.value}))}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1 flex items-center gap-1.5">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Starting Class</label>
+                            <select value={char.class ?? 0}
+                                onChange={e => handleClassChange(parseInt(e.target.value))}
+                                className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-black text-primary focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer h-[34px]">
+                                {STARTING_CLASSES.map(c => (
+                                    <option key={c.id} value={c.id}>{c.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1 flex items-center gap-1.5">
                                 <span>Runes</span>
                                 {getRunesRiskKey(char.souls) && <RiskInfoIcon riskKey={getRunesRiskKey(char.souls)!} />}
                             </label>
@@ -206,7 +245,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                 } />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
                                 Talisman Slots <span className="text-primary font-mono">{1 + (char.talismanSlots || 0)}/4</span>
                             </label>
                             <input type="number" min={0} max={3} value={char.talismanSlots || 0}
@@ -217,7 +256,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
                                 Memory Stones <span className="text-primary font-mono">{char.memoryStones || 0}/8</span>
                             </label>
                             <input type="number" min={0} max={8} value={char.memoryStones || 0}
@@ -231,7 +270,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Equipped Great Rune</label>
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Equipped Great Rune</label>
                             <select value={char.equippedGreatRune || 0}
                                 onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, equippedGreatRune: parseInt(e.target.value)}))}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer h-[34px]">
@@ -245,7 +284,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             </select>
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Great Rune Buff</label>
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Great Rune Buff</label>
                             <label className="flex items-center space-x-2 bg-muted/20 border border-border rounded-md px-3 py-2 cursor-pointer hover:border-primary/30 transition-all">
                                 <input type="checkbox" checked={char.greatRuneOn || false}
                                     onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, greatRuneOn: e.target.checked}))}
@@ -254,7 +293,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             </label>
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
                                 NG+ Cycle <span className="text-primary font-mono">{char.clearCount || 0}/7</span>
                             </label>
                             <input type="number" min={0} max={7} value={char.clearCount || 0}
@@ -316,26 +355,26 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                     return (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-5 py-2">
                             <div className="flex items-center space-x-3">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +25</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +25</span>
                                 <input type="range" min={0} max={25} value={addSettings.upgrade25} onChange={e => set({upgrade25: parseInt(e.target.value)})}
                                     className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
                                 <span className="text-[10px] font-mono font-bold text-primary w-6 text-right">+{addSettings.upgrade25}</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +10</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +10</span>
                                 <input type="range" min={0} max={10} value={addSettings.upgrade10} onChange={e => set({upgrade10: parseInt(e.target.value)})}
                                     className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
                                 <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{addSettings.upgrade10}</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Infuse</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Infuse</span>
                                 <select value={addSettings.infuseOffset} onChange={e => set({infuseOffset: parseInt(e.target.value)})}
                                     className="flex-1 bg-muted/20 border border-border rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer">
                                     {infuseTypes.map(t => <option key={t.offset} value={t.offset}>{t.name}</option>)}
                                 </select>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Spirit Ash</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Spirit Ash</span>
                                 <input type="range" min={0} max={10} value={addSettings.upgradeAsh} onChange={e => set({upgradeAsh: parseInt(e.target.value)})}
                                     className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
                                 <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{addSettings.upgradeAsh}</span>
@@ -344,12 +383,12 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                 <label title="When enabled, only the highest-tier variant of each talisman family is shown — lower upgrade levels are hidden." className="flex items-center gap-2 cursor-pointer">
                                     <input type="checkbox" checked={addSettings.talismansHighestOnly} onChange={e => set({talismansHighestOnly: e.target.checked})}
                                         className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Talismans: highest only</span>
+                                    <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Talismans: highest only</span>
                                 </label>
                                 <label title="When enabled, 'Unlock All' Sites of Grace in World tab will also include Leyndell, Ashen Capital graces. Disable if you haven't triggered the capital's transformation yet." className="flex items-center gap-2 cursor-pointer">
                                     <input type="checkbox" checked={addSettings.includeAshenCapital} onChange={e => set({includeAshenCapital: e.target.checked})}
                                         className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
-                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">SoG: Leyndell, Ashen Capital</span>
+                                    <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">SoG: Leyndell, Ashen Capital</span>
                                 </label>
                             </div>
                         </div>
@@ -365,9 +404,9 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 actions={
                     checked.size > 0 ? (
                         <div className="flex items-center gap-2">
-                            <span className="text-[8px] font-bold text-amber-500 uppercase tracking-wider">{checked.size} selected</span>
+                            <span className="text-[11px] font-bold text-amber-500 uppercase tracking-wider">{checked.size} selected</span>
                             <button onClick={handleWriteFavorites} disabled={writingFav || checked.size > freeSlots}
-                                className="px-2 py-0.5 border border-primary/30 text-primary rounded text-[8px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-50">
+                                className="px-2 py-0.5 border border-primary/30 text-primary rounded text-[11px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-50">
                                 Add to Mirror ({freeSlots} free)
                             </button>
                         </div>
@@ -411,7 +450,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                     </div>
                                     <div className={`p-2.5 text-center transition-colors ${isChecked ? 'bg-primary/5' : 'bg-background'}`}>
                                         <div className={`text-[10px] font-black uppercase tracking-wider leading-tight ${isChecked ? 'text-primary' : 'text-foreground'}`}>{p.name}</div>
-                                        <div className="text-[8px] text-muted-foreground font-medium uppercase tracking-widest mt-0.5">{p.bodyType}</div>
+                                        <div className="text-[11px] text-muted-foreground font-medium uppercase tracking-widest mt-0.5">{p.bodyType}</div>
                                     </div>
                                 </div>
                             );
@@ -421,7 +460,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                     {/* Mirror Favorites */}
                     {usedSafeSlots.length > 0 && (
                         <div className="pt-3 border-t border-border/50">
-                            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2">Mirror Favorites ({usedSafeSlots.length} used)</p>
+                            <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground mb-2">Mirror Favorites ({usedSafeSlots.length} used)</p>
                             <div className="flex flex-wrap gap-2">
                                 {usedSafeSlots.map(s => (
                                     <div key={s.index} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-1.5">
@@ -448,7 +487,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
             {/* ═══ APPLY CHANGES ═══ */}
             <div className="flex justify-end items-center space-x-4 pt-4 pb-2 border-t border-border/30">
-                <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest italic opacity-50">Staged in memory</p>
+                <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest italic opacity-50">Staged in memory</p>
                 <button onClick={handleSave}
                     className="bg-primary text-primary-foreground hover:brightness-110 active:scale-95 transition-all font-black px-6 py-2 rounded-md text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20">
                     Apply Changes
