@@ -751,8 +751,8 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                         <>
                             {/* Global apply bar */}
                             <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/20 border border-border/50">
-                                <p className="text-[10px] text-muted-foreground">
-                                    Modifies <code className="text-[10px] bg-muted/50 px-1 rounded">regulation.bin</code> NetworkParam
+                                <p className="text-[11px] text-muted-foreground">
+                                    Modifies <code className="text-[11px] bg-muted/50 px-1 rounded">regulation.bin</code> NetworkParam
                                     · <span className="text-orange-400 font-bold">⚠ = ban risk</span>
                                 </p>
                                 <button onClick={handleNetApply} disabled={netApplying || !netDirty}
