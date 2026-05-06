@@ -5,8 +5,15 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
+)
+
+// itemCacheMu guards itemCache — covers GetItemsByCategory and GetAllItems.
+var (
+	itemCacheMu sync.RWMutex
+	itemCache   = make(map[string][]ItemEntry)
 )
 
 // ItemEntry represents a single item from the game database.
@@ -119,7 +126,7 @@ type GestureEntry struct {
 
 // GetAllGestureSlots returns all known gestures, one entry per gesture.
 // ID is the canonical save-slot ID (always odd in vanilla data).
-func GetAllGestureSlots() []GestureEntry {
+var getAllGestureSlots = sync.OnceValue(func() []GestureEntry {
 	entries := make([]GestureEntry, 0, len(data.AllGestures))
 	for _, g := range data.AllGestures {
 		entries = append(entries, GestureEntry{
@@ -136,7 +143,9 @@ func GetAllGestureSlots() []GestureEntry {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries
-}
+})
+
+func GetAllGestureSlots() []GestureEntry { return getAllGestureSlots() }
 
 // CookbookEntry represents a cookbook with its unlock state.
 type CookbookEntry struct {
@@ -435,6 +444,13 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 		return GetAllItems(platform)
 	}
 
+	itemCacheMu.RLock()
+	if cached, ok := itemCache[category]; ok {
+		itemCacheMu.RUnlock()
+		return cached
+	}
+	itemCacheMu.RUnlock()
+
 	var items []ItemEntry
 
 	// processMap adds all items from source to the result list.
@@ -578,6 +594,9 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 		return items[i].Name < items[j].Name
 	})
 
+	itemCacheMu.Lock()
+	itemCache[category] = items
+	itemCacheMu.Unlock()
 	return items
 }
 
@@ -604,6 +623,14 @@ func GetItemSubCategory(id uint32, item data.ItemData, broadCategory string) str
 
 // GetAllItems returns all items from all categories for the given platform.
 func GetAllItems(platform string) []ItemEntry {
+	const cacheKey = "all"
+	itemCacheMu.RLock()
+	if cached, ok := itemCache[cacheKey]; ok {
+		itemCacheMu.RUnlock()
+		return cached
+	}
+	itemCacheMu.RUnlock()
+
 	var all []ItemEntry
 	cats := []string{
 		"melee_armaments", "ranged_and_catalysts", "shields", "arrows_and_bolts",
@@ -622,11 +649,14 @@ func GetAllItems(platform string) []ItemEntry {
 		return all[i].Name < all[j].Name
 	})
 
+	itemCacheMu.Lock()
+	itemCache[cacheKey] = all
+	itemCacheMu.Unlock()
 	return all
 }
 
 // GetAllGraces returns all Sites of Grace as a flat list.
-func GetAllGraces() []GraceEntry {
+var getAllGraces = sync.OnceValue(func() []GraceEntry {
 	graces := make([]GraceEntry, 0, len(data.Graces))
 
 	// Map game regions to our specific map filenames
@@ -720,7 +750,9 @@ func GetAllGraces() []GraceEntry {
 	})
 
 	return graces
-}
+})
+
+func GetAllGraces() []GraceEntry { return getAllGraces() }
 
 // GetEventFlag checks if a specific event flag is set in the bit array.
 // Resolution order:
@@ -791,7 +823,7 @@ func GetInfuseTypes() []InfuseType {
 }
 
 // GetAllBosses returns all boss encounters as a flat list sorted by region then name.
-func GetAllBosses() []BossEntry {
+var getAllBosses = sync.OnceValue(func() []BossEntry {
 	bosses := make([]BossEntry, 0, len(data.Bosses))
 	for id, boss := range data.Bosses {
 		bosses = append(bosses, BossEntry{
@@ -809,10 +841,12 @@ func GetAllBosses() []BossEntry {
 		return bosses[i].Name < bosses[j].Name
 	})
 	return bosses
-}
+})
+
+func GetAllBosses() []BossEntry { return getAllBosses() }
 
 // GetAllSummoningPools returns all summoning pools as a flat list sorted by region then name.
-func GetAllSummoningPools() []SummoningPoolEntry {
+var getAllSummoningPools = sync.OnceValue(func() []SummoningPoolEntry {
 	pools := make([]SummoningPoolEntry, 0, len(data.SummoningPools))
 	for id, pool := range data.SummoningPools {
 		pools = append(pools, SummoningPoolEntry{
@@ -828,10 +862,12 @@ func GetAllSummoningPools() []SummoningPoolEntry {
 		return pools[i].Name < pools[j].Name
 	})
 	return pools
-}
+})
+
+func GetAllSummoningPools() []SummoningPoolEntry { return getAllSummoningPools() }
 
 // GetAllColosseums returns all colosseums as a flat list sorted by name.
-func GetAllColosseums() []ColosseumEntry {
+var getAllColosseums = sync.OnceValue(func() []ColosseumEntry {
 	colosseums := make([]ColosseumEntry, 0, len(data.Colosseums))
 	for id, c := range data.Colosseums {
 		colosseums = append(colosseums, ColosseumEntry{
@@ -844,12 +880,14 @@ func GetAllColosseums() []ColosseumEntry {
 		return colosseums[i].Name < colosseums[j].Name
 	})
 	return colosseums
-}
+})
+
+func GetAllColosseums() []ColosseumEntry { return getAllColosseums() }
 
 // GetAllRegions returns every known invasion-region entry from the database,
 // sorted by Area then Name. Unlocked is left at false; callers fill it in
 // from the per-slot UnlockedRegions list.
-func GetAllRegions() []RegionEntry {
+var getAllRegions = sync.OnceValue(func() []RegionEntry {
 	entries := make([]RegionEntry, 0, len(data.Regions))
 	for id, r := range data.Regions {
 		entries = append(entries, RegionEntry{
@@ -865,10 +903,12 @@ func GetAllRegions() []RegionEntry {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries
-}
+})
+
+func GetAllRegions() []RegionEntry { return getAllRegions() }
 
 // GetAllMapEntries returns all map region entries (visible + acquired + system) sorted by area then name.
-func GetAllMapEntries() []MapEntry {
+var getAllMapEntries = sync.OnceValue(func() []MapEntry {
 	entries := make([]MapEntry, 0, len(data.MapVisible)+len(data.MapAcquired)+len(data.MapSystem)+len(data.MapUnsafe))
 	for id, m := range data.MapSystem {
 		entries = append(entries, MapEntry{ID: id, Name: m.Name, Area: m.Area, Category: "system"})
@@ -892,7 +932,9 @@ func GetAllMapEntries() []MapEntry {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries
-}
+})
+
+func GetAllMapEntries() []MapEntry { return getAllMapEntries() }
 
 // QuestNPC represents an NPC with their quest progression.
 type QuestNPC struct {
@@ -916,17 +958,19 @@ type QuestFlagState struct {
 }
 
 // GetAllQuestNPCs returns the list of NPC names with quest data.
-func GetAllQuestNPCs() []string {
+var getAllQuestNPCs = sync.OnceValue(func() []string {
 	names := make([]string, 0, len(data.QuestData))
 	for name := range data.QuestData {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names
-}
+})
+
+func GetAllQuestNPCs() []string { return getAllQuestNPCs() }
 
 // GetAllCookbooks returns all cookbooks sorted by category then name.
-func GetAllCookbooks() []CookbookEntry {
+var getAllCookbooks = sync.OnceValue(func() []CookbookEntry {
 	entries := make([]CookbookEntry, 0, len(data.Cookbooks))
 	for id, cb := range data.Cookbooks {
 		entries = append(entries, CookbookEntry{
@@ -942,10 +986,12 @@ func GetAllCookbooks() []CookbookEntry {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries
-}
+})
+
+func GetAllCookbooks() []CookbookEntry { return getAllCookbooks() }
 
 // GetAllBellBearings returns all bell bearings sorted by category then name.
-func GetAllBellBearings() []BellBearingEntry {
+var getAllBellBearings = sync.OnceValue(func() []BellBearingEntry {
 	entries := make([]BellBearingEntry, 0, len(data.BellBearings))
 	for id, bb := range data.BellBearings {
 		entries = append(entries, BellBearingEntry{
@@ -961,10 +1007,12 @@ func GetAllBellBearings() []BellBearingEntry {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries
-}
+})
+
+func GetAllBellBearings() []BellBearingEntry { return getAllBellBearings() }
 
 // GetAllWhetblades returns all whetblades sorted by name.
-func GetAllWhetblades() []WhetbladeEntry {
+var getAllWhetblades = sync.OnceValue(func() []WhetbladeEntry {
 	entries := make([]WhetbladeEntry, 0, len(data.Whetblades))
 	for id, wb := range data.Whetblades {
 		entries = append(entries, WhetbladeEntry{
@@ -976,10 +1024,12 @@ func GetAllWhetblades() []WhetbladeEntry {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries
-}
+})
+
+func GetAllWhetblades() []WhetbladeEntry { return getAllWhetblades() }
 
 // GetAllAshOfWarFlags returns all Ash of War duplication flags sorted by name.
-func GetAllAshOfWarFlags() []AshOfWarFlagEntry {
+var getAllAshOfWarFlags = sync.OnceValue(func() []AshOfWarFlagEntry {
 	entries := make([]AshOfWarFlagEntry, 0, len(data.AshOfWarFlags))
 	for id, aow := range data.AshOfWarFlags {
 		entries = append(entries, AshOfWarFlagEntry{
@@ -991,7 +1041,9 @@ func GetAllAshOfWarFlags() []AshOfWarFlagEntry {
 		return entries[i].Name < entries[j].Name
 	})
 	return entries
-}
+})
+
+func GetAllAshOfWarFlags() []AshOfWarFlagEntry { return getAllAshOfWarFlags() }
 
 // SetEventFlag sets or clears a specific event flag in the bit array.
 // Uses the same resolution order as GetEventFlag (lookup table → BST → fallback).

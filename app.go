@@ -2719,6 +2719,16 @@ func writePresetAppearance(slot *core.SaveSlot, fd int, preset *data.AppearanceP
 	slot.Player.Gender = preset.BodyType
 }
 
+// findPresetByName returns a pointer to the named preset or nil if not found.
+func findPresetByName(name string) *data.AppearancePreset {
+	for i := range data.Presets {
+		if data.Presets[i].Name == name {
+			return &data.Presets[i]
+		}
+	}
+	return nil
+}
+
 // ApplyPresetToCharacter applies a named appearance preset directly to a character's FaceData
 // blob, replicating the appearance-change behaviour of SetCharacterGender but for any preset.
 func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
@@ -2729,13 +2739,7 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 		return fmt.Errorf("invalid character index")
 	}
 
-	var preset *data.AppearancePreset
-	for i := range data.Presets {
-		if data.Presets[i].Name == presetName {
-			preset = &data.Presets[i]
-			break
-		}
-	}
+	preset := findPresetByName(presetName)
 	if preset == nil {
 		return fmt.Errorf("preset %q not found", presetName)
 	}
@@ -2771,13 +2775,7 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 		defaultName = data.DefaultFemalePresetName
 	}
 
-	var preset *data.AppearancePreset
-	for i := range data.Presets {
-		if data.Presets[i].Name == defaultName {
-			preset = &data.Presets[i]
-			break
-		}
-	}
+	preset := findPresetByName(defaultName)
 	if preset == nil {
 		return fmt.Errorf("default preset %q not found", defaultName)
 	}
@@ -2975,13 +2973,7 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 
 	written := 0
 	for i, name := range presetNames {
-		var preset *data.AppearancePreset
-		for j := range data.Presets {
-			if data.Presets[j].Name == name {
-				preset = &data.Presets[j]
-				break
-			}
-		}
+		preset := findPresetByName(name)
 		if preset == nil {
 			continue
 		}
