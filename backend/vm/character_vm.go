@@ -226,6 +226,7 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32) []ItemViewM
 func ApplyVMToParsedSlot(vm *CharacterViewModel, slot *core.SaveSlot) error {
 	data := &slot.Player
 	data.Level = vm.Level
+	data.Class = vm.Class
 	data.Souls = vm.Souls
 	data.Vigor = vm.Vigor
 	data.Mind = vm.Mind
