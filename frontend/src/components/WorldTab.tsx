@@ -422,7 +422,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
     if (loading) return (
         <div className="py-16 flex flex-col items-center justify-center space-y-3">
             <div className="w-5 h-5 border-2 border-foreground/20 border-t-foreground rounded-full animate-spin" />
-            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Scanning...</p>
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Scanning...</p>
         </div>
     );
 
@@ -444,7 +444,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
             <div className="flex items-center space-x-1">
                 {(['exploration', 'progress', 'unlocks', 'networking'] as const).map(st => (
                     <button key={st} onClick={() => setActiveSubTab(st)}
-                        className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.15em] transition-all ${activeSubTab === st ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}>
+                        className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-[0.15em] transition-all ${activeSubTab === st ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}>
                         {st}
                     </button>
                 ))}
@@ -468,7 +468,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                 {mapSystemEntries.map(e => (
                                     <label key={e.id} className="flex items-center space-x-1.5 group cursor-pointer">
                                         <Chk checked={e.enabled} onChange={v => handleSystemFlagToggle(e, v)} />
-                                        <span className={`text-[9px] font-bold uppercase tracking-widest ${e.enabled ? 'text-foreground' : 'text-muted-foreground'}`}>{e.name}</span>
+                                        <span className={`text-[11px] font-bold uppercase tracking-widest ${e.enabled ? 'text-foreground' : 'text-muted-foreground'}`}>{e.name}</span>
                                     </label>
                                 ))}
                             </div>
@@ -480,7 +480,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                         className="w-full flex items-center gap-1.5 py-1 hover:bg-muted/20 rounded transition-all">
                                         <svg className={`w-2.5 h-2.5 transition-transform ${expandedMapAreas[area] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
                                             fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                        <span className="text-[9px] font-bold uppercase tracking-wider text-foreground">{area}</span>
+                                        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{area}</span>
                                         <MiniProgress current={ae.filter(e => e.enabled).length} total={ae.length} />
                                     </button>
                                     {expandedMapAreas[area] && ae.map(e => (
@@ -515,7 +515,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                             <button onClick={() => setExpandedRegions(p => ({...p, [region]: !p[region]}))} className="flex items-center gap-1.5 flex-1 text-left">
                                                 <svg className={`w-2.5 h-2.5 transition-transform ${expandedRegions[region] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                                <span className="text-[9px] font-bold uppercase tracking-wider">{region}</span>
+                                                <span className="text-[11px] font-bold uppercase tracking-wider">{region}</span>
                                             </button>
                                             <div className="flex items-center gap-1.5">
                                                 {vc < rg.length && <button onClick={() => handleUnlockRegionGraces(rg)} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Unlock</button>}
@@ -561,7 +561,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                             <button onClick={() => setExpandedPoolRegions(p => ({...p, [region]: !p[region]}))} className="flex items-center gap-1.5 flex-1 text-left">
                                                 <svg className={`w-2.5 h-2.5 transition-transform ${expandedPoolRegions[region] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                                <span className="text-[9px] font-bold uppercase tracking-wider">{region}</span>
+                                                <span className="text-[11px] font-bold uppercase tracking-wider">{region}</span>
                                             </button>
                                             <div className="flex items-center gap-1.5">
                                                 {ac < rp.length && <button onClick={() => handleActivateAllPools(rp)} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Activate</button>}
@@ -634,7 +634,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                             <button onClick={() => setExpandedBossRegions(p => ({...p, [region]: !p[region]}))} className="flex items-center gap-1.5 flex-1 text-left">
                                                 <svg className={`w-2.5 h-2.5 transition-transform ${expandedBossRegions[region] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                                <span className="text-[9px] font-bold uppercase tracking-wider">{region}</span>
+                                                <span className="text-[11px] font-bold uppercase tracking-wider">{region}</span>
                                             </button>
                                             <div className="flex items-center gap-1.5">
                                                 {dc < rb.length && <button onClick={() => handleKillAll(rb)} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Kill</button>}
@@ -825,7 +825,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                                             <span>{s.max}{s.unit}</span>
                                                         </div>
                                                         {hintOpen && (
-                                                            <p className="mt-1 pl-[9.5rem] text-[9px] text-muted-foreground leading-relaxed animate-in fade-in slide-in-from-top-1 duration-150">
+                                                            <p className="mt-1 pl-[9.5rem] text-[11px] text-muted-foreground leading-relaxed animate-in fade-in slide-in-from-top-1 duration-150">
                                                                 {s.desc}
                                                             </p>
                                                         )}
@@ -891,7 +891,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                             <button onClick={() => setExpandedCookbookCategories(p => ({...p, [cat]: !p[cat]}))} className="flex items-center gap-1.5 flex-1 text-left">
                                                 <svg className={`w-2.5 h-2.5 transition-transform ${expandedCookbookCategories[cat] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                                <span className="text-[9px] font-bold uppercase tracking-wider">{cat}</span>
+                                                <span className="text-[11px] font-bold uppercase tracking-wider">{cat}</span>
                                             </button>
                                             <MiniProgress current={uc} total={cbs.length} />
                                         </div>
@@ -927,7 +927,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                             <button onClick={() => setExpandedBBCategories(p => ({...p, [cat]: !p[cat]}))} className="flex items-center gap-1.5 flex-1 text-left">
                                                 <svg className={`w-2.5 h-2.5 transition-transform ${expandedBBCategories[cat] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                                <span className="text-[9px] font-bold uppercase tracking-wider">{cat}</span>
+                                                <span className="text-[11px] font-bold uppercase tracking-wider">{cat}</span>
                                             </button>
                                             <MiniProgress current={uc} total={bbs.length} />
                                         </div>
@@ -972,7 +972,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                             <button onClick={handleLockAllRegions} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Lock All</button>
                         </>}>
                         <RiskSectionBanner riskKey="bulk_region_unlock" className="mb-3" />
-                        <p className="text-[9px] text-muted-foreground/70 italic px-1 pb-2">
+                        <p className="text-[11px] text-muted-foreground/70 italic px-1 pb-2">
                             Map regions stored in the save's Regions struct. Controls invasion eligibility (PvP / NPC) and blue summons.
                         </p>
                         <div className="accordion-grid">
@@ -984,7 +984,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                                             <button onClick={() => setExpandedRegionAreas(p => ({...p, [area]: !p[area]}))} className="flex items-center gap-1.5 flex-1 text-left">
                                                 <svg className={`w-2.5 h-2.5 transition-transform ${expandedRegionAreas[area] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
                                                     fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                                <span className="text-[9px] font-bold uppercase tracking-wider">{area}</span>
+                                                <span className="text-[11px] font-bold uppercase tracking-wider">{area}</span>
                                             </button>
                                             <MiniProgress current={uc} total={rs.length} />
                                             <button onClick={() => handleUnlockAreaRegions(area)} className={`${btnSm} ml-1 hover:text-primary hover:border-primary/50`} title="Unlock all in area">+</button>
