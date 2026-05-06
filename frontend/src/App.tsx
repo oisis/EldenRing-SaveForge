@@ -11,7 +11,6 @@ import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 
-import {AccordionSection} from './components/AccordionSection';
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {db} from '../wailsjs/go/models';
@@ -24,9 +23,10 @@ export type AddSettings = {
     infuseOffset: number;
     upgradeAsh: number;
     talismansHighestOnly: boolean;
+    includeAshenCapital: boolean;
 };
 
-const DEFAULT_ADD_SETTINGS: AddSettings = { upgrade25: 0, upgrade10: 0, infuseOffset: 0, upgradeAsh: 0, talismansHighestOnly: false };
+const DEFAULT_ADD_SETTINGS: AddSettings = { upgrade25: 0, upgrade10: 0, infuseOffset: 0, upgradeAsh: 0, talismansHighestOnly: false, includeAshenCapital: false };
 
 function App() {
     const [platform, setPlatform] = useState<string | null>(null);
@@ -115,6 +115,7 @@ function App() {
                     infuseOffset: 0,
                     upgradeAsh: maxOf(i => i.subCategory === 'ashes'),
                     talismansHighestOnly: false,
+                    includeAshenCapital: false,
                 },
             }));
         }).catch(() => {});
@@ -467,7 +468,7 @@ function App() {
                                     );
                                 })()}
                                 <div className={activeTab === 'inventory' ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
-                                {activeTab === 'character' && <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} refreshKey={inventoryVersion} />}
+                                {activeTab === 'character' && <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} refreshKey={inventoryVersion} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsChange={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} infuseTypes={infuseTypes} />}
                                 {activeTab === 'inventory' && (
                                     <div className="flex-1 flex flex-col min-h-0">
                                         {/* Header consolidation (spec/36): toggle pills + capacity bar (Inventory) OR
@@ -526,61 +527,16 @@ function App() {
                                                 );
                                             }
 
-                                            // Database view: pills + Add Settings accordion (4-param summary).
-                                            const s = charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS;
-                                            const infuseName = infuseTypes.find(t => t.offset === s.infuseOffset)?.name ?? 'Standard';
+                                            // Database view: pills + fav toggle only (Add Settings moved to Character tab).
                                             return (
-                                                <div className="flex items-start gap-4 mb-3 shrink-0">
-                                                    <div className="pt-2 flex items-center gap-2">{togglePills}{favToggle}</div>
-                                                    <div className="flex-1 min-w-0">
-                                                        <AccordionSection id="inv-add-settings" title="Add Settings"
-                                                            summary={`+${s.upgrade25} · +${s.upgrade10} · ${infuseName} · Ash +${s.upgradeAsh}`}
-                                                            className=""
-                                                            headerRight={detailItem ? (
-                                                                <button onClick={() => setDetailItem(null)}
-                                                                    className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
-                                                                    Close Detail
-                                                                </button>
-                                                            ) : undefined}>
-                                                            {(() => {
-                                                                const set = (patch: Partial<AddSettings>) => setCharAddSettings(prev => ({...prev, [selectedChar]: {...s, ...patch}}));
-                                                                return (
-                                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-4 py-1">
-                                                                        <div className="flex items-center space-x-3">
-                                                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +25</span>
-                                                                            <input type="range" min={0} max={25} value={s.upgrade25} onChange={e => set({upgrade25: parseInt(e.target.value)})}
-                                                                                className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
-                                                                            <span className="text-[10px] font-mono font-bold text-primary w-6 text-right">+{s.upgrade25}</span>
-                                                                        </div>
-                                                                        <div className="flex items-center space-x-3">
-                                                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +10</span>
-                                                                            <input type="range" min={0} max={10} value={s.upgrade10} onChange={e => set({upgrade10: parseInt(e.target.value)})}
-                                                                                className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
-                                                                            <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{s.upgrade10}</span>
-                                                                        </div>
-                                                                        <div className="flex items-center space-x-3">
-                                                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Infuse</span>
-                                                                            <select value={s.infuseOffset} onChange={e => set({infuseOffset: parseInt(e.target.value)})}
-                                                                                className="flex-1 bg-muted/20 border border-border rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer">
-                                                                                {infuseTypes.map(t => <option key={t.offset} value={t.offset}>{t.name}</option>)}
-                                                                            </select>
-                                                                        </div>
-                                                                        <div className="flex items-center space-x-3">
-                                                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Spirit Ash</span>
-                                                                            <input type="range" min={0} max={10} value={s.upgradeAsh} onChange={e => set({upgradeAsh: parseInt(e.target.value)})}
-                                                                                className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
-                                                                            <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{s.upgradeAsh}</span>
-                                                                        </div>
-                                                                        <label title="When enabled, only the highest-tier variant of each talisman family (Greatshield, Golden Braid, +3 medallions, Two-Headed Turtle, Soreseals etc.) is shown — lower upgrade levels are hidden." className="flex items-center space-x-3 cursor-pointer md:col-span-2">
-                                                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-fit shrink-0">Talismans: highest only</span>
-                                                                            <input type="checkbox" checked={s.talismansHighestOnly} onChange={e => set({talismansHighestOnly: e.target.checked})}
-                                                                                className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
-                                                                        </label>
-                                                                    </div>
-                                                                );
-                                                            })()}
-                                                        </AccordionSection>
-                                                    </div>
+                                                <div className="flex items-center gap-2 mb-3 shrink-0">
+                                                    {togglePills}{favToggle}
+                                                    {detailItem && (
+                                                        <button onClick={() => setDetailItem(null)}
+                                                            className="ml-auto text-[8px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
+                                                            Close Detail
+                                                        </button>
+                                                    )}
                                                 </div>
                                             );
                                         })()}
@@ -606,7 +562,7 @@ function App() {
                                         )}
                                     </div>
                                 )}
-                                {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} />}
+                                {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
                                 {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>

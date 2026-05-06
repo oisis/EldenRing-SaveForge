@@ -1,11 +1,12 @@
 import {useEffect, useState} from 'react';
 import toast from '../lib/toast';
 import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset} from '../../wailsjs/go/main/App';
-import {vm, main} from '../../wailsjs/go/models';
+import {vm, main, db} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
 import {getRunesRiskKey} from '../data/riskInfo';
 import {useSafetyMode} from '../state/safetyMode';
+import type {AddSettings} from '../App';
 
 const RUNES_LEGAL_MAX = 999_999_999;
 
@@ -14,6 +15,9 @@ interface Props {
     onNameChange?: () => void;
     onMutate: () => void;
     refreshKey?: number;
+    addSettings: AddSettings;
+    onAddSettingsChange: (s: AddSettings) => void;
+    infuseTypes: db.InfuseType[];
 }
 
 const ATTRIBUTES = [
@@ -27,7 +31,7 @@ const ATTRIBUTES = [
     { id: 'arcane', label: 'Arcane', abbr: 'Arc' },
 ];
 
-export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey}: Props) {
+export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, addSettings, onAddSettingsChange, infuseTypes}: Props) {
     const safetyMode = useSafetyMode();
     const [char, setChar] = useState<vm.CharacterViewModel | null>(null);
     const [loading, setLoading] = useState(false);
@@ -299,6 +303,58 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey}: Pr
                         );
                     })}
                 </div>
+            </AccordionSection>
+
+            {/* ═══ ADD SETTINGS ═══ */}
+            <AccordionSection
+                id="char-add-settings"
+                title="Add Settings"
+                summary={`+${addSettings.upgrade25} · +${addSettings.upgrade10} · ${infuseTypes.find(t => t.offset === addSettings.infuseOffset)?.name ?? 'Standard'} · Ash +${addSettings.upgradeAsh}`}
+            >
+                {(() => {
+                    const set = (patch: Partial<AddSettings>) => onAddSettingsChange({...addSettings, ...patch});
+                    return (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-5 py-2">
+                            <div className="flex items-center space-x-3">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +25</span>
+                                <input type="range" min={0} max={25} value={addSettings.upgrade25} onChange={e => set({upgrade25: parseInt(e.target.value)})}
+                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
+                                <span className="text-[10px] font-mono font-bold text-primary w-6 text-right">+{addSettings.upgrade25}</span>
+                            </div>
+                            <div className="flex items-center space-x-3">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +10</span>
+                                <input type="range" min={0} max={10} value={addSettings.upgrade10} onChange={e => set({upgrade10: parseInt(e.target.value)})}
+                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
+                                <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{addSettings.upgrade10}</span>
+                            </div>
+                            <div className="flex items-center space-x-3">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Infuse</span>
+                                <select value={addSettings.infuseOffset} onChange={e => set({infuseOffset: parseInt(e.target.value)})}
+                                    className="flex-1 bg-muted/20 border border-border rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer">
+                                    {infuseTypes.map(t => <option key={t.offset} value={t.offset}>{t.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="flex items-center space-x-3">
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Spirit Ash</span>
+                                <input type="range" min={0} max={10} value={addSettings.upgradeAsh} onChange={e => set({upgradeAsh: parseInt(e.target.value)})}
+                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
+                                <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{addSettings.upgradeAsh}</span>
+                            </div>
+                            <div className="flex items-center gap-8 md:col-span-2 pt-1 border-t border-border/30">
+                                <label title="When enabled, only the highest-tier variant of each talisman family is shown — lower upgrade levels are hidden." className="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" checked={addSettings.talismansHighestOnly} onChange={e => set({talismansHighestOnly: e.target.checked})}
+                                        className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Talismans: highest only</span>
+                                </label>
+                                <label title="When enabled, 'Unlock All' Sites of Grace in World tab will also include Leyndell, Ashen Capital graces. Disable if you haven't triggered the capital's transformation yet." className="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" checked={addSettings.includeAshenCapital} onChange={e => set({includeAshenCapital: e.target.checked})}
+                                        className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
+                                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">SoG: Leyndell, Ashen Capital</span>
+                                </label>
+                            </div>
+                        </div>
+                    );
+                })()}
             </AccordionSection>
 
             {/* ═══ APPEARANCE PRESETS ═══ */}

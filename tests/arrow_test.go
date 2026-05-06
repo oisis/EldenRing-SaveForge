@@ -3,9 +3,9 @@ package tests
 import (
 	"testing"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
-	"github.com/oisis/EldenRing-SaveEditor/backend/vm"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 )
 
 // TestArrowsAddToInventoryOnly reproduces the user's issue:

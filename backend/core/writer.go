@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
 
 // upsertGaItemData ensures itemID is present in the GaitemGameData section.

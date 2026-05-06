@@ -89,6 +89,7 @@ export function PresetImporter({charIndex, onComplete, onMutate, onAddSettingsAp
                     infuseOffset: preset.addSettings.infuseOffset ?? 0,
                     upgradeAsh: preset.addSettings.upgradeAsh ?? 0,
                     talismansHighestOnly: preset.addSettings.talismansHighestOnly ?? false,
+                    includeAshenCapital: false,
                 });
             }
             toast.success('Preset applied successfully!');

@@ -1,5 +1,6 @@
 import {useCallback, useEffect, useState} from 'react';
 import {GetGraces, SetGraceVisited, GetBosses, SetBossDefeated, GetSummoningPools, SetSummoningPoolActivated, GetColosseums, SetColosseumUnlocked, GetMapProgress, SetMapFlag, SetMapRegionFlags, RevealAllMap, ResetMapExploration, RemoveFogOfWar, GetCookbooks, SetCookbookUnlocked, BulkSetCookbooksUnlocked, GetGestures, SetGestureUnlocked, BulkSetGesturesUnlocked, GetQuestNPCs, GetQuestProgress, SetQuestStep, GetBellBearings, SetBellBearingUnlocked, BulkSetBellBearings, GetWhetblades, SetWhetbladeUnlocked, GetUnlockedRegions, SetRegionUnlocked, BulkSetUnlockedRegions, GetNetworkParams, SetNetworkParams, GetNetworkPreset} from '../../wailsjs/go/main/App';
+import type {AddSettings} from '../App';
 import {core, db} from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 import {AccordionSection} from './AccordionSection';
@@ -113,6 +114,7 @@ interface WorldTabProps {
     showFlaggedItems?: boolean;
     saveLoadKey?: number;
     onMutate?: () => void;
+    addSettings?: AddSettings;
 }
 
 const MiniProgress = ({current, total}: {current: number; total: number}) => {
@@ -149,7 +151,7 @@ const ChkX = ({checked, onChange}: {checked: boolean; onChange: (v: boolean) => 
 
 const btnSm = "text-[8px] font-black uppercase tracking-widest text-muted-foreground border border-foreground/30 bg-foreground/5 px-2 py-0.5 rounded transition-all";
 
-export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMutate}: WorldTabProps) {
+export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMutate, addSettings}: WorldTabProps) {
     const [graces, setGraces] = useState<db.GraceEntry[]>([]);
     const [bosses, setBosses] = useState<db.BossEntry[]>([]);
     const [pools, setPools] = useState<db.SummoningPoolEntry[]>([]);
@@ -270,7 +272,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
     const regions = graces.reduce((acc, g) => { const r = g.region || 'Unknown'; (acc[r] ??= []).push(g); return acc; }, {} as Record<string, db.GraceEntry[]>);
     const handleGraceToggle = async (grace: db.GraceEntry, visited: boolean) => { await SetGraceVisited(charIdx, grace.id, visited); setGraces(prev => prev.map(g => g.id === grace.id ? {...g, visited} : g)); onMutate?.(); };
     const handleUnlockRegionGraces = async (rg: db.GraceEntry[]) => { await Promise.all(rg.filter(g => !g.visited).map(g => SetGraceVisited(charIdx, g.id, true))); const ids = new Set(rg.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: true} : g)); onMutate?.(); };
-    const handleUnlockAllGraces = async () => { const u = graces.filter(g => !g.visited && (!skipBossArenas || !g.isBossArena)); if (!u.length) return; await Promise.all(u.map(g => SetGraceVisited(charIdx, g.id, true))); const ids = new Set(u.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: true} : g)); onMutate?.(); };
+    const handleUnlockAllGraces = async () => { const u = graces.filter(g => !g.visited && (!skipBossArenas || !g.isBossArena) && (addSettings?.includeAshenCapital || g.region !== 'Leyndell, Ashen Capital')); if (!u.length) return; await Promise.all(u.map(g => SetGraceVisited(charIdx, g.id, true))); const ids = new Set(u.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: true} : g)); onMutate?.(); };
     const handleLockAllGraces = async () => { const u = graces.filter(g => g.visited); if (!u.length) return; await Promise.all(u.map(g => SetGraceVisited(charIdx, g.id, false))); const ids = new Set(u.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: false} : g)); onMutate?.(); };
 
     // --- Boss logic ---

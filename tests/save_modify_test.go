@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
-	"github.com/oisis/EldenRing-SaveEditor/backend/vm"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 )
 
 // findActiveSlot returns the index of the first active slot, or skips the test.

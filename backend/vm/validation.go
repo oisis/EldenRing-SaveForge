@@ -3,7 +3,7 @@ package vm
 import (
 	"fmt"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
 
 const PlayerGameDataOffset = 0x15420

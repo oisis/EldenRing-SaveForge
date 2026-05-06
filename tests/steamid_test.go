@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
 )
 
 func TestSteamIDFlush(t *testing.T) {

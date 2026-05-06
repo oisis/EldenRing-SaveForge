@@ -14,11 +14,11 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db/data"
-	"github.com/oisis/EldenRing-SaveEditor/backend/deploy"
-	"github.com/oisis/EldenRing-SaveEditor/backend/vm"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
+	"github.com/oisis/EldenRing-SaveForge/backend/deploy"
+	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 

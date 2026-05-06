@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
 )
 
 func TestReadNetworkParams_PC(t *testing.T) {

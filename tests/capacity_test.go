@@ -5,8 +5,8 @@ import (
 	"encoding/binary"
 	"testing"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
 
 // ---------- Step 1: upsertGaItemData overflow ----------

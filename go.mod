@@ -1,9 +1,10 @@
-module github.com/oisis/EldenRing-SaveEditor
+module github.com/oisis/EldenRing-SaveForge
 
 go 1.25.0
 
 require (
 	github.com/klauspost/compress v1.18.6
+	github.com/oisis/EldenRing-SaveEditor v0.9.2
 	github.com/pkg/sftp v1.13.10
 	github.com/wailsapp/wails/v2 v2.11.0
 	golang.org/x/crypto v0.50.0

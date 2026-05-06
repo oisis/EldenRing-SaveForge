@@ -1,7 +1,7 @@
 package tests
 
 import (
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"os"
 	"testing"
 )

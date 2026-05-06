@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/db/data"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // ItemEntry represents a single item from the game database.

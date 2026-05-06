@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
 
 // loadBulkTestSave loads the PC test save and returns the save file and first non-empty slot index.

@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db/data"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 const PresetFormatVersion = 1

@@ -174,4 +174,5 @@ build/bin/
 !build/windows/
 !build/appicon.png
 EldenRing-SaveEditor
+EldenRing-SaveForge
 main

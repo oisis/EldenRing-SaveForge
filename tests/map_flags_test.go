@@ -3,8 +3,8 @@ package tests
 import (
 	"testing"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db/data"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // TestBSTLookupMatchesEventFlags verifies that BST-computed positions match

@@ -5,9 +5,9 @@ import (
 	"slices"
 	"unicode/utf16"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
-	gamedata "github.com/oisis/EldenRing-SaveEditor/backend/db/data"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	gamedata "github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 type ItemViewModel struct {

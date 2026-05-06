@@ -5,8 +5,8 @@ import (
 	"os"
 	"testing"
 
-	"github.com/oisis/EldenRing-SaveEditor/backend/core"
-	"github.com/oisis/EldenRing-SaveEditor/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
 
 // Test save file paths (relative to tests/ directory).
