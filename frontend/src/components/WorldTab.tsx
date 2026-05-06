@@ -239,7 +239,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
         setNetDirty(true);
     };
 
-    const loadData = () => {
+    const loadExplorationData = useCallback(() => {
         setLoading(true);
         Promise.all([
             GetGraces(charIdx).then(res => setGraces(res || [])),
@@ -258,15 +258,30 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                 }
                 setMapEntries(entries);
             }),
+        ]).finally(() => setLoading(false));
+    }, [charIdx]);
+
+    const loadProgressData = useCallback(() => {
+        setLoading(true);
+        Promise.all([
             GetCookbooks(charIdx).then(res => setCookbooks(res || [])),
             GetGestures(charIdx).then(res => setGesturesList(res || [])),
             GetQuestNPCs().then(res => setQuestNPCs(res || [])),
+        ]).finally(() => setLoading(false));
+    }, [charIdx]);
+
+    const loadUnlocksData = useCallback(() => {
+        setLoading(true);
+        Promise.all([
             GetBellBearings(charIdx).then(res => setBellBearings(res || [])),
             GetWhetblades(charIdx).then(res => setWhetblades(res || [])),
             GetUnlockedRegions(charIdx).then(res => setRegionEntries(res || [])),
         ]).finally(() => setLoading(false));
-    };
-    useEffect(() => { loadData(); }, [charIdx]);
+    }, [charIdx]);
+
+    useEffect(() => { loadExplorationData(); }, [loadExplorationData]);
+    useEffect(() => { if (activeSubTab === 'progress') loadProgressData(); }, [activeSubTab, loadProgressData]);
+    useEffect(() => { if (activeSubTab === 'unlocks') loadUnlocksData(); }, [activeSubTab, loadUnlocksData]);
 
     // --- Grace logic ---
     const regions = graces.reduce((acc, g) => { const r = g.region || 'Unknown'; (acc[r] ??= []).push(g); return acc; }, {} as Record<string, db.GraceEntry[]>);
@@ -358,7 +373,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
     };
     const handleSystemFlagToggle = async (entry: db.MapEntry, enabled: boolean) => { await SetMapFlag(charIdx, entry.id, enabled); setMapEntries(prev => prev.map(e => e.id === entry.id ? {...e, enabled} : e)); onMutate?.(); };
     const handleRevealAllMap = async () => { await RevealAllMap(charIdx); await RemoveFogOfWar(charIdx); setMapEntries(prev => prev.map(e => ({...e, enabled: true}))); onMutate?.(); };
-    const handleResetMap = async () => { await ResetMapExploration(charIdx); loadData(); onMutate?.(); };
+    const handleResetMap = async () => { await ResetMapExploration(charIdx); loadExplorationData(); onMutate?.(); };
     const totalMapRegions = mapRegionEntries.length;
     const enabledMapRegions = mapRegionEntries.filter(e => e.enabled).length;
 
