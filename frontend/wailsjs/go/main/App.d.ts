@@ -132,6 +132,8 @@ export function SaveCharacter(arg1:number,arg2:vm.CharacterViewModel):Promise<vo
 
 export function SaveDeployTarget(arg1:deploy.Target):Promise<void>;
 
+export function ScanBanRisk():Promise<Array<main.SlotBanReport>>;
+
 export function SelectAndOpenSave():Promise<string>;
 
 export function SelectAndOpenSourceSave():Promise<string>;

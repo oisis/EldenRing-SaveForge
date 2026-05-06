@@ -55,7 +55,11 @@ export type RiskKey =
     | 'quest_step_skip'
     | 'ng_plus_write'
     | 'character_import'
-    | 'preset_apply';
+    | 'preset_apply'
+    // Ban Detector specific
+    | 'upgrade_cap'
+    | 'steamid_mismatch'
+    | 'soul_memory_mismatch';
 
 export const RISK_INFO: Record<RiskKey, RiskEntry> = {
     cut_content: {
@@ -380,6 +384,48 @@ export const RISK_INFO: Record<RiskKey, RiskEntry> = {
         mitigation:
             'Review the preset preview carefully before applying. After apply, scan inventory for ban badges.',
         sources: [],
+    },
+    upgrade_cap: {
+        tier: 2,
+        level: 'high',
+        title: 'Weapon Above Upgrade Cap',
+        whyBan:
+            'Weapons upgraded beyond their vanilla maximum (+25 standard / +10 somber) cannot be obtained through normal play. The server checks item IDs against achievable upgrade ranges — any ID that encodes an upgrade level exceeding the cap is treated as injected.',
+        reports:
+            'Weapons with impossible upgrade levels are a known ban trigger, reported alongside other illegal item findings.',
+        mitigation:
+            'Downgrade the weapon to its legal cap (+25 or +10) or remove it from inventory and storage before going online.',
+        sources: [
+            {label: 'spec/45 §3.4 — Upgrade-Level Violations'},
+        ],
+    },
+    steamid_mismatch: {
+        tier: 2,
+        level: 'high',
+        title: 'SteamID Mismatch',
+        whyBan:
+            'Each PC save file is tied to the Steam account that created it. When the SteamID embedded in a slot differs from the authenticated account, the server detects that the save was produced by a different player.',
+        reports:
+            'Confirmed ban trigger. Loading another player\'s .sl2 under your own account is documented in multiple community reports.',
+        mitigation:
+            'Update the SteamID in Settings → Steam ID to match your account before going online, or use a clean save created on your own account.',
+        sources: [
+            {label: 'spec/45 §3.6 — SteamID Mismatch'},
+        ],
+    },
+    soul_memory_mismatch: {
+        tier: 2,
+        level: 'medium',
+        title: 'Soul Memory Too Low',
+        whyBan:
+            'Soul Memory tracks the total runes ever accumulated. The server expects it to be at least equal to the cumulative rune cost to reach the character\'s level. A value below the minimum indicates that the character\'s level was edited directly without accumulating the corresponding runes.',
+        reports:
+            'Soul Memory discrepancies are a known detection vector in FromSoftware games (documented in Dark Souls series; same architecture in Elden Ring). Direct level editing without updating the rune counter creates a detectable mismatch.',
+        mitigation:
+            'Use the "Fix Soul Memory" button on the Character tab to automatically set it to the correct minimum value. Alternatively, level up normally in-game to accumulate the correct total.',
+        sources: [
+            {label: 'spec/45 §3.2 — Impossible Stat Values / Soul Memory check'},
+        ],
     },
 };
 

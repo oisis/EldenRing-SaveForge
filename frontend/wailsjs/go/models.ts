@@ -649,6 +649,26 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class BanFinding {
+	    tier: string;
+	    category: string;
+	    detail: string;
+	    itemId: number;
+	    itemName: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BanFinding(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tier = source["tier"];
+	        this.category = source["category"];
+	        this.detail = source["detail"];
+	        this.itemId = source["itemId"];
+	        this.itemName = source["itemName"];
+	    }
+	}
 	export class DiffEntry {
 	    category: string;
 	    action: string;
@@ -704,6 +724,42 @@ export namespace main {
 	    }
 	}
 	
+	export class SlotBanReport {
+	    slotIndex: number;
+	    charName: string;
+	    level: number;
+	    findings: BanFinding[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SlotBanReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slotIndex = source["slotIndex"];
+	        this.charName = source["charName"];
+	        this.level = source["level"];
+	        this.findings = this.convertValues(source["findings"], BanFinding);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class SlotCapacity {
 	    gaItemsUsed: number;
 	    gaItemsMax: number;

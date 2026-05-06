@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(tools): Ban Risk Scanner
+
+- New `ScanBanRisk()` Go method (`app_ban_scan.go`) scans all active slots for: cut content / ban_risk items in inventory + storage, attributes > 99, level > 713, weapon upgrade level exceeding vanilla cap, SteamID mismatch (PC only)
+- Per-slot results as `[]SlotBanReport` with `BanFinding` entries (tier + category + detail + itemId + itemName)
+- New `BanScanPanel.tsx` component in Tools tab: "Scan All Slots" button, per-slot cards with color-coded findings (red=high, orange=medium), RiskInfoIcon popover on each finding, "Export JSON" button
+- Added `upgrade_cap` and `steamid_mismatch` entries to `RISK_INFO` / `RiskKey` union in `riskInfo.ts`
+- Tools tab grid: new "Ban Risk Scan" card navigating to ban-scan sub-view
+
 ### feat(character): Soul Memory tracking, dirty guard, add-settings persistence
 
 - `SoulMemory` (PGD+0x68) added to `PlayerGameData`, read/written in `SyncPlayerToData()`; exposed via `CharacterViewModel.soulMemory`

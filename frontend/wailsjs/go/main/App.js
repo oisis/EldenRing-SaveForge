@@ -254,6 +254,10 @@ export function SaveDeployTarget(arg1) {
   return window['go']['main']['App']['SaveDeployTarget'](arg1);
 }
 
+export function ScanBanRisk() {
+  return window['go']['main']['App']['ScanBanRisk']();
+}
+
 export function SelectAndOpenSave() {
   return window['go']['main']['App']['SelectAndOpenSave']();
 }

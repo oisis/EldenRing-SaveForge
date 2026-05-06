@@ -3,6 +3,7 @@ import toast from '../lib/toast';
 import {CharacterImporter} from './CharacterImporter';
 import {PresetImporter} from './PresetImporter';
 import {FavoritesManager} from './FavoritesManager';
+import {BanScanPanel} from './BanScanPanel';
 import {ExportCharacterPresetToFile} from '../../wailsjs/go/main/App';
 import {useFavorites} from '../state/favorites';
 import type {AddSettings} from '../App';
@@ -16,7 +17,7 @@ interface ToolsTabProps {
     onAddSettingsApplied?: (s: AddSettings) => void;
 }
 
-type ToolView = 'overview' | 'importer' | 'preset-import' | 'favorites';
+type ToolView = 'overview' | 'importer' | 'preset-import' | 'favorites' | 'ban-scan';
 
 export function ToolsTab({charIndex, onComplete, onMutate, addSettings, onAddSettingsApplied}: ToolsTabProps) {
     const [view, setView] = useState<ToolView>('overview');
@@ -81,6 +82,21 @@ export function ToolsTab({charIndex, onComplete, onMutate, addSettings, onAddSet
                     Back to Tools
                 </button>
                 <FavoritesManager />
+            </div>
+        );
+    }
+
+    if (view === 'ban-scan') {
+        return (
+            <div className="space-y-3 animate-in fade-in duration-300">
+                <button onClick={() => setView('overview')}
+                    className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Back to Tools
+                </button>
+                <BanScanPanel />
             </div>
         );
     }
@@ -153,6 +169,22 @@ export function ToolsTab({charIndex, onComplete, onMutate, addSettings, onAddSet
                         <div>
                             <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Character Importer</h4>
                             <p className="text-[9px] text-muted-foreground mt-1">Import character from another save file into the selected slot</p>
+                        </div>
+                    </div>
+                </button>
+
+                {/* Ban Risk Scan */}
+                <button onClick={() => setView('ban-scan')}
+                    className="card p-5 text-left hover:border-red-500/40 hover:bg-red-500/5 transition-all group">
+                    <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-red-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-red-500/20 transition-colors">
+                            <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                        </div>
+                        <div>
+                            <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Ban Risk Scan</h4>
+                            <p className="text-[9px] text-muted-foreground mt-1">Scan all slots for cut content, illegal stats, upgrade violations and SteamID mismatches</p>
                         </div>
                     </div>
                 </button>
