@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(ui): Starting Class editable dropdown with attr clamp and level recalc
+
+- Starting Class field in Character → Profile changed from read-only display to a `<select>` dropdown listing all 10 classes
+- On class change: each attribute is clamped up to the new class's minimum (never lowered); level is recalculated as `Σ(attrs) − 79` (formula holds universally across all classes)
+- Backend: `ApplyVMToParsedSlot` now writes `data.Class = vm.Class` — class was previously read-only
+- Character Name and Starting Class fields swapped in the Profile grid
+
+### fix(db): World Map items hidden from Item Database
+
+- All 24 `Map: *` entries in `backend/db/data/key_items.go` flagged with `"no_database"` — same mechanism as Cookbooks and Bell Bearings
+- Maps are managed via World → Exploration → Map; surfacing them in the Item Database was redundant
+
+### fix(ui): Invasion Regions risk banner and updated description
+
+- `RiskSectionBanner` added to the Invasion Regions accordion section in World → Unlocks
+- `bulk_region_unlock` risk entry updated: explicitly warns about Roundtable Hold and Stranded Graveyard as non-invadeable areas whose region flag creates an anomalous save state
+
+### fix(ui): minimum font size raised to 11px across WorldTab, CharacterTab, AccordionSection
+
+- All `text-[7px]`, `text-[8px]`, and `text-[9px]` occurrences replaced with `text-[11px]` in WorldTab.tsx, CharacterTab.tsx, and AccordionSection.tsx
+- Networking disclaimer text raised to `text-[11px]` to match Apply button
+
 ### fix(add): infuse offset not applied to ranged weapons and catalysts
 
 Bows, crossbows, greatbows, staves, and seals cannot be infused in Elden Ring. Previously, `AddItemsToCharacter` applied `infuseOffset` unconditionally to all items with `MaxUpgrade == 25`, including `ranged_and_catalysts`. This produced ItemIDs the game does not recognise (e.g. "Heavy Bone Bow +4" → `0x0269FB88`), making the items invisible in-game after loading the save.
