@@ -40,7 +40,12 @@ function App() {
         return (localStorage.getItem('setting:theme') as Theme) || 'dark';
     });
     const [cloneModal, setCloneModal] = useState<{srcIdx: number} | null>(null);
-    const [charAddSettings, setCharAddSettings] = useState<Record<number, AddSettings>>({});
+    const [charAddSettings, setCharAddSettings] = useState<Record<number, AddSettings>>(() => {
+        try {
+            const saved = localStorage.getItem('setting:charAddSettings');
+            return saved ? JSON.parse(saved) : {};
+        } catch { return {}; }
+    });
     const [columnVisibility, setColumnVisibility] = useState(() => {
         try {
             const saved = localStorage.getItem('setting:columnVisibility');
@@ -87,6 +92,7 @@ function App() {
     useEffect(() => { localStorage.setItem('setting:showFlaggedItems', String(showFlaggedItems)); }, [showFlaggedItems]);
     useEffect(() => { localStorage.setItem('setting:debugMode', String(debugMode)); }, [debugMode]);
     useEffect(() => { localStorage.setItem('selectedDeployTarget', selectedDeployTarget); }, [selectedDeployTarget]);
+    useEffect(() => { localStorage.setItem('setting:charAddSettings', JSON.stringify(charAddSettings)); }, [charAddSettings]);
 
     useEffect(() => {
         return EventsOn('app:log', (level: string, msg: string) => {
@@ -468,7 +474,9 @@ function App() {
                                     );
                                 })()}
                                 <div className={activeTab === 'inventory' ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
-                                {activeTab === 'character' && <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} refreshKey={inventoryVersion} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsChange={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} infuseTypes={infuseTypes} />}
+                                <div className={activeTab !== 'character' ? 'hidden' : undefined}>
+                                    <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} refreshKey={inventoryVersion} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsChange={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} infuseTypes={infuseTypes} />
+                                </div>
                                 {activeTab === 'inventory' && (
                                     <div className="flex-1 flex flex-col min-h-0">
                                         {/* Header consolidation (spec/36): toggle pills + capacity bar (Inventory) OR

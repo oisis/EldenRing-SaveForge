@@ -2,6 +2,7 @@ package vm
 
 import (
 	"fmt"
+	"math"
 	"slices"
 	"unicode/utf16"
 
@@ -9,6 +10,24 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 	gamedata "github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
+
+// runesCostForLevel returns the minimum total runes a character must have accumulated
+// to reach the given level. Uses the official ER per-level cost formula:
+// cost(n) = floor(0.02*n^3 + 3.06*n^2 + 105.6*n − 895), clamped to 0 for low levels.
+func runesCostForLevel(level uint32) uint32 {
+	total := int64(0)
+	for n := uint32(2); n <= level; n++ {
+		fn := float64(n)
+		cost := int64(0.02*fn*fn*fn + 3.06*fn*fn + 105.6*fn - 895.0)
+		if cost > 0 {
+			total += cost
+		}
+	}
+	if total > int64(math.MaxUint32) {
+		return math.MaxUint32
+	}
+	return uint32(total)
+}
 
 type ItemViewModel struct {
 	Handle         uint32   `json:"handle"`
@@ -48,6 +67,7 @@ type CharacterViewModel struct {
 	ShadowRealmBlessing uint8                 `json:"shadowRealmBlessing"`
 	MemoryStones        uint32                `json:"memoryStones"`
 	Gender              uint8                 `json:"gender"`
+	SoulMemory          uint32                `json:"soulMemory"`
 	Inventory           []ItemViewModel       `json:"inventory"`
 	Storage             []ItemViewModel       `json:"storage"`
 	Warnings            []string              `json:"warnings"`
@@ -61,6 +81,7 @@ func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 	vm := &CharacterViewModel{
 		Level:               data.Level,
 		Souls:               data.Souls,
+		SoulMemory:          data.SoulMemory,
 		Class:               data.Class,
 		Vigor:               data.Vigor,
 		Mind:                data.Mind,
@@ -226,6 +247,11 @@ func ApplyVMToParsedSlot(vm *CharacterViewModel, slot *core.SaveSlot) error {
 	data.Level = vm.Level
 	data.Class = vm.Class
 	data.Souls = vm.Souls
+	data.SoulMemory = vm.SoulMemory
+	if minSM := runesCostForLevel(data.Level); data.SoulMemory < minSM {
+		data.SoulMemory = minSM
+		vm.SoulMemory = minSM
+	}
 	data.Vigor = vm.Vigor
 	data.Mind = vm.Mind
 	data.Endurance = vm.Endurance

@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(character): Soul Memory tracking, dirty guard, add-settings persistence
+
+- `SoulMemory` (PGD+0x68) added to `PlayerGameData`, read/written in `SyncPlayerToData()`; exposed via `CharacterViewModel.soulMemory`
+- `ApplyVMToParsedSlot` auto-floors `SoulMemory` to `runesCostForLevel(level)` on every save — prevents detectable mismatch when level is edited
+- `runesCostForLevel(n)` formula: `Σ max(0, ⌊0.02n³ + 3.06n² + 105.6n − 895⌋)` for n=2..level, clamped to uint32 max
+- Character → Profile: "Soul Memory" field with ✓/✗ consistency badge; Fix button (+10% buffer) when inconsistent
+- `handleSave` now reloads from backend after save, so auto-corrected Soul Memory is reflected immediately in UI
+- `CharacterTab` kept always-mounted (CSS hide) — unsaved stat edits no longer lost on tab switch
+- `isDirty` ref guard prevents `refreshKey` from wiping unsaved edits when inventory changes in another tab
+- All user edit handlers (`updateStat`, `handleClassChange`, all inline onChange) set `isDirty = true`; save clears it
+- `charAddSettings` persisted to `localStorage` — Add Settings survive app restart
+
+### fix(core): SaveCharacter changes reverted after AddItemsToCharacter
+
+- `SaveCharacter` called `ApplyVMToParsedSlot` (writes to `slot.Player`) but never called `SyncPlayerToData()` (writes `slot.Player` → `slot.Data` binary)
+- `AddItemsToSlotBatch` triggers `RebuildSlotFull` + `parseFromData()` which re-reads `slot.Data` → `mapStats()` → overwrites `slot.Player` with pre-edit binary values
+- Fix: `SaveCharacter` now calls `slot.SyncPlayerToData()` immediately after all struct-level mutations, before returning — ensures `slot.Data` is always consistent with `slot.Player`
+
+### fix(world): Gestures and Cookbooks loaded in wrong sub-tab
+
+- `GetCookbooks` and `GetGestures` were called in `loadProgressData()` (triggered on 'progress' sub-tab) but rendered on 'unlocks' sub-tab — items always appeared empty, Unlock All had no effect
+- Moved both calls to `loadUnlocksData()` where they belong
+
 ### feat(ui): Starting Class editable dropdown with attr clamp and level recalc
 
 - Starting Class field in Character → Profile changed from read-only display to a `<select>` dropdown listing all 10 classes

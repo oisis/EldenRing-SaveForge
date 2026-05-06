@@ -264,15 +264,15 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
     const loadProgressData = useCallback(() => {
         setLoading(true);
         Promise.all([
-            GetCookbooks(charIdx).then(res => setCookbooks(res || [])),
-            GetGestures(charIdx).then(res => setGesturesList(res || [])),
             GetQuestNPCs().then(res => setQuestNPCs(res || [])),
         ]).finally(() => setLoading(false));
-    }, [charIdx]);
+    }, []);
 
     const loadUnlocksData = useCallback(() => {
         setLoading(true);
         Promise.all([
+            GetCookbooks(charIdx).then(res => setCookbooks(res || [])),
+            GetGestures(charIdx).then(res => setGesturesList(res || [])),
             GetBellBearings(charIdx).then(res => setBellBearings(res || [])),
             GetWhetblades(charIdx).then(res => setWhetblades(res || [])),
             GetUnlockedRegions(charIdx).then(res => setRegionEntries(res || [])),

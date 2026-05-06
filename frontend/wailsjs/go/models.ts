@@ -1004,6 +1004,7 @@ export namespace vm {
 	    shadowRealmBlessing: number;
 	    memoryStones: number;
 	    gender: number;
+	    soulMemory: number;
 	    inventory: ItemViewModel[];
 	    storage: ItemViewModel[];
 	    warnings: string[];
@@ -1036,6 +1037,7 @@ export namespace vm {
 	        this.shadowRealmBlessing = source["shadowRealmBlessing"];
 	        this.memoryStones = source["memoryStones"];
 	        this.gender = source["gender"];
+	        this.soulMemory = source["soulMemory"];
 	        this.inventory = this.convertValues(source["inventory"], ItemViewModel);
 	        this.storage = this.convertValues(source["storage"], ItemViewModel);
 	        this.warnings = source["warnings"];

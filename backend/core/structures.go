@@ -174,6 +174,7 @@ type PlayerGameData struct {
 	Faith               uint32
 	Arcane              uint32
 	Souls               uint32
+	SoulMemory          uint32
 	CharacterName       [16]uint16
 	Gender              uint8
 	VoiceType           uint8 // 0=Young1, 1=Young2, 2=Mature1, 3=Mature2, 4=Aged1, 5=Aged2
@@ -537,6 +538,9 @@ func (s *SaveSlot) mapStats() error {
 	if s.Player.Souls, err = sa.ReadU32(mo + OffSouls); err != nil {
 		return fmt.Errorf("Souls: %w", err)
 	}
+	if s.Player.SoulMemory, err = sa.ReadU32(mo + OffSoulMemory); err != nil {
+		return fmt.Errorf("SoulMemory: %w", err)
+	}
 	if s.Player.Gender, err = sa.ReadU8(mo + OffGender); err != nil {
 		return fmt.Errorf("Gender: %w", err)
 	}
@@ -804,6 +808,7 @@ func (s *SaveSlot) SyncPlayerToData() {
 	sa.WriteU32(mo+OffFaith, s.Player.Faith)
 	sa.WriteU32(mo+OffArcane, s.Player.Arcane)
 	sa.WriteU32(mo+OffSouls, s.Player.Souls)
+	sa.WriteU32(mo+OffSoulMemory, s.Player.SoulMemory)
 	sa.WriteU8(mo+OffGender, s.Player.Gender)
 	sa.WriteU8(mo+OffVoiceType, s.Player.VoiceType)
 	sa.WriteU8(mo+OffClass, s.Player.Class)

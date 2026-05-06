@@ -175,6 +175,11 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 		return err
 	}
 
+	// Flush slot.Player → slot.Data so that subsequent operations
+	// (AddItemsToSlotBatch, RebuildSlotFull) that re-parse slot.Data
+	// see the correct stats instead of the pre-edit binary values.
+	slot.SyncPlayerToData()
+
 	// 2. Sync NG+ event flags (50-57) with ClearCount
 	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
 		flags := slot.Data[slot.EventFlagsOffset:]

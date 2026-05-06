@@ -1,4 +1,4 @@
-import {useEffect, useState} from 'react';
+import {useEffect, useRef, useState} from 'react';
 import toast from '../lib/toast';
 import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses, SetCharacterGender, ApplyPresetToCharacter} from '../../wailsjs/go/main/App';
 import {vm, main, db} from '../../wailsjs/go/models';
@@ -10,6 +10,15 @@ import type {AddSettings} from '../App';
 import {WarningModal} from './WarningModal';
 
 const RUNES_LEGAL_MAX = 999_999_999;
+
+function runesCostForLevel(level: number): number {
+    let total = 0;
+    for (let n = 2; n <= level; n++) {
+        const cost = Math.floor(0.02 * n * n * n + 3.06 * n * n + 105.6 * n - 895);
+        if (cost > 0) total += cost;
+    }
+    return Math.min(total, 4_294_967_295);
+}
 
 interface Props {
     charIndex: number;
@@ -37,6 +46,8 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const [char, setChar] = useState<vm.CharacterViewModel | null>(null);
     const [loading, setLoading] = useState(false);
     const [startingClasses, setStartingClasses] = useState<db.ClassStats[]>([]);
+    const isDirty = useRef(false);
+    const prevCharIndex = useRef(charIndex);
 
     // Appearance state
     const [presets, setPresets] = useState<main.PresetInfo[]>([]);
@@ -56,6 +67,13 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     }, []);
 
     useEffect(() => {
+        const charChanged = prevCharIndex.current !== charIndex;
+        prevCharIndex.current = charIndex;
+        if (charChanged) {
+            isDirty.current = false;
+        } else if (isDirty.current) {
+            return;
+        }
         setLoading(true);
         GetCharacter(charIndex)
             .then(res => { setChar(res); setLoading(false); })
@@ -82,6 +100,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         const sum = updatedData.vigor + updatedData.mind + updatedData.endurance + updatedData.strength +
                     updatedData.dexterity + updatedData.intelligence + updatedData.faith + updatedData.arcane;
         updatedData.level = Math.max(1, sum - 79);
+        isDirty.current = true;
         setChar(vm.CharacterViewModel.createFrom(updatedData));
     };
 
@@ -98,6 +117,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         const faith        = Math.max(char.faith,        nc.faith);
         const arcane       = Math.max(char.arcane,       nc.arcane);
         const level = Math.max(1, vigor + mind + endurance + strength + dexterity + intelligence + faith + arcane - 79);
+        isDirty.current = true;
         setChar(vm.CharacterViewModel.createFrom({
             ...char,
             class: classId,
@@ -121,11 +141,31 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     };
 
     const handleSave = () => {
-        if (char) {
-            SaveCharacter(charIndex, char)
-                .then(() => { toast.success('Character data updated in memory'); onNameChange?.(); })
-                .catch(err => toast.error('Error: ' + err));
-        }
+        if (!char) return;
+        SaveCharacter(charIndex, char)
+            .then(() => {
+                isDirty.current = false;
+                toast.success('Character data updated in memory');
+                onNameChange?.();
+                GetCharacter(charIndex).then(updated => { if (updated) setChar(updated); }).catch(() => {});
+            })
+            .catch(err => toast.error('Error: ' + err));
+    };
+
+    const handleFixSoulMemory = () => {
+        if (!char) return;
+        const minRequired = runesCostForLevel(char.level);
+        const buffered = Math.min(Math.floor(minRequired * 1.1), 4_294_967_295);
+        const updated = vm.CharacterViewModel.createFrom({...char, soulMemory: buffered});
+        setChar(updated);
+        SaveCharacter(charIndex, updated)
+            .then(() => {
+                isDirty.current = false;
+                toast.success('Soul Memory corrected');
+                onNameChange?.();
+                GetCharacter(charIndex).then(res => { if (res) setChar(res); }).catch(() => {});
+            })
+            .catch(err => toast.error('Fix failed: ' + err));
     };
 
     // Appearance handlers
@@ -221,7 +261,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                         <div className="space-y-1.5">
                             <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Character Name</label>
                             <input type="text" value={char.name} maxLength={16}
-                                onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, name: e.target.value}))}
+                                onChange={e => { isDirty.current = true; setChar(vm.CharacterViewModel.createFrom({...char, name: e.target.value})); }}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
                         </div>
                         <div className="space-y-1.5">
@@ -251,6 +291,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             <input type="number" min={0} max={3} value={char.talismanSlots || 0}
                                 onChange={e => {
                                     const v = Math.min(3, Math.max(0, parseInt(e.target.value) || 0));
+                                    isDirty.current = true;
                                     setChar(vm.CharacterViewModel.createFrom({...char, talismanSlots: v}));
                                 }}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
@@ -262,6 +303,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             <input type="number" min={0} max={8} value={char.memoryStones || 0}
                                 onChange={e => {
                                     const v = Math.min(8, Math.max(0, parseInt(e.target.value) || 0));
+                                    isDirty.current = true;
                                     setChar(vm.CharacterViewModel.createFrom({...char, memoryStones: v}));
                                 }}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
@@ -276,6 +318,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             <input type="number" min={0} max={7} value={char.clearCount || 0}
                                 onChange={e => {
                                     const v = Math.min(7, Math.max(0, parseInt(e.target.value) || 0));
+                                    isDirty.current = true;
                                     setChar(vm.CharacterViewModel.createFrom({...char, clearCount: v}));
                                 }}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
@@ -292,6 +335,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                         v = RUNES_LEGAL_MAX;
                                         toast.error(`Online Safety Mode: clamped to legal max ${RUNES_LEGAL_MAX.toLocaleString()}`);
                                     }
+                                    isDirty.current = true;
                                     setChar(vm.CharacterViewModel.createFrom({...char, souls: v}));
                                 }}
                                 title={safetyMode.enabled ? `Online Safety Mode caps Runes at ${RUNES_LEGAL_MAX.toLocaleString()}` : undefined}
@@ -301,6 +345,32 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                         : 'w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all'
                                 } />
                         </div>
+                        {(() => {
+                            const minSM = runesCostForLevel(char.level);
+                            const consistent = (char.soulMemory || 0) >= minSM;
+                            return (
+                                <div className="space-y-1.5">
+                                    <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1 flex items-center gap-1.5">
+                                        <span>Soul Memory</span>
+                                        <span className={consistent ? 'text-green-400 font-black' : 'text-red-400 font-black'}>
+                                            {consistent ? '✓' : '✗'}
+                                        </span>
+                                    </label>
+                                    <div className="flex items-center gap-1.5">
+                                        <span className="flex-1 bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono text-muted-foreground truncate">
+                                            {(char.soulMemory || 0).toLocaleString()}
+                                        </span>
+                                        {!consistent && (
+                                            <button onClick={handleFixSoulMemory}
+                                                title={`Set to ${Math.min(Math.floor(minSM * 1.1), 4_294_967_295).toLocaleString()} (+10% buffer)`}
+                                                className="px-2 py-2 text-[10px] font-black uppercase tracking-widest bg-red-500/20 border border-red-500/50 text-red-300 rounded-md hover:bg-red-500/30 transition-colors whitespace-nowrap">
+                                                Fix
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
             </AccordionSection>
