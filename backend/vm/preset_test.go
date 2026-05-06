@@ -22,8 +22,6 @@ func TestVMToPresetRoundTrip(t *testing.T) {
 		Arcane:              7,
 		TalismanSlots:       3,
 		ClearCount:          2,
-		GreatRuneOn:         true,
-		EquippedGreatRune:   1073741909,
 		ScadutreeBlessing:   20,
 		ShadowRealmBlessing: 13,
 		Inventory: []ItemViewModel{
@@ -53,9 +51,6 @@ func TestVMToPresetRoundTrip(t *testing.T) {
 	}
 	if c.Vigor != 60 {
 		t.Errorf("Vigor = %d, want 60", c.Vigor)
-	}
-	if !c.GreatRuneOn {
-		t.Error("GreatRuneOn = false, want true")
 	}
 
 	if len(preset.Inventory) != 2 {

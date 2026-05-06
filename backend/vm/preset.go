@@ -53,8 +53,6 @@ type CharacterPresetCore struct {
 	Arcane            uint32 `json:"arcane"`
 	TalismanSlots     uint8  `json:"talismanSlots"`
 	ClearCount        uint32 `json:"clearCount"`
-	GreatRuneOn       bool   `json:"greatRuneOn"`
-	EquippedGreatRune uint32 `json:"equippedGreatRune"`
 	MemoryStones      uint32 `json:"memoryStones"`
 }
 
@@ -118,8 +116,6 @@ func VMToPreset(vm *CharacterViewModel, appVersion string) *CharacterPreset {
 			Arcane:            vm.Arcane,
 			TalismanSlots:     vm.TalismanSlots,
 			ClearCount:        vm.ClearCount,
-			GreatRuneOn:       vm.GreatRuneOn,
-			EquippedGreatRune: vm.EquippedGreatRune,
 			MemoryStones:      vm.MemoryStones,
 		},
 		Inventory: vmItemsToPresetItems(vm.Inventory),
@@ -318,8 +314,6 @@ func PresetToVM(preset *CharacterPreset) *CharacterViewModel {
 		Arcane:              c.Arcane,
 		TalismanSlots:     c.TalismanSlots,
 		ClearCount:        c.ClearCount,
-		GreatRuneOn:       c.GreatRuneOn,
-		EquippedGreatRune: c.EquippedGreatRune,
 		MemoryStones:      c.MemoryStones,
 		Inventory:         []ItemViewModel{},
 		Storage:           []ItemViewModel{},

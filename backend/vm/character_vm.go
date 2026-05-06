@@ -44,8 +44,6 @@ type CharacterViewModel struct {
 	Arcane              uint32                `json:"arcane"`
 	TalismanSlots       uint8                 `json:"talismanSlots"`
 	ClearCount          uint32                `json:"clearCount"`
-	GreatRuneOn         bool                  `json:"greatRuneOn"`
-	EquippedGreatRune   uint32                `json:"equippedGreatRune"`
 	ScadutreeBlessing   uint8                 `json:"scadutreeBlessing"`
 	ShadowRealmBlessing uint8                 `json:"shadowRealmBlessing"`
 	MemoryStones        uint32                `json:"memoryStones"`
@@ -73,8 +71,6 @@ func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 		Arcane:              data.Arcane,
 		TalismanSlots:       data.TalismanSlots,
 		ClearCount:          data.ClearCount,
-		GreatRuneOn:         data.GreatRuneOn != 0,
-		EquippedGreatRune:   data.EquippedGreatRune,
 		ScadutreeBlessing:   data.ScadutreeBlessing,
 		ShadowRealmBlessing: data.ShadowRealmBlessing,
 		Inventory:           []ItemViewModel{},
@@ -244,12 +240,6 @@ func ApplyVMToParsedSlot(vm *CharacterViewModel, slot *core.SaveSlot) error {
 		vm.ClearCount = 7
 	}
 	data.ClearCount = vm.ClearCount
-	if vm.GreatRuneOn {
-		data.GreatRuneOn = 1
-	} else {
-		data.GreatRuneOn = 0
-	}
-	data.EquippedGreatRune = vm.EquippedGreatRune
 	data.ScadutreeBlessing = vm.ScadutreeBlessing
 	data.ShadowRealmBlessing = vm.ShadowRealmBlessing
 
