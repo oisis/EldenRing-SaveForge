@@ -259,29 +259,6 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div className="space-y-1.5">
-                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Equipped Great Rune</label>
-                            <select value={char.equippedGreatRune || 0}
-                                onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, equippedGreatRune: parseInt(e.target.value)}))}
-                                className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer h-[34px]">
-                                <option value={0}>None</option>
-                                <option value={0x40000053}>Godrick's Great Rune</option>
-                                <option value={0x40000054}>Radahn's Great Rune</option>
-                                <option value={0x40000055}>Morgott's Great Rune</option>
-                                <option value={0x40000056}>Rykard's Great Rune</option>
-                                <option value={0x40000057}>Malenia's Great Rune</option>
-                                <option value={0x40000058}>Mohg's Great Rune</option>
-                            </select>
-                        </div>
-                        <div className="space-y-1.5">
-                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Great Rune Buff</label>
-                            <label className="flex items-center space-x-2 bg-muted/20 border border-border rounded-md px-3 py-2 cursor-pointer hover:border-primary/30 transition-all">
-                                <input type="checkbox" checked={char.greatRuneOn || false}
-                                    onChange={e => setChar(vm.CharacterViewModel.createFrom({...char, greatRuneOn: e.target.checked}))}
-                                    className="accent-primary" />
-                                <span className="text-xs">{char.greatRuneOn ? 'Active' : 'Inactive'}</span>
-                            </label>
-                        </div>
-                        <div className="space-y-1.5">
                             <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
                                 NG+ Cycle <span className="text-primary font-mono">{char.clearCount || 0}/7</span>
                             </label>
