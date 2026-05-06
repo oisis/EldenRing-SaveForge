@@ -1,6 +1,6 @@
 import {useEffect, useState} from 'react';
 import toast from '../lib/toast';
-import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses} from '../../wailsjs/go/main/App';
+import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses, SetCharacterGender} from '../../wailsjs/go/main/App';
 import {vm, main, db} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
@@ -104,6 +104,19 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         }));
     };
 
+    const handleGenderChange = async (targetGender: number) => {
+        if (!char) return;
+        try {
+            await SetCharacterGender(charIndex, targetGender);
+            const updated = await GetCharacter(charIndex);
+            setChar(updated);
+            const label = targetGender === 1 ? 'Type A (Male) — Geralt defaults applied' : 'Type B (Female) — Ciri defaults applied';
+            toast.success(label);
+        } catch (e) {
+            toast.error('Gender change failed: ' + e);
+        }
+    };
+
     const handleSave = () => {
         if (char) {
             SaveCharacter(charIndex, char)
@@ -205,25 +218,14 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             </select>
                         </div>
                         <div className="space-y-1.5">
-                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1 flex items-center gap-1.5">
-                                <span>Runes</span>
-                                {getRunesRiskKey(char.souls) && <RiskInfoIcon riskKey={getRunesRiskKey(char.souls)!} />}
-                            </label>
-                            <input type="number" value={char.souls}
-                                onChange={e => {
-                                    let v = parseInt(e.target.value) || 0;
-                                    if (safetyMode.enabled && v > RUNES_LEGAL_MAX) {
-                                        v = RUNES_LEGAL_MAX;
-                                        toast.error(`Online Safety Mode: clamped to legal max ${RUNES_LEGAL_MAX.toLocaleString()}`);
-                                    }
-                                    setChar(vm.CharacterViewModel.createFrom({...char, souls: v}));
-                                }}
-                                title={safetyMode.enabled ? `Online Safety Mode caps Runes at ${RUNES_LEGAL_MAX.toLocaleString()}` : undefined}
-                                className={
-                                    getRunesRiskKey(char.souls)
-                                        ? 'w-full bg-red-500/10 border-2 border-red-500 rounded-md px-3 py-2 text-xs font-mono text-red-300 focus:ring-2 focus:ring-red-500/40 outline-none transition-all'
-                                        : 'w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all'
-                                } />
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Body Type</label>
+                            <select
+                                value={char.gender ?? 1}
+                                onChange={e => handleGenderChange(parseInt(e.target.value))}
+                                className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-black text-primary focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer h-[34px]">
+                                <option value={1}>Type A (Male)</option>
+                                <option value={0}>Type B (Female)</option>
+                            </select>
                         </div>
                         <div className="space-y-1.5">
                             <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">
@@ -260,6 +262,27 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                     setChar(vm.CharacterViewModel.createFrom({...char, clearCount: v}));
                                 }}
                                 className="w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all" />
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1 flex items-center gap-1.5">
+                                <span>Runes</span>
+                                {getRunesRiskKey(char.souls) && <RiskInfoIcon riskKey={getRunesRiskKey(char.souls)!} />}
+                            </label>
+                            <input type="number" value={char.souls}
+                                onChange={e => {
+                                    let v = parseInt(e.target.value) || 0;
+                                    if (safetyMode.enabled && v > RUNES_LEGAL_MAX) {
+                                        v = RUNES_LEGAL_MAX;
+                                        toast.error(`Online Safety Mode: clamped to legal max ${RUNES_LEGAL_MAX.toLocaleString()}`);
+                                    }
+                                    setChar(vm.CharacterViewModel.createFrom({...char, souls: v}));
+                                }}
+                                title={safetyMode.enabled ? `Online Safety Mode caps Runes at ${RUNES_LEGAL_MAX.toLocaleString()}` : undefined}
+                                className={
+                                    getRunesRiskKey(char.souls)
+                                        ? 'w-full bg-red-500/10 border-2 border-red-500 rounded-md px-3 py-2 text-xs font-mono text-red-300 focus:ring-2 focus:ring-red-500/40 outline-none transition-all'
+                                        : 'w-full bg-muted/20 border border-border rounded-md px-3 py-2 text-xs font-mono focus:ring-1 focus:ring-primary/30 outline-none transition-all'
+                                } />
                         </div>
                     </div>
                 </div>

@@ -290,6 +290,10 @@ export function SetBossDefeated(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetBossDefeated'](arg1, arg2, arg3);
 }
 
+export function SetCharacterGender(arg1, arg2) {
+  return window['go']['main']['App']['SetCharacterGender'](arg1, arg2);
+}
+
 export function SetColosseumUnlocked(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetColosseumUnlocked'](arg1, arg2, arg3);
 }

@@ -47,6 +47,7 @@ type CharacterViewModel struct {
 	ScadutreeBlessing   uint8                 `json:"scadutreeBlessing"`
 	ShadowRealmBlessing uint8                 `json:"shadowRealmBlessing"`
 	MemoryStones        uint32                `json:"memoryStones"`
+	Gender              uint8                 `json:"gender"`
 	Inventory           []ItemViewModel       `json:"inventory"`
 	Storage             []ItemViewModel       `json:"storage"`
 	Warnings            []string              `json:"warnings"`
@@ -73,6 +74,7 @@ func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 		ClearCount:          data.ClearCount,
 		ScadutreeBlessing:   data.ScadutreeBlessing,
 		ShadowRealmBlessing: data.ShadowRealmBlessing,
+		Gender:              data.Gender,
 		Inventory:           []ItemViewModel{},
 		Storage:             []ItemViewModel{},
 	}

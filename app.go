@@ -2748,6 +2748,107 @@ type PresetInfo struct {
 	BodyType string `json:"bodyType"` // "Type A" or "Type B"
 }
 
+// SetCharacterGender changes the body type of a character and applies the default
+// appearance preset for the target gender (Geralt for male, Ciri for female).
+//
+// Fields written to FaceData blob:
+//   - FaceShape (64 B) — face geometry sliders, verbatim from preset
+//   - Body (7 B)       — head/chest/abdomen/arms/legs proportions, verbatim from preset
+//   - Skin (91 B)      — skin tone and cosmetics, verbatim from preset
+//   - Model IDs (8×u32) — hair/face/brow/lash models; male uses LookupMaleHairPartsID,
+//     female uses UI-1 (best-effort; Ciri HairModel=1→0 is safe default)
+//
+// The unk0x6c block (64 B at blob 0x70) is preserved unchanged.
+func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIndex < 0 || charIndex >= 10 {
+		return fmt.Errorf("invalid character index")
+	}
+	if targetGender > 1 {
+		return fmt.Errorf("invalid gender: 0=female, 1=male")
+	}
+
+	var defaultName string
+	if targetGender == 1 {
+		defaultName = data.DefaultMalePresetName
+	} else {
+		defaultName = data.DefaultFemalePresetName
+	}
+
+	var preset *data.AppearancePreset
+	for i := range data.Presets {
+		if data.Presets[i].Name == defaultName {
+			preset = &data.Presets[i]
+			break
+		}
+	}
+	if preset == nil {
+		return fmt.Errorf("default preset %q not found", defaultName)
+	}
+
+	slot := &a.save.Slots[charIndex]
+	fd := slot.FaceDataStart()
+	if fd < 0 || fd+core.FaceDataBlobSize > len(slot.Data) {
+		return fmt.Errorf("FaceData blob out of bounds: start=0x%X", fd)
+	}
+
+	a.pushUndo(charIndex)
+
+	// FaceShape (64 B at blob 0x30)
+	copy(slot.Data[fd+core.FDOffFaceShape:fd+core.FDOffFaceShape+64], preset.FaceShape[:])
+
+	// Body proportions (7 B at blob 0xB0)
+	copy(slot.Data[fd+core.FDOffHead:fd+core.FDOffHead+7], preset.Body[:])
+
+	// Skin & cosmetics (91 B at blob 0xB7)
+	copy(slot.Data[fd+core.FDOffSkinR:fd+core.FDOffSkinR+91], preset.Skin[:])
+
+	writePartsID := func(fdOff int, partsId uint8) {
+		binary.LittleEndian.PutUint32(slot.Data[fd+fdOff:], uint32(partsId))
+	}
+
+	if targetGender == 1 {
+		// Male: UI-1 formula applies; hair uses dedicated lookup table.
+		uiToPartsID := func(uiVal uint8) uint8 {
+			if uiVal > 0 {
+				return uiVal - 1
+			}
+			return 0
+		}
+		writePartsID(core.FDOffFaceModel, uiToPartsID(preset.FaceModel))
+		writePartsID(core.FDOffEyeModel, uiToPartsID(preset.EyeModel))
+		writePartsID(core.FDOffEyebrowModel, uiToPartsID(preset.EyebrowModel))
+		writePartsID(core.FDOffBeardModel, uiToPartsID(preset.BeardModel))
+		writePartsID(core.FDOffEyepatchModel, uiToPartsID(preset.EyepatchModel))
+		writePartsID(core.FDOffDecalModel, uiToPartsID(preset.DecalModel))
+		writePartsID(core.FDOffEyelashModel, uiToPartsID(preset.EyelashModel))
+		if partsId, ok := data.LookupMaleHairPartsID(preset.HairModel); ok {
+			writePartsID(core.FDOffHairModel, partsId)
+		} else {
+			writePartsID(core.FDOffHairModel, uiToPartsID(preset.HairModel))
+		}
+	} else {
+		// Female: UI-1 does NOT apply — female PartsId ranges differ entirely from male
+		// (e.g. female FaceModel UI=6 → PartsId=21, not 5). Until a full female UI→PartsId
+		// lookup table is built, use empirically confirmed safe values from a real female save
+		// (tmp/re-character/facedata_dump.txt). FaceShape/Body/Skin are still from the preset.
+		f := data.FemaleModelIDs
+		writePartsID(core.FDOffFaceModel, f.FaceModel)
+		writePartsID(core.FDOffHairModel, f.HairModel)
+		writePartsID(core.FDOffEyeModel, f.EyeModel)
+		writePartsID(core.FDOffEyebrowModel, f.EyebrowModel)
+		writePartsID(core.FDOffBeardModel, f.BeardModel)
+		writePartsID(core.FDOffEyepatchModel, f.EyepatchModel)
+		writePartsID(core.FDOffDecalModel, f.DecalModel)
+		writePartsID(core.FDOffEyelashModel, f.EyelashModel)
+	}
+
+	slot.Player.Gender = targetGender
+	return nil
+}
+
 // ListAppearancePresets returns the list of available character appearance presets.
 func (a *App) ListAppearancePresets() []PresetInfo {
 	result := make([]PresetInfo, len(data.Presets))
