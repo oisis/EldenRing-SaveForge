@@ -56,7 +56,7 @@ Desktop application for editing Elden Ring save files (`.sl2` / `memory.dat`). B
 - Colosseums: unlock / lock
 - Gestures, Cookbooks, Bell Bearings, Whetblades, Invasion Regions
 
-**PvP / Networking**
+**PvP / Networking** *(PC saves only — see Known Issues)*
 - NetworkParam tuning: invader, summon, hunter and host presets
 - Ban-risk labels on dangerous operations; Online Safety Mode to gate high-risk actions
 
@@ -108,6 +108,15 @@ make test
 - [SL2 Binary Format Specification](docs/sl2-binary-format-spec.md) — full technical spec of the `.sl2` save file format (offsets, structures, crypto, checksums)
 - [Roadmap](docs/ROADMAP.md) — planned features and progress
 - [Changelog](docs/CHANGELOG.md) — release history
+
+## Known Issues
+
+**Networking tab crashes PS4 saves.**
+Editing or resetting NetworkParam on a PS4 save (`memory.dat`) causes the game to crash on load.
+Root cause: the Go ZSTD encoder produces a different frame format than FromSoftware's encoder
+(different window size and frame header flags); PS4 rejects the recompressed `regulation.bin`.
+**Workaround:** do not use the Networking tab when a PS4 save is loaded. PC saves are not affected.
+Fix in progress.
 
 ## License
 
