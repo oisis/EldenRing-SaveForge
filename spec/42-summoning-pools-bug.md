@@ -2,7 +2,7 @@
 
 > **Type**: Investigation / Bug
 > **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
-> **Status**: 🐛 Paused (since 2026-04-25)
+> **Status**: ✅ Root cause identified — fix planned
 
 ---
 
@@ -19,28 +19,31 @@ UI toggles summoning pools correctly (no errors), but toggled pools are NOT acti
 - [x] `SaveSlot.Write()` does NOT overwrite event flag region (only writes level/stats/name/runes)
 - [x] `SaveFile()` serializes `slot.Data` directly without rebuild from parsed structs
 
-## Remaining hypotheses
+## Root Cause (identified 2026-05-07)
 
-1. **Persistence test missing** — write integration test: `LoadSave → Set → SaveFile → LoadSave → Get` to verify the bit survives the round-trip. If it doesn't survive, look at `core/writer.go` or encryption pipeline.
+**Patch v1.12 (released ~March 2025) changed all summoning pool flag IDs.**
 
-2. **Game requires secondary state** — bit may be set in event_flags but game might also check:
-   - `unlocked_regions` for the pool's map area (dependency on Invasion Regions feature)
-   - Trophy data section (`trophy_data` 52 bytes)
-   - `world_area` / `gaitem_game` cross-references
+- Flags `10000040`, `1035530040`, etc. worked only in game versions `< v1.12`.
+- Current game (`>= v1.12`) uses IDs in the `670xxx` range (e.g., Stormveil Castle: `670130–670135`).
+- Reference: `Elden-Ring-CT-TGA/Event Flags/Unlock all/Unlock all Summoning Pools.cea` — contains the deprecated block with old IDs and the current active block with new IDs.
 
-3. **Hash region (`CSPlayerGameDataHash`, last 0x80 bytes of slot)** — currently preserved verbatim. Game may validate it against runtime state when DLC is installed.
+Verified through diagnostics:
+- `EventFlagsOffset` is correct (static + dynamic match on PC and PS4) ✅
+- Bit survives `Save → Load` round-trip on both platforms ✅
+- BST block `670` already present in `eventflag_bst.txt` (position 107) — no lookup table changes needed ✅
+- Root cause confirmed: `summoning_pools.go` uses old IDs which the game ignores ❌
 
-4. **PS4-specific** — PS4 saves are unencrypted, but PC SteamID-bound encryption may interact with our flag write.
+## Fix plan
 
-## Action plan (when resumed)
-
-1. Write `tests/event_flag_persistence_test.go` covering Set → Save → Load → Get round-trip
-2. If round-trip persists → investigate game-side requirements (compare with reference save where pools are activated)
-3. If round-trip fails → trace where the bit gets lost in the writer/encryption pipeline
-4. Cross-check with Invasion Regions — maybe pool activation requires the matching region to be unlocked
+1. Replace all 165 IDs in `backend/db/data/summoning_pools.go` with new `670xxx` IDs from CT-TGA
+   - Base game: 162 IDs (`flagsBase` in CT-TGA)
+   - DLC (Shadow of the Erdtree): remaining entries from `flagsDLC1`
+   - Names mapped sequentially by region (CT-TGA preserves region order; per-pool names from our existing data)
+2. `event_flags.go` and `eventflag_bst.txt` — **no changes needed** (BST block 670 handles new IDs)
+3. Same root cause likely applies to Colosseums (`60350`, `60360`, `60370` may also need a post-v1.12 audit)
 
 ## Related
 
-- Colosseum toggle has the same symptom (flags set, no in-game effect)
-- Sites of Grace toggle partially works (map visible but not fast-travel activated)
-- These may all share a common root cause (secondary game-side validation beyond event flags)
+- Colosseum toggle — same symptom, same probable cause (flag IDs may have changed in v1.12)
+- Sites of Grace toggle — partially works (map visible, not fast-travel) — unrelated, different mechanism
+- Diagnostic scripts in `tmp/scripts/diag/`: `eventflags_offset_check.go`, `eventflags_persist_check.go`

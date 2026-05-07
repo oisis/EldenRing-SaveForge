@@ -185,7 +185,7 @@ War-Dead Catacombs (requires Radahn defeat), 3 DLC catacombs (m61 tiles, `20{col
 
 | Bug | Status | Ref |
 |-----|--------|-----|
-| Summoning Pools — UI works, no in-game effect | paused | [spec/42](spec/42-summoning-pools-bug.md) |
+| Summoning Pools — wrong flag IDs post-patch v1.12 | **fix ready** | [spec/42](spec/42-summoning-pools-bug.md) |
 | Colosseum toggle — no visible in-game effect (may need online mode) | unverified | — |
 | Boss Kill single-flag — grants runes but boss alive | planned fix | [spec/38](spec/38-boss-multiflag.md) |
 | Grace toggle — map visible but not fast-travel activated | known limitation | — |
