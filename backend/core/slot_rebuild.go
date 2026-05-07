@@ -238,18 +238,27 @@ func RebuildSlot(slot *SaveSlot) ([]byte, error) {
 	hash.Write(sw)
 
 	// Append original tail rest, then zero-pad to SlotSize.
+	//
+	// When variable sections (UnlockedRegions) grow by delta bytes, the slot
+	// would overflow. On PC saves the tail rest is genuine zero-padding that
+	// absorbs the delta safely. On PS4 saves the tail rest contains ~432 KB
+	// of stale data that the game ignores (it jumps to DLC/Hash at their fixed
+	// end-of-slot offsets). Trimming the tail rest to fit shifts that block to
+	// wrong absolute positions and corrupts the save. Zero-padding is safe
+	// because the game skips this region entirely; DLC and Hash are restored
+	// verbatim below.
 	written := sw.Len()
-	tailToCopy := len(tailRest)
-	if written+tailToCopy > SlotSize {
-		// Mutation grew the variable section past available rest — trim tail.
-		tailToCopy = SlotSize - written
-		if tailToCopy < 0 {
-			return nil, fmt.Errorf("RebuildSlot: sections overflow SlotSize (%d > %d)", written, SlotSize)
+	if written > SlotSize {
+		return nil, fmt.Errorf("RebuildSlot: sections overflow SlotSize (%d > %d)", written, SlotSize)
+	}
+	if written+len(tailRest) <= SlotSize {
+		// No overflow: preserve tail rest verbatim for identity round-trip on
+		// unmodified saves and PC saves with genuine zero-padding slack.
+		if len(tailRest) > 0 {
+			sw.WriteBytes(tailRest)
 		}
 	}
-	if tailToCopy > 0 {
-		sw.WriteBytes(tailRest[:tailToCopy])
-	}
+	// else: overflow — discard tail rest; zero-pad the skip zone instead.
 	if sw.Len() < SlotSize {
 		sw.PadZeros(SlotSize - sw.Len())
 	}
@@ -441,16 +450,22 @@ func RebuildSlotFull(slot *SaveSlot) ([]byte, error) {
 	}
 
 	// Append tail rest, then zero-pad to SlotSize.
-	tailToCopy := len(tailRest)
-	if written+tailToCopy > SlotSize {
-		tailToCopy = SlotSize - written
-		if tailToCopy < 0 {
-			tailToCopy = 0
+	//
+	// When GaItems or UnlockedRegions grow by delta bytes, the slot would
+	// overflow. On PC saves the tail rest is genuine zero-padding (~419 KB)
+	// that absorbs the delta safely. On PS4 saves the tail rest contains
+	// ~432 KB of stale data that the game ignores (it jumps to DLC/Hash at
+	// their fixed end-of-slot offsets). Trimming shifts that block to wrong
+	// absolute positions and corrupts the save. Zero-padding is safe because
+	// the game skips this region; DLC and Hash are restored verbatim below.
+	if written+len(tailRest) <= SlotSize {
+		// No overflow: preserve tail rest verbatim for identity round-trip on
+		// unmodified saves and PC saves with genuine zero-padding slack.
+		if len(tailRest) > 0 {
+			sw.WriteBytes(tailRest)
 		}
 	}
-	if tailToCopy > 0 {
-		sw.WriteBytes(tailRest[:tailToCopy])
-	}
+	// else: overflow — discard tail rest; zero-pad the skip zone instead.
 	if sw.Len() < SlotSize {
 		sw.PadZeros(SlotSize - sw.Len())
 	}
@@ -460,13 +475,9 @@ func RebuildSlotFull(slot *SaveSlot) ([]byte, error) {
 		return nil, fmt.Errorf("RebuildSlotFull: output size %d, want %d", len(out), SlotSize)
 	}
 
-	// IMPORTANT: typed trail.Read/hash.Read parse bytes at a position INSIDE
-	// the typed-section span (around SlotSize - 419KB), but the game reads DLC
-	// at fixed offset SlotSize-0xB2 and Hash at SlotSize-0x80 — both INSIDE
-	// the tailRest region that we just wrote and possibly truncated. When
-	// GaItems grew (delta > 0), tailRest was trimmed from the END to fit
-	// SlotSize, dropping the original DLC+Hash bytes. Restore them verbatim
-	// from slot.Data here so the game finds correct values at fixed offsets.
+	// DLC and Hash are at fixed end-of-slot offsets that the game reads by
+	// absolute position. Restore them verbatim from the original slot.Data so
+	// the game finds correct values regardless of any section growth.
 	copy(out[DlcSectionOffset:DlcSectionOffset+DlcSectionSize],
 		slot.Data[DlcSectionOffset:DlcSectionOffset+DlcSectionSize])
 	copy(out[SlotSize-HashSize:], slot.Data[SlotSize-HashSize:])
