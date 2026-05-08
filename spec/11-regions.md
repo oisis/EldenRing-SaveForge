@@ -44,6 +44,9 @@ A fresh character has 6 entries: `1001000, 1001001, 1001002, 1800001,
 Cave of Knowledge + The First Step). Late-game saves observed with up
 to 395 entries.
 
+Note: `1800090` (Cave of Knowledge) is present in the **default** fresh-character
+list — it is safe to include in `unlocked_regions` on any save.
+
 ---
 
 ## Region ID ranges
@@ -60,9 +63,11 @@ to 395 entries.
 | 6400xxx | Caelid / Dragonbarrow | Bestial Sanctum |
 | 6500xxx | Mountaintops / Snowfield | Zamor Ruins, Forbidden Lands |
 
-Full database: `backend/db/data/regions.go` (211 base-game entries),
-exposed via `db.GetAllRegions()`. DLC region IDs are not yet catalogued
-in our database — open question.
+Full database: `backend/db/data/regions.go` (104 base-game entries),
+exposed via `db.GetAllRegions()`. The 104 entries cover all known matchmaking
+regions from the er-save-manager reference list (103 IDs) plus Roundtable Hold.
+DLC region IDs (6900xxx) are included. See `spec/46-faster-invasions-research.md`
+for coverage history.
 
 ---
 
@@ -86,7 +91,7 @@ Behavior:
 `RebuildSlot` is safe for any realistic count: post-rebuild end-of-data
 sits ~2.2 MB into the 0x280000-byte slot, leaving 408–432 KB of zero
 tail padding. Tested up to ~100,000 regions in synthetic stress tests;
-the user-facing "Unlock All" path adds at most ~211 regions.
+the user-facing "Unlock All" path adds at most ~104 regions.
 
 > **Do not** edit the list by raw byte insertion / shifting. The
 > historical "shift in place, max 10–20 regions" path was removed in

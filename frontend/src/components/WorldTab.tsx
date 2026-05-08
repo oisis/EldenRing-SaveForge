@@ -1,112 +1,13 @@
 import {useCallback, useEffect, useState} from 'react';
-import {GetGraces, SetGraceVisited, GetBosses, SetBossDefeated, GetSummoningPools, SetSummoningPoolActivated, GetColosseums, SetColosseumUnlocked, GetMapProgress, SetMapFlag, SetMapRegionFlags, RevealAllMap, ResetMapExploration, RemoveFogOfWar, GetCookbooks, SetCookbookUnlocked, BulkSetCookbooksUnlocked, GetGestures, SetGestureUnlocked, BulkSetGesturesUnlocked, GetQuestNPCs, GetQuestProgress, SetQuestStep, GetBellBearings, SetBellBearingUnlocked, BulkSetBellBearings, GetWhetblades, SetWhetbladeUnlocked, GetUnlockedRegions, SetRegionUnlocked, BulkSetUnlockedRegions, GetNetworkParams, SetNetworkParams, GetNetworkPreset} from '../../wailsjs/go/main/App';
+import {GetGraces, SetGraceVisited, GetBosses, SetBossDefeated, GetSummoningPools, SetSummoningPoolActivated, GetColosseums, SetColosseumUnlocked, GetMapProgress, SetMapFlag, SetMapRegionFlags, RevealAllMap, ResetMapExploration, RemoveFogOfWar, GetCookbooks, SetCookbookUnlocked, BulkSetCookbooksUnlocked, GetGestures, SetGestureUnlocked, BulkSetGesturesUnlocked, GetQuestNPCs, GetQuestProgress, SetQuestStep, GetBellBearings, SetBellBearingUnlocked, BulkSetBellBearings, GetWhetblades, SetWhetbladeUnlocked, GetUnlockedRegions, SetRegionUnlocked, BulkSetUnlockedRegions} from '../../wailsjs/go/main/App';
 import type {AddSettings} from '../App';
-import {core, db} from '../../wailsjs/go/models';
+import {db} from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
 import {RiskActionButton} from './RiskActionButton';
 import {RiskSectionBanner} from './RiskSectionBanner';
 import {RiskKey} from '../data/riskInfo';
-
-interface SliderDef {
-    key: string;
-    label: string;
-    desc: string;
-    min: number;
-    max: number;
-    step: number;
-    unit: string;
-    defaultVal: number;
-    banRisk?: boolean;
-}
-
-interface NetSection {
-    role: string;
-    label: string;
-    color: string;
-    desc: string;
-    presetId: string;
-    presetLabel: string;
-    banRisk: boolean;
-    sliders: SliderDef[];
-}
-
-const NET_SECTIONS: NetSection[] = [
-    {
-        role: 'invader', label: 'Invader', color: 'text-red-700',
-        desc: 'Invasion matchmaking speed',
-        presetId: 'fast-invasions', presetLabel: 'Fast Invasion', banRisk: false,
-        sliders: [
-            {key: 'maxBreakInTargetListCount', label: 'Max Targets', desc: 'Invasion target candidates per search', min: 1, max: 20, step: 1, unit: '', defaultVal: 5},
-            {key: 'breakInRequestIntervalTimeSec', label: 'Request Interval', desc: 'Delay between matchmaking retries', min: 2, max: 30, step: 1, unit: 's', defaultVal: 30},
-            {key: 'breakInRequestTimeOutSec', label: 'Request Timeout', desc: 'Timeout per matchmaking request', min: 3, max: 20, step: 1, unit: 's', defaultVal: 20},
-        ],
-    },
-    {
-        role: 'cooperator', label: 'Summon', color: 'text-orange-600',
-        desc: 'Summon sign visibility & refresh',
-        presetId: 'fast-summons', presetLabel: 'Fast Summons', banRisk: false,
-        sliders: [
-            {key: 'reloadSignIntervalTime2', label: 'Sign Refresh', desc: 'How often the sign list refreshes', min: 1, max: 120, step: 1, unit: 's', defaultVal: 60},
-            {key: 'reloadSignTotalCount', label: 'Signs Retrieved', desc: 'Max signs downloaded per cycle', min: 1, max: 128, step: 1, unit: '', defaultVal: 20},
-            {key: 'reloadSignCellCount', label: 'Signs Per Cell', desc: 'Max signs visible per map cell', min: 1, max: 99, step: 1, unit: '', defaultVal: 10},
-            {key: 'updateSignIntervalTime', label: 'Sign Upload', desc: 'How often YOUR sign is updated on server', min: 1, max: 120, step: 1, unit: 's', defaultVal: 30},
-            {key: 'singGetMax', label: 'Sign Get Max', desc: 'Hard cap on total retrievable signs', min: 1, max: 128, step: 1, unit: '', defaultVal: 32},
-            {key: 'signDownloadSpan', label: 'Download Span', desc: 'Sign list download interval', min: 1, max: 120, step: 1, unit: 's', defaultVal: 30},
-            {key: 'signUpdateSpan', label: 'Upload Span', desc: 'Sign data upload interval to server', min: 1, max: 120, step: 1, unit: 's', defaultVal: 60},
-        ],
-    },
-    {
-        role: 'hunter', label: 'Hunter', color: 'text-blue-800',
-        desc: 'Blue Cipher Ring response time',
-        presetId: 'fast-blue', presetLabel: 'Fast Hunter', banRisk: true,
-        sliders: [
-            {key: 'reloadVisitListCoolTime', label: 'Search Cooldown', desc: 'Cooldown between blue phantom searches', min: 1, max: 120, step: 1, unit: 's', defaultVal: 20, banRisk: true},
-            {key: 'maxCoopBlueSummonCount', label: 'Search Parallelism', desc: 'Max blue phantoms searched simultaneously', min: 1, max: 10, step: 1, unit: '', defaultVal: 2, banRisk: true},
-            {key: 'maxVisitListCount', label: 'Visit List Size', desc: 'Number of visit targets retrieved per search', min: 1, max: 50, step: 1, unit: '', defaultVal: 5, banRisk: true},
-            {key: 'reloadSearchCoopBlueMin', label: 'Reload Min', desc: 'Min delay between co-op blue reload searches', min: 1, max: 180, step: 1, unit: 's', defaultVal: 30, banRisk: true},
-            {key: 'reloadSearchCoopBlueMax', label: 'Reload Max', desc: 'Max delay (randomized between min/max)', min: 1, max: 300, step: 1, unit: 's', defaultVal: 180, banRisk: true},
-            {key: 'allAreaSearchRateCoopBlue', label: 'Global Search %', desc: 'Chance to search ALL areas (vs local only)', min: 0, max: 100, step: 5, unit: '%', defaultVal: 30, banRisk: true},
-            {key: 'allAreaSearchRateVsBlue', label: 'Global Retribution %', desc: 'Chance for retribution blue global search', min: 0, max: 100, step: 5, unit: '%', defaultVal: 30, banRisk: true},
-        ],
-    },
-    {
-        role: 'host', label: 'Host', color: 'text-gray-900',
-        desc: "Taunter's Tongue / visitor system",
-        presetId: 'aggressive-host', presetLabel: 'Aggressive Host', banRisk: true,
-        sliders: [
-            {key: 'visitorListMax', label: 'Visitor List Max', desc: 'Max visitor target list entries', min: 1, max: 100, step: 1, unit: '', defaultVal: 10, banRisk: true},
-            {key: 'visitorTimeOutTime', label: 'Visitor Timeout', desc: 'How long the system waits for a visitor', min: 1, max: 600, step: 5, unit: 's', defaultVal: 60, banRisk: true},
-            {key: 'visitorDownloadSpan', label: 'Visitor Download', desc: 'Visitor list download interval', min: 1, max: 600, step: 5, unit: 's', defaultVal: 60, banRisk: true},
-        ],
-    },
-];
-
-function netParamsToDict(p: core.NetworkParamValues): Record<string, number> {
-    return {
-        maxBreakInTargetListCount: p.maxBreakInTargetListCount,
-        breakInRequestIntervalTimeSec: p.breakInRequestIntervalTimeSec,
-        breakInRequestTimeOutSec: p.breakInRequestTimeOutSec,
-        reloadSignIntervalTime2: p.reloadSignIntervalTime2,
-        reloadSignTotalCount: p.reloadSignTotalCount,
-        reloadSignCellCount: p.reloadSignCellCount,
-        updateSignIntervalTime: p.updateSignIntervalTime,
-        singGetMax: p.singGetMax,
-        signDownloadSpan: p.signDownloadSpan,
-        signUpdateSpan: p.signUpdateSpan,
-        reloadVisitListCoolTime: p.reloadVisitListCoolTime,
-        maxCoopBlueSummonCount: p.maxCoopBlueSummonCount,
-        maxVisitListCount: p.maxVisitListCount,
-        reloadSearchCoopBlueMin: p.reloadSearchCoopBlueMin,
-        reloadSearchCoopBlueMax: p.reloadSearchCoopBlueMax,
-        allAreaSearchRateCoopBlue: p.allAreaSearchRateCoopBlue,
-        allAreaSearchRateVsBlue: p.allAreaSearchRateVsBlue,
-        visitorListMax: p.visitorListMax,
-        visitorTimeOutTime: p.visitorTimeOutTime,
-        visitorDownloadSpan: p.visitorDownloadSpan,
-    };
-}
 
 interface WorldTabProps {
     charIdx: number;
@@ -179,65 +80,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
     const [questProgress, setQuestProgress] = useState<db.QuestNPC | null>(null);
     const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({});
     const [questLoading, setQuestLoading] = useState(false);
-    const [activeSubTab, setActiveSubTab] = useState<'exploration' | 'progress' | 'unlocks' | 'networking'>('exploration');
-
-    // --- Networking state ---
-    const [netDraft, setNetDraft] = useState<Record<string, number>>({});
-    const [netDirty, setNetDirty] = useState(false);
-    const [netApplying, setNetApplying] = useState(false);
-    const [netHintKey, setNetHintKey] = useState<string | null>(null);
-    const [expandedNetSections, setExpandedNetSections] = useState<Record<string, boolean>>({invader: false, cooperator: false, hunter: false, host: false});
-
-    // --- Networking handlers ---
-    const loadNetParams = useCallback(() => {
-        if (!platform) return;
-        GetNetworkParams().then(p => {
-            setNetDraft(netParamsToDict(p));
-            setNetDirty(false);
-        }).catch(() => {});
-    }, [platform]);
-
-    useEffect(() => { if (activeSubTab === 'networking') loadNetParams(); }, [activeSubTab, loadNetParams]);
-
-    const handleNetApply = async () => {
-        setNetApplying(true);
-        try {
-            await SetNetworkParams(new core.NetworkParamValues(netDraft));
-            toast.success('Network params applied');
-            loadNetParams();
-        } catch (e) { toast.error(String(e)); }
-        finally { setNetApplying(false); }
-    };
-
-    const handleRoleReset = (section: NetSection) => {
-        setNetDraft(prev => {
-            const next = {...prev};
-            for (const s of section.sliders) next[s.key] = s.defaultVal;
-            return next;
-        });
-        setNetDirty(true);
-    };
-
-    const handleNetPreset = async (section: NetSection) => {
-        setNetApplying(true);
-        try {
-            const p = await GetNetworkPreset(section.presetId);
-            const presetDict = netParamsToDict(p);
-            setNetDraft(prev => {
-                const next = {...prev};
-                for (const s of section.sliders) next[s.key] = presetDict[s.key];
-                return next;
-            });
-            setNetDirty(true);
-            toast.success(`"${section.presetLabel}" loaded — click Apply to save`);
-        } catch (e) { toast.error(String(e)); }
-        finally { setNetApplying(false); }
-    };
-
-    const updateNetDraft = (key: string, value: number) => {
-        setNetDraft(prev => ({...prev, [key]: value}));
-        setNetDirty(true);
-    };
+    const [activeSubTab, setActiveSubTab] = useState<'exploration' | 'progress' | 'unlocks'>('exploration');
 
     const loadExplorationData = useCallback(() => {
         setLoading(true);
@@ -457,7 +300,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
 
             {/* Sub-tab selector */}
             <div className="flex items-center space-x-1">
-                {(['exploration', 'progress', 'unlocks', 'networking'] as const).map(st => (
+                {(['exploration', 'progress', 'unlocks'] as const).map(st => (
                     <button key={st} onClick={() => setActiveSubTab(st)}
                         className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-[0.15em] transition-all ${activeSubTab === st ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}>
                         {st}
@@ -753,112 +596,6 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
             {/* ═══════════════════════════════════════════
                 UNLOCKS SUB-TAB
                ═══════════════════════════════════════════ */}
-            {/* ═══════════════════════════════════════════
-                NETWORKING SUB-TAB
-               ═══════════════════════════════════════════ */}
-            {activeSubTab === 'networking' && (
-                <div className="space-y-3 animate-in fade-in duration-200">
-                    {!platform ? (
-                        <div className="py-16 text-center text-[10px] text-muted-foreground font-bold uppercase tracking-wider">
-                            Load a save file to edit network params
-                        </div>
-                    ) : (
-                        <>
-                            {/* Global apply bar */}
-                            <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-muted/20 border border-border/50">
-                                <p className="text-[11px] text-muted-foreground">
-                                    Modifies <code className="text-[11px] bg-muted/50 px-1 rounded">regulation.bin</code> NetworkParam
-                                    · <span className="text-orange-400 font-bold">⚠ = ban risk</span>
-                                </p>
-                                <button onClick={handleNetApply} disabled={netApplying || !netDirty}
-                                    className="ml-4 shrink-0 px-5 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-primary text-primary-foreground shadow-sm hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:pointer-events-none transition-all">
-                                    Apply
-                                </button>
-                            </div>
-
-                            {/* 4 role sections — vertical stack */}
-                            <div className="space-y-2">
-                                {NET_SECTIONS.map(section => {
-                                    const isOpen = expandedNetSections[section.role] ?? true;
-                                    const sectionIsDefault = section.sliders.every(s => (netDraft[s.key] ?? s.defaultVal) === s.defaultVal);
-                                    return (
-                                    <div key={section.role} className="rounded-lg border border-border/60 overflow-hidden">
-                                        {/* Section header — click to collapse */}
-                                        <div className={`flex items-center gap-2 px-3 py-2 bg-muted/10 hover:bg-muted/15 transition-colors cursor-pointer ${isOpen ? 'border-b border-border/40' : ''}`}
-                                            onClick={() => setExpandedNetSections(p => ({...p, [section.role]: !isOpen}))}>
-                                            {/* Chevron */}
-                                            <svg className={`w-3 h-3 shrink-0 transition-transform duration-200 ${isOpen ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
-                                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
-                                            </svg>
-                                            {/* Role identity — LEFT */}
-                                            <span className={`text-[11px] font-black uppercase tracking-wider ${section.color}`}>{section.label}</span>
-                                            {/* Spacer */}
-                                            <div className="flex-1" />
-                                            {/* RIGHT: ban risk + action buttons — stop propagation */}
-                                            <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
-                                                {section.banRisk && (
-                                                    <span className="text-[10px] font-black text-orange-400 bg-orange-400/10 border border-orange-400/30 px-2 py-1 rounded">⚠ ban risk</span>
-                                                )}
-                                                <button onClick={() => handleNetPreset(section)} disabled={netApplying}
-                                                    className="relative flex items-center justify-center w-36 py-1 rounded text-[10px] font-black uppercase tracking-wider bg-muted text-foreground border border-border hover:bg-muted/70 active:scale-95 disabled:opacity-40 transition-all">
-                                                    {section.presetLabel}
-                                                    <span className={`absolute right-2 w-1.5 h-1.5 rounded-full ${sectionIsDefault ? 'bg-green-400' : 'bg-red-400'}`} />
-                                                </button>
-                                                <button onClick={() => handleRoleReset(section)} disabled={netApplying}
-                                                    className="text-[10px] font-black uppercase tracking-wider text-muted-foreground border border-foreground/30 bg-foreground/5 px-2 py-1 rounded transition-all hover:text-red-400 hover:border-red-400/50 disabled:opacity-40 disabled:pointer-events-none">
-                                                    Reset
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        {/* Expanded content */}
-                                        {isOpen && (
-                                        <>
-                                        <p className="px-3 py-2.5 text-[12px] font-medium text-foreground/80 border-b border-border/30">{section.desc}</p>
-                                        <div className="divide-y divide-border/30">
-                                            {section.sliders.map(s => {
-                                                const val = netDraft[s.key] ?? s.defaultVal;
-                                                const hintOpen = netHintKey === s.key;
-                                                return (
-                                                    <div key={s.key} className="px-3 py-2">
-                                                        <div className="flex items-center gap-3">
-                                                            <label className="text-[10px] font-bold text-foreground w-36 shrink-0">{s.label}</label>
-                                                            <input type="range" min={s.min} max={s.max} step={s.step} value={val}
-                                                                onChange={e => updateNetDraft(s.key, parseInt(e.target.value))}
-                                                                className="flex-1 h-1.5 rounded-full appearance-none bg-border accent-primary cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary" />
-                                                            <span className="text-[10px] font-mono font-bold text-primary w-14 text-right shrink-0">{val}{s.unit}</span>
-                                                            <button
-                                                                onClick={() => setNetHintKey(hintOpen ? null : s.key)}
-                                                                className={`w-4 h-4 rounded-full text-[11px] font-black border flex items-center justify-center shrink-0 transition-colors ${hintOpen ? 'bg-primary text-primary-foreground border-primary' : 'border-border/60 text-muted-foreground hover:border-primary/50 hover:text-primary'}`}>
-                                                                ?
-                                                            </button>
-                                                        </div>
-                                                        <div className="flex justify-between text-[10px] text-muted-foreground mt-0.5 pl-[9.5rem]">
-                                                            <span>{s.min}{s.unit}</span>
-                                                            <span>default {s.defaultVal}{s.unit}</span>
-                                                            <span>{s.max}{s.unit}</span>
-                                                        </div>
-                                                        {hintOpen && (
-                                                            <p className="mt-1 pl-[9.5rem] text-[11px] text-muted-foreground leading-relaxed animate-in fade-in slide-in-from-top-1 duration-150">
-                                                                {s.desc}
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                        </>
-                                        )}
-                                    </div>
-                                    );
-                                })}
-                            </div>
-                        </>
-                    )}
-                </div>
-            )}
-
             {activeSubTab === 'unlocks' && (
                 <div className="space-y-3 animate-in fade-in duration-200">
                     {/* Gestures */}

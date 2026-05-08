@@ -121,16 +121,63 @@ var Regions = map[uint32]RegionData{
 	6900006: {Name: "Shadow Keep", Area: "Land of Shadow"},
 
 	// ============================================================
-	// Legacy Dungeons (discovered on enter; aliases for label resolution)
+	// Legacy Dungeons — Stormveil Castle
 	// ============================================================
 	1000000: {Name: "Stormveil Castle", Area: "Legacy Dungeons"},
+	1000001: {Name: "Stormveil Main Gate", Area: "Legacy Dungeons"},
+	1000003: {Name: "Rampart Tower", Area: "Legacy Dungeons"},
+	1000005: {Name: "Liftside Chamber", Area: "Legacy Dungeons"},
+	1000006: {Name: "Gateside Chamber", Area: "Legacy Dungeons"},
+
+	// ============================================================
+	// Legacy Dungeons — Leyndell, Royal Capital
+	// ============================================================
 	1100000: {Name: "Leyndell, Royal Capital", Area: "Legacy Dungeons"},
+	1100001: {Name: "Queen's Bedchamber", Area: "Legacy Dungeons"},
 	1100010: {Name: "Leyndell - Erdtree Sanctuary", Area: "Legacy Dungeons"},
+	1100012: {Name: "East Capital Rampart", Area: "Legacy Dungeons"},
+	1100013: {Name: "Avenue Balcony", Area: "Legacy Dungeons"},
+	1100015: {Name: "Lower Capital Church", Area: "Legacy Dungeons"},
+	1100016: {Name: "West Capital Rampart", Area: "Legacy Dungeons"},
+	1100017: {Name: "Divine Bridge", Area: "Legacy Dungeons"},
 	1101000: {Name: "Roundtable Hold", Area: "Legacy Dungeons"},
+
+	// ============================================================
+	// Legacy Dungeons — Leyndell, Ashen Capital (post-Farum Azula)
+	// ============================================================
+	1105000: {Name: "Ashen Elden Throne", Area: "Legacy Dungeons"},
+	1105001: {Name: "Ashen Queen's Bedchamber", Area: "Legacy Dungeons"},
+	1105011: {Name: "Leyndell, Capital of Ash", Area: "Legacy Dungeons"},
+	1105092: {Name: "Ashen Divine Bridge", Area: "Legacy Dungeons"},
+
+	// ============================================================
+	// Legacy Dungeons — Academy of Raya Lucaria
+	// ============================================================
 	1400000: {Name: "Academy of Raya Lucaria", Area: "Legacy Dungeons"},
+	1400010: {Name: "Debate Parlor", Area: "Legacy Dungeons"},
+	1400011: {Name: "Main Academy Gate", Area: "Legacy Dungeons"},
+	1400013: {Name: "Church of the Cuckoo", Area: "Legacy Dungeons"},
+	1400015: {Name: "School House Classroom", Area: "Legacy Dungeons"},
+
+	// ============================================================
+	// Legacy Dungeons — Volcano Manor
+	// ============================================================
 	1600000: {Name: "Volcano Manor", Area: "Legacy Dungeons"},
+	1600006: {Name: "Audience Pathway", Area: "Legacy Dungeons"},
+	1600010: {Name: "Temple of Eiglay", Area: "Legacy Dungeons"},
+	1600012: {Name: "Volcano Manor (interior)", Area: "Legacy Dungeons"},
+	1600014: {Name: "Prison Town Church", Area: "Legacy Dungeons"},
+	1600016: {Name: "Guest Hall", Area: "Legacy Dungeons"},
+	1600020: {Name: "Abductor Virgin", Area: "Legacy Dungeons"},
+	1600022: {Name: "Subterranean Inquisition Chamber", Area: "Legacy Dungeons"},
+
+	// ============================================================
+	// Legacy Dungeons — Tutorial / Endgame
+	// ============================================================
 	1800001: {Name: "Stranded Graveyard", Area: "Legacy Dungeons"},
+	1800090: {Name: "Cave of Knowledge", Area: "Legacy Dungeons"},
 	1900000: {Name: "Stone Platform", Area: "Legacy Dungeons"},
+	1900001: {Name: "Elden Beast", Area: "Legacy Dungeons"},
 }
 
 // IsDLCRegion reports whether a region ID belongs to the Shadow of the Erdtree DLC.

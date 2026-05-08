@@ -2,7 +2,7 @@
 
 > **Type**: Investigation / Bug
 > **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
-> **Status**: ✅ Root cause identified — fix planned
+> **Status**: ✅ Fixed — `summoning_pools.go` updated to v1.12+ IDs (`670xxx`)
 
 ---
 
