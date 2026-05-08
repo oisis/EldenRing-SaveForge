@@ -631,6 +631,76 @@ as a client-side eligibility hint. Online safety is not guaranteed.
 
 ---
 
+## 12. Tooling and Validation
+
+### save_inspector.go
+
+`tmp/scripts/diag/save_inspector.go` — read-only diagnostic tool for Elden Ring PS4/PC save files.
+Not tracked by git (`tmp/` is gitignored); run with `go run`.
+
+Capabilities:
+
+- Single slot inspection (default: slot 0, or `-slot N`)
+- `-all-slots` — iterate all active slots with per-slot character metadata and section summary
+- `-compare <file1> <file2>` — side-by-side PS4 vs PC format comparison
+- UD11 format detection (PC: MD5 prefix present; PS4: GER header, no MD5)
+- NetworkParam field extraction with vanilla / patched / unknown classification (compares
+  against defaults from `core.NetworkParamDefaults()`)
+- UD0 `MatchmakingCandidateSection` spec compliance validation (header type, all 13 entry
+  types, V7 tail sentinel, terminator)
+- UD10 state classifier — maps the 4-field combination to one of:
+  PASSIVE / BF-INIT / ACTIVE-BF / SUCCESS / TIMEOUT / PATCHED-IDLE
+
+### Regression Tests
+
+**9/9 passing.**
+
+Original fixtures (invasion-state saves, all PS4, slot 0):
+
+| Label | State |
+|-------|-------|
+| H | PASSIVE |
+| J | BF-INIT |
+| F | ACTIVE-BF |
+| I | SUCCESS |
+| G | TIMEOUT |
+| E | PATCHED-IDLE |
+
+New validation files (no invasion history):
+
+| Label | Format | Active slots |
+|-------|--------|-------------|
+| `ER0000.sl2` | PC (BND4 unencrypted) | 5 (0–4) |
+| `oisis_pl-org.txt` | PS4 raw | 2 (0–1) |
+| `oisisk_ps4.txt` | PS4 raw | 4 (0–3) |
+
+All three verify that `MatchmakingCandidateSection` is not interpreted as spec-valid for
+characters with no invasion history.
+
+### Cross-Platform Candidate Section Behavior
+
+PS4 uninvaded/inactive slots typically have **zeroed bytes** at `UD0+0x209B00..0x209C43`.
+
+PC BND4 uninvaded/inactive slots can contain **random non-zero bytes** at the same offset.
+This is expected BND4 save behavior, not a parser bug — the section is uninitialized and its
+content has no semantic meaning.
+
+**Only active slots with valid character metadata should be interpreted.** Slots with
+`version=0` and no character name must be treated as empty regardless of candidate section
+content.
+
+### `-compare` Confirms Offset Compatibility
+
+`-compare` on PS4 vs PC saves confirms:
+
+- `UD0 MatchmakingCandidateSection` relative offset (`+0x209B00`) is fixed and identical
+  across both platforms for active slots.
+- `UD10` state marker offsets (`+0x5070`, `+0x194E4`, etc.) are platform-independent.
+- UD11 blob format differs by platform (PS4: GER+IV+AES+DCX; PC: MD5+IV+AES+DCX), but
+  NetworkParam invasion fields decode identically once decrypted.
+
+---
+
 ## Sources
 
 - `tmp/regulation-bin-dump/csv/NetworkParam.csv` — vanilla NetworkParam field values

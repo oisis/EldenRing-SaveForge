@@ -631,6 +631,76 @@ listę jako client-side hint. Bezpieczeństwo online nie jest gwarantowane.
 
 ---
 
+## 12. Narzędzia i walidacja
+
+### save_inspector.go
+
+`tmp/scripts/diag/save_inspector.go` — narzędzie diagnostyczne read-only dla plików save Elden Ring PS4/PC.
+Nie trafia do repozytorium (`tmp/` jest w .gitignore); uruchamiane przez `go run`.
+
+Możliwości:
+
+- Inspekcja pojedynczego slotu (domyślnie: slot 0, lub `-slot N`)
+- `-all-slots` — iteracja po wszystkich aktywnych slotach z metadanymi postaci i podsumowaniem sekcji
+- `-compare <file1> <file2>` — porównanie PS4 vs PC side-by-side
+- Wykrywanie formatu UD11 (PC: prefix MD5 obecny; PS4: nagłówek GER, bez MD5)
+- Wyodrębnianie pól NetworkParam z klasyfikacją vanilla / patched / unknown (porównanie
+  z wartościami domyślnymi z `core.NetworkParamDefaults()`)
+- Walidacja zgodności `MatchmakingCandidateSection` ze spec (typ nagłówka, typy wszystkich
+  13 wpisów, tail sentinel V7, terminator)
+- Klasyfikator stanu UD10 — mapuje kombinację 4 pól na jeden ze stanów:
+  PASSIVE / BF-INIT / ACTIVE-BF / SUCCESS / TIMEOUT / PATCHED-IDLE
+
+### Testy regresyjne
+
+**9/9 przechodzi.**
+
+Oryginalne fixture'y (save'y ze stanem inwazji, wszystkie PS4, slot 0):
+
+| Etykieta | Stan |
+|----------|------|
+| H | PASSIVE |
+| J | BF-INIT |
+| F | ACTIVE-BF |
+| I | SUCCESS |
+| G | TIMEOUT |
+| E | PATCHED-IDLE |
+
+Nowe pliki walidacyjne (brak historii inwazji):
+
+| Etykieta | Format | Aktywne sloty |
+|----------|--------|---------------|
+| `ER0000.sl2` | PC (BND4 niezaszyfrowany) | 5 (0–4) |
+| `oisis_pl-org.txt` | PS4 raw | 2 (0–1) |
+| `oisisk_ps4.txt` | PS4 raw | 4 (0–3) |
+
+Wszystkie trzy weryfikują, że `MatchmakingCandidateSection` nie jest interpretowana jako
+zgodna ze spec dla postaci bez historii inwazji.
+
+### Zachowanie sekcji kandydatów na różnych platformach
+
+Nieaktywne/niezainwadowane sloty PS4 mają zazwyczaj **wyzerowane bajty** pod adresem `UD0+0x209B00..0x209C43`.
+
+Nieaktywne sloty PC BND4 mogą zawierać **losowe niezerowe bajty** pod tym samym offsetem.
+To oczekiwane zachowanie formatu BND4 — nie błąd parsera. Sekcja jest niezainicjowana
+i jej zawartość nie ma znaczenia semantycznego.
+
+**Interpretować należy wyłącznie aktywne sloty z prawidłowymi metadanymi postaci.** Sloty
+z `version=0` i bez nazwy postaci należy traktować jako puste niezależnie od zawartości
+sekcji kandydatów.
+
+### `-compare` potwierdza kompatybilność offsetów
+
+`-compare` na plikach PS4 vs PC potwierdza:
+
+- Relatywny offset `UD0 MatchmakingCandidateSection` (`+0x209B00`) jest stały i identyczny
+  na obu platformach dla aktywnych slotów.
+- Offsety markerów stanu `UD10` (`+0x5070`, `+0x194E4` itd.) są niezależne od platformy.
+- Format blobu UD11 różni się w zależności od platformy (PS4: GER+IV+AES+DCX; PC: MD5+IV+AES+DCX),
+  ale pola inwazji NetworkParam dekodują się identycznie po odszyfrowaniu.
+
+---
+
 ## Źródła
 
 - `tmp/regulation-bin-dump/csv/NetworkParam.csv` — vanilla NetworkParam wartości pól
