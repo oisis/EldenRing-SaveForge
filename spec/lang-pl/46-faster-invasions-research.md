@@ -15,7 +15,7 @@ Elden Ring `.sl2` / `.dat` to kontener BND4 z dokładnie 12 sekcjami:
 ```
 UserData0–9   — sloty postaci (dane save per postać, 0x280000 bajtów każdy)
 UserData10    — dane systemowe (0x60000 bajtów / 384 KB)
-UserData11    — snapshot regulation.bin (tabele parametrów po stronie serwera)
+UserData11    — osadzony snapshot/cache regulation.bin; nieudowodnione jako runtime source
 ```
 
 Bazowe offsety (bezwzględne w pliku):
@@ -24,8 +24,8 @@ Bazowe offsety (bezwzględne w pliku):
 UD0  = 0x70
 UD1  = 0x70 + 0x280000
 ...
-UD10 = 0x70 + 10 × 0x280000 = 0x1900070
-UD11 = 0x70 + 11 × 0x280000 = 0x2180070
+UD10 = 0x70 + 10 × 0x280000          = 0x1900070  (rozmiar: 0x60000, nie 0x280000)
+UD11 = 0x70 + 10 × 0x280000 + 0x60000 = 0x1960070
 ```
 
 ---
@@ -82,9 +82,12 @@ ud11[0x10:]       regulation.bin zaszyfrowany AES-256 + skompresowany DCX
 **PS4** (`.dat`):
 
 ```
-ud11[0x00:0x10]   16-bajtowy nagłówek (NIE jest MD5)
-ud11[0x10:]       regulation.bin skompresowany DCX (bez warstwy AES)
+ud11[0x00:0x10]   nagłówek GER (nie MD5)
+ud11[0x10:]       osadzony blob regulation.bin, zawierający IV + zaszyfrowany skompresowany payload
 ```
+
+> Uwaga: analizy narzędziowe operują na plikach `.dat` wyeksportowanych w formie raw/decrypted
+> z konsoli. Ewentualne szyfrowanie na poziomie systemu PS4/NAND jest poza zakresem badania.
 
 ### Weryfikacja poprawności (PC)
 
@@ -106,7 +109,7 @@ zostało usunięte.
 ### Zawartość regulation.bin
 
 Wewnątrz bloba DCX: kontener BND4 z tabelami `.param`.
-`NetworkParam.param` (jeden wiersz) zawiera całą konfigurację sieci.
+`NetworkParam.param` zawiera odpowiedni wiersz czasowania sieci użyty w tym badaniu.
 
 Kluczowe pola użyte w tym badaniu:
 
@@ -115,9 +118,10 @@ Kluczowe pola użyte w tym badaniu:
 | `maxBreakInTargetListCount` | `0x70` | 5 | 10 | Rozmiar listy celów w pamięci; >200 crashuje klienta |
 | `breakInRequestIntervalTimeSec` | `0x74` | 30.0 | 5.0 | Jak często gra wysyła żądanie inwazji [s] |
 | `breakInRequestTimeOutSec` | `0x78` | 20.0 | 5.0 | Oczekiwanie na odpowiedź serwera przed retry [s] |
-| `breakInRequestAreCount` | TBD | ? | ~10 | Regiony przeszukiwane per próba |
+| `breakInRequestAreaCount` | `0x7C` | 5 | 10 | Regiony przeszukiwane per próba (pole ukryte w PARAMDEF jako `dummy8 pad[4]`) |
 
-Offset `breakInRequestAreCount` niezidentyfikowany w `tmp/regulation-bin-dump/csv/NetworkParam.csv`.
+> Offset `breakInRequestAreaCount` potwierdzony jako `0x7C` przez `backend/core/regulation.go`;
+> oznaczony w PARAMDEF jako `dummy8 pad[4]` — FromSoftware celowo je ukrył przed edytorami.
 
 ---
 
@@ -142,7 +146,9 @@ Save'y ze spatchowanym UD11 (F, G, E) vs save'y z vanilla UD11 (H, I, J):
 **Wynik**: brak obserwowalnej różnicy w UD0 lub UD10 między spatchowanym a vanilla UD11
 w równoważnych stanach sesji.
 
-### Struktura NetMan (dowód pomocniczy)
+### Odrzucony trop: cache historii NetMan
+
+NetMan to struktura cache spotkań/historii — nie konfigurowalne ustawienie matchmakingu.
 
 NetMan to struktura 131 076 bajtów wewnątrz każdego slotu postaci. Jest **cache historii
 tylko do odczytu** — nie obszarem konfiguracyjnym.
@@ -194,6 +200,7 @@ Dwa stabilne regiony:
 | Stabilny 2 | `0x001988–0x00511C` | Cache profilu FaceData + cache sub-area ID matchmakingu |
 
 **`perform_matchmaking` pod `UD10[0x0013]`**: `0x01` = online, `0x00` = offline.
+Potwierdzony przełącznik trybu online/offline — nie jest parametrem przyspieszającym matchmaking.
 Jest to jedyne bezpośrednio użyteczne ustawienie sieciowe potwierdzone w pliku save.
 
 ### Markery stanu BF
@@ -522,47 +529,66 @@ ale nie zostały bezpośrednio potwierdzone wyłącznie z danych pliku save. Tra
 
 ## 11. Finalny werdykt
 
-### Patch NetworkParam w UD11 nie wpływa mierzalnie na stan runtime UD0/UD10.
+### Ustalenia potwierdzone hex-analizą
 
+Wszystkie poniższe pozycje zweryfikowano binarnie na 6 znanych stanach save.
+Nie zależą od obserwacji gameplay ani pomiarów runtime.
+
+**Patch NetworkParam w UD11 nie wpływa mierzalnie na stan runtime UD0/UD10.**
 Spatchowane wartości przeżywają w pliku PS4 i są odczytywalne po upload/download.
 Żadna kopia nie pojawia się w stabilnych regionach UD0 ani UD10. Automat stanów BF
 nie wykazuje obserwowalnej różnicy między spatchowanymi a vanilla save'ami w równoważnych
-stanach sesji. Czy runtime faktycznie używa tych wartości — niepotwierdzono. Definitywny
-dowód wymaga zmierzenia live timing inwazji, co wykracza poza zakres analizy offline.
+stanach sesji.
 
-### Rzeczywisty stan matchmakingu/wyszukiwania jest reprezentowany w UD10 i UD0.
-
+**Rzeczywisty stan matchmakingu/wyszukiwania jest reprezentowany w UD10 i UD0.**
 Główne słowo stanu sesji: `UD10+0x5070`.
 Aktywna kolejka kandydatów: `UD0+0x209BA0..0x209C3F`.
-Są to główne wskaźniki tego, co silnik gry robi z matchmakingiem inwazji —
-nie regulation.bin.
+Są to główne wskaźniki tego, co silnik gry robi z matchmakingiem inwazji w momencie
+save — nie regulation.bin.
 
-### Najcenniejsza struktura to `UD0+0x209B00..0x209C43`.
-
+**Najcenniejsza struktura to `UD0+0x209B00..0x209C43`.**
 `MatchmakingCandidateSection` zawiera kompletną listę kandydatów inwazji w dobrze
 zdefiniowanym formacie binarnym. CandidateEntry (krok=0x14) z polami `entry_id`, `flag_a`,
 `flag_b`, `flag_c` jest w pełni scharakteryzowany. Kolejka jest fizycznie przepisywana
 przy aktywacji BF z potwierdzonym wzorcem rotacji.
 
-### Nie nazywaj `entry_id` PSN account ID ani host ID.
-
+**Nie nazywaj `entry_id` PSN account ID ani host ID.**
 Używaj neutralnych nazw: `candidate_id` lub `matchmaking_entry_id`. Nie istnieją
 cross-referencje pozwalające zdekodować te wartości wyłącznie z pliku save.
 
-### Co faktycznie przyspiesza inwazje na PS4/PS5.
+---
 
-Empirycznie potwierdzony mechanizm: aktywacja wszystkich Summoning Pools (213 EventFlags
-z zakresu `670xxx`). Przy wszystkich aktywnych pulach postać jest w puli matchmakingu
-dla każdej dostępnej lokalizacji jednocześnie. Więcej dostępnych hostów → pierwsza próba
-kończy się sukcesem → brak 30-sekundowego oczekiwania na retry → inwazje są natychmiastowe.
+### Praktyczny mechanizm — obserwacja gameplay
 
-Dowody:
+> Ta sekcja to **obserwacja gameplay/praktyczna**, odrębna od potwierdzonej hex-analizą
+> struktury automatu stanów UD0/UD10. Analiza UD0/UD10 udowadnia, gdzie stan matchmakingu
+> jest reprezentowany w pliku save, ale sama w sobie nie dowodzi, że flagi Summoning Pools
+> są jedyną przyczyną szybszych inwazji.
+
+**Najlepsza znana dźwignia w pliku save: wszystkie Summoning Pools + regiony.**
+
+Aktywacja wszystkich Summoning Pools (213 EventFlags z zakresu `670xxx`) jest akcją
+o największym zaobserwowanym wpływie. Przy aktywnych flagach pul/regionów postać wydaje
+się kwalifikować do szerszego zestawu obszarów matchmakingu, co prawdopodobnie zwiększa
+szansę, że pierwsza próba znajdzie match — omijając 30-sekundowy interwał retry.
+
+Zaobserwowane dowody (bez potwierdzonej przyczynowości hex):
 - regulation.bin został pomyślnie edytowany (bez crashy), spatchowane wartości odczytywalne na PS4 —
   ale czy runtime ich używa — nieweryfikowane
 - Szybkie inwazje obserwowane na PS4/PS5 bez żadnych specjalnych ekwipowanych przedmiotów,
   w różnych obszarach, po aktywacji wszystkich Summoning Pools
-- Patch v1.12 (~marzec 2025) zmienił wszystkie ID flag pul na zakres `670xxx`; baza danych
-  edytora używała starych ID przez ~rok przed naprawą (2026-05-08)
+- W danych ery v1.12 ID flag pul wydają się być w zakresie `670xxx`; wcześniejsza baza danych
+  używała ID sprzed v1.12 przez ~rok przed korektą (2026-05-08)
+
+---
+
+### Nieznane (niemożliwe do ustalenia offline)
+
+- Czy runtime gry czyta NetworkParam z UD11 czy z osobnej kopii w instalacji —
+  wymaga zmierzenia live timing inwazji przed i po patchu
+- Dokładne semantyczne znaczenie poszczególnych wartości `candidate_id`
+- Dokładna interpretacja po stronie serwera flag Summoning Pools i ID regionów
+- Czy jakiekolwiek pole UD10/UD0 bezpośrednio koduje „które flagi pul są aktywne"
 
 ### Praktyczne akcje dostępne przez plik save
 
@@ -573,10 +599,10 @@ Dowody:
 | Dodaj Taunter's Tongue do inwentarza | inject przedmiotu `0x4000006C` | Umożliwia inwazje bez phantomów co-op |
 | Dodaj stos Festering Bloody Finger | inject przedmiotu `0x4000006F` | Materiał zużywalny do aktywnych inwazji |
 | Ustaw EventFlags questlini Varrého | edycja EventFlags | Odblokowuje Mohgwyn + Festering Bloody Finger bez postępu fabularnego |
-| `perform_matchmaking = 1` pod `UD10[0x0013]` | Zapis bajtu UD10 | Zapewnia włączony tryb online |
+| `perform_matchmaking = 1` pod `UD10[0x0013]` | Zapis bajtu UD10 | Zapewnia tryb online — nie jest parametrem przyspieszającym |
 | Patch NetworkParam w UD11 | edycja regulation.bin | PS4: wartości przeżywają; efekt runtime **niepotwierdzony** |
 
-### Porównanie z DS3
+### Porównanie z DS3 *(przybliżone porównanie; wartości DS3 bez lokalnego dumpa param)*
 
 | Aspekt | Dark Souls 3 | Elden Ring |
 |--------|-------------|------------|
@@ -593,11 +619,15 @@ zmian NetworkParam w runtime.
 
 ### Pokrycie Unlocked Regions
 
-Przed tym badaniem: 77 z 103 ID regionów matchmakingu w `backend/db/data/regions.go`.
+Przed tym badaniem: 77 znanych ID regionów w `backend/db/data/regions.go`.
 Dodano 27 brakujących regionów (wnętrza Legacy Dungeon). Łącznie: **104 ID regionów**.
 
-Ryzyko bana za odblokowywanie regionów: **NISKIE**. ID pochodzą z zweryfikowanej listy
-`er-save-manager`. Serwer gry weryfikuje kwalifikację matchmakingu po stronie serwera.
+Źródło społecznościowe `er-save-manager` listuje 103 ID; nasza baza zawiera 104 po
+niezależnej identyfikacji jednego dodatkowego regionu nieobecnego w tamtej liście.
+
+Ocena ryzyka za odblokowywanie regionów: prawdopodobnie niższe niż przy edycji regulation/runtime,
+ponieważ serwer gry weryfikuje kwalifikację matchmakingu po swojej stronie i traktuje lokalną
+listę jako client-side hint. Bezpieczeństwo online nie jest gwarantowane.
 
 ---
 
