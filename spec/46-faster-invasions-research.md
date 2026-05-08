@@ -615,5 +615,3 @@ The game server validates matchmaking eligibility server-side.
 - `spec/44-network-param-tuning.md` — full NetworkParam field reference
 
 ---
-
-*`spec/lang-pl/46-faster-invasions-research.md` — update pending (TODO)*
