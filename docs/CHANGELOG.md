@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(pvp): add network speed presets
+
+- New component `frontend/src/components/NetworkSpeedPanel.tsx` — collapsed accordion in
+  PvP Preparation tab with 3 invasion-speed presets: Vanilla, Light/Safer, Fast Invasions
+- Presets patch UD11 NetworkParam; global for the whole save; requires character reload to activate
+- Warning text: aggressive settings may increase online enforcement risk; activation instructions included
+- New `backend/core/regulation.go`: `NetworkParamLightInvasions()` — targets=8, interval=10s, timeout=8s
+- `app.go` `GetNetworkPreset()`: added `"light-invasions"` case
+- No new app.go exported methods — uses existing `GetNetworkPreset`, `SetNetworkParams`, `ResetNetworkParams`
+- `spec/48` (EN+PL): Phase 4 marked complete, §8.1 Network Speed Panel section added
+- `docs/CHANGELOG.md`: removed attribution to third-party names; replaced with neutral description
+
+### docs(faster-invasions): confirm UD11 reload activation model
+
+- `spec/46-faster-invasions-research.md` (EN + PL): replaced all "runtime effect unconfirmed"
+  claims for UD11 NetworkParam patch with confirmed verdict (console-tested PS4/PS5, 2026-05-09)
+- Added §11 subsections: Confirmed Activation Procedure, Track A vs Track B, NetworkParam Presets
+- Track A (UD10 timer patching) confirmed INEFFECTIVE — 287,912-byte runtime rebuild on session init
+- Track B (UD11 NetworkParam) confirmed EFFECTIVE after character reload; server-reverts on connect
+- Added EAC ban risk warning to §11
+- Three presets documented: Vanilla (30/20/5), Light (10/10/5), Fast Invasions (4/4/10)
+- `spec/48-pvp-ready-modular-presets.md` (EN + PL): updated Module F warning text, product
+  direction note, and sources table to reflect confirmed verdict
+
 ### fix(core): recalculate UD11 MD5 prefix after patching regulation.bin
 
 - `backend/core/regulation.go`: `PatchNetworkParams` now recalculates `ud11[0:0x10]`
@@ -30,7 +54,7 @@ All notable changes to this project will be documented in this file.
 - Added `IsDLCSummoningPool(id uint32) bool` helper (threshold: `>= 670800`)
 - Removed stale comment about "Large flag IDs requiring lookup table entries"
 - Root cause: CT-TGA confirmed patch v1.12 migrated all pools from legacy block format
-  to unified 670xxx namespace; discovery credited to melioda3s / Steelovsky (March 2026)
+  to unified 670xxx namespace; confirmed by community RE analysis (March 2026)
 - `spec/42-summoning-pools-bug.md`: status updated to Fixed
 
 ### refactor(world): remove Networking sub-tab from World tab

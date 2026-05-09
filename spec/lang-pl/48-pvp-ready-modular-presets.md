@@ -217,9 +217,10 @@ akceleratora inwazji. Prezentuj go wyłącznie jako aktywację co-op/przywoływa
 #### Inspektor / Patcher NetworkParam UD11
 - Odczyt bieżących wartości `breakInRequestIntervalTimeSec`, `breakInRequestTimeOutSec` itp.
 - Opcjonalny zapis dostrojonych wartości (patrz spec/44)
-- **Ostrzeżenie dla użytkownika**: „Konsola PS4/PS5 nadpisuje regulation.bin z serwera przy
-  połączeniu online. Zmiany UD11 są lokalne i nie zostało potwierdzone, że wpływają na rzeczywisty
-  czas inwazji."
+- **Ostrzeżenie dla użytkownika**: „Patch NetworkParam jest potwierdzony skuteczny po
+  przeładowaniu postaci (wyjście do menu → reload). Serwer nadpisuje regulation.bin przy
+  następnym połączeniu online — efekt jest tymczasowy. Użycie online niesie ryzyko bana EAC."
+- Wyświetl potwierdzoną procedurę aktywacji (spec/46 §11) inline
 
 #### Klasyfikator Stanu BF UD10
 - Tylko odczyt: `UD10+0x5070`, `UD10+0x194E4`, `UD10+0x5080`
@@ -233,8 +234,8 @@ akceleratora inwazji. Prezentuj go wyłącznie jako aktywację co-op/przywoływa
 - Wyświetlanie stanu V-queue (IDLE vs ACTIVE, który `entry_id` jest na V0)
 
 **Ten moduł jest wyłącznie diagnostyczny.** Nie eksponuj jako przycisku „przyspiesz PvP".
-Patcher NetworkParam to funkcja zaawansowana dla użytkowników-badaczy, którzy rozumieją,
-że egzekwowanie po stronie serwera czyni zmiany UD11 nieskutecznymi online.
+Patcher NetworkParam to funkcja zaawansowana. Efekt potwierdzony po przeładowaniu postaci
+(offline); serwer nadpisuje UD11 przy połączeniu online — zmiany są tymczasowe.
 
 ---
 
@@ -487,15 +488,16 @@ przygotowania PvP przez edycję save'a to:
 
 - **Odblokowanie regionów** (Moduł B) — potwierdzone kontrolowanie kwalifikowalności do inwazji
   i widoczności obszaru dla invaderów. To jest główna funkcja PvP-relevantna na poziomie save.
-- **UD11 NetworkParam** — wartości przeżywają w pliku PS4; efekt runtime na timing inwazji jest
-  niepotwierdzony. Eksponuj jako diagnostykę klasy badawczej (Moduł F), nie jako główną funkcję PvP.
+- **UD11 NetworkParam** — patch potwierdzony skuteczny po przeładowaniu postaci/sesji.
+  Serwer nadpisuje UD11 przy połączeniu online. Eksponuj jako Moduł F (zaawansowany/badawczy)
+  z procedurą aktywacji i ostrzeżeniem o ryzyku bana EAC. Nie jako główną funkcję PvP.
 - **Struktury sesji UD10 / UD0** — stan wyłącznie runtime. Eksponuj jako diagnostykę tylko do
   odczytu (Moduł F). Nie są celem patchowania.
 - **Summoning Pools** — funkcja co-op / przywoływania. Wpływ Bloody Finger na inwazje jest
   niepotwierdzony. Nie przedstawiaj jako akceleratora inwazji (Moduł E).
 - **Preset pvp-ready** — musi stać się modularny (ta specyfikacja). Pojedynczy nieprzejrzysty
-  preset miesza potwierdzone efekty (regiony) z niepotwierdzonymi (summoning pools, UD11) oraz
-  zmiany tylko wizualne (mapa, gracje).
+  preset miesza potwierdzone efekty (regiony) z niepotwierdzonymi (summoning pools), badawczo-tymczasowymi
+  (NetworkParam UD11 — potwierdzony po reload, ale serwer resetuje online) i wizualnymi (mapa, gracje).
 
 ---
 
@@ -506,12 +508,14 @@ przygotowania PvP przez edycję save'a to:
 | Faza 1 | `ValidateWorldRegions`, `ValidateWorldColosseums`, `ValidateWorldMapFlags`, `ValidateWorldGraces` + `validateKnownEventFlags` (generyczny) + `validatePresetModules` (orkiestrator) + podłączenie do `ValidatePreset` | ✅ Kompletna |
 | Faza 2 | Zakładka `PvP Preparation` — high-level orkiestrator UI z checkboxami per moduł | ✅ Kompletna (MVP) |
 | Faza 3 | Moduł F: klasyfikator stanu BF tylko do odczytu (czytniki UD10 + UD0) | 🔲 Planowane (blokada: spec/46 §7) |
-| Faza 4 | Moduł F: UI inspektora NetworkParam UD11 | 🔲 Planowane (blokada: spec/44) |
+| Faza 4 | Moduł F: UD11 NetworkParam — Network Speed Panel (selektor presetów) | ✅ Kompletna |
 | Faza 5 | Krok presetu skrótu questa Varre (Moduł C) | 🔲 Planowane (blokada: wzorzec spec/38) |
 
 **Faza 1 jest kompletna.** `validateKnownEventFlags` i `validatePresetModules` zostały skonsolidowane do Fazy 1 (pierwotnie zaplanowane jako Faza 2), ponieważ zależą wyłącznie od walidatorów Fazy 1.
 
 **MVP Fazy 2 jest kompletne.** Zakładka `PvP Preparation` zawiera 4 aktywne moduły (Matchmaking Regions, Colosseums, Map Reveal, Summoning Pools) i 1 placeholder (Sites of Grace). Patrz §8 poniżej.
+
+**Faza 4 jest kompletna.** Network Speed Panel (`NetworkSpeedPanel.tsx`) dostępny jako accordion pod zakładką PvP Preparation — patrz §8.1 poniżej.
 
 ---
 
@@ -575,6 +579,40 @@ Selektor profilu wyświetlany jest nad checklistą modułów. Profile są wyłą
 
 ---
 
+## 8.1 Network Speed Panel
+
+**Komponent**: `frontend/src/components/NetworkSpeedPanel.tsx`
+
+Renderowany wewnątrz `PvPPreparationTab.tsx`, pod checklistą modułów, oddzielony separatorem.
+Owinięty w `AccordionSection` — **domyślnie zwinięty**.
+
+**Co robi:**
+- Patchuje UD11 NetworkParam wewnątrz pliku save.
+- Efekt jest **globalny dla całego save'a** — wszystkie sloty postaci dzielą UD11.
+- **Wymaga przeładowania postaci** do aktywacji: wczytaj postać → wyjdź do menu głównego → wczytaj ponownie.
+- Serwer nadpisuje UD11 przy następnym połączeniu online (efekt jest tymczasowy).
+- Agresywne ustawienia mogą zwiększać ryzyko wykrycia online.
+
+**Presety:**
+
+| Preset | `maxBreakInTargetListCount` | `breakInRequestIntervalTimeSec` | `breakInRequestTimeOutSec` | `breakInRequestAreaCount` | Ryzyko | Backend |
+|--------|---|---|---|---|---|---|
+| Vanilla | 5 | 30.0 | 20.0 | 5 | Brak | `ResetNetworkParams()` |
+| Light / Safer | 8 | 10.0 | 8.0 | 5 | Niższe | `GetNetworkPreset("light-invasions")` → `SetNetworkParams()` |
+| Fast Invasions | 10 | 4.0 | 4.0 | 5 | Wyższe | `GetNetworkPreset("fast-invasions")` → `SetNetworkParams()` |
+
+`breakInRequestAreaCount` pozostaje vanilla=5. Nie eksponowane w MVP.
+
+**Nowy backend:**
+- `backend/core/regulation.go`: `NetworkParamLightInvasions()` — fabryka presetu Light/Safer.
+- `app.go` `GetNetworkPreset()`: dodano przypadek `"light-invasions"`.
+
+**Brak nowych metod app.go.** Używa istniejących: `GetNetworkPreset`, `SetNetworkParams`, `ResetNetworkParams`.
+
+**NIE patchuje:** UD10, UD0, flag world-state, slotów postaci.
+
+---
+
 ## Źródła
 
 | Plik | Znaczenie |
@@ -585,7 +623,7 @@ Selektor profilu wyświetlany jest nad checklistą modułów. Profile są wyłą
 | `backend/db/data/graces.go` | 419 wpisów gracji z ID EventFlag + DoorFlags |
 | `backend/db/data/quests.go` | `"White Mask Varre"` — 19 kroków questa z flagami |
 | `app_world.go` | Wszystkie funkcje backend zakładki World |
-| `spec/46-faster-invasions-research.md` | Werdykt końcowy: patch UD11 bez potwierdzonego efektu runtime |
+| `spec/46-faster-invasions-research.md` | Werdykt końcowy: patch UD11 potwierdzony skuteczny po przeładowaniu postaci; Track A (timery UD10) — nieskuteczny |
 | `spec/47-site-of-grace-activation.md` | Odblokowanie gracji potwierdzone dla mapy/fast-travel; animacja in-world otwarta |
 | `spec/44-network-param-tuning.md` | Referencja pól NetworkParam |
 | `spec/32-ban-risk-system.md` | Definicje Tier 0/1/2 |

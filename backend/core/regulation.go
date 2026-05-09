@@ -145,6 +145,16 @@ func NetworkParamFastInvasions() NetworkParamValues {
 	return d
 }
 
+// NetworkParamLightInvasions returns the "Light / Safer" invasions preset.
+// Moderate speed-up with a slightly lower detection surface than Fast Invasions.
+func NetworkParamLightInvasions() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.MaxBreakInTargetListCount = 8
+	d.BreakInRequestIntervalTimeSec = 10.0
+	d.BreakInRequestTimeOutSec = 8.0
+	return d
+}
+
 // NetworkParamFastSummons returns the "Fast Summons" preset (Cooperator role). Low ban risk.
 func NetworkParamFastSummons() NetworkParamValues {
 	d := NetworkParamDefaults()
