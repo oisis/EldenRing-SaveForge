@@ -37,7 +37,9 @@ func (a *App) GetGraces(slotIndex int) ([]db.GraceEntry, error) {
 	return graces, nil
 }
 
-// SetGraceVisited sets or clears the visited flag for a Site of Grace in the specified character slot
+// SetGraceVisited sets the grace EventFlag (71xxx–76xxx) used for map marker and fast-travel list.
+// Does not touch LastRestedGrace — the game updates that automatically on arrival.
+// Does not persist the in-world object visual state — EMEVD derives it from the EventFlag at area load.
 func (a *App) SetGraceVisited(slotIndex int, graceID uint32, visited bool) error {
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")

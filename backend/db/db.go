@@ -866,6 +866,13 @@ var getAllSummoningPools = sync.OnceValue(func() []SummoningPoolEntry {
 
 func GetAllSummoningPools() []SummoningPoolEntry { return getAllSummoningPools() }
 
+// IsKnownSummoningPoolID reports whether id is a recognised summoning pool flag
+// in the current database (670xxx range, game >= v1.12).
+func IsKnownSummoningPoolID(id uint32) bool {
+	_, ok := data.SummoningPools[id]
+	return ok
+}
+
 // GetAllColosseums returns all colosseums as a flat list sorted by name.
 var getAllColosseums = sync.OnceValue(func() []ColosseumEntry {
 	colosseums := make([]ColosseumEntry, 0, len(data.Colosseums))
@@ -906,6 +913,52 @@ var getAllRegions = sync.OnceValue(func() []RegionEntry {
 })
 
 func GetAllRegions() []RegionEntry { return getAllRegions() }
+
+// IsKnownRegionID reports whether id is a recognised invasion-region ID in the
+// current database (overworld 6100000–6899999, DLC 6900000–6999999, legacy
+// dungeon interiors 1000000–1999999).
+func IsKnownRegionID(id uint32) bool {
+	_, ok := data.Regions[id]
+	return ok
+}
+
+// IsKnownGraceID reports whether id is a recognised Site of Grace EventFlag ID
+// in the current database (71000–76960, including DLC 72xxx and 74xxx).
+func IsKnownGraceID(id uint32) bool {
+	_, ok := data.Graces[id]
+	return ok
+}
+
+// IsKnownMapFlagID reports whether id is a recognised map flag ID across all
+// four map datasets: MapVisible (62xxx), MapSystem (62xxx/82xxx), MapAcquired
+// (63xxx), and MapUnsafe (62xxx/63xxx).
+func IsKnownMapFlagID(id uint32) bool {
+	if _, ok := data.MapVisible[id]; ok {
+		return true
+	}
+	if _, ok := data.MapSystem[id]; ok {
+		return true
+	}
+	if _, ok := data.MapAcquired[id]; ok {
+		return true
+	}
+	_, ok := data.MapUnsafe[id]
+	return ok
+}
+
+// IsKnownColosseumID reports whether id is a recognised colosseum activate flag
+// present in data.ColosseumFlagSets (60350, 60360, 60370).
+func IsKnownColosseumID(id uint32) bool {
+	_, ok := data.ColosseumFlagSets[id]
+	return ok
+}
+
+// GetColosseumFlagSet returns the full companion flag set for the given colosseum
+// activate flag ID. Returns false if id is not a known colosseum activate flag.
+func GetColosseumFlagSet(id uint32) (data.ColosseumFlagSet, bool) {
+	fs, ok := data.ColosseumFlagSets[id]
+	return fs, ok
+}
 
 // GetAllMapEntries returns all map region entries (visible + acquired + system) sorted by area then name.
 var getAllMapEntries = sync.OnceValue(func() []MapEntry {

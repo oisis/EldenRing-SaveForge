@@ -8,247 +8,319 @@ type SummoningPoolData struct {
 
 // SummoningPools maps event flag IDs to summoning pool definitions.
 // These flags track whether the player has activated a Martyr Effigy.
-// Large flag IDs (10000000+) require lookup table entries in event_flags.go
-// because the standard formula (byte = id/8) does not produce correct offsets.
-// Source: ClayAmore/ER-Save-Editor summoning_pools.rs, Fextralife wiki
+// All IDs use BST block 670 (position 107 in eventflag_bst.txt) — standard lookup applies.
+// Source: Elden-Ring-CT-TGA "Unlock all Summoning Pools.cea" — active block (game >= v1.12 / v2.02.0)
+// Pre-v1.12 IDs (10000040, 1035530040, etc.) are ignored by the current game engine.
 var SummoningPools = map[uint32]SummoningPoolData{
 	// ============================================================
 	// BASE GAME — Legacy Dungeons
 	// ============================================================
 
 	// Stormveil Castle
-	10000040: {Name: "Stormveil Main Gate", Region: "Stormveil Castle"},
-	10000041: {Name: "Stormveil Cliffside", Region: "Stormveil Castle"},
-	10000042: {Name: "Rampart Tower", Region: "Stormveil Castle"},
-	10000043: {Name: "Liftside Chamber", Region: "Stormveil Castle"},
-	10000044: {Name: "Secluded Cell", Region: "Stormveil Castle"},
-	10000045: {Name: "Gateside Chamber", Region: "Stormveil Castle"},
+	670130: {Name: "Gateside Chamber", Region: "Stormveil Castle"},
+	670131: {Name: "Liftside Chamber", Region: "Stormveil Castle"},
+	670132: {Name: "Stormveil Cliffside", Region: "Stormveil Castle"},
+	670133: {Name: "Rampart Tower", Region: "Stormveil Castle"},
+	670134: {Name: "Secluded Cell", Region: "Stormveil Castle"},
+	670135: {Name: "Stormveil Main Gate", Region: "Stormveil Castle"},
 
 	// Leyndell, Royal Capital
-	11000040: {Name: "East Capital Rampart", Region: "Leyndell, Royal Capital"},
-	11000041: {Name: "Avenue Balcony", Region: "Leyndell, Royal Capital"},
-	11000042: {Name: "Lower Capital Church", Region: "Leyndell, Royal Capital"},
-	11000043: {Name: "West Capital Rampart", Region: "Leyndell, Royal Capital"},
-	11000044: {Name: "Queen's Bedchamber", Region: "Leyndell, Royal Capital"},
+	670330: {Name: "East Capital Rampart", Region: "Leyndell, Royal Capital"},
+	670331: {Name: "West Capital Rampart", Region: "Leyndell, Royal Capital"},
+	670332: {Name: "Avenue Balcony", Region: "Leyndell, Royal Capital"},
+	670333: {Name: "Lower Capital Church", Region: "Leyndell, Royal Capital"},
+	670334: {Name: "Queen's Bedchamber", Region: "Leyndell, Royal Capital"},
 
 	// Leyndell, Ashen Capital
-	11050040: {Name: "Queen's Bedchamber", Region: "Leyndell, Ashen Capital"},
-	11050041: {Name: "Erdtree Sanctuary", Region: "Leyndell, Ashen Capital"},
+	670730: {Name: "Erdtree Sanctuary", Region: "Leyndell, Ashen Capital"},
+	670731: {Name: "Queen's Bedchamber", Region: "Leyndell, Ashen Capital"},
 
-	// Ainsel River
-	12010040: {Name: "Ainsel River Well Depths", Region: "Ainsel River"},
-	12010041: {Name: "Ainsel River Sluice Gate", Region: "Ainsel River"},
-	12010042: {Name: "Ainsel River Downstream", Region: "Ainsel River"},
-	12010043: {Name: "Ainsel River Main", Region: "Ainsel River"},
-	12010044: {Name: "Nokstella, Eternal City", Region: "Ainsel River"},
-	12010045: {Name: "Lake of Rot Shoreside", Region: "Ainsel River"},
-	12010046: {Name: "Grand Cloister", Region: "Ainsel River"},
+	// Ainsel River / Lake of Rot
+	670610: {Name: "Ainsel River Well Depths", Region: "Ainsel River"},
+	670611: {Name: "Ainsel River Sluice Gate", Region: "Ainsel River"},
+	670612: {Name: "Ainsel River Downstream", Region: "Ainsel River"},
+	670613: {Name: "Ainsel River Main", Region: "Ainsel River"},
+	670614: {Name: "Nokstella, Eternal City", Region: "Ainsel River"},
+	670615: {Name: "Lake of Rot Shoreside", Region: "Ainsel River"},
+	670616: {Name: "Grand Cloister", Region: "Ainsel River"},
 
-	// Nokron / Siofra River
-	12020040: {Name: "Nokron, Eternal City", Region: "Siofra River"},
-	12020041: {Name: "Mimic Tear", Region: "Siofra River"},
-	12020042: {Name: "Ancestral Woods", Region: "Siofra River"},
-	12020043: {Name: "Aqueduct-Facing Cliffs", Region: "Siofra River"},
-	12020044: {Name: "Night's Sacred Ground", Region: "Siofra River"},
-	12020045: {Name: "Siofra River Well Depths", Region: "Siofra River"},
-	12020046: {Name: "Siofra River Bank", Region: "Siofra River"},
+	// Siofra River / Nokron
+	670620: {Name: "Siofra River Bank", Region: "Siofra River"},
+	670621: {Name: "Siofra River Well Depths", Region: "Siofra River"},
+	670622: {Name: "Ancestral Woods", Region: "Siofra River"},
+	670623: {Name: "Aqueduct-Facing Cliffs", Region: "Siofra River"},
+	670624: {Name: "Night's Sacred Ground", Region: "Siofra River"},
+	670625: {Name: "Nokron, Eternal City", Region: "Siofra River"},
+	670626: {Name: "Mimic Tear", Region: "Siofra River"},
 
 	// Deeproot Depths
-	12030040: {Name: "Root-Facing Cliffs", Region: "Deeproot Depths"},
-	12030041: {Name: "Great Waterfall Crest", Region: "Deeproot Depths"},
-	12030042: {Name: "Deeproot Depths", Region: "Deeproot Depths"},
-	12030043: {Name: "Across the Roots", Region: "Deeproot Depths"},
-	12030044: {Name: "The Nameless Eternal City", Region: "Deeproot Depths"},
+	670630: {Name: "Deeproot Depths", Region: "Deeproot Depths"},
+	670631: {Name: "Root-Facing Cliffs", Region: "Deeproot Depths"},
+	670632: {Name: "Great Waterfall Crest", Region: "Deeproot Depths"},
+	670633: {Name: "Across the Roots", Region: "Deeproot Depths"},
+	670634: {Name: "The Nameless Eternal City", Region: "Deeproot Depths"},
 
 	// Mohgwyn Palace
-	12050040: {Name: "Palace Approach Ledge-Road", Region: "Mohgwyn Palace"},
-	12050041: {Name: "Dynasty Mausoleum Entrance", Region: "Mohgwyn Palace"},
-	12050042: {Name: "Dynasty Mausoleum Midpoint", Region: "Mohgwyn Palace"},
+	670650: {Name: "Palace Approach Ledge-Road", Region: "Mohgwyn Palace"},
+	670651: {Name: "Dynasty Mausoleum Entrance", Region: "Mohgwyn Palace"},
+	670652: {Name: "Dynasty Mausoleum Midpoint", Region: "Mohgwyn Palace"},
 
-	// Siofra River (lower)
-	12070040: {Name: "Below the Well", Region: "Siofra River"},
-	12070041: {Name: "Siofra River Bank", Region: "Siofra River"},
+	// Nokron — Start
+	670670: {Name: "Siofra River Bank", Region: "Siofra River"},
+	670671: {Name: "Below the Well", Region: "Siofra River"},
 
 	// Crumbling Farum Azula
-	13000040: {Name: "Crumbling Beast Grave", Region: "Crumbling Farum Azula"},
-	13000041: {Name: "Crumbling Beast Grave Depths", Region: "Crumbling Farum Azula"},
-	13000042: {Name: "Tempest-Facing Balcony", Region: "Crumbling Farum Azula"},
-	13000043: {Name: "Dragon Temple", Region: "Crumbling Farum Azula"},
-	13000044: {Name: "Dragon Temple Altar", Region: "Crumbling Farum Azula"},
-	13000045: {Name: "Dragon Temple Lift", Region: "Crumbling Farum Azula"},
-	13000046: {Name: "Beside the Great Bridge", Region: "Crumbling Farum Azula"},
-	13000047: {Name: "Dragon Temple Rooftop", Region: "Crumbling Farum Azula"},
+	670740: {Name: "Crumbling Beast Grave", Region: "Crumbling Farum Azula"},
+	670741: {Name: "Crumbling Beast Grave Depths", Region: "Crumbling Farum Azula"},
+	670742: {Name: "Tempest-Facing Balcony", Region: "Crumbling Farum Azula"},
+	670743: {Name: "Dragon Temple", Region: "Crumbling Farum Azula"},
+	670744: {Name: "Dragon Temple Altar", Region: "Crumbling Farum Azula"},
+	670745: {Name: "Dragon Temple Lift", Region: "Crumbling Farum Azula"},
+	670746: {Name: "Beside the Great Bridge", Region: "Crumbling Farum Azula"},
+	670747: {Name: "Dragon Temple Rooftop", Region: "Crumbling Farum Azula"},
 
 	// Academy of Raya Lucaria
-	14000040: {Name: "Main Academy Gate", Region: "Academy of Raya Lucaria"},
-	14000041: {Name: "Schoolhouse Classroom", Region: "Academy of Raya Lucaria"},
-	14000042: {Name: "Church of the Cuckoo", Region: "Academy of Raya Lucaria"},
-	14000043: {Name: "Debate Parlor", Region: "Academy of Raya Lucaria"},
+	670231: {Name: "Main Academy Gate", Region: "Academy of Raya Lucaria"},
+	670232: {Name: "Schoolhouse Classroom", Region: "Academy of Raya Lucaria"},
+	670233: {Name: "Debate Parlor", Region: "Academy of Raya Lucaria"},
 
 	// Miquella's Haligtree
-	15000040: {Name: "Haligtree Canopy", Region: "Miquella's Haligtree"},
-	15000041: {Name: "Haligtree Town", Region: "Miquella's Haligtree"},
-	15000042: {Name: "Haligtree Town Plaza", Region: "Miquella's Haligtree"},
-	15000044: {Name: "Haligtree Promenade", Region: "Miquella's Haligtree"},
-
-	// Elphael, Brace of the Haligtree
-	15000045: {Name: "Prayer Room", Region: "Elphael, Brace of the Haligtree"},
-	15000046: {Name: "Elphael Inner Wall", Region: "Elphael, Brace of the Haligtree"},
-	15000047: {Name: "Drainage Channel", Region: "Elphael, Brace of the Haligtree"},
-	15000049: {Name: "Haligtree Roots", Region: "Elphael, Brace of the Haligtree"},
+	670530: {Name: "Haligtree Canopy", Region: "Miquella's Haligtree"},
+	670531: {Name: "Haligtree Town", Region: "Miquella's Haligtree"},
+	670532: {Name: "Haligtree Town Plaza", Region: "Miquella's Haligtree"},
+	670534: {Name: "Haligtree Promenade", Region: "Miquella's Haligtree"},
+	670535: {Name: "Prayer Room", Region: "Elphael, Brace of the Haligtree"},
+	670536: {Name: "Elphael Inner Wall", Region: "Elphael, Brace of the Haligtree"},
+	670537: {Name: "Drainage Channel", Region: "Elphael, Brace of the Haligtree"},
+	670539: {Name: "Haligtree Roots", Region: "Elphael, Brace of the Haligtree"},
 
 	// Volcano Manor
-	16000040: {Name: "Prison Town Church", Region: "Volcano Manor"},
-	16000041: {Name: "Guest Hall", Region: "Volcano Manor"},
-	16000042: {Name: "Temple of Eiglay", Region: "Volcano Manor"},
-	16000043: {Name: "Audience Pathway", Region: "Volcano Manor"},
-	16000044: {Name: "Subterranean Inquisition Chamber", Region: "Volcano Manor"},
+	670351: {Name: "Guest Hall", Region: "Volcano Manor"},
+	670352: {Name: "Prison Town Church", Region: "Volcano Manor"},
+	670353: {Name: "Temple of Eiglay", Region: "Volcano Manor"},
+	670354: {Name: "Audience Pathway", Region: "Volcano Manor"},
 
-	// Elden Throne
-	19000040: {Name: "Elden Throne", Region: "Elden Throne"},
+	// Stone Platform (Elden Throne)
+	670750: {Name: "Elden Throne", Region: "Elden Throne"},
 
 	// ============================================================
 	// BASE GAME — Catacombs
 	// ============================================================
-	30000040: {Name: "Tombsward Catacombs", Region: "Weeping Peninsula"},
-	30010040: {Name: "Impaler's Catacombs", Region: "Weeping Peninsula"},
-	30020040: {Name: "Stormfoot Catacombs", Region: "Limgrave"},
-	30030040: {Name: "Road's End Catacombs", Region: "Liurnia"},
-	30040040: {Name: "Murkwater Catacombs", Region: "Limgrave"},
-	30050040: {Name: "Black Knife Catacombs", Region: "Liurnia"},
-	30060040: {Name: "Cliffbottom Catacombs", Region: "Liurnia"},
-	30070040: {Name: "Wyndham Catacombs", Region: "Mt. Gelmir"},
-	30080040: {Name: "Sainted Hero's Grave", Region: "Altus Plateau"},
-	30090040: {Name: "Gelmir Hero's Grave", Region: "Mt. Gelmir"},
-	30100040: {Name: "Auriza Hero's Grave", Region: "Capital Outskirts"},
-	30110040: {Name: "Deathtouched Catacombs", Region: "Stormhill"},
-	30120040: {Name: "Unsightly Catacombs", Region: "Altus Plateau"},
-	30140040: {Name: "Minor Erdtree Catacombs", Region: "Caelid"},
-	30150040: {Name: "Caelid Catacombs", Region: "Caelid"},
-	30160040: {Name: "War-Dead Catacombs", Region: "Caelid"},
-	30170040: {Name: "Giant-Conquering Hero's Grave", Region: "Mountaintops of the Giants"},
-	30180040: {Name: "Giants' Mountaintop Catacombs", Region: "Mountaintops of the Giants"},
-	30190040: {Name: "Consecrated Snowfield Catacombs", Region: "Consecrated Snowfield"},
-	30200040: {Name: "Hidden Path to the Haligtree", Region: "Forbidden Lands"},
+	670160: {Name: "Tombsward Catacombs", Region: "Weeping Peninsula"},
+	670161: {Name: "Impaler's Catacombs", Region: "Weeping Peninsula"},
+	670162: {Name: "Stormfoot Catacombs", Region: "Limgrave"},
+	670163: {Name: "Deathtouched Catacombs", Region: "Stormhill"},
+	670164: {Name: "Murkwater Catacombs", Region: "Limgrave"},
+	670260: {Name: "Black Knife Catacombs", Region: "Liurnia"},
+	670261: {Name: "Road's End Catacombs", Region: "Liurnia"},
+	670262: {Name: "Cliffbottom Catacombs", Region: "Liurnia"},
+	670360: {Name: "Sainted Hero's Grave", Region: "Altus Plateau"},
+	670361: {Name: "Gelmir Hero's Grave", Region: "Mt. Gelmir"},
+	670362: {Name: "Auriza Hero's Grave", Region: "Capital Outskirts"},
+	670363: {Name: "Unsightly Catacombs", Region: "Altus Plateau"},
+	670364: {Name: "Wyndham Catacombs", Region: "Mt. Gelmir"},
+	670460: {Name: "Minor Erdtree Catacombs", Region: "Caelid"},
+	670461: {Name: "Caelid Catacombs", Region: "Caelid"},
+	670462: {Name: "War-Dead Catacombs", Region: "Caelid"},
+	670560: {Name: "Giant-Conquering Hero's Grave", Region: "Mountaintops of the Giants"},
+	670561: {Name: "Giants' Mountaintop Catacombs", Region: "Mountaintops of the Giants"},
+	670562: {Name: "Consecrated Snowfield Catacombs", Region: "Consecrated Snowfield"},
+	670563: {Name: "Hidden Path to the Haligtree", Region: "Forbidden Lands"},
 
 	// ============================================================
 	// BASE GAME — Caves
 	// ============================================================
-	31000040: {Name: "Murkwater Cave", Region: "Limgrave"},
-	31010040: {Name: "Earthbore Cave", Region: "Weeping Peninsula"},
-	31020040: {Name: "Tombsward Cave", Region: "Weeping Peninsula"},
-	31030040: {Name: "Groveside Cave", Region: "Limgrave"},
-	31040040: {Name: "Stillwater Cave", Region: "Liurnia"},
-	31050040: {Name: "Lakeside Crystal Cave", Region: "Liurnia"},
-	31060040: {Name: "Academy Crystal Cave", Region: "Liurnia"},
-	31070040: {Name: "Seethewater Cave", Region: "Mt. Gelmir"},
-	31090040: {Name: "Volcano Cave", Region: "Mt. Gelmir"},
-	31100040: {Name: "Dragonbarrow Cave", Region: "Dragonbarrow"},
-	31110040: {Name: "Sellia Hideaway", Region: "Dragonbarrow"},
-	31120040: {Name: "Cave of the Forlorn", Region: "Consecrated Snowfield"},
-	31150040: {Name: "Coastal Cave", Region: "Limgrave"},
-	31170040: {Name: "Highroad Cave", Region: "Limgrave"},
-	31180040: {Name: "Perfumer's Grotto", Region: "Altus Plateau"},
-	31190040: {Name: "Sage's Cave", Region: "Altus Plateau"},
-	31200040: {Name: "Abandoned Cave", Region: "Caelid"},
-	31210040: {Name: "Gaol Cave", Region: "Caelid"},
-	31220040: {Name: "Spiritcaller's Cave", Region: "Mountaintops of the Giants"},
+	670170: {Name: "Tombsward Cave", Region: "Weeping Peninsula"},
+	670171: {Name: "Earthbore Cave", Region: "Weeping Peninsula"},
+	670172: {Name: "Murkwater Cave", Region: "Limgrave"},
+	670173: {Name: "Groveside Cave", Region: "Limgrave"},
+	670174: {Name: "Coastal Cave", Region: "Limgrave"},
+	670175: {Name: "Highroad Cave", Region: "Limgrave"},
+	670270: {Name: "Stillwater Cave", Region: "Liurnia"},
+	670271: {Name: "Lakeside Crystal Cave", Region: "Liurnia"},
+	670272: {Name: "Academy Crystal Cave", Region: "Liurnia"},
+	670370: {Name: "Seethewater Cave", Region: "Mt. Gelmir"},
+	670371: {Name: "Volcano Cave", Region: "Mt. Gelmir"},
+	670372: {Name: "Perfumer's Grotto", Region: "Altus Plateau"},
+	670373: {Name: "Sage's Cave", Region: "Altus Plateau"},
+	670470: {Name: "Gaol Cave", Region: "Caelid"},
+	670471: {Name: "Dragonbarrow Cave", Region: "Dragonbarrow"},
+	670472: {Name: "Abandoned Cave", Region: "Caelid"},
+	670473: {Name: "Sellia Hideaway", Region: "Dragonbarrow"},
+	670570: {Name: "Cave of the Forlorn", Region: "Consecrated Snowfield"},
+	670571: {Name: "Spiritcaller's Cave", Region: "Mountaintops of the Giants"},
 
 	// ============================================================
 	// BASE GAME — Tunnels
 	// ============================================================
-	32000040: {Name: "Morne Tunnel", Region: "Weeping Peninsula"},
-	32010040: {Name: "Limgrave Tunnels", Region: "Limgrave"},
-	32020040: {Name: "Raya Lucaria Crystal Tunnel", Region: "Liurnia"},
-	32040040: {Name: "Old Altus Tunnel", Region: "Altus Plateau"},
-	32050040: {Name: "Altus Tunnel", Region: "Altus Plateau"},
-	32070040: {Name: "Gael Tunnel", Region: "Caelid"},
-	32080040: {Name: "Sellia Crystal Tunnel", Region: "Caelid"},
-	32110040: {Name: "Yelough Anix Tunnel", Region: "Consecrated Snowfield"},
+	670180: {Name: "Morne Tunnel", Region: "Weeping Peninsula"},
+	670181: {Name: "Limgrave Tunnels", Region: "Limgrave"},
+	670280: {Name: "Raya Lucaria Crystal Tunnel", Region: "Liurnia"},
+	670380: {Name: "Old Altus Tunnel", Region: "Altus Plateau"},
+	670381: {Name: "Altus Tunnel", Region: "Altus Plateau"},
+	670480: {Name: "Gael Tunnel", Region: "Caelid"},
+	670481: {Name: "Sellia Crystal Tunnel", Region: "Caelid"},
+	670580: {Name: "Yelough Anix Tunnel", Region: "Consecrated Snowfield"},
 
 	// ============================================================
-	// BASE GAME — Divine Towers & Sealed Tunnel
+	// BASE GAME — Divine Towers
 	// ============================================================
-	34100040: {Name: "Divine Tower of Limgrave", Region: "Limgrave"},
-	34110040: {Name: "Divine Tower of Liurnia", Region: "Liurnia"},
-	34120040: {Name: "Sealed Tunnel", Region: "Capital Outskirts"},
-	34120041: {Name: "Divine Tower of West Altus", Region: "Capital Outskirts"},
-	34130040: {Name: "Divine Tower of Caelid", Region: "Caelid"},
+	670390: {Name: "Divine Tower of West Altus", Region: "Capital Outskirts"},
+	670490: {Name: "Divine Tower of Caelid", Region: "Caelid"},
 
 	// ============================================================
 	// BASE GAME — Subterranean Shunning-Grounds
 	// ============================================================
-	35000040: {Name: "Underground Roadside", Region: "Subterranean Shunning-Grounds"},
-	35000041: {Name: "Forsaken Depths", Region: "Subterranean Shunning-Grounds"},
-	35000042: {Name: "Leyndell Catacombs", Region: "Subterranean Shunning-Grounds"},
+	670340: {Name: "Underground Roadside", Region: "Subterranean Shunning-Grounds"},
+	670341: {Name: "Forsaken Depths", Region: "Subterranean Shunning-Grounds"},
+	670342: {Name: "Leyndell Catacombs", Region: "Subterranean Shunning-Grounds"},
 
 	// ============================================================
 	// BASE GAME — Ruin-Strewn Precipice
 	// ============================================================
-	39200040: {Name: "Ruin-Strewn Precipice", Region: "Ruin-Strewn Precipice"},
-	39200041: {Name: "Ruin-Strewn Precipice Overlook", Region: "Ruin-Strewn Precipice"},
+	670240: {Name: "Ruin-Strewn Precipice", Region: "Ruin-Strewn Precipice"},
+	670241: {Name: "Ruin-Strewn Precipice Overlook", Region: "Ruin-Strewn Precipice"},
 
 	// ============================================================
-	// BASE GAME — Open World
+	// BASE GAME — Open World (Liurnia of the Lakes)
 	// ============================================================
-
-	// Limgrave / Stormhill / Weeping Peninsula
-	1035530040: {Name: "The First Step", Region: "Limgrave"},
-	1036520040: {Name: "Witchbane Ruins", Region: "Weeping Peninsula"},
-	1036540040: {Name: "Agheel Lake", Region: "Limgrave"},
-	1036540041: {Name: "Dragon-Burnt Ruins", Region: "Limgrave"},
-	1037530040: {Name: "Waypoint Ruins", Region: "Limgrave"},
-	1038520040: {Name: "Peninsula Minor Erdtree", Region: "Weeping Peninsula"},
-	1039540040: {Name: "Castleward Tunnel", Region: "Stormhill"},
-
-	// Liurnia of the Lakes
-	1040530040: {Name: "Lake Minor Erdtree", Region: "Liurnia"},
-	1042540040: {Name: "Temple Quarter", Region: "Liurnia"},
-	1044530040: {Name: "Village of the Albinaurics", Region: "Liurnia"},
-	1045520040: {Name: "Kingsrealm Ruins", Region: "Liurnia"},
-
-	// Altus Plateau
-	1048370040: {Name: "Wyndham Ruins", Region: "Altus Plateau"},
-	1049380040: {Name: "The Shaded Castle", Region: "Altus Plateau"},
-	1049380041: {Name: "Writheblood Ruins", Region: "Altus Plateau"},
-
-	// Caelid
-	1046400040: {Name: "Caelid Minor Erdtree", Region: "Caelid"},
-	1047400040: {Name: "Caelem Ruins", Region: "Caelid"},
-	1050400040: {Name: "Caelid Highway South", Region: "Caelid"},
-	1051400040: {Name: "Sellia, Town of Sorcery", Region: "Caelid"},
-	1052410040: {Name: "Redmane Castle", Region: "Caelid"},
-
-	// Mt. Gelmir
-	1051360040: {Name: "Fort Laiedd", Region: "Mt. Gelmir"},
-	1051370040: {Name: "Hermit Village", Region: "Mt. Gelmir"},
-
-	// Mountaintops / Snowfield / Dragonbarrow
-	1047510840: {Name: "Freezing Lake", Region: "Mountaintops of the Giants"},
-	1049560840: {Name: "Freezing River", Region: "Consecrated Snowfield"},
-	1049570840: {Name: "Snowfield Minor Erdtree", Region: "Consecrated Snowfield"},
-	1051570840: {Name: "Foot of the Forge", Region: "Consecrated Snowfield"},
-	1051570841: {Name: "Consecrated Snowfield", Region: "Consecrated Snowfield"},
-	1052530840: {Name: "Greyoll's Dragonbarrow", Region: "Dragonbarrow"},
-	1052570840: {Name: "Farum Greatbridge", Region: "Dragonbarrow"},
-	1053570840: {Name: "Dragonbarrow Minor Erdtree", Region: "Dragonbarrow"},
+	670200: {Name: "Lake Minor Erdtree", Region: "Liurnia"},
+	670201: {Name: "Temple Quarter", Region: "Liurnia"},
+	670202: {Name: "Village of the Albinaurics", Region: "Liurnia"},
+	670203: {Name: "Kingsrealm Ruins", Region: "Liurnia"},
+	670204: {Name: "Main Caria Manor Gate", Region: "Liurnia"},
+	670205: {Name: "Frenzied Flame Village Outskirts", Region: "Liurnia"},
+	670230: {Name: "Schoolhouse Classroom (Overworld)", Region: "Liurnia"},
 
 	// ============================================================
-	// SHADOW OF THE ERDTREE — DLC
+	// BASE GAME — Open World (Mt. Gelmir)
 	// ============================================================
-	1060330040: {Name: "Rauh Base, Bear Woods", Region: "Rauh Base"},
-	1060340040: {Name: "Ancient Ruins of Rauh", Region: "Rauh Ruins"},
-	1060340041: {Name: "Ancient Ruins, Under-Stair", Region: "Rauh Ruins"},
-	1060340043: {Name: "Church of the Bud", Region: "Rauh Ruins"},
-	1060350040: {Name: "Cerulean Coast", Region: "Cerulean Coast"},
-	1060380040: {Name: "Western Nameless Mausoleum", Region: "Gravesite Plain"},
-	1060410040: {Name: "Castle Front", Region: "Gravesite Plain"},
-	1060420040: {Name: "Lake North of the Greatbridge", Region: "Gravesite Plain"},
-	1060430040: {Name: "Moorth Highway", Region: "Scadu Altus"},
-	1060430041: {Name: "Moorth Highway South", Region: "Scadu Altus"},
-	1060430042: {Name: "Eastern Nameless Mausoleum", Region: "Scadu Altus"},
-	1060430043: {Name: "Fog Rift Fort", Region: "Scadu Altus"},
-	1060440040: {Name: "Altus, Bear Woods", Region: "Scadu Altus"},
+	670300: {Name: "Seethewater Terminus", Region: "Mt. Gelmir"},
+	670301: {Name: "Hermit Village", Region: "Mt. Gelmir"},
+	670303: {Name: "Road of Iniquity", Region: "Mt. Gelmir"},
+	670304: {Name: "Craftsman's Shack", Region: "Mt. Gelmir"},
+
+	// ============================================================
+	// BASE GAME — Open World (Altus Plateau)
+	// ============================================================
+	670305: {Name: "Wyndham Ruins", Region: "Altus Plateau"},
+	670306: {Name: "The Shaded Castle", Region: "Altus Plateau"},
+	670307: {Name: "Writheblood Ruins", Region: "Altus Plateau"},
+	670308: {Name: "Windmill Heights", Region: "Altus Plateau"},
+	670309: {Name: "Capital Outskirts Minor Erdtree", Region: "Capital Outskirts"},
+	670310: {Name: "Capital Rampart", Region: "Capital Outskirts"},
+
+	// ============================================================
+	// BASE GAME — Open World (Limgrave / Weeping Peninsula)
+	// ============================================================
+	670100: {Name: "Witchbane Ruins", Region: "Weeping Peninsula"},
+	670101: {Name: "Church of Elleh", Region: "Limgrave"},
+	670102: {Name: "Agheel Lake North", Region: "Limgrave"},
+	670103: {Name: "Dragon-Burnt Ruins", Region: "Limgrave"},
+	670104: {Name: "Peninsula Minor Erdtree", Region: "Weeping Peninsula"},
+	670105: {Name: "Castle Morne", Region: "Weeping Peninsula"},
+	670106: {Name: "Waypoint Ruins", Region: "Limgrave"},
+
+	// ============================================================
+	// BASE GAME — Open World (Caelid / Dragonbarrow)
+	// ============================================================
+	670400: {Name: "Rotview Balcony", Region: "Caelid"},
+	670401: {Name: "Caelem Ruins", Region: "Caelid"},
+	670402: {Name: "Caelid Highway South", Region: "Caelid"},
+	670403: {Name: "Swamp of Aeonia (West)", Region: "Caelid"},
+	670404: {Name: "Swamp of Aeonia (East)", Region: "Caelid"},
+	670405: {Name: "Dragonbarrow Fork", Region: "Dragonbarrow"},
+	670406: {Name: "Redmane Castle", Region: "Caelid"},
+	670407: {Name: "Radahn Festival Arena", Region: "Caelid"},
+	670408: {Name: "Dragonbarrow Minor Erdtree", Region: "Dragonbarrow"},
+	670409: {Name: "Farum Greatbridge", Region: "Dragonbarrow"},
+
+	// ============================================================
+	// BASE GAME — Open World (Mountaintops / Snowfield)
+	// ============================================================
+	670500: {Name: "Forbidden Lands", Region: "Mountaintops of the Giants"},
+	670501: {Name: "Freezing Lake", Region: "Mountaintops of the Giants"},
+	670502: {Name: "Foot of the Forge", Region: "Mountaintops of the Giants"},
+	670503: {Name: "Heretical Rise", Region: "Mountaintops of the Giants"},
+	670504: {Name: "Snow Valley Ruins Overlook", Region: "Mountaintops of the Giants"},
+	670505: {Name: "Castle Sol", Region: "Mountaintops of the Giants"},
+	670506: {Name: "Ordina, Liturgical Town (South)", Region: "Consecrated Snowfield"},
+	670507: {Name: "Ordina, Liturgical Town (East)", Region: "Consecrated Snowfield"},
+
+	// ============================================================
+	// SHADOW OF THE ERDTREE — Belurat / Enir-Ilim
+	// ============================================================
+	670841: {Name: "Belurat, Tower Settlement", Region: "Land of Shadow"},
+	670842: {Name: "Belurat Gaolside", Region: "Land of Shadow"},
+	670843: {Name: "Small Private Altar", Region: "Land of Shadow"},
+	670850: {Name: "Enir-Ilim: Outer Wall", Region: "Land of Shadow"},
+	670851: {Name: "Enir-Ilim: Second Floor", Region: "Land of Shadow"},
+	670852: {Name: "Spiral Rise", Region: "Land of Shadow"},
+	670853: {Name: "Gate of Divinity", Region: "Land of Shadow"},
+	670854: {Name: "Cleansing Chamber Anteroom", Region: "Land of Shadow"},
+
+	// SHADOW OF THE ERDTREE — Shadow Keep / Specimen Storehouse
+	670909: {Name: "Shadow Keep: Church District", Region: "Land of Shadow"},
+	670940: {Name: "Shadow Keep: Main Gate Plaza", Region: "Land of Shadow"},
+	670941: {Name: "Shadow Keep: Storehouse, Back Section", Region: "Land of Shadow"},
+	670942: {Name: "Shadow Keep: Storehouse, First Floor", Region: "Land of Shadow"},
+	670943: {Name: "Shadow Keep: Storehouse, Fifth Floor", Region: "Land of Shadow"},
+	670945: {Name: "West Rampart", Region: "Land of Shadow"},
+	670950: {Name: "Specimen Storehouse: Main Hall", Region: "Land of Shadow"},
+	670951: {Name: "Specimen Storehouse: First Floor", Region: "Land of Shadow"},
+	670952: {Name: "Specimen Storehouse: Third Floor", Region: "Land of Shadow"},
+	670953: {Name: "Specimen Storehouse: Fourth Floor", Region: "Land of Shadow"},
+	670955: {Name: "Specimen Storehouse: Sixth Floor", Region: "Land of Shadow"},
+	670956: {Name: "Specimen Storehouse: Seventh Floor", Region: "Land of Shadow"},
+
+	// SHADOW OF THE ERDTREE — Gaols / Caves / Catacombs
+	670813: {Name: "Darklight Catacombs Entry", Region: "Land of Shadow"},
+	670830: {Name: "Stone Coffin Fissure", Region: "Land of Shadow"},
+	670831: {Name: "Stone Coffin Fissure Deep", Region: "Land of Shadow"},
+	670860: {Name: "Fog Rift Catacombs", Region: "Land of Shadow"},
+	670870: {Name: "Belurat Gaol", Region: "Land of Shadow"},
+	670871: {Name: "Lamenter's Gaol", Region: "Land of Shadow"},
+	670880: {Name: "Dragon's Pit", Region: "Land of Shadow"},
+	670960: {Name: "Scorpion River Catacombs", Region: "Land of Shadow"},
+	670961: {Name: "Darklight Catacombs", Region: "Land of Shadow"},
+	670970: {Name: "Bonny Gaol", Region: "Land of Shadow"},
+	670980: {Name: "Rivermouth Cave", Region: "Land of Shadow"},
+
+	// SHADOW OF THE ERDTREE — Midra's Manse
+	670814: {Name: "Midra's Manse: Reading Room", Region: "Land of Shadow"},
+	670815: {Name: "Midra's Manse: Deathbed Chamber", Region: "Land of Shadow"},
+
+	// SHADOW OF THE ERDTREE — Open World (Gravesite Plain)
+	670800: {Name: "Gravesite Plain (West)", Region: "Land of Shadow"},
+	670801: {Name: "Gravesite Plain (North)", Region: "Land of Shadow"},
+	670802: {Name: "Castle Ensis Checkpoint", Region: "Land of Shadow"},
+	670804: {Name: "Cerulean Coast", Region: "Land of Shadow"},
+	670805: {Name: "Church of Benediction", Region: "Land of Shadow"},
+	670806: {Name: "Cerulean Coast South", Region: "Land of Shadow"},
+	670807: {Name: "Abyssal Woods", Region: "Land of Shadow"},
+	670808: {Name: "Cerulean Coast (Dragon Area)", Region: "Land of Shadow"},
+	670809: {Name: "Charo's Hidden Grave", Region: "Land of Shadow"},
+	670812: {Name: "Jagged Peak Summit", Region: "Land of Shadow"},
+
+	// SHADOW OF THE ERDTREE — Open World (Scadu Altus / Rauh Base)
+	670900: {Name: "Moorth Ruins", Region: "Land of Shadow"},
+	670901: {Name: "Rauh Base (Northwest)", Region: "Land of Shadow"},
+	670902: {Name: "Temple Town Ruins", Region: "Land of Shadow"},
+	670903: {Name: "Bridge Leading to the Village", Region: "Land of Shadow"},
+	670904: {Name: "Commander Gaius Arena", Region: "Land of Shadow"},
+	670906: {Name: "Ancient Ruins of Rauh", Region: "Land of Shadow"},
+	670907: {Name: "Rauh Base (Rot Area)", Region: "Land of Shadow"},
+	670908: {Name: "Rauh Base (Spirit Spring)", Region: "Land of Shadow"},
+	670910: {Name: "Hinterland", Region: "Land of Shadow"},
+	670911: {Name: "Moorth Highway Camp", Region: "Land of Shadow"},
+	670912: {Name: "Scadu Altus West", Region: "Land of Shadow"},
+	670913: {Name: "Fort of Reprimand", Region: "Land of Shadow"},
+	670930: {Name: "Road to Manus Metyr", Region: "Land of Shadow"},
+}
+
+// IsDLCSummoningPool reports whether a summoning pool ID belongs to Shadow of the Erdtree DLC.
+func IsDLCSummoningPool(id uint32) bool {
+	return id >= 670800 && id <= 670999
 }
 
 // Colosseums maps event flag IDs to colosseum definitions.

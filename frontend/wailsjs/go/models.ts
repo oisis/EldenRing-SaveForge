@@ -4,6 +4,7 @@ export namespace core {
 	    maxBreakInTargetListCount: number;
 	    breakInRequestIntervalTimeSec: number;
 	    breakInRequestTimeOutSec: number;
+	    breakInRequestAreaCount: number;
 	    reloadSignIntervalTime2: number;
 	    reloadSignTotalCount: number;
 	    reloadSignCellCount: number;
@@ -31,6 +32,7 @@ export namespace core {
 	        this.maxBreakInTargetListCount = source["maxBreakInTargetListCount"];
 	        this.breakInRequestIntervalTimeSec = source["breakInRequestIntervalTimeSec"];
 	        this.breakInRequestTimeOutSec = source["breakInRequestTimeOutSec"];
+	        this.breakInRequestAreaCount = source["breakInRequestAreaCount"];
 	        this.reloadSignIntervalTime2 = source["reloadSignIntervalTime2"];
 	        this.reloadSignTotalCount = source["reloadSignTotalCount"];
 	        this.reloadSignCellCount = source["reloadSignCellCount"];

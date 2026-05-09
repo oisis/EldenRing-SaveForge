@@ -191,6 +191,10 @@ func ValidatePreset(preset *CharacterPreset) []string {
 		validatePresetItem(&item, "storage", i, &warnings)
 	}
 
+	if preset.World != nil {
+		validatePresetModules(preset.World, &warnings)
+	}
+
 	return warnings
 }
 
@@ -230,6 +234,198 @@ func validatePresetItem(item *PresetItem, location string, idx int, warnings *[]
 			fmt.Sprintf("%s[%d] %s: quantity %d exceeds max %d — will be clamped",
 				location, idx, itemData.Name, item.Quantity, itemData.MaxStorage))
 	}
+}
+
+// validateWorldColosseums checks each colosseum activate flag for existence,
+// uniqueness, and presence of its MapPOI companion flag in World.MapFlags.
+// Global colosseum flags (data.ColosseumGlobalFlags: 6080, 60100, 69480) are
+// accepted in World.Colosseums and warned about if absent.
+//
+// Known limitation: NPC (69xxx) and Gate (710xxx) companion flags, and the
+// ColosseumGlobalFlags, are not exported by ExportWorldState because they are
+// not in any named data table. Physical gate open state is stored outside
+// EventFlags (in the WorldGeom binary blob) and is not covered by this validator.
+// Use SetColosseumUnlocked for a complete in-game colosseum unlock.
+func validateWorldColosseums(world *WorldPresetData, warnings *[]string) {
+	seen := make(map[uint32]bool, len(world.Colosseums))
+
+	mapFlagSet := make(map[uint32]bool, len(world.MapFlags))
+	for _, id := range world.MapFlags {
+		mapFlagSet[id] = true
+	}
+
+	globalFlagSet := make(map[uint32]bool, len(data.ColosseumGlobalFlags))
+	for _, gid := range data.ColosseumGlobalFlags {
+		globalFlagSet[gid] = true
+	}
+
+	for _, id := range world.Colosseums {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.colosseums: ID %d appears more than once — duplicate will be ignored", id))
+			continue
+		}
+		seen[id] = true
+
+		// Global flags are valid companions stored in World.Colosseums; skip
+		// the activate-flag checks for them, they are verified separately below.
+		if globalFlagSet[id] {
+			continue
+		}
+
+		flagSet, ok := db.GetColosseumFlagSet(id)
+		if !ok {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.colosseums: ID %d not found in colosseum database", id))
+			continue
+		}
+
+		// MapPOI (62xxx) is exported to World.MapFlags by ExportWorldState.
+		// Warn if absent — the colosseum icon will not appear on the world map.
+		if !mapFlagSet[flagSet.MapPOI] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.colosseums: %s (ID %d) is missing companion map flag %d — colosseum icon will not appear on map",
+					data.Colosseums[id].Name, id, flagSet.MapPOI))
+		}
+	}
+
+	// Global colosseum flags are not exported by ExportWorldState; the user
+	// must add them manually to World.Colosseums. Warn for each missing one.
+	if len(seen) > 0 {
+		for _, gid := range data.ColosseumGlobalFlags {
+			if !seen[gid] {
+				*warnings = append(*warnings,
+					fmt.Sprintf("world.colosseums: global colosseum flag %d is missing — add to World.Colosseums for full unlock", gid))
+			}
+		}
+	}
+}
+
+// validateWorldMapFlags detects unknown or duplicate map flag IDs.
+// Valid IDs are those present in data.MapVisible (62xxx), data.MapSystem
+// (62xxx/82xxx), data.MapAcquired (63xxx), or data.MapUnsafe (62xxx/63xxx).
+// Grace IDs (71xxx–76xxx) and summoning pool IDs (670xxx) are not valid here.
+func validateWorldMapFlags(ids []uint32, warnings *[]string) {
+	seen := make(map[uint32]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.mapFlags: ID %d appears more than once — duplicate will be ignored", id))
+			continue
+		}
+		seen[id] = true
+		if !db.IsKnownMapFlagID(id) {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.mapFlags: ID %d not found in map flag database", id))
+		}
+	}
+}
+
+// validateWorldGraces detects unknown or duplicate Site of Grace EventFlag IDs.
+// DLC grace IDs (72xxx, 74xxx) are valid entries in data.Graces and do not
+// produce warnings. DoorFlag companion flags are set automatically by
+// SetGraceVisited() and are not required in the preset.
+func validateWorldGraces(ids []uint32, warnings *[]string) {
+	seen := make(map[uint32]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.graces: ID %d appears more than once — duplicate will be ignored", id))
+			continue
+		}
+		seen[id] = true
+		if !db.IsKnownGraceID(id) {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.graces: ID %d not found in grace database", id))
+		}
+	}
+}
+
+// validateWorldRegions detects unknown or duplicate invasion-region IDs.
+// Legacy dungeon IDs (1000000–1999999) and DLC region IDs (6900000–6999999)
+// are valid entries in data.Regions and do not produce warnings.
+func validateWorldRegions(ids []uint32, warnings *[]string) {
+	seen := make(map[uint32]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.regions: ID %d appears more than once — duplicate will be ignored", id))
+			continue
+		}
+		seen[id] = true
+		if !db.IsKnownRegionID(id) {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.regions: ID %d not found in region database", id))
+		}
+	}
+}
+
+// validateWorldSummoningPools detects outdated pre-v1.12 pool IDs (1_000_000_000+ range)
+// and unknown IDs not present in the current 670xxx database.
+func validateWorldSummoningPools(ids []uint32, warnings *[]string) {
+	for _, id := range ids {
+		if id >= 1_000_000 {
+			// Current valid IDs are all in the 670xxx range (< 700000).
+			// IDs >= 1_000_000 are pre-v1.12 format (e.g. 10000040, 1035530040).
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.summoningPools: ID %d is a pre-v1.12 flag — ignored by current game; update preset to use 670xxx IDs", id))
+			continue
+		}
+		if !db.IsKnownSummoningPoolID(id) {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.summoningPools: ID %d not found in current database (670xxx range)", id))
+		}
+	}
+}
+
+// validateKnownEventFlags is a generic safety-net for event flag lists without a
+// dedicated per-database validator. Checks:
+//   - Duplicate IDs → warning
+//   - IDs >= 1_000_000_000 (outside all known EventFlag address space) → warning
+//
+// Not for use with fields that have dedicated validators (World.SummoningPools,
+// World.Graces, World.MapFlags, World.Colosseums) or with non-EventFlag fields
+// (World.Regions writes to UnlockedRegions; World.Gestures uses gesture slot IDs).
+func validateKnownEventFlags(context string, ids []uint32, warnings *[]string) {
+	seen := make(map[uint32]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("%s: ID %d appears more than once — duplicate will be ignored", context, id))
+			continue
+		}
+		seen[id] = true
+		if id >= 1_000_000_000 {
+			*warnings = append(*warnings,
+				fmt.Sprintf("%s: ID %d is outside all known EventFlag ranges (>= 1,000,000,000) — likely invalid", context, id))
+		}
+	}
+}
+
+// validatePresetModules orchestrates all world preset validators.
+// Called from ValidatePreset when preset.World != nil.
+//
+// Dedicated validators run first (SummoningPools, Regions, Graces, MapFlags,
+// Colosseums), followed by the generic safety-net (validateKnownEventFlags)
+// for fields without a dedicated validator: Bosses, Cookbooks, BellBearings,
+// Whetblades, WorldPickups.
+//
+// Intentionally excluded from generic validation:
+//   - World.SummoningPools — validateWorldSummoningPools uses a different threshold (>= 1_000_000)
+//   - World.Regions — not EventFlags; writes to the UnlockedRegions binary struct
+//   - World.Gestures — gesture slot IDs, not EventFlag IDs
+func validatePresetModules(world *WorldPresetData, warnings *[]string) {
+	validateWorldSummoningPools(world.SummoningPools, warnings)
+	validateWorldRegions(world.Regions, warnings)
+	validateWorldGraces(world.Graces, warnings)
+	validateWorldMapFlags(world.MapFlags, warnings)
+	validateWorldColosseums(world, warnings)
+
+	validateKnownEventFlags("world.bosses", world.Bosses, warnings)
+	validateKnownEventFlags("world.cookbooks", world.Cookbooks, warnings)
+	validateKnownEventFlags("world.bellBearings", world.BellBearings, warnings)
+	validateKnownEventFlags("world.whetblades", world.Whetblades, warnings)
+	validateKnownEventFlags("world.worldPickups", world.WorldPickups, warnings)
 }
 
 func PresetItemToFinalID(item PresetItem) uint32 {

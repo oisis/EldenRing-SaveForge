@@ -2,7 +2,7 @@
 
 > **Type**: Investigation / Bug
 > **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
-> **Status**: ✅ Root cause identified — fix planned
+> **Status**: ✅ Fixed — `summoning_pools.go` updated to v1.12+ IDs (`670xxx`)
 
 ---
 
@@ -41,6 +41,36 @@ Verified through diagnostics:
    - Names mapped sequentially by region (CT-TGA preserves region order; per-pool names from our existing data)
 2. `event_flags.go` and `eventflag_bst.txt` — **no changes needed** (BST block 670 handles new IDs)
 3. Same root cause likely applies to Colosseums (`60350`, `60360`, `60370` may also need a post-v1.12 audit)
+
+## Preset JSON drift (identified 2026-05-09)
+
+After `summoning_pools.go` was updated to `670xxx` IDs, a secondary issue was found: existing
+preset JSON files (e.g. `Vagabond_150-preset_v2.json` in `tmp/save/`) still contained the old
+pre-v1.12 IDs in their `world.summoningPools` array.
+
+**Root cause**: The preset JSON was created before the DB fix; it contains IDs like `10000040`
+and `1035530040` (pre-v1.12 format). The `ApplyWorldState()` function faithfully sets whatever
+IDs the preset provides — it had no awareness of the ID-generation epoch.
+
+**Fix applied**: `ValidatePreset()` in `backend/vm/preset.go` now inspects
+`World.SummoningPools` and emits warnings for:
+
+- IDs `>= 1_000_000` → "pre-v1.12 flag — ignored by current game; update to 670xxx IDs"
+- IDs `< 1_000_000` not in the current database → "not found in current database (670xxx range)"
+
+Helper added: `db.IsKnownSummoningPoolID(id uint32) bool` — O(1) map lookup in
+`data.SummoningPools`.
+
+**Tests** added in `backend/vm/preset_test.go`:
+- `TestValidatePreset_SummoningPools_ValidIDs` — 670xxx IDs produce no warnings
+- `TestValidatePreset_SummoningPools_OldPreDLCID` — `10000040` triggers "pre-v1.12" warning
+- `TestValidatePreset_SummoningPools_OldPreDLCID_Large` — `1035530040` triggers same warning
+- `TestValidatePreset_SummoningPools_UnknownID` — unknown low ID triggers "not found" warning
+- `TestValidatePreset_SummoningPools_NilWorld` — nil World skips validation silently
+
+**Preset JSON files in `tmp/` are not migrated** (they are not tracked by git). Users importing
+old presets will see warnings at import time; the `670xxx` IDs from `summoning_pools.go` should
+be used for any new pvp-ready preset.
 
 ## Related
 

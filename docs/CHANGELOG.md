@@ -4,6 +4,69 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(core): recalculate UD11 MD5 prefix after patching regulation.bin
+
+- `backend/core/regulation.go`: `PatchNetworkParams` now recalculates `ud11[0:0x10]`
+  (MD5 of `ud11[0x10:]`) after re-encrypting the DCX payload
+- Root cause: PC saves carry a 16-byte MD5 prefix inside `UserData11`; the game validates
+  it on load and rejects (reverts to its own game files) when it doesn't match — causing
+  all patched NetworkParam values to reset to vanilla on the next game session
+- PS4 saves are unaffected (no MD5 prefix in PS4 UD11 layout, `regStart == 0x10`)
+- `tests/regulation_test.go` (`TestPatchNetworkParams_PC_RoundTrip`): added MD5 prefix
+  assertion to prevent regression
+- Finding documented in `spec/46-faster-invasions-research.md`
+
+### fix(db): summoning pools broken since patch v1.12 — update all IDs to 670xxx range
+
+- `backend/db/data/summoning_pools.go`: replaced all pre-v1.12 flag IDs (`10000040`,
+  `1035530040`, etc.) with current `670xxx` IDs from CT-TGA "Unlock all Summoning Pools.cea"
+- Base game: 157 unique pool entries across Legacy Dungeons, Catacombs, Caves, Tunnels,
+  Divine Towers, Subterranean, Ruin-Strewn Precipice and Open World areas
+- DLC (Shadow of the Erdtree): 55 entries added (Belurat, Enir-Ilim, Shadow Keep,
+  Specimen Storehouse, Gaols, Caves, Catacombs, Open World Land of Shadow)
+- Total: 213 pools (up from 165 — DLC coverage expanded)
+- All IDs resolve via BST block 670 (position 107) — no changes to `event_flags.go` or
+  `eventflag_bst.txt` needed
+- Added `IsDLCSummoningPool(id uint32) bool` helper (threshold: `>= 670800`)
+- Removed stale comment about "Large flag IDs requiring lookup table entries"
+- Root cause: CT-TGA confirmed patch v1.12 migrated all pools from legacy block format
+  to unified 670xxx namespace; discovery credited to melioda3s / Steelovsky (March 2026)
+- `spec/42-summoning-pools-bug.md`: status updated to Fixed
+
+### refactor(world): remove Networking sub-tab from World tab
+
+- Removed the `networking` sub-tab from `WorldTab.tsx` — NetworkParam editing is server-side
+  and not achievable via save file on PS4/PS5; PC-only offline editing carries ban risk
+- Removed `SliderDef`, `NetSection`, `NET_SECTIONS`, `netParamsToDict` and all networking
+  state/handlers (`netDraft`, `netDirty`, `loadNetParams`, `handleNetApply`, etc.)
+- Backend code (`app.go`, `backend/core/regulation.go`) intentionally preserved for reference
+
+### feat(db): add 27 missing matchmaking regions (77 → 104 total)
+
+- `backend/db/data/regions.go`: added Legacy Dungeon interior IDs from er-save-manager list
+  - Stormveil Castle: 1000001, 1000003, 1000005, 1000006
+  - Leyndell Royal Capital interior: 1100001, 1100010, 1100012, 1100013, 1100015, 1100016, 1100017
+  - Leyndell Ashen Capital (new section): 1105000, 1105001, 1105011, 1105092
+  - Raya Lucaria Academy interior: 1400010, 1400011, 1400013, 1400015
+  - Volcano Manor interior: 1600006, 1600010, 1600012, 1600014, 1600016, 1600020, 1600022
+  - Tutorial/Endgame: 1800090 (Cave of Knowledge), 1900001 (Elden Beast)
+- Ban risk for all 27 new IDs: LOW — sourced from er-save-manager verified matchmaking list
+- `spec/11-regions.md`: updated count from ~211 to 104; added Cave of Knowledge note
+
+### docs(spec): add spec/46 faster invasions research (EN + PL)
+
+- `spec/46-faster-invasions-research.md`: comprehensive negative-result investigation
+  - UD10 scan: only `perform_matchmaking` at UD10[0x0013] is actionable; NetworkParam values
+    found in volatile regions reset to 0.0 on re-save
+  - NetMan: `list1_type=5` is invasion target history cache, not configuration
+  - EventFlags: relevant only for Varré questline items; cannot control timing
+  - regulation.bin: NetworkParam entirely server-side; PS4/PS5 always overwrites from server
+  - DS3 comparison: Wex Dust mod (DLL injection), Spam Red Eye Orb; same architecture,
+    same conclusion
+  - Unlocked regions coverage: 77 → 104 IDs documented; ban risk: LOW for all
+- `spec/lang-pl/46-faster-invasions-research.md`: Polish translation
+- `spec/README.md` and `spec/lang-pl/README.md`: index entries added
+
 ### feat(character): Soul Memory tracking, dirty guard, add-settings persistence
 
 - `SoulMemory` (PGD+0x68) added to `PlayerGameData`, read/written in `SyncPlayerToData()`; exposed via `CharacterViewModel.soulMemory`

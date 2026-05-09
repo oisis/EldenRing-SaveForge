@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"bytes"
+	"crypto/md5"
 	"math"
 	"os"
 	"testing"
@@ -115,6 +117,14 @@ func TestPatchNetworkParams_PC_RoundTrip(t *testing.T) {
 	patched, err := core.PatchNetworkParams(save.UserData11, patch)
 	if err != nil {
 		t.Fatalf("PatchNetworkParams: %v", err)
+	}
+
+	// PC save: ud11[0:0x10] must be MD5(ud11[0x10:]) after patching.
+	if len(patched) > 0x10 {
+		h := md5.Sum(patched[0x10:])
+		if !bytes.Equal(patched[:0x10], h[:]) {
+			t.Errorf("ud11 MD5 prefix mismatch after patch: prefix=%X want=%X", patched[:0x10], h[:])
+		}
 	}
 
 	vals, err := core.ReadNetworkParams(patched)

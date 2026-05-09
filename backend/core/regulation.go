@@ -5,6 +5,7 @@ import (
 	"compress/flate"
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/md5"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -51,6 +52,9 @@ const (
 	offsetMaxBreakInTargets = 0x70
 	offsetBreakInInterval   = 0x74
 	offsetBreakInTimeout    = 0x78
+	// 0x7C is labelled "dummy8 pad[4]" in PARAMDEF but holds vanilla=5 — it is the
+	// undocumented breakInRequestAreaCount field (hidden from editors by FromSoftware).
+	offsetBreakInAreaCount  = 0x7C
 
 	// Group: Visit / Blue Phantom (Blue + Host role)
 	offsetReloadVisitListCoolTime  = 0x180
@@ -75,6 +79,7 @@ type NetworkParamValues struct {
 	MaxBreakInTargetListCount     int32   `json:"maxBreakInTargetListCount"`
 	BreakInRequestIntervalTimeSec float32 `json:"breakInRequestIntervalTimeSec"`
 	BreakInRequestTimeOutSec      float32 `json:"breakInRequestTimeOutSec"`
+	BreakInRequestAreaCount       int32   `json:"breakInRequestAreaCount"`
 
 	// --- Cooperator role (summon signs) ---
 	ReloadSignIntervalTime2 float32 `json:"reloadSignIntervalTime2"`
@@ -107,6 +112,7 @@ func NetworkParamDefaults() NetworkParamValues {
 		MaxBreakInTargetListCount:     5,
 		BreakInRequestIntervalTimeSec: 30.0,
 		BreakInRequestTimeOutSec:      20.0,
+		BreakInRequestAreaCount:       5,
 		// Cooperator
 		ReloadSignIntervalTime2: 60.0,
 		ReloadSignTotalCount:    20,
@@ -192,6 +198,7 @@ func ReadNetworkParams(ud11 []byte) (*NetworkParamValues, error) {
 	vals.MaxBreakInTargetListCount = int32(binary.LittleEndian.Uint32(paramData[offsetMaxBreakInTargets:]))
 	vals.BreakInRequestIntervalTimeSec = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetBreakInInterval:]))
 	vals.BreakInRequestTimeOutSec = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetBreakInTimeout:]))
+	vals.BreakInRequestAreaCount = int32(binary.LittleEndian.Uint32(paramData[offsetBreakInAreaCount:]))
 
 	// Cooperator
 	vals.ReloadSignIntervalTime2 = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetReloadSignIntervalTime2:]))
@@ -230,6 +237,9 @@ func ValidateNetworkParams(p NetworkParamValues) error {
 	}
 	if p.BreakInRequestTimeOutSec < 3.0 || p.BreakInRequestTimeOutSec > 20.0 {
 		return fmt.Errorf("breakInRequestTimeOutSec must be 3-20, got %.0f", p.BreakInRequestTimeOutSec)
+	}
+	if p.BreakInRequestAreaCount < 1 || p.BreakInRequestAreaCount > 50 {
+		return fmt.Errorf("breakInRequestAreaCount must be 1-50, got %d", p.BreakInRequestAreaCount)
 	}
 	// Cooperator
 	if p.ReloadSignIntervalTime2 < 1.0 || p.ReloadSignIntervalTime2 > 1000.0 {
@@ -315,6 +325,7 @@ func PatchNetworkParams(ud11 []byte, patch NetworkParamValues) ([]byte, error) {
 	binary.LittleEndian.PutUint32(d[offsetMaxBreakInTargets:], uint32(patch.MaxBreakInTargetListCount))
 	binary.LittleEndian.PutUint32(d[offsetBreakInInterval:], math.Float32bits(patch.BreakInRequestIntervalTimeSec))
 	binary.LittleEndian.PutUint32(d[offsetBreakInTimeout:], math.Float32bits(patch.BreakInRequestTimeOutSec))
+	binary.LittleEndian.PutUint32(d[offsetBreakInAreaCount:], uint32(patch.BreakInRequestAreaCount))
 
 	// Cooperator
 	binary.LittleEndian.PutUint32(d[offsetReloadSignIntervalTime2:], math.Float32bits(patch.ReloadSignIntervalTime2))
@@ -355,6 +366,15 @@ func PatchNetworkParams(ud11 []byte, patch NetworkParamValues) ([]byte, error) {
 	result := make([]byte, len(ud11))
 	copy(result, ud11)
 	copy(result[regStart:], reencrypted)
+
+	// PC saves have a 16-byte MD5 prefix at result[0:0x10] covering result[0x10:].
+	// The prefix must be recalculated after patching — the game validates it and
+	// rejects (overwrites from game files) if it doesn't match.
+	if regStart == ud11MD5Size+ud11UnkSize {
+		h := md5.Sum(result[ud11MD5Size:])
+		copy(result[:ud11MD5Size], h[:])
+	}
+
 	return result, nil
 }
 
