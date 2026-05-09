@@ -922,6 +922,13 @@ func IsKnownRegionID(id uint32) bool {
 	return ok
 }
 
+// IsKnownGraceID reports whether id is a recognised Site of Grace EventFlag ID
+// in the current database (71000–76960, including DLC 72xxx and 74xxx).
+func IsKnownGraceID(id uint32) bool {
+	_, ok := data.Graces[id]
+	return ok
+}
+
 // GetAllMapEntries returns all map region entries (visible + acquired + system) sorted by area then name.
 var getAllMapEntries = sync.OnceValue(func() []MapEntry {
 	entries := make([]MapEntry, 0, len(data.MapVisible)+len(data.MapAcquired)+len(data.MapSystem)+len(data.MapUnsafe))

@@ -279,17 +279,28 @@ Helper DB: `db.IsKnownRegionID(id uint32) bool` w `backend/db/db.go`.
 
 ---
 
-### `ValidateWorldGraces(ids []uint32) []string`
+### `ValidateWorldGraces(ids []uint32) []string` ✅ Zaimplementowany
 
 **Sprawdza:**
-- Każde ID jest obecne w mapie `data.Graces` → `warning: nieznane ID gracji`
-- Flagi ID poza zakresem `71xxx–76xxx` oznacza jako podejrzane
+- Każde ID jest obecne w mapie `data.Graces` → `warning: world.graces: ID %d not found in grace database`
+- Wykrywa duplikaty → `warning: world.graces: ID %d appears more than once — duplicate will be ignored`
+- DLC grace IDs (`72xxx`, `74xxx`) są prawidłowe — brak ostrzeżenia
+- `DoorFlag` NIE jest wymagana w presecie — `SetGraceVisited()` ustawia ją automatycznie z `data.Graces`
+- Nie waliduje `LastRestedGrace`, `BonfireId` ani stanu aktywacji EMEVD (patrz spec/47)
 
-**Zwraca:** ostrzeżenie.
+**Zwraca:** ostrzeżenie (nie błąd).
 
-**Testy:**
-- Znana gracja (`76100`) → brak ostrzeżenia
+**Lokalizacja:** `backend/vm/preset.go` jako `validateWorldGraces` (prywatna, wywoływana z `ValidatePreset`).
+Helper DB: `db.IsKnownGraceID(id uint32) bool` w `backend/db/db.go`.
+
+**Testy (7/7 passing):**
+- Znana gracja base (`71000`, `76100`) → brak ostrzeżenia
+- Znana gracja DLC (`72000`, `72001`) → brak ostrzeżenia
+- Gracja katakumbowa z `DoorFlag` (`73000`) → brak ostrzeżenia (DoorFlag nie wymagana w presecie)
 - Nieznane ID (`99999`) → ostrzeżenie
+- Duplikat znanych ID → ostrzeżenie
+- `nil` World → brak ostrzeżenia
+- Pusta lista gracji → brak ostrzeżenia
 
 ---
 

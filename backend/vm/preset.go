@@ -194,6 +194,7 @@ func ValidatePreset(preset *CharacterPreset) []string {
 	if preset.World != nil {
 		validateWorldSummoningPools(preset.World.SummoningPools, &warnings)
 		validateWorldRegions(preset.World.Regions, &warnings)
+		validateWorldGraces(preset.World.Graces, &warnings)
 	}
 
 	return warnings
@@ -234,6 +235,26 @@ func validatePresetItem(item *PresetItem, location string, idx int, warnings *[]
 		*warnings = append(*warnings,
 			fmt.Sprintf("%s[%d] %s: quantity %d exceeds max %d — will be clamped",
 				location, idx, itemData.Name, item.Quantity, itemData.MaxStorage))
+	}
+}
+
+// validateWorldGraces detects unknown or duplicate Site of Grace EventFlag IDs.
+// DLC grace IDs (72xxx, 74xxx) are valid entries in data.Graces and do not
+// produce warnings. DoorFlag companion flags are set automatically by
+// SetGraceVisited() and are not required in the preset.
+func validateWorldGraces(ids []uint32, warnings *[]string) {
+	seen := make(map[uint32]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.graces: ID %d appears more than once — duplicate will be ignored", id))
+			continue
+		}
+		seen[id] = true
+		if !db.IsKnownGraceID(id) {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.graces: ID %d not found in grace database", id))
+		}
 	}
 }
 

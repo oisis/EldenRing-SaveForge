@@ -340,6 +340,117 @@ func TestValidatePreset_SummoningPools_NilWorld(t *testing.T) {
 	}
 }
 
+func TestValidatePreset_Graces_KnownBase(t *testing.T) {
+	// 71000 = first grace in base game range
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Graces: []uint32{71000, 76100}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.graces") {
+			t.Errorf("unexpected grace warning for known base IDs: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Graces_KnownDLC(t *testing.T) {
+	// 72000 = first DLC grace (Belurat)
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Graces: []uint32{72000, 72001}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.graces") {
+			t.Errorf("unexpected grace warning for known DLC IDs: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Graces_KnownCatacombWithDoorFlag(t *testing.T) {
+	// 73000 = Tombsward Catacombs (Cat grace, has DoorFlag) — DoorFlag is NOT required in preset
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Graces: []uint32{73000}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.graces") {
+			t.Errorf("unexpected grace warning for catacomb grace with DoorFlag: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Graces_UnknownID(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Graces: []uint32{99999}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.graces") && containsString(w, "not found in grace database") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected unknown-grace warning for ID 99999, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_Graces_Duplicate(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Graces: []uint32{76100, 71000, 76100}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.graces") && containsString(w, "duplicate") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected duplicate-grace warning for repeated ID 76100, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_Graces_NilWorld(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         nil,
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.graces") {
+			t.Errorf("unexpected grace warning for nil World: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Graces_EmptyList(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Graces: []uint32{}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.graces") {
+			t.Errorf("unexpected grace warning for empty grace list: %q", w)
+		}
+	}
+}
+
 func TestValidatePreset_Regions_KnownOverworld(t *testing.T) {
 	preset := &CharacterPreset{
 		FormatVersion: PresetFormatVersion,

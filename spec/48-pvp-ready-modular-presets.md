@@ -275,17 +275,28 @@ DB helper: `db.IsKnownRegionID(id uint32) bool` in `backend/db/db.go`.
 
 ---
 
-### `ValidateWorldGraces(ids []uint32) []string`
+### `ValidateWorldGraces(ids []uint32) []string` ✅ Implemented
 
 **Checks:**
-- Each ID is present in `data.Graces` map → `warning: unknown grace ID`
-- Flags IDs outside `71xxx–76xxx` range as suspicious
+- Each ID is present in `data.Graces` map → `warning: world.graces: ID %d not found in grace database`
+- Detects duplicate IDs → `warning: world.graces: ID %d appears more than once — duplicate will be ignored`
+- DLC grace IDs (`72xxx`, `74xxx`) are valid — no warning
+- `DoorFlag` is NOT required in preset — `SetGraceVisited()` sets it automatically from `data.Graces`
+- Does not validate `LastRestedGrace`, `BonfireId`, or EMEVD activation state (see spec/47)
 
-**Returns:** warning.
+**Returns:** warning (not error).
 
-**Tests:**
-- Known grace (`76100`) → no warning
+**Where it lives:** `backend/vm/preset.go` as `validateWorldGraces` (private, called from `ValidatePreset`).
+DB helper: `db.IsKnownGraceID(id uint32) bool` in `backend/db/db.go`.
+
+**Tests (7/7 passing):**
+- Known base grace (`71000`, `76100`) → no warning
+- Known DLC grace (`72000`, `72001`) → no warning
+- Catacomb grace with `DoorFlag` (`73000`) → no warning (DoorFlag not required in preset)
 - Unknown ID (`99999`) → warning
+- Duplicate known ID → warning
+- `nil` World → no warning
+- Empty grace list → no warning
 
 ---
 
