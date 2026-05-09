@@ -866,6 +866,13 @@ var getAllSummoningPools = sync.OnceValue(func() []SummoningPoolEntry {
 
 func GetAllSummoningPools() []SummoningPoolEntry { return getAllSummoningPools() }
 
+// IsKnownSummoningPoolID reports whether id is a recognised summoning pool flag
+// in the current database (670xxx range, game >= v1.12).
+func IsKnownSummoningPoolID(id uint32) bool {
+	_, ok := data.SummoningPools[id]
+	return ok
+}
+
 // GetAllColosseums returns all colosseums as a flat list sorted by name.
 var getAllColosseums = sync.OnceValue(func() []ColosseumEntry {
 	colosseums := make([]ColosseumEntry, 0, len(data.Colosseums))

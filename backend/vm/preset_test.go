@@ -247,6 +247,99 @@ func TestJSONSerialization(t *testing.T) {
 	}
 }
 
+func TestValidatePreset_SummoningPools_ValidIDs(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			SummoningPools: []uint32{670101, 670130, 670800},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "summoningPools") {
+			t.Errorf("unexpected summoning pool warning for valid IDs: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_SummoningPools_OldPreDLCID(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			SummoningPools: []uint32{10000040},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "pre-v1.12") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected pre-v1.12 warning for ID 10000040, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_SummoningPools_OldPreDLCID_Large(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			SummoningPools: []uint32{1035530040},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "pre-v1.12") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected pre-v1.12 warning for ID 1035530040, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_SummoningPools_UnknownID(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			SummoningPools: []uint32{999999},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "not found in current database") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected unknown-ID warning for ID 999999, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_SummoningPools_NilWorld(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         nil,
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "summoningPools") {
+			t.Errorf("unexpected summoning pool warning for nil World: %q", w)
+		}
+	}
+}
+
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

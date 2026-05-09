@@ -191,6 +191,10 @@ func ValidatePreset(preset *CharacterPreset) []string {
 		validatePresetItem(&item, "storage", i, &warnings)
 	}
 
+	if preset.World != nil {
+		validateWorldSummoningPools(preset.World.SummoningPools, &warnings)
+	}
+
 	return warnings
 }
 
@@ -229,6 +233,24 @@ func validatePresetItem(item *PresetItem, location string, idx int, warnings *[]
 		*warnings = append(*warnings,
 			fmt.Sprintf("%s[%d] %s: quantity %d exceeds max %d — will be clamped",
 				location, idx, itemData.Name, item.Quantity, itemData.MaxStorage))
+	}
+}
+
+// validateWorldSummoningPools detects outdated pre-v1.12 pool IDs (1_000_000_000+ range)
+// and unknown IDs not present in the current 670xxx database.
+func validateWorldSummoningPools(ids []uint32, warnings *[]string) {
+	for _, id := range ids {
+		if id >= 1_000_000 {
+			// Current valid IDs are all in the 670xxx range (< 700000).
+			// IDs >= 1_000_000 are pre-v1.12 format (e.g. 10000040, 1035530040).
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.summoningPools: ID %d is a pre-v1.12 flag — ignored by current game; update preset to use 670xxx IDs", id))
+			continue
+		}
+		if !db.IsKnownSummoningPoolID(id) {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.summoningPools: ID %d not found in current database (670xxx range)", id))
+		}
 	}
 }
 

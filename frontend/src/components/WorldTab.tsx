@@ -89,6 +89,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
             GetBosses(charIdx).then(res => setBosses(res || [])),
             GetSummoningPools(charIdx).then(res => setPools(res || [])),
             GetColosseums(charIdx).then(res => setColosseums(res || [])),
+            GetUnlockedRegions(charIdx).then(res => setRegionEntries(res || [])),
             GetMapProgress(charIdx).then(async (res) => {
                 const entries = res || [];
                 const systemFlags = entries.filter(e => e.category === 'system' && !e.enabled);
@@ -118,7 +119,6 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
             GetGestures(charIdx).then(res => setGesturesList(res || [])),
             GetBellBearings(charIdx).then(res => setBellBearings(res || [])),
             GetWhetblades(charIdx).then(res => setWhetblades(res || [])),
-            GetUnlockedRegions(charIdx).then(res => setRegionEntries(res || [])),
         ]).finally(() => setLoading(false));
     }, [charIdx]);
 
@@ -403,6 +403,26 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                         </div>
                     </AccordionSection>
 
+                    {/* Colosseums */}
+                    <AccordionSection id="world-colosseums" title="Colosseums" progress={{current: unlockedColosseums, total: colosseums.length}}
+                        resetSignal={saveLoadKey}
+                        actions={<>
+                            <RiskActionButton riskKey="bulk_colosseum" onConfirm={handleUnlockAllColosseums} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Unlock All</RiskActionButton>
+                            <button onClick={handleLockAllColosseums} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Lock All</button>
+                        </>}>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                            {colosseums.map(c => (
+                                <label key={c.id} className="flex items-center space-x-3 cursor-pointer py-2 px-3 rounded border border-border hover:border-primary/40 transition-all">
+                                    <Chk checked={c.unlocked} onChange={v => handleColosseumToggle(c, v)} />
+                                    <div>
+                                        <p className={`text-[11px] font-black uppercase tracking-wide ${c.unlocked ? 'text-foreground' : 'text-muted-foreground'}`}>{c.name}</p>
+                                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{c.region}</p>
+                                    </div>
+                                </label>
+                            ))}
+                        </div>
+                    </AccordionSection>
+
                     {/* Summoning Pools */}
                     <AccordionSection id="world-pools" title="Summoning Pools" progress={{current: activatedPools, total: pools.length}}
                         resetSignal={saveLoadKey}
@@ -442,23 +462,45 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                         </div>
                     </AccordionSection>
 
-                    {/* Colosseums */}
-                    <AccordionSection id="world-colosseums" title="Colosseums" progress={{current: unlockedColosseums, total: colosseums.length}}
+                    {/* Invasion Regions */}
+                    <AccordionSection id="world-regions" title="Invasion Regions" progress={{current: unlockedRegionsCount, total: regionEntries.length}}
                         resetSignal={saveLoadKey}
                         actions={<>
-                            <RiskActionButton riskKey="bulk_colosseum" onConfirm={handleUnlockAllColosseums} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Unlock All</RiskActionButton>
-                            <button onClick={handleLockAllColosseums} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Lock All</button>
+                            <RiskActionButton riskKey="bulk_region_unlock" onConfirm={handleUnlockAllRegions} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Unlock All</RiskActionButton>
+                            <button onClick={handleLockAllRegions} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Lock All</button>
                         </>}>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                            {colosseums.map(c => (
-                                <label key={c.id} className="flex items-center space-x-3 cursor-pointer py-2 px-3 rounded border border-border hover:border-primary/40 transition-all">
-                                    <Chk checked={c.unlocked} onChange={v => handleColosseumToggle(c, v)} />
-                                    <div>
-                                        <p className={`text-[11px] font-black uppercase tracking-wide ${c.unlocked ? 'text-foreground' : 'text-muted-foreground'}`}>{c.name}</p>
-                                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">{c.region}</p>
+                        <RiskSectionBanner riskKey="bulk_region_unlock" className="mb-3" />
+                        <p className="text-[11px] text-muted-foreground/70 italic px-1 pb-2">
+                            Map regions stored in the save's Regions struct. Controls invasion eligibility (PvP / NPC) and blue summons.
+                        </p>
+                        <div className="accordion-grid">
+                            {Object.entries(regionAreas).sort().map(([area, rs]) => {
+                                const uc = rs.filter(r => r.unlocked).length;
+                                return (
+                                    <div key={area} className="accordion-grid-item border border-border/50 rounded-lg overflow-hidden">
+                                        <div className="flex items-center justify-between px-2 py-1.5 bg-muted/10 hover:bg-muted/20 transition-all gap-1">
+                                            <button onClick={() => setExpandedRegionAreas(p => ({...p, [area]: !p[area]}))} className="flex items-center gap-1.5 flex-1 text-left">
+                                                <svg className={`w-2.5 h-2.5 transition-transform ${expandedRegionAreas[area] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
+                                                    fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
+                                                <span className="text-[11px] font-bold uppercase tracking-wider">{area}</span>
+                                            </button>
+                                            <MiniProgress current={uc} total={rs.length} />
+                                            <button onClick={() => handleUnlockAreaRegions(area)} className={`${btnSm} ml-1 hover:text-primary hover:border-primary/50`} title="Unlock all in area">+</button>
+                                            <button onClick={() => handleLockAreaRegions(area)} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`} title="Lock all in area">−</button>
+                                        </div>
+                                        {expandedRegionAreas[area] && (
+                                            <div className="px-2 py-1 space-y-0.5">
+                                                {rs.map(r => (
+                                                    <label key={r.id} className="flex items-center space-x-2 py-0.5 px-1 rounded hover:bg-muted/10 cursor-pointer">
+                                                        <Chk checked={r.unlocked} onChange={v => handleRegionToggle(r, v)} />
+                                                        <span className={`text-[10px] truncate font-semibold ${r.unlocked ? 'text-foreground' : 'text-muted-foreground'}`}>{r.name}</span>
+                                                    </label>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                </label>
-                            ))}
+                                );
+                            })}
                         </div>
                     </AccordionSection>
                 </div>
@@ -716,47 +758,6 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                         </div>
                     </AccordionSection>
 
-                    {/* Invasion Regions */}
-                    <AccordionSection id="world-regions" title="Invasion Regions" progress={{current: unlockedRegionsCount, total: regionEntries.length}}
-                        resetSignal={saveLoadKey}
-                        actions={<>
-                            <RiskActionButton riskKey="bulk_region_unlock" onConfirm={handleUnlockAllRegions} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Unlock All</RiskActionButton>
-                            <button onClick={handleLockAllRegions} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Lock All</button>
-                        </>}>
-                        <RiskSectionBanner riskKey="bulk_region_unlock" className="mb-3" />
-                        <p className="text-[11px] text-muted-foreground/70 italic px-1 pb-2">
-                            Map regions stored in the save's Regions struct. Controls invasion eligibility (PvP / NPC) and blue summons.
-                        </p>
-                        <div className="accordion-grid">
-                            {Object.entries(regionAreas).sort().map(([area, rs]) => {
-                                const uc = rs.filter(r => r.unlocked).length;
-                                return (
-                                    <div key={area} className="accordion-grid-item border border-border/50 rounded-lg overflow-hidden">
-                                        <div className="flex items-center justify-between px-2 py-1.5 bg-muted/10 hover:bg-muted/20 transition-all gap-1">
-                                            <button onClick={() => setExpandedRegionAreas(p => ({...p, [area]: !p[area]}))} className="flex items-center gap-1.5 flex-1 text-left">
-                                                <svg className={`w-2.5 h-2.5 transition-transform ${expandedRegionAreas[area] ? 'rotate-90 text-primary' : 'text-muted-foreground'}`}
-                                                    fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                                <span className="text-[11px] font-bold uppercase tracking-wider">{area}</span>
-                                            </button>
-                                            <MiniProgress current={uc} total={rs.length} />
-                                            <button onClick={() => handleUnlockAreaRegions(area)} className={`${btnSm} ml-1 hover:text-primary hover:border-primary/50`} title="Unlock all in area">+</button>
-                                            <button onClick={() => handleLockAreaRegions(area)} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`} title="Lock all in area">−</button>
-                                        </div>
-                                        {expandedRegionAreas[area] && (
-                                            <div className="px-2 py-1 space-y-0.5">
-                                                {rs.map(r => (
-                                                    <label key={r.id} className="flex items-center space-x-2 py-0.5 px-1 rounded hover:bg-muted/10 cursor-pointer">
-                                                        <Chk checked={r.unlocked} onChange={v => handleRegionToggle(r, v)} />
-                                                        <span className={`text-[10px] truncate font-semibold ${r.unlocked ? 'text-foreground' : 'text-muted-foreground'}`}>{r.name}</span>
-                                                    </label>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </AccordionSection>
                 </div>
             )}
         </div>
