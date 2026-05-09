@@ -52,6 +52,9 @@ func (a *App) ApplyPvPPreparation(slotIndex int, opts PvPPreparationOptions) ([]
 		if err := core.SetUnlockedRegions(slot, ids); err != nil {
 			return nil, fmt.Errorf("matchmaking regions: %w", err)
 		}
+		// SetUnlockedRegions calls RebuildSlot which replaces slot.Data and
+		// recalculates EventFlagsOffset — refresh the slice to avoid stale writes.
+		flags = slot.Data[slot.EventFlagsOffset:]
 		warnings = append(warnings, fmt.Sprintf("Applied %d matchmaking regions.", len(ids)))
 	}
 
@@ -86,6 +89,9 @@ func (a *App) ApplyPvPPreparation(slotIndex int, opts PvPPreparationOptions) ([]
 		if err := revealDLCMap(slot); err != nil {
 			return nil, fmt.Errorf("map reveal (DLC): %w", err)
 		}
+		// revealBaseMap/revealDLCMap call AddItemsToSlot which shifts slot.Data —
+		// refresh the slice so subsequent modules write to the correct array.
+		flags = slot.Data[slot.EventFlagsOffset:]
 		warnings = append(warnings, "Map revealed (base game + DLC).")
 	}
 
