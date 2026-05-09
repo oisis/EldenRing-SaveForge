@@ -255,22 +255,27 @@ Patcher NetworkParam to funkcja zaawansowana dla użytkowników-badaczy, którzy
 Wszystkie walidatory znajdują się w `backend/vm/validation.go` (istniejący) lub `backend/vm/preset.go`.
 Żaden nie blokuje produkcji — emitują `warnings []string`, nie błędy fatalne.
 
-### `ValidateWorldRegions(ids []uint32) []string`
+### `ValidateWorldRegions(ids []uint32) []string` ✅ Zaimplementowany
 
 **Sprawdza:**
-- Każde ID jest obecne w mapie `data.Regions` → `warning: nieznane ID regionu`
-- Flagi ID ≥ 6 900 000 (DLC) przy aplikacji do kontekstu nie-DLC → `warning: region DLC`
-- Wykrywa duplikaty → `warning: duplikat ID regionu`
+- Każde ID jest obecne w mapie `data.Regions` → `warning: world.regions: ID %d not found in region database`
+- Wykrywa duplikaty → `warning: world.regions: ID %d appears more than once — duplicate will be ignored`
+- Legacy dungeon IDs (`1000000–1999999`) są prawidłowe — brak ostrzeżenia
+- DLC region IDs (`6900000–6999999`) są prawidłowe — brak ostrzeżenia (sprawdzenie kontekstu non-DLC zarezerwowane dla przyszłej warstwy UI)
 
 **Zwraca:** ostrzeżenie (nie błąd). Blokowanie/odblokowanie regionu jest odwracalne.
 
-**Lokalizacja:** `backend/vm/preset.go` obok `validateWorldSummoningPools`.
+**Lokalizacja:** `backend/vm/preset.go` jako `validateWorldRegions` (prywatna, wywoływana z `ValidatePreset`).
+Helper DB: `db.IsKnownRegionID(id uint32) bool` w `backend/db/db.go`.
 
-**Testy:**
-- Znane ID → brak ostrzeżenia
-- Nieznane ID (np. `9999999`) → ostrzeżenie
-- DLC ID (`6900000`) → ostrzeżenie gdy flaga DLC nie jest ustawiona
-- Duplikat → ostrzeżenie
+**Testy (7/7 passing):**
+- Znane ID overworld → brak ostrzeżenia
+- Znane ID legacy dungeon → brak ostrzeżenia
+- Znane ID DLC → brak ostrzeżenia
+- Nieznane ID (`9999999`) → ostrzeżenie
+- Duplikat znanych ID → ostrzeżenie
+- `nil` World → brak ostrzeżenia
+- Pusta lista regionów → brak ostrzeżenia
 
 ---
 

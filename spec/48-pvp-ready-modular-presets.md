@@ -251,22 +251,27 @@ that server-side enforcement renders UD11 changes ineffective online.
 All validators live in `backend/vm/validation.go` (existing) or `backend/vm/preset.go`.
 None are production-blocking — they emit `warnings []string`, not fatal errors.
 
-### `ValidateWorldRegions(ids []uint32) []string`
+### `ValidateWorldRegions(ids []uint32) []string` ✅ Implemented
 
 **Checks:**
-- Each ID is present in `data.Regions` map → `warning: unknown region ID`
-- Flags IDs ≥ 6 900 000 (DLC) when applied to a non-DLC context → `warning: DLC region`
-- Detects duplicate IDs → `warning: duplicate region ID`
+- Each ID is present in `data.Regions` map → `warning: world.regions: ID %d not found in region database`
+- Detects duplicate IDs → `warning: world.regions: ID %d appears more than once — duplicate will be ignored`
+- Legacy dungeon IDs (`1000000–1999999`) are valid — no warning
+- DLC region IDs (`6900000–6999999`) are valid — no warning (non-DLC context check reserved for future UI layer)
 
 **Returns:** warning (not error). Region lock/unlock is reversible.
 
-**Where it lives:** `backend/vm/preset.go` alongside `validateWorldSummoningPools`.
+**Where it lives:** `backend/vm/preset.go` as `validateWorldRegions` (private, called from `ValidatePreset`).
+DB helper: `db.IsKnownRegionID(id uint32) bool` in `backend/db/db.go`.
 
-**Tests:**
-- Known ID → no warning
-- Unknown ID (e.g., `9999999`) → warning
-- DLC ID (`6900000`) → warning when DLC flag not set in context
-- Duplicate → warning
+**Tests (7/7 passing):**
+- Known overworld ID → no warning
+- Known legacy dungeon ID → no warning
+- Known DLC ID → no warning
+- Unknown ID (`9999999`) → warning
+- Duplicate known ID → warning
+- `nil` World → no warning
+- Empty region list → no warning
 
 ---
 

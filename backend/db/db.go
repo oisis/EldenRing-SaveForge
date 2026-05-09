@@ -914,6 +914,14 @@ var getAllRegions = sync.OnceValue(func() []RegionEntry {
 
 func GetAllRegions() []RegionEntry { return getAllRegions() }
 
+// IsKnownRegionID reports whether id is a recognised invasion-region ID in the
+// current database (overworld 6100000–6899999, DLC 6900000–6999999, legacy
+// dungeon interiors 1000000–1999999).
+func IsKnownRegionID(id uint32) bool {
+	_, ok := data.Regions[id]
+	return ok
+}
+
 // GetAllMapEntries returns all map region entries (visible + acquired + system) sorted by area then name.
 var getAllMapEntries = sync.OnceValue(func() []MapEntry {
 	entries := make([]MapEntry, 0, len(data.MapVisible)+len(data.MapAcquired)+len(data.MapSystem)+len(data.MapUnsafe))

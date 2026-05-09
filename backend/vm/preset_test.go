@@ -340,6 +340,124 @@ func TestValidatePreset_SummoningPools_NilWorld(t *testing.T) {
 	}
 }
 
+func TestValidatePreset_Regions_KnownOverworld(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Regions: []uint32{6100000, 6100001, 6200000},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.regions") {
+			t.Errorf("unexpected region warning for known overworld IDs: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Regions_LegacyDungeonValid(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Regions: []uint32{1000000, 1000001, 1100000},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.regions") {
+			t.Errorf("unexpected region warning for known legacy dungeon IDs: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Regions_DLCValid(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Regions: []uint32{6900000, 6900001},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.regions") {
+			t.Errorf("unexpected region warning for known DLC region IDs: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Regions_UnknownID(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Regions: []uint32{9999999},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.regions") && containsString(w, "not found in region database") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected unknown-region warning for ID 9999999, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_Regions_Duplicate(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Regions: []uint32{6100000, 6100001, 6100000},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.regions") && containsString(w, "duplicate") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected duplicate-region warning for repeated ID 6100000, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_Regions_NilWorld(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         nil,
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.regions") {
+			t.Errorf("unexpected region warning for nil World: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Regions_EmptyList(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Regions: []uint32{}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.regions") {
+			t.Errorf("unexpected region warning for empty region list: %q", w)
+		}
+	}
+}
+
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }
