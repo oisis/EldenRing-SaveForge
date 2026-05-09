@@ -1,16 +1,16 @@
 # 47 — Aktywacja Sites of Grace
 
 > **Typ**: Investigacja / Design doc
-> **Status**: ✅ Rozwiązany — Hipoteza D potwierdzona; zachowanie edytora jest poprawne
-> **Zakres**: Wszystkie identyfikatory i pola pliku save związane z odkryciem Sites of Grace, szybką podróżą i fizyczną aktywacją obiektu w świecie gry.
+> **Status**: ✅ Rozwiązany — zachowanie edytora potwierdzone jako poprawne; dodano wyjaśnienie w UI
+> **Zakres**: Wszystkie przestrzenie identyfikatorów i pola pliku save związane z odkryciem Sites of Grace, szybką podróżą i fizycznym stanem obiektu w świecie gry.
 
 ---
 
 ## Tło
 
-Po ustawieniu EventFlag gracji przez edytor, Sites of Grace pojawiają się na mapie i są dostępne do szybkiej podróży. Jednak po przybyciu obiekt gracji w świecie gry wygląda jakby nie był zapalony — gra traktuje go jakby nigdy nie był fizycznie dotknięty. Gracz musi ręcznie podejść i odpocząć przy gracji, żeby ją w pełni aktywować.
+Ten dokument powstał, żeby zbadać czy `SetGraceVisited()` — ustawiające EventFlag gracji — jest wystarczające do pełnego odblokowania Site of Grace, czy też trzeba zapisywać dodatkowe pola w pliku save.
 
-Ten dokument mapuje wszystkie znane przestrzenie identyfikatorów i pola pliku save związane ze stanem gracji, identyfikuje co edytor aktualnie kontroluje, i charakteryzuje brakującą warstwę aktywacji.
+**Wniosek (2026-05-09)**: Edytor ustawia dokładnie tę samą EventFlag co gra. `LastRestedGrace` jest automatycznie zarządzane przez grę przy przybyciu do gracji. Nie istnieje żadne persystowane pole "zapalony/niezapalony" w pliku save. Obecna implementacja jest poprawna. Patrz §5 — runtime diff, który to potwierdził.
 
 ---
 
@@ -32,11 +32,10 @@ Gracje używają **dwóch całkowicie oddzielnych przestrzeni identyfikatorów**
 - Widoczność znacznika na mapie (ikona gracji pojawia się na mapie)
 - Dostępność szybkiej podróży (gracja pokazuje się na liście warp)
 - Stan "odkryty" z perspektywy silnika gry dla celów quest flag
+- Stan wizualny obiektu gracji w świecie gry (EMEVD wyprowadza stan zapalony/niezapalony z tej flagi przy ładowaniu obszaru)
 
 **Co ta flaga NIE kontroluje:**
-- Stan zapalony/niezapalony fizycznego obiektu ogniska w świecie gry
-- Czy animacja odpoczynku odtwarza się po podejściu
-- Przypisanie punktu respawnu (`LastRestedGrace`)
+- Przypisanie punktu respawnu (`LastRestedGrace`) — zarządzane osobno przez grę
 
 **Pod-zakresy według typu obszaru:**
 
@@ -53,7 +52,7 @@ Gracje używają **dwóch całkowicie oddzielnych przestrzeni identyfikatorów**
 | Właściwość | Wartość |
 |---|---|
 | Format | `10AABBCCCC` — dziesiętnie, 10 cyfr |
-| Przykład | `1042362951` = "The First Step" |
+| Przykład | `1042362951` = "The First Step"; `1042362950` = "Church of Elleh" |
 | Przechowywanie | Pojedyncze pole `u32` `LastRestedGrace` w `PreEventFlagsScalars` |
 | Źródło | `spec/14-game-state.md`, `spec/15-event-flags.md` |
 
@@ -64,8 +63,8 @@ Gracje używają **dwóch całkowicie oddzielnych przestrzeni identyfikatorów**
 
 **Czego BonfireId NIE robi:**
 - To NIE jest lista; przechowywana jest tylko jedna wartość
-- Ustawienie go NIE zapala obiektu gracji w świecie gry
 - Nie ma bezpośredniego związku z EventFlag ID dla tej samej gracji
+- Edytor NIE musi go ustawiać — gra zapisuje `LastRestedGrace` automatycznie przy każdym przybyciu do gracji (teleportacja lub podejście pieszo)
 
 W kodzie nie ma publicznego mapowania EventFlag ID → BonfireId. Te dwie przestrzenie nazw są rozłączne.
 
@@ -76,9 +75,18 @@ W kodzie nie ma publicznego mapowania EventFlag ID → BonfireId. Te dwie przest
 ### 2.1 Bitfield EventFlags
 
 - Lokalizacja: `slot.Data[slot.EventFlagsOffset:]`
-- Rozmiar: `0x1BF99F` bajtów (1 835 423 bajty)
+- Rozmiar: `0x1BF99F` bajtów (1 833 375 bajtów)
 - Jeden bit na flagę; lookup BST konwertuje ID flagi → offset bajtu + indeks bitu
 - **Akcja edytora**: `db.SetEventFlag(flags, graceID, true)` ustawia ten bit
+
+Potwierdzone offsety (testowy save Church of Elleh, slot 0):
+
+| Pole | Offset w `slot.Data` |
+|---|---|
+| `PreEventFlagsScalarsBase` | `0x3649A` |
+| `EventFlagsOffset` | `0x364B7` |
+| `EventFlagsEnd` | `0x1F5E56` |
+| `LastRestedGrace` (surowe bajty) | `0x364AA` |
 
 ### 2.2 PreEventFlagsScalars
 
@@ -99,7 +107,7 @@ W kodzie nie ma publicznego mapowania EventFlag ID → BonfireId. Te dwie przest
 | `InGameCountdownTimer` | +0x15 | u32 | Odliczanie w grze |
 | `UnkGameDataMan0x124` | +0x19 | u32 | Nieznane |
 
-`LastRestedGrace` to jedyne pole pliku save przechowujące BonfireId. Jest to **pojedynczy skalar** — nie tablica, nie zbiór.
+`LastRestedGrace` to jedyne pole pliku save przechowujące BonfireId. Jest to **pojedynczy skalar** — nie tablica, nie zbiór. Gra zapisuje je automatycznie przy przybyciu do gracji; edytor nie dotyka tego pola.
 
 ### 2.3 DoorFlag
 
@@ -129,7 +137,7 @@ Ustawienie EventFlag gracji (71xxx–76xxx) NIE ustawia MapFlags. Te dwie warstw
 1. Odczytuje `slot.Data[slot.EventFlagsOffset:]`
 2. Wywołuje `db.SetEventFlag(flags, graceID, visited)` — ustawia bit 71xxx/76xxx
 3. Jeśli `DoorFlag != 0`: wywołuje `db.SetEventFlag(flags, gd.DoorFlag, visited)` — ustawia flagę drzwi
-4. NIE dotyka `LastRestedGrace`
+4. NIE dotyka `LastRestedGrace` (poprawne — gra zarządza tym automatycznie)
 5. NIE ustawia żadnych MapFlags
 6. NIE ustawia żadnych danych indeksowanych BonfireId
 
@@ -141,50 +149,94 @@ Jest to **identyczne** z wszystkimi trzema implementacjami referencyjnymi:
 | ER-Save-Editor (Rust) | Pojedyncze `u32` EventFlag ID per gracja, bez BonfireId |
 | Elden-Ring-Save-Editor (Python) | `toggle_grace()`: ustawia jeden bit przy `grace["offset"] + grace["index"]` |
 
-Żadna z implementacji referencyjnych nie ustawia BonfireId ani żadnego stanu dodatkowego.
+---
+
+## 4. Potwierdzony model aktywacji
+
+### Co kontroluje edytor
+
+| Warstwa | Kontrolowana przez | Jak |
+|---|---|---|
+| Znacznik na mapie | Grace EventFlag (71xxx–76xxx) | `SetGraceVisited()` → `SetEventFlag()` |
+| Wpis na liście szybkiej podróży | Grace EventFlag | jw. |
+| Stan "odkryty" dla questów | Grace EventFlag | jw. |
+| Drzwi wejściowe dungeonu | DoorFlag (towarzysząca EventFlag) | `SetGraceVisited()` dla gracji Cat/HG |
+| Stan wizualny obiektu w świecie gry | EMEVD runtime, wyprowadzany z EventFlag | niepersystowany; edytor nic nie robi |
+| Punkt respawnu (`LastRestedGrace`) | Gra, automatycznie przy przybyciu | edytor nie ustawia; gra zapisuje sama |
+
+### Potwierdzone wartości dla Church of Elleh
+
+| Element | Wartość |
+|---|---|
+| Grace EventFlag ID | `76100` (0x00012944) |
+| The First Step BonfireId | `1042362951` (0x3E213247) |
+| Church of Elleh BonfireId | `1042362950` (0x3E213246) |
+
+### Dodatkowe flagi zaobserwowane przy fizycznym dotknięciu i teleportacji
+
+| Flaga | Fizyczne dotknięcie | Teleportacja | Prawdopodobne znaczenie |
+|---|---|---|---|
+| `69300` | ✅ | ✅ | Trigger ładowania obszaru (wejście w rejon Church of Elleh) |
+| `78101` | ✅ | ✅ | Trigger ładowania obszaru (wejście w rejon Church of Elleh) |
+| `69070` | ✅ | ❌ | Trigger fizycznej bliskości — NPC/cutscena (Kalé, Ranni), NIE zapalenie gracji |
+
+Żadna z tych flag nie jest wymagana po stronie edytora do odblokowania gracji (znacznik + fast travel).
+
+### Werdykty hipotez
+
+| Hipoteza | Werdykt |
+|---|---|
+| A — EMEVD re-triggeruje z EventFlag przy ładowaniu obszaru | ✅ **Potwierdzony główny mechanizm** |
+| B — Ukryta towarzysząca EventFlag kontroluje stan wizualny | ❌ Wykluczona — 69070 to tylko trigger bliskości NPC |
+| C — Flaga geometrii WorldGeomMan persystuje stan wizualny | ❌ Brak dowodów w kontrolowanych diffach |
+| D — Stan obiektu gracji jest w pełni runtime, niepersystowany | ✅ **Potwierdzony** |
 
 ---
 
-## 4. Brakująca warstwa aktywacji
+## 5. Runtime Save Diff: Church of Elleh
 
-### Potwierdzone zachowanie
+> Ukończono 2026-05-09. Porównano pięć plików save: `vanilla` / `A` (edytor) / `B` (fizyczne dotknięcie) / `C` (odpoczynek) / `D` (teleportacja do gracji odblokowanej przez edytor).
 
-- EventFlag gracji ustawiony → znacznik na mapie widoczny, szybka podróż dostępna ✅
-- EventFlag gracji ustawiony → fizyczny obiekt gracji zapalony po przybyciu ❌ (nieobserwowane)
+### Macierz obecności flag
 
-### Hipoteza A — Ponowne uruchomienie skryptu EMEVD (najbardziej prawdopodobna)
+| Flaga | vanilla | A (edytor) | B (dotknięcie) | C (odpoczynek) | D (teleport) |
+|---|---|---|---|---|---|
+| **76100** Grace EventFlag | 0 | **1** | **1** | 1 | 1 |
+| 62120 Mapa Stormveil Castle | 0 | 0 | 1 | 1 | 1 |
+| 69070 Nieznana (trigger NPC?) | 0 | 0 | **1** | 1 | **0** |
+| 69300 Nieznana (area-load) | 0 | 0 | 1 | 1 | 1 |
+| 78101 Nieznana (area-load) | 0 | 0 | 1 | 1 | 1 |
 
-Każdy obszar mapy uruchamia skrypt EMEVD, który sprawdza EventFlags gracji przy ładowaniu obszaru, żeby ustawić stan wizualny obiektów gracji w świecie gry. Gdy gracz szybko podróżuje bezpośrednio do gracji, obszar ładuje się z już ustawioną EventFlag. Czy subroutyna EMEVD "pierwszej wizyty" się odpala, zależy od:
-- Czy gra rozróżnia "EventFlag była ustawiona przed tą sesją" od "EventFlag ustawiono w tej sesji"
-- Czy stan encji obiektu gracji (zapalony/niezapalony) jest persystowany oddzielnie czy przeliczany z EventFlag przy każdym ładowaniu obszaru
+Flagi 62001 / 82001 / 82002 (wyświetlanie mapy podziemnej) pojawiły się w save A, bo użytkownik uruchomił też `RevealBaseMap` — NIE są ustawiane przez `SetGraceVisited()`.
 
-Jeśli EMEVD wyprowadza stan obiektu gracji czysto z EventFlag, obiekt **powinien** być już zapalony po przybyciu — co oznaczałoby, że zgłoszony bug to nieporozumienie. Jeśli EMEVD utrzymuje oddzielny stan encji w pamięci, który nie jest aktualizowany retroaktywnie, gracja wyglądałaby na niezapaloną mimo ustawionej EventFlag.
+### `PreEventFlagsScalars` w kolejnych save'ach
 
-**Ta hipoteza wymaga diffowania runtime przed/po w celu potwierdzenia.**
+| Skalar | vanilla | A | B | C | D |
+|---|---|---|---|---|---|
+| `LastRestedGrace` | 1042362951 | 1042362951 | **1042362950** | 1042362950 | **1042362950** |
+| `UnkGameDataMan0x124` | 61 | 61 | 61 | **73** | **40** |
 
-### Hipoteza B — Druga towarzysząca EventFlag (niezidentyfikowana)
+`LastRestedGrace` przechodzi z The First Step na Church of Elleh zarówno w B (fizyczne dotknięcie) jak i D (teleportacja). Gra ustawia to automatycznie; edytor nic nie musi robić.
 
-Ukryta EventFlag pod innym ID (spoza 71xxx–76xxx) może kontrolować stan wizualny obiektu w świecie gry niezależnie od znacznika na mapie. Takiej flagi nie znaleziono w żadnej implementacji referencyjnej ani skrypcie CT-TGA.
+### Drugie wystąpienie BonfireId
 
-### Hipoteza C — Flaga geometrii WorldGeomMan / WorldArea
+BonfireId znaleziono też pod `slot.Data[0x1F636A]` — 1 300 bajtów za końcem EventFlags, prawdopodobnie wczesna sekcja NetworkManager. Aktualizuje się identycznie z `LastRestedGrace`. Prawdopodobnie używane do synchronizacji respawnu w trybie multiplayer.
 
-Sekcja `WorldState` zawiera dane geometrii i stanu obszaru. Oddzielny bit w tej sekcji mógłby oznaczać fizyczną encję gracji jako aktywowaną. Ta sekcja nie jest jeszcze w pełni poddana inżynierii wstecznej (patrz `spec/16`).
+### Kluczowy wniosek
 
-### Hipoteza D — Stan obiektu gracji jest w pełni runtime / niepersystowany
-
-Stan obiektu gracji w świecie gry może być całkowicie runtimeowy (EMEVD/obiekt C++), nie persystowany w pliku save w ogóle. W tym przypadku fizyczne zapalenie gracji zawsze wymagałoby ręcznej interakcji w grze — a ustawiona przez edytor EventFlag pokrywa tylko warstwę mapy/warpu, co byłoby kompletnym oczekiwanym zachowaniem.
+Flaga 76100 jest **identyczna** w A (edytor) i B (gra). Edytor ustawia dokładnie to samo co gra. Żadne dodatkowe pola pliku save nie są wymagane dla warstwy odblokowania mapy/fast travel.
 
 ---
 
-## 5. Skrypt diagnostyczny
+## 6. Skrypt diagnostyczny
 
 `tmp/scripts/diag/grace_activation_diff.go` — tylko do odczytu, `//go:build ignore`.
 
 **Użycie:**
 ```
 go run tmp/scripts/diag/grace_activation_diff.go \
-  -before tmp/save/before-church-elleh.sl2 \
-  -after  tmp/save/after-church-elleh.sl2 \
+  -before tmp/site-of-grace-debug/ER0000-kro55-vanilla.sl2 \
+  -after  tmp/site-of-grace-debug/ER0000-b.sl2 \
   -slot 0 -grace 76100 -bonfire 1042362951
 ```
 
@@ -197,142 +249,31 @@ go run tmp/scripts/diag/grace_activation_diff.go \
 6. Wyszukiwanie BonfireId w surowych bajtach slotu
 7. Podsumowanie byte-diff według regionów 0x10000
 
-**Idealna para save:**  
-A = save bezpośrednio przed fizycznym dotknięciem Church of Elleh (gracja 76100, bonfire ~1042362951)  
-B = save bezpośrednio po odpoczynku przy tej gracji i powrocie do menu głównego
+Pliki save: `tmp/site-of-grace-debug/` (vanilla, A, B, C, D).  
+Raport analizy: `tmp/site-of-grace-debug/grace-activation-analysis.md`.
 
 ---
 
-## 8. Runtime Save Diff: Church of Elleh
+## 7. Modele naprawy
 
-> **Status**: ✅ Ukończone — 2026-05-09  
-> Pięć plików save: `vanilla`, `A` (odblokowanie przez edytor), `B` (fizyczne dotknięcie), `C` (odpoczynek), `D` (teleportacja do gracji odblokowanej przez edytor).
+### Model 1 — Brak zmian backendu ✅ Zaimplementowany
 
-### Opis plików save
+`SetGraceVisited()` jest poprawne. Żadnych zmian logiki.
 
-| Plik | Opis |
-|---|---|
-| `vanilla` | Punkt startowy — gracja nie aktywowana, `LastRestedGrace` = 1042362951 (The First Step) |
-| `A` | Gracja 76100 ustawiona przez edytor (`SetGraceVisited()`). Brak rozgrywki. |
-| `B` | Gracja 76100 fizycznie aktywowana w grze (podejście i dotknięcie). |
-| `C` | Odpoczynek przy gracji 76100 po fizycznej aktywacji. |
-| `D` | Teleportacja (fast travel) do gracji 76100 ustawionej przez edytor w pliku A. |
+### Model 2 — Wyjaśnienie w UI ✅ Zaimplementowany
 
-### Identyfikacja BonfireId (empiryczna)
+Krótka notka dodana do sekcji Sites of Grace w zakładce `WorldTab`:
 
-| BonfireId | Dziesiętnie | Gracja |
-|---|---|---|
-| `0x3E213247` | 1042362951 | The First Step |
-| `0x3E213246` | 1042362950 | **Church of Elleh** |
+> "Gracje odblokowane tutaj pojawią się na mapie i będą dostępne do szybkiej podróży. Odpoczynek w grze nadal kontroluje normalny punkt odrodzenia/odpoczynku."
 
-### Offset EventFlags w `slot.Data`
+### Model 3 — Opcjonalnie: zbadanie flagi 69070
 
-| Pole | Offset |
-|---|---|
-| `PreEventFlagsScalarsBase` | `0x3649A` |
-| `EventFlagsOffset` | `0x364B7` |
-| `EventFlagsEnd` | `0x1F5E56` |
-| `LastRestedGrace` w surowych bajtach | `0x364AA` |
-| Drugie wystąpienie BonfireId | `0x1F636A` (+1 300 bajtów za końcem EventFlags — wczesny NetworkManager) |
+Flaga 69070 jest ustawiana tylko przy fizycznym podejściu (nie przez edytor ani teleportację). Jeśli użytkownicy zgłoszą, że cutsceny NPC przy Church of Elleh (powitanie Kalé, pierwsze pojawienie Ranni) nie triggerują po przybyciu przez fast travel z gracji odblokowanej edytorem, ustawienie 69070 razem z EventFlag gracji może to naprawić. Nie jest wymagane do samego odblokowania gracji.
 
-### Macierz obecności flag
-
-| Flaga | vanilla | A (edytor) | B (dotknięcie) | C (odpoczynek) | D (teleport) |
-|---|---|---|---|---|---|
-| **76100** Grace EventFlag | 0 | **1** | **1** | 1 | 1 |
-| 62001 Mapa podziemna† | 0 | 1 | 0 | 0 | 1 |
-| 82001 Pokaż podziemie† | 0 | 1 | 0 | 0 | 1 |
-| 82002 Pokaż Realm Cienia† | 0 | 1 | 0 | 0 | 1 |
-| 62120 Mapa Stormveil Castle | 0 | 0 | 1 | 1 | 1 |
-| **69070** Nieznana | 0 | 0 | **1** | 1 | **0** |
-| 69300 Nieznana | 0 | 0 | 1 | 1 | 1 |
-| 78101 Nieznana | 0 | 0 | 1 | 1 | 1 |
-
-† Ustawione przez osobną operację RevealMap w edytorze, NIE przez `SetGraceVisited()`.
-
-### `PreEventFlagsScalars` w kolejnych save'ach
-
-| Skalar | vanilla | A | B | C | D |
-|---|---|---|---|---|---|
-| `LastRestedGrace` | 1042362951 | 1042362951 | **1042362950** | 1042362950 | **1042362950** |
-| `UnkGameDataMan0x124` | 61 | 61 | 61 | **73** | **40** |
-
-`LastRestedGrace` jest ustawiany automatycznie przez grę w momencie przybycia do gracji (teleportacja LUB podejście pieszo). Edytor nie musi tego pola dotykać.
-
-### Wnioski
-
-1. **Edytor ustawia dokładnie tę samą EventFlag co gra.** Flaga 76100 jest identyczna w A i B. `SetGraceVisited()` jest poprawne.
-
-2. **`LastRestedGrace` jest zarządzany automatycznie przez grę.** Żadna ingerencja edytora nie jest potrzebna. Aktualizuje się w momencie przybycia gracza do gracji.
-
-3. **Trzy dodatkowe flagi pojawiają się w B i D** (69300, 78101 w obu; 69070 tylko przy fizycznym podejściu B/C). Prawdopodobnie są to triggery ładowania obszaru i dialogi NPC (Kalé, Ranni), nie flagi zapalenia gracji.
-
-4. **Flaga 69070** to jedyna flaga odróżniająca fizyczne dotknięcie (B) od teleportacji (D). Jest nieobecna przy fast travel do gracji odblokowanej przez edytor. Jej dokładne znaczenie (trigger NPC, tutorial) jest nieznane, ale nie kontroluje wizualnego stanu obiektu gracji.
-
-5. **Żadne pole pliku save nie persystuje stanu zapalony/niezapalony obiektu gracji.** Wszystkie save'y B/C/D mają identyczną strukturę pod kątem gracji. Hipoteza D potwierdzona.
-
-6. **Drugie wystąpienie BonfireId** pod `slot.Data[0x1F636A]` (1 300 bajtów za końcem EventFlags) aktualizuje się razem z `LastRestedGrace`. Prawdopodobnie w sekcji NetworkManager — może służyć do synchronizacji respawnu w trybie multiplayer.
-
-### Status hipotez
-
-| Hipoteza | Werdykt |
-|---|---|
-| A — Ponowne uruchomienie skryptu EMEVD | **Potwierdzony główny mechanizm** — ta sama EventFlag steruje zarówno edytorem jak i grą |
-| B — Ukryta towarzysząca EventFlag | **Wykluczona** — 69070 triggeruje tylko dialog NPC, nie zapalenie gracji |
-| C — Flaga geometrii WorldGeomMan | **Brak dowodów** — brak zmian poza EventFlags+NM w kontrolowanych diffach |
-| **D — Stan runtime-only (niepersystowany)** | ✅ **Potwierdzony** |
-
-### Rekomendowany model naprawy
-
-**Model 3 (notka UI)** — dodać notatkę do sekcji gracji w zakładce `WorldTab`:
-
-> "Gracje odblokowane tutaj pojawiają się na mapie i umożliwiają szybką podróż. Obiekt gracji w świecie gry zostaje zapalony przy ładowaniu obszaru. Ręczny odpoczynek jest wymagany tylko do aktualizacji punktu respawnu."
-
-Model 2 (patch `LastRestedGrace`) **nie jest potrzebny** — gra ustawia go automatycznie po przybyciu. Model 1 (brak zmian) jest również akceptowalny jeśli notka UI nie jest planowana.
-
----
-
-## 6. Modele naprawy (Proponowane, Niezaimplementowane)
-
-### Model 1 — Brak zmian (obecne zachowanie jest poprawne)
-
-Jeśli Hipoteza D jest potwierdzona (stan obiektu gracji nie jest persystowany), obecne zachowanie edytora jest poprawne. `World.Graces` kontroluje tylko warstwę mapy/warpu. Udokumentować to jasno w UI.
-
-**Ryzyko**: Niskie. Wymaga tylko aktualizacji tekstu w UI.
-
-### Model 2 — Ustawienie `LastRestedGrace` na BonfireId aktywowanej gracji
-
-Gdy użytkownik aktywuje pojedynczą grację przez edytor, również ustawić `LastRestedGrace` na odpowiadający BonfireId.
-
-**Blokery**:
-- Nie istnieje publiczne mapowanie EventFlag ID → BonfireId w kodzie
-- Ustawienie `LastRestedGrace` zmienia punkt respawnu — niezamierzony efekt uboczny przy masowym ustawianiu wszystkich gracji
-- Wymaga zbudowania i walidacji pełnej tablicy lookup EventFlag ID → BonfireId (~419 wpisów)
-
-**Ryzyko**: Średnie. Wykonalne tylko dla aktywacji pojedynczej gracji, nie masowej.
-
-### Model 3 — Wyświetlenie ostrzeżenia w UI
-
-Dodać notatkę UI w sekcji gracji zakładki `WorldTab`: "Gracje ustawione przez ten edytor pojawią się na mapie i umożliwią szybką podróż. Fizyczny obiekt gracji wymaga ręcznego odpoczynku do pełnej aktywacji."
-
-**Ryzyko**: Żadne. Poprawny opis faktycznego zachowania jeśli Hipoteza D jest potwierdzona.
-
----
-
-## 7. Następne kroki
-
-### Bez dostępu do konsoli
-
-1. Uruchomić `grace_activation_diff.go` na prawdziwej parze save przed/po (zalecane: Church of Elleh)
-2. Sprawdzić czy `LastRestedGrace` zmienia się w diffie — i czy oprócz 76100 zmieniają się jakieś inne EventFlags
-3. Sprawdzić byte-diff według regionów (sekcja 7 skryptu) — zmiana poza regionem EventFlags sugerowałaby zaangażowanie pola WorldState lub encji
-
-### Z dostępem do konsoli
-
-1. Ustawić grację 76100 przez edytor, wczytać save, szybko podróżować do Church of Elleh
-2. Zaobserwować: czy obiekt gracji jest zapalony czy niezapalony po przybyciu?
-3. Jeśli niezapalony: podejść do gracji — czy animacja aktywacji odtwarza się, czy gracja odmawia aktywacji?
-4. Przeładować czysty save i ręcznie odpocząć przy gracji — porównać wynikowy save z save popatrzonym przez edytor używając skryptu diff
+**Odrzucone podejścia:**
+- Ustawianie `LastRestedGrace` — zbędne; gra zarządza tym automatycznie przy przybyciu
+- Budowanie tablicy lookup EventFlag ID → BonfireId — zbędne
+- Szukanie ukrytej towarzyszącej flagi aktywacji gracji — wykluczone przez runtime diff
 
 ---
 
@@ -351,3 +292,4 @@ Dodać notatkę UI w sekcji gracji zakładki `WorldTab`: "Gracje ustawione przez
 | `tmp/repos/Elden-Ring-Save-Editor/src/Final.py` | Referencja: pojedynczy bit per gracja |
 | `tmp/repos/Elden-Ring-Save-Editor/src/Resources/Json/graces.json` | Mapa gracji z offset + index (bez BonfireId) |
 | `tmp/scripts/diag/grace_activation_diff.go` | Skrypt diagnostyczny dla diffu przed/po |
+| `tmp/site-of-grace-debug/grace-activation-analysis.md` | Pełny raport analizy runtime diff |
