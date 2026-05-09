@@ -105,6 +105,7 @@ Plik save składa się z następujących głównych bloków (w kolejności sekwe
 | 44 | [NetworkParam PvP Tuning](44-network-param-tuning.md) | **Design doc** (✅ częściowo) — pełna referencja pól NETWORK_PARAM_ST: offsety, wartości vanilla, ryzyko bana, presety |
 | 45 | [Dokumentacja Ryzyka Bana](45-ban-risk-reference.md) | Community-reportowane triggery banów, poziomy kar (mechanika 180-dniowego softbana, flaga zapisana w save), zasady bezpiecznej edycji — podstawa dla tiers ryzyka w spec/32 |
 | 46 | [Badanie Szybszych Inwazji](46-faster-invasions-research.md) | **Badanie** (zakończone) — pełny skan UD10/NetMan/EventFlags/regulation.bin pod kątem parametrów czasowania inwazji; porównanie DS3; mod Wex Dust; werdykt: niemożliwe do zrealizowania przez plik save |
+| 47 | [Aktywacja Sites of Grace](47-site-of-grace-activation.md) | **Investigacja** (niekompletna) — dwie przestrzenie ID (EventFlag 71xxx–76xxx vs BonfireId), skalar `LastRestedGrace`, DoorFlag, MapFlags; brakująca warstwa aktywacji runtime; 4 hipotezy; skrypt diagnostyczny |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Metody testowania, checklista weryfikacji, plan odkryć |
 
 ---
