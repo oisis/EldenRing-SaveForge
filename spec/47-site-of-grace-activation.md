@@ -1,7 +1,7 @@
 # 47 — Site of Grace Activation
 
 > **Type**: Investigation / Design doc
-> **Status**: 🔲 Incomplete — missing runtime activation layer
+> **Status**: ✅ Resolved — Hypothesis D confirmed; editor behaviour is correct
 > **Scope**: All identifiers and save-file fields involved in Site of Grace discovery, fast-travel, and physical in-world object activation.
 
 ---
@@ -203,7 +203,96 @@ B = save immediately after resting at that grace and returning to main menu
 
 ---
 
-## 6. Repair Models (Proposed, Not Implemented)
+## 8. Runtime Save Diff: Church of Elleh
+
+> **Status**: ✅ Completed — 2026-05-09  
+> Five save files provided: `vanilla`, `A` (editor unlock), `B` (physical touch), `C` (rest), `D` (teleport to editor-unlocked grace).
+
+### Save file descriptions
+
+| File | Description |
+|---|---|
+| `vanilla` | Baseline — no grace activation, `LastRestedGrace` = 1042362951 (The First Step) |
+| `A` | Grace 76100 set via editor `SetGraceVisited()`. No gameplay. |
+| `B` | Grace 76100 physically activated in-game (walked to and touched). |
+| `C` | Grace 76100 rested at after physical activation. |
+| `D` | Teleported (fast travel) to grace 76100 which was set by editor in save A. |
+
+### BonfireId identification (empirical)
+
+| BonfireId | Decimal | Grace |
+|---|---|---|
+| `0x3E213247` | 1042362951 | The First Step |
+| `0x3E213246` | 1042362950 | **Church of Elleh** |
+
+### EventFlag offset in `slot.Data`
+
+| Field | Offset |
+|---|---|
+| `PreEventFlagsScalarsBase` | `0x3649A` |
+| `EventFlagsOffset` | `0x364B7` |
+| `EventFlagsEnd` | `0x1F5E56` |
+| `LastRestedGrace` in raw bytes | `0x364AA` |
+| Second BonfireId occurrence | `0x1F636A` (+1,300 bytes past EventFlags end — early NetworkManager) |
+
+### Flag presence matrix
+
+| Flag | vanilla | A (editor) | B (touch) | C (rest) | D (teleport) |
+|---|---|---|---|---|---|
+| **76100** Grace EventFlag | 0 | **1** | **1** | 1 | 1 |
+| 62001 Underground map† | 0 | 1 | 0 | 0 | 1 |
+| 82001 Show Underground† | 0 | 1 | 0 | 0 | 1 |
+| 82002 Show Shadow Realm† | 0 | 1 | 0 | 0 | 1 |
+| 62120 Stormveil Castle map | 0 | 0 | 1 | 1 | 1 |
+| **69070** Unknown | 0 | 0 | **1** | 1 | **0** |
+| 69300 Unknown | 0 | 0 | 1 | 1 | 1 |
+| 78101 Unknown | 0 | 0 | 1 | 1 | 1 |
+
+† Set by a separate editor RevealMap operation, NOT by `SetGraceVisited()`.
+
+### `PreEventFlagsScalars` across saves
+
+| Scalar | vanilla | A | B | C | D |
+|---|---|---|---|---|---|
+| `LastRestedGrace` | 1042362951 | 1042362951 | **1042362950** | 1042362950 | **1042362950** |
+| `UnkGameDataMan0x124` | 61 | 61 | 61 | **73** | **40** |
+
+`LastRestedGrace` is set automatically by the game when the player arrives at a grace (teleport OR walk). The editor does not need to set it.
+
+### Conclusions
+
+1. **Editor sets exactly the same EventFlag as the game.** Grace 76100 is identical in A and B. `SetGraceVisited()` is correct.
+
+2. **`LastRestedGrace` is auto-managed by the game.** No editor intervention needed. It updates the moment the player enters a grace area.
+
+3. **Three additional flags appear in B and D** (69300, 78101 in both; 69070 only in physical approach B/C). These are likely area-load triggers and NPC dialogue flags (Kalé, Ranni), not grace lighting flags.
+
+4. **Flag 69070** is the only flag that distinguishes physical touch (B) from teleport (D). It is absent when using fast travel to an editor-unlocked grace. Its exact meaning (NPC trigger, tutorial) is unknown but it does not control the in-world grace object state.
+
+5. **No save-file field persists the grace object lit/unlit state.** All B/C/D saves have the same structure relative to the grace. Hypothesis D is confirmed.
+
+6. **Second BonfireId occurrence** at `slot.Data[0x1F636A]` (1,300 bytes past EventFlags end) updates alongside `LastRestedGrace`. This is likely in the NetworkManager section and may be used for multiplayer respawn sync.
+
+### Hypothesis verdicts
+
+| Hypothesis | Verdict |
+|---|---|
+| A — EMEVD re-trigger from EventFlag (most probable) | **Confirmed primary mechanism** — same EventFlag drives both editor and game |
+| B — Hidden companion EventFlag | **Ruled out** — 69070 only triggers proximity NPC, not lighting |
+| C — WorldGeomMan geometry flag | **No evidence** — no changes outside EventFlags+NM in controlled diffs |
+| **D — Runtime-only state (not persisted)** | ✅ **Confirmed** |
+
+### Recommended repair model
+
+**Model 3 (UI warning)** — add note to `WorldTab` grace section:
+
+> "Graces unlocked here appear on the map and enable fast travel. The in-world grace object will be lit when the area loads. Manual rest is only required to update the respawn point."
+
+Model 2 (`LastRestedGrace` patch) is **not needed** — the game sets it automatically on arrival. Model 1 (no change) is also acceptable if no UI update is made.
+
+---
+
+## 6. Repair Models
 
 ### Model 1 — No change (current behaviour is correct)
 

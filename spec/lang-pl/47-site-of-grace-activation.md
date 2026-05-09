@@ -1,7 +1,7 @@
 # 47 — Aktywacja Sites of Grace
 
 > **Typ**: Investigacja / Design doc
-> **Status**: 🔲 Niekompletny — brakuje warstwy aktywacji runtime
+> **Status**: ✅ Rozwiązany — Hipoteza D potwierdzona; zachowanie edytora jest poprawne
 > **Zakres**: Wszystkie identyfikatory i pola pliku save związane z odkryciem Sites of Grace, szybką podróżą i fizyczną aktywacją obiektu w świecie gry.
 
 ---
@@ -200,6 +200,95 @@ go run tmp/scripts/diag/grace_activation_diff.go \
 **Idealna para save:**  
 A = save bezpośrednio przed fizycznym dotknięciem Church of Elleh (gracja 76100, bonfire ~1042362951)  
 B = save bezpośrednio po odpoczynku przy tej gracji i powrocie do menu głównego
+
+---
+
+## 8. Runtime Save Diff: Church of Elleh
+
+> **Status**: ✅ Ukończone — 2026-05-09  
+> Pięć plików save: `vanilla`, `A` (odblokowanie przez edytor), `B` (fizyczne dotknięcie), `C` (odpoczynek), `D` (teleportacja do gracji odblokowanej przez edytor).
+
+### Opis plików save
+
+| Plik | Opis |
+|---|---|
+| `vanilla` | Punkt startowy — gracja nie aktywowana, `LastRestedGrace` = 1042362951 (The First Step) |
+| `A` | Gracja 76100 ustawiona przez edytor (`SetGraceVisited()`). Brak rozgrywki. |
+| `B` | Gracja 76100 fizycznie aktywowana w grze (podejście i dotknięcie). |
+| `C` | Odpoczynek przy gracji 76100 po fizycznej aktywacji. |
+| `D` | Teleportacja (fast travel) do gracji 76100 ustawionej przez edytor w pliku A. |
+
+### Identyfikacja BonfireId (empiryczna)
+
+| BonfireId | Dziesiętnie | Gracja |
+|---|---|---|
+| `0x3E213247` | 1042362951 | The First Step |
+| `0x3E213246` | 1042362950 | **Church of Elleh** |
+
+### Offset EventFlags w `slot.Data`
+
+| Pole | Offset |
+|---|---|
+| `PreEventFlagsScalarsBase` | `0x3649A` |
+| `EventFlagsOffset` | `0x364B7` |
+| `EventFlagsEnd` | `0x1F5E56` |
+| `LastRestedGrace` w surowych bajtach | `0x364AA` |
+| Drugie wystąpienie BonfireId | `0x1F636A` (+1 300 bajtów za końcem EventFlags — wczesny NetworkManager) |
+
+### Macierz obecności flag
+
+| Flaga | vanilla | A (edytor) | B (dotknięcie) | C (odpoczynek) | D (teleport) |
+|---|---|---|---|---|---|
+| **76100** Grace EventFlag | 0 | **1** | **1** | 1 | 1 |
+| 62001 Mapa podziemna† | 0 | 1 | 0 | 0 | 1 |
+| 82001 Pokaż podziemie† | 0 | 1 | 0 | 0 | 1 |
+| 82002 Pokaż Realm Cienia† | 0 | 1 | 0 | 0 | 1 |
+| 62120 Mapa Stormveil Castle | 0 | 0 | 1 | 1 | 1 |
+| **69070** Nieznana | 0 | 0 | **1** | 1 | **0** |
+| 69300 Nieznana | 0 | 0 | 1 | 1 | 1 |
+| 78101 Nieznana | 0 | 0 | 1 | 1 | 1 |
+
+† Ustawione przez osobną operację RevealMap w edytorze, NIE przez `SetGraceVisited()`.
+
+### `PreEventFlagsScalars` w kolejnych save'ach
+
+| Skalar | vanilla | A | B | C | D |
+|---|---|---|---|---|---|
+| `LastRestedGrace` | 1042362951 | 1042362951 | **1042362950** | 1042362950 | **1042362950** |
+| `UnkGameDataMan0x124` | 61 | 61 | 61 | **73** | **40** |
+
+`LastRestedGrace` jest ustawiany automatycznie przez grę w momencie przybycia do gracji (teleportacja LUB podejście pieszo). Edytor nie musi tego pola dotykać.
+
+### Wnioski
+
+1. **Edytor ustawia dokładnie tę samą EventFlag co gra.** Flaga 76100 jest identyczna w A i B. `SetGraceVisited()` jest poprawne.
+
+2. **`LastRestedGrace` jest zarządzany automatycznie przez grę.** Żadna ingerencja edytora nie jest potrzebna. Aktualizuje się w momencie przybycia gracza do gracji.
+
+3. **Trzy dodatkowe flagi pojawiają się w B i D** (69300, 78101 w obu; 69070 tylko przy fizycznym podejściu B/C). Prawdopodobnie są to triggery ładowania obszaru i dialogi NPC (Kalé, Ranni), nie flagi zapalenia gracji.
+
+4. **Flaga 69070** to jedyna flaga odróżniająca fizyczne dotknięcie (B) od teleportacji (D). Jest nieobecna przy fast travel do gracji odblokowanej przez edytor. Jej dokładne znaczenie (trigger NPC, tutorial) jest nieznane, ale nie kontroluje wizualnego stanu obiektu gracji.
+
+5. **Żadne pole pliku save nie persystuje stanu zapalony/niezapalony obiektu gracji.** Wszystkie save'y B/C/D mają identyczną strukturę pod kątem gracji. Hipoteza D potwierdzona.
+
+6. **Drugie wystąpienie BonfireId** pod `slot.Data[0x1F636A]` (1 300 bajtów za końcem EventFlags) aktualizuje się razem z `LastRestedGrace`. Prawdopodobnie w sekcji NetworkManager — może służyć do synchronizacji respawnu w trybie multiplayer.
+
+### Status hipotez
+
+| Hipoteza | Werdykt |
+|---|---|
+| A — Ponowne uruchomienie skryptu EMEVD | **Potwierdzony główny mechanizm** — ta sama EventFlag steruje zarówno edytorem jak i grą |
+| B — Ukryta towarzysząca EventFlag | **Wykluczona** — 69070 triggeruje tylko dialog NPC, nie zapalenie gracji |
+| C — Flaga geometrii WorldGeomMan | **Brak dowodów** — brak zmian poza EventFlags+NM w kontrolowanych diffach |
+| **D — Stan runtime-only (niepersystowany)** | ✅ **Potwierdzony** |
+
+### Rekomendowany model naprawy
+
+**Model 3 (notka UI)** — dodać notatkę do sekcji gracji w zakładce `WorldTab`:
+
+> "Gracje odblokowane tutaj pojawiają się na mapie i umożliwiają szybką podróż. Obiekt gracji w świecie gry zostaje zapalony przy ładowaniu obszaru. Ręczny odpoczynek jest wymagany tylko do aktualizacji punktu respawnu."
+
+Model 2 (patch `LastRestedGrace`) **nie jest potrzebny** — gra ustawia go automatycznie po przybyciu. Model 1 (brak zmian) jest również akceptowalny jeśli notka UI nie jest planowana.
 
 ---
 
