@@ -554,15 +554,16 @@ A profile selector is displayed above the module checklist. Profiles are UI-only
 | Custom | (preserved) | (preserved) | (preserved) | (preserved) | OFF |
 
 **Rules:**
-- Default profile on tab open: `Minimal PvP Ready`.
-- Manually toggling any checkbox auto-selects `Custom` (derived from opts, not stored as state).
+- Default state on tab open: **no modules selected** (all checkboxes off). Profile shows `Custom`.
 - Clicking a named profile sets all checkboxes to the profile's values.
+- Manually toggling any checkbox auto-selects `Custom` (derived from current opts, not stored as separate state).
 - Clicking `Custom` has no effect — it is a read-only state indicator.
 - `Sites of Grace` is always `OFF` in all profiles — it is a disabled placeholder.
 - Profiles are not a full character build preset system (planned as a separate feature).
 
 **Session persistence and WorldTab refresh:**
-- `PvP Preparation` module options (`PvPPreparationOptions`) are lifted to `App.tsx` state so they persist while navigating between tabs. No localStorage required.
+- `PvP Preparation` options are stored as a plain `PvPOptions` interface in `App.tsx` state, persisting while navigating between tabs. No localStorage required.
+- `PvPPreparationTab` is a fully controlled component — all checkbox state flows through `pvpOpts` props and `onPvpOptsChange` callback. No local options state in the component.
 - Applying PvP Preparation calls `handlePvPMutate` which increments a shared `saveDataRevision` counter in `App.tsx`. This counter is passed to `WorldTab` and included in `loadExplorationData`'s `useCallback` dependency array, triggering an immediate data reload.
 - This does not change backend save logic — `ApplyPvPPreparation` in `app_pvp.go` is unchanged.
 

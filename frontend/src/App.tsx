@@ -29,6 +29,22 @@ export type AddSettings = {
 
 const DEFAULT_ADD_SETTINGS: AddSettings = { upgrade25: 0, upgrade10: 0, infuseOffset: 0, upgradeAsh: 0, talismansHighestOnly: false, includeAshenCapital: false };
 
+export interface PvPOptions {
+    matchmakingRegions: boolean;
+    colosseums: boolean;
+    revealMap: boolean;
+    summoningPools: boolean;
+    sitesOfGrace: boolean;
+}
+
+const DEFAULT_PVP_OPTIONS: PvPOptions = {
+    matchmakingRegions: false,
+    colosseums: false,
+    revealMap: false,
+    summoningPools: false,
+    sitesOfGrace: false,
+};
+
 function App() {
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
@@ -76,15 +92,7 @@ function App() {
     const [exporting, setExporting] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
     const [saveDataRevision, setSaveDataRevision] = useState(0);
-    const [pvpOpts, setPvpOpts] = useState<main.PvPPreparationOptions>(
-        new main.PvPPreparationOptions({
-            matchmakingRegions: true,
-            colosseums: false,
-            revealMap: false,
-            summoningPools: false,
-            sitesOfGrace: false,
-        })
-    );
+    const [pvpOpts, setPvpOpts] = useState<PvPOptions>(DEFAULT_PVP_OPTIONS);
 
     const refreshUndoDepth = useCallback(() => {
         if (!platform) { setUndoDepth(0); return; }

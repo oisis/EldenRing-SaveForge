@@ -2,22 +2,22 @@ import {useState} from 'react';
 import toast from '../lib/toast';
 import {ApplyPvPPreparation} from '../../wailsjs/go/main/App';
 import {main} from '../../wailsjs/go/models';
+import type {PvPOptions} from '../App';
 
 interface PvPPreparationTabProps {
     charIdx: number;
     platform?: string | null;
-    pvpOpts: main.PvPPreparationOptions;
-    onPvpOptsChange: (opts: main.PvPPreparationOptions) => void;
+    pvpOpts: PvPOptions;
+    onPvpOptsChange: (opts: PvPOptions) => void;
     onMutate?: () => void;
 }
 
 interface Module {
-    key: keyof main.PvPPreparationOptions;
+    key: keyof PvPOptions;
     label: string;
     tier: string;
     tierStyle: string;
     desc: string;
-    defaultOn: boolean;
     disabled?: boolean;
     disabledNote?: string;
 }
@@ -37,7 +37,6 @@ const MODULES: Module[] = [
         tier: 'Recommended · Tier 1',
         tierStyle: 'text-green-400',
         desc: 'Unlocks all known invasion matchmaking regions. Required for area-specific PvP eligibility.',
-        defaultOn: true,
     },
     {
         key: 'colosseums',
@@ -45,7 +44,6 @@ const MODULES: Module[] = [
         tier: 'Optional · Tier 1',
         tierStyle: 'text-blue-400',
         desc: 'Sets colosseum matchmaking and map flags for all three arenas. Physical gates may still need to be opened once in-game.',
-        defaultOn: false,
     },
     {
         key: 'revealMap',
@@ -53,7 +51,6 @@ const MODULES: Module[] = [
         tier: 'QoL · Tier 0',
         tierStyle: 'text-muted-foreground',
         desc: 'Reveals all map tiles (base game + Shadow of the Erdtree DLC).',
-        defaultOn: false,
     },
     {
         key: 'summoningPools',
@@ -61,7 +58,6 @@ const MODULES: Module[] = [
         tier: 'Co-op/Summon · Tier 1',
         tierStyle: 'text-blue-400',
         desc: 'Activates all Martyr Effigy co-op summon pool flags. Bloody Finger invasion impact is unconfirmed.',
-        defaultOn: false,
     },
     {
         key: 'sitesOfGrace',
@@ -69,16 +65,15 @@ const MODULES: Module[] = [
         tier: 'QoL · Tier 0 · planned',
         tierStyle: 'text-muted-foreground/50',
         desc: 'Unlocks map marker and fast-travel layer for all Sites of Grace. Some graces may still play the activation animation.',
-        defaultOn: false,
         disabled: true,
         disabledNote: 'Coming soon — broad QoL module, needs UX confirmation',
     },
 ];
 
-const PROFILE_OPTS: Record<Exclude<PvPPreparationProfile, 'custom'>, main.PvPPreparationOptions> = {
-    minimal: new main.PvPPreparationOptions({matchmakingRegions: true,  colosseums: false, revealMap: false, summoningPools: false, sitesOfGrace: false}),
-    full:    new main.PvPPreparationOptions({matchmakingRegions: true,  colosseums: true,  revealMap: true,  summoningPools: false, sitesOfGrace: false}),
-    coop:    new main.PvPPreparationOptions({matchmakingRegions: false, colosseums: false, revealMap: true,  summoningPools: true,  sitesOfGrace: false}),
+const PROFILE_OPTS: Record<Exclude<PvPPreparationProfile, 'custom'>, PvPOptions> = {
+    minimal: {matchmakingRegions: true,  colosseums: false, revealMap: false, summoningPools: false, sitesOfGrace: false},
+    full:    {matchmakingRegions: true,  colosseums: true,  revealMap: true,  summoningPools: false, sitesOfGrace: false},
+    coop:    {matchmakingRegions: false, colosseums: false, revealMap: true,  summoningPools: true,  sitesOfGrace: false},
 };
 
 const PROFILES: ProfileDef[] = [
@@ -88,7 +83,7 @@ const PROFILES: ProfileDef[] = [
     {id: 'custom',  label: 'Custom',                desc: 'Manual module selection.'},
 ];
 
-function resolveProfile(opts: main.PvPPreparationOptions): PvPPreparationProfile {
+function resolveProfile(opts: PvPOptions): PvPPreparationProfile {
     for (const id of ['minimal', 'full', 'coop'] as const) {
         const po = PROFILE_OPTS[id];
         if (
@@ -129,11 +124,11 @@ export function PvPPreparationTab({charIdx, platform, pvpOpts, onPvpOptsChange, 
 
     const handleProfileSelect = (id: PvPPreparationProfile) => {
         if (id === 'custom') return;
-        onPvpOptsChange(new main.PvPPreparationOptions({...PROFILE_OPTS[id]}));
+        onPvpOptsChange({...PROFILE_OPTS[id]});
     };
 
-    const handleToggle = (key: keyof main.PvPPreparationOptions, value: boolean) => {
-        onPvpOptsChange(new main.PvPPreparationOptions({...pvpOpts, [key]: value}));
+    const handleToggle = (key: keyof PvPOptions, value: boolean) => {
+        onPvpOptsChange({...pvpOpts, [key]: value});
     };
 
     const handleApply = async () => {
@@ -141,7 +136,7 @@ export function PvPPreparationTab({charIdx, platform, pvpOpts, onPvpOptsChange, 
         setApplying(true);
         setResultWarnings([]);
         try {
-            const warnings = await ApplyPvPPreparation(charIdx, pvpOpts);
+            const warnings = await ApplyPvPPreparation(charIdx, new main.PvPPreparationOptions(pvpOpts));
             setResultWarnings(warnings ?? []);
             toast.success('PvP preparation applied.');
             onMutate?.();

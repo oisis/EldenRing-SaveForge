@@ -558,15 +558,16 @@ Selektor profilu wyświetlany jest nad checklistą modułów. Profile są wyłą
 | Custom | (zachowane) | (zachowane) | (zachowane) | (zachowane) | OFF |
 
 **Zasady:**
-- Profil domyślny przy otwieraniu zakładki: `Minimal PvP Ready`.
-- Ręczna zmiana dowolnego checkboxa automatycznie wybiera `Custom` (wyliczane z opts, nie przechowywane jako osobny stan).
+- Stan domyślny przy otwieraniu zakładki: **żaden moduł nie jest zaznaczony** (wszystkie checkboxy odznaczone). Profil pokazuje `Custom`.
 - Kliknięcie nazwanego profilu ustawia wszystkie checkboxy zgodnie z profilem.
+- Ręczna zmiana dowolnego checkboxa automatycznie wybiera `Custom` (wyliczane z aktualnych opts, nie przechowywane jako osobny stan).
 - Kliknięcie `Custom` nie ma efektu — jest to wskaźnik stanu tylko do odczytu.
 - `Sites of Grace` jest zawsze `OFF` we wszystkich profilach — to wyłączony placeholder.
 - Profile nie są pełnym systemem presetów budowania postaci (planowane jako osobna funkcja).
 
 **Persystencja sesji i odświeżanie WorldTab:**
-- Opcje modułów PvP Preparation (`PvPPreparationOptions`) są przeniesione do stanu `App.tsx`, dzięki czemu zachowują się podczas nawigacji między zakładkami. Nie wymaga localStorage.
+- Opcje PvP Preparation są przechowywane jako zwykły interfejs `PvPOptions` w stanie `App.tsx`, zachowując się podczas nawigacji między zakładkami. Nie wymaga localStorage.
+- `PvPPreparationTab` jest w pełni kontrolowanym komponentem — cały stan checkboxów płynie przez props `pvpOpts` i callback `onPvpOptsChange`. Brak lokalnego stanu opcji w komponencie.
 - Kliknięcie Apply wywołuje `handlePvPMutate`, który inkrementuje współdzielony licznik `saveDataRevision` w `App.tsx`. Licznik jest przekazywany do `WorldTab` i uwzględniony w tablicy zależności `useCallback` funkcji `loadExplorationData`, co powoduje natychmiastowe przeładowanie danych.
 - Nie zmienia logiki zapisu w backendzie — `ApplyPvPPreparation` w `app_pvp.go` pozostaje bez zmian.
 
