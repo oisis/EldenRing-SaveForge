@@ -689,26 +689,6 @@ export namespace main {
 	        this.name = source["name"];
 	    }
 	}
-	export class PvPPreparationOptions {
-	    matchmakingRegions: boolean;
-	    colosseums: boolean;
-	    revealMap: boolean;
-	    summoningPools: boolean;
-	    sitesOfGrace: boolean;
-
-	    static createFrom(source: any = {}) {
-	        return new PvPPreparationOptions(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.matchmakingRegions = source["matchmakingRegions"];
-	        this.colosseums = source["colosseums"];
-	        this.revealMap = source["revealMap"];
-	        this.summoningPools = source["summoningPools"];
-	        this.sitesOfGrace = source["sitesOfGrace"];
-	    }
-	}
 	export class PresetInfo {
 	    name: string;
 	    image: string;
@@ -723,6 +703,26 @@ export namespace main {
 	        this.name = source["name"];
 	        this.image = source["image"];
 	        this.bodyType = source["bodyType"];
+	    }
+	}
+	export class PvPPreparationOptions {
+	    matchmakingRegions: boolean;
+	    colosseums: boolean;
+	    revealMap: boolean;
+	    summoningPools: boolean;
+	    sitesOfGrace: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PvPPreparationOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.matchmakingRegions = source["matchmakingRegions"];
+	        this.colosseums = source["colosseums"];
+	        this.revealMap = source["revealMap"];
+	        this.summoningPools = source["summoningPools"];
+	        this.sitesOfGrace = source["sitesOfGrace"];
 	    }
 	}
 	

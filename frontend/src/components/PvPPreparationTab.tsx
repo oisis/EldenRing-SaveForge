@@ -20,6 +20,14 @@ interface Module {
     disabledNote?: string;
 }
 
+type PvPPreparationProfile = 'minimal' | 'full' | 'coop' | 'custom';
+
+interface ProfileDef {
+    id: PvPPreparationProfile;
+    label: string;
+    desc: string;
+}
+
 const MODULES: Module[] = [
     {
         key: 'matchmakingRegions',
@@ -65,6 +73,34 @@ const MODULES: Module[] = [
     },
 ];
 
+const PROFILE_OPTS: Record<Exclude<PvPPreparationProfile, 'custom'>, main.PvPPreparationOptions> = {
+    minimal: new main.PvPPreparationOptions({matchmakingRegions: true,  colosseums: false, revealMap: false, summoningPools: false, sitesOfGrace: false}),
+    full:    new main.PvPPreparationOptions({matchmakingRegions: true,  colosseums: true,  revealMap: true,  summoningPools: false, sitesOfGrace: false}),
+    coop:    new main.PvPPreparationOptions({matchmakingRegions: false, colosseums: false, revealMap: true,  summoningPools: true,  sitesOfGrace: false}),
+};
+
+const PROFILES: ProfileDef[] = [
+    {id: 'minimal', label: 'Minimal PvP Ready',      desc: 'Unlock invasion regions only. Recommended starting point for PvP preparation.'},
+    {id: 'full',    label: 'Full PvP Convenience',   desc: 'Adds colosseums and map reveal for navigation convenience. Does not touch NetworkParam or runtime state.'},
+    {id: 'coop',    label: 'Co-op Ready',             desc: 'Activates co-op summon pool support and map reveal. Bloody Finger invasion impact is unconfirmed.'},
+    {id: 'custom',  label: 'Custom',                  desc: 'Manual module selection.'},
+];
+
+function resolveProfile(opts: main.PvPPreparationOptions): PvPPreparationProfile {
+    for (const id of ['minimal', 'full', 'coop'] as const) {
+        const po = PROFILE_OPTS[id];
+        if (
+            opts.matchmakingRegions === po.matchmakingRegions &&
+            opts.colosseums === po.colosseums &&
+            opts.revealMap === po.revealMap &&
+            opts.summoningPools === po.summoningPools
+        ) {
+            return id;
+        }
+    }
+    return 'custom';
+}
+
 const Chk = ({checked, onChange, disabled}: {checked: boolean; onChange: (v: boolean) => void; disabled?: boolean}) => (
     <div className="relative flex items-center justify-center flex-shrink-0">
         <input
@@ -95,6 +131,14 @@ export function PvPPreparationTab({charIdx, platform, onMutate}: PvPPreparationT
     const [applying, setApplying] = useState(false);
     const [resultWarnings, setResultWarnings] = useState<string[]>([]);
 
+    const activeProfile = resolveProfile(opts);
+    const currentProfileDef = PROFILES.find(p => p.id === activeProfile)!;
+
+    const handleProfileSelect = (id: PvPPreparationProfile) => {
+        if (id === 'custom') return;
+        setOpts(new main.PvPPreparationOptions({...PROFILE_OPTS[id]}));
+    };
+
     const handleToggle = (key: keyof main.PvPPreparationOptions, value: boolean) => {
         setOpts(prev => new main.PvPPreparationOptions({...prev, [key]: value}));
     };
@@ -124,6 +168,29 @@ export function PvPPreparationTab({charIdx, platform, onMutate}: PvPPreparationT
                 <p className="text-[10px] text-muted-foreground leading-relaxed">
                     Apply world-state modules to prepare a character for PvP. World tab remains available for granular edits.
                 </p>
+            </div>
+
+            <div>
+                <p className="text-[9px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-2">Preparation Profile</p>
+                <div className="flex flex-wrap gap-1.5 mb-2">
+                    {PROFILES.map(p => (
+                        <button
+                            key={p.id}
+                            onClick={() => handleProfileSelect(p.id)}
+                            disabled={p.id === 'custom'}
+                            className={`px-2.5 py-1 rounded text-[9px] font-bold uppercase tracking-widest transition-all ${
+                                activeProfile === p.id
+                                    ? 'bg-primary text-primary-foreground'
+                                    : p.id === 'custom'
+                                    ? 'border border-border/50 text-muted-foreground/50 cursor-default'
+                                    : 'border border-border text-muted-foreground hover:bg-muted/20 cursor-pointer'
+                            }`}
+                        >
+                            {p.label}
+                        </button>
+                    ))}
+                </div>
+                <p className="text-[9px] text-muted-foreground leading-relaxed">{currentProfileDef.desc}</p>
             </div>
 
             <div className="space-y-2">

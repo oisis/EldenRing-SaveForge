@@ -546,6 +546,25 @@ przygotowania PvP przez edycję save'a to:
 - Inspektor UD11 / NetworkParam (Moduł F)
 - Brak patchowania UD10, brak patchowania UD11
 
+### Profile przygotowania
+
+Selektor profilu wyświetlany jest nad checklistą modułów. Profile są wyłącznie warstwą wygody w UI — ustawiają checkboxy modułów i nie wprowadzają nowego API backendu ani formatu presetów.
+
+| Profil | matchmakingRegions | colosseums | revealMap | summoningPools | sitesOfGrace |
+|---|---|---|---|---|---|
+| Minimal PvP Ready (domyślny) | ON | OFF | OFF | OFF | OFF |
+| Full PvP Convenience | ON | ON | ON | OFF | OFF |
+| Co-op Ready | OFF | OFF | ON | ON | OFF |
+| Custom | (zachowane) | (zachowane) | (zachowane) | (zachowane) | OFF |
+
+**Zasady:**
+- Profil domyślny przy otwieraniu zakładki: `Minimal PvP Ready`.
+- Ręczna zmiana dowolnego checkboxa automatycznie wybiera `Custom` (wyliczane z opts, nie przechowywane jako osobny stan).
+- Kliknięcie nazwanego profilu ustawia wszystkie checkboxy zgodnie z profilem.
+- Kliknięcie `Custom` nie ma efektu — jest to wskaźnik stanu tylko do odczytu.
+- `Sites of Grace` jest zawsze `OFF` we wszystkich profilach — to wyłączony placeholder.
+- Profile nie są pełnym systemem presetów budowania postaci (planowane jako osobna funkcja).
+
 **Nowy plik testowy**: `pvp_test.go` (pakiet `main`) — 7 testów: brak save, nieprawidłowy slot, pusty slot, zły offset flag, warning SitesOfGrace, warning Colosseums, warning SummoningPools.
 
 ---

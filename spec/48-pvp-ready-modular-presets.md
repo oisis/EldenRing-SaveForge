@@ -542,6 +542,25 @@ preparation through save editing is:
 - UD11 / NetworkParam inspector (Module F)
 - No UD10 patching, no UD11 patching
 
+### Preparation Profiles
+
+A profile selector is displayed above the module checklist. Profiles are UI-only convenience shortcuts — they set the module checkboxes and do not introduce a new backend API or preset format.
+
+| Profile | matchmakingRegions | colosseums | revealMap | summoningPools | sitesOfGrace |
+|---|---|---|---|---|---|
+| Minimal PvP Ready (default) | ON | OFF | OFF | OFF | OFF |
+| Full PvP Convenience | ON | ON | ON | OFF | OFF |
+| Co-op Ready | OFF | OFF | ON | ON | OFF |
+| Custom | (preserved) | (preserved) | (preserved) | (preserved) | OFF |
+
+**Rules:**
+- Default profile on tab open: `Minimal PvP Ready`.
+- Manually toggling any checkbox auto-selects `Custom` (derived from opts, not stored as state).
+- Clicking a named profile sets all checkboxes to the profile's values.
+- Clicking `Custom` has no effect — it is a read-only state indicator.
+- `Sites of Grace` is always `OFF` in all profiles — it is a disabled placeholder.
+- Profiles are not a full character build preset system (planned as a separate feature).
+
 **New test file**: `pvp_test.go` (package `main`) — 7 tests covering: no-save error, invalid slot, empty slot, bad flags offset, SitesOfGrace warning, Colosseums warning, SummoningPools warning.
 
 ---
