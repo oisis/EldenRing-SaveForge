@@ -120,6 +120,14 @@ is harmless but logically wrong.
 Gate open state (physical door) is stored outside EventFlags (WorldGeom binary blob) —
 this cannot be edited from a save editor. Player must open the gate once in-game.
 
+**Preset format limitation:** `ExportWorldState` captures only the activate flags
+(60350/60360/60370) into `World.Colosseums`. NPC (69xxx), Gate (710xxx), and global
+flags (6080, 60100, 69480) are absent from named data tables and are not exported.
+`ApplyWorldState` sets only what is in the preset — it does not auto-expand like
+`SetColosseumUnlocked`. For a complete colosseum unlock via preset, the user must
+manually add global flags to `World.Colosseums` and ensure MapPOI flags are in
+`World.MapFlags`. `ValidateWorldColosseums` warns when these are missing.
+
 #### Varre Quest (Bloody Finger / Mohgwyn Palace access)
 Key steps to unlock Bloody Finger via quest path:
 - Receiving "Lord of Blood's Favor" — flag `400031`
@@ -331,22 +339,38 @@ DB helper: `db.IsKnownMapFlagID(id uint32) bool` in `backend/db/db.go` — check
 
 ---
 
-### `ValidateWorldColosseums(ids []uint32) []string`
+### `ValidateWorldColosseums(world *WorldPresetData) []string` ✅ Implemented
 
 **Checks:**
-- Each ID is in `data.Colosseums` map
-- For each present Activate flag, checks that companion flags (`MapPOI`, `NPC`, `Gate`)
-  are also present in the preset's `MapFlags` → `warning: colosseum X missing companion flags`
-- Flags presence of `ColosseumGlobalFlags` (`6080, 60100, 69480`)
+- Each ID in `World.Colosseums` is recognised in `data.ColosseumFlagSets` → `warning: world.colosseums: ID %d not found in colosseum database`
+- Detects duplicate IDs → `warning: world.colosseums: ID %d appears more than once — duplicate will be ignored`
+- For each activate flag, MapPOI companion flag must be present in `World.MapFlags` → `warning: world.colosseums: %s (ID %d) is missing companion map flag %d — colosseum icon will not appear on map`
+- Global colosseum flags (6080, 60100, 69480) must be present in `World.Colosseums` → `warning: world.colosseums: global colosseum flag %d is missing — add to World.Colosseums for full unlock`
+- Global flags in `World.Colosseums` are silently accepted (not treated as unknown)
 
-**Returns:** warning.
+**Returns:** warning (not error). Import is never blocked.
 
-**Why:** Colosseum with only the Activate flag set may show in matchmaking but not on the
-map, or have the gate visually closed. The full `ColosseumFlagSet` is required.
+**Where it lives:** `backend/vm/preset.go` as `validateWorldColosseums(world *WorldPresetData, warnings *[]string)`.
+DB helpers: `db.IsKnownColosseumID(id uint32) bool`, `db.GetColosseumFlagSet(id uint32) (data.ColosseumFlagSet, bool)` in `backend/db/db.go`.
 
-**Tests:**
-- Full `ColosseumFlagSet` for Limgrave → no warning
-- Activate-only → warning: "missing MapPOI, NPC, Gate"
+**Why:** Colosseum with only the Activate flag set may show in matchmaking but lack the
+map icon. Preset application (`ApplyWorldState`) does not auto-expand flag sets like
+`SetColosseumUnlocked` does — companion flags must be explicit.
+
+**Known limitation:** NPC (69xxx) and Gate (710xxx) companion flags are not captured by
+`ExportWorldState` and cannot be verified from preset data alone. Physical gate open
+state is outside EventFlags entirely (WorldGeom binary blob) — this validator does not
+and cannot check it. Gate state remains future research.
+
+**Tests (8/8 passing):**
+- Full set: Limgrave activate (60360) + global flags (6080/60100/69480) + MapPOI (62730) → no warning
+- Unknown ID (99999) → warning
+- Duplicate activate ID (60360 ×2) → warning
+- Activate-only (no MapPOI, no global flags) → MapPOI warning + 3 global flag warnings
+- Missing global flags only (MapPOI present) → 3 global flag warnings
+- `nil` World → no warning
+- Empty `World.Colosseums` → no warning
+- All three colosseums (60350/60360/60370 + global + all MapPOIs) → no warning
 
 ---
 

@@ -122,6 +122,14 @@ jest nieszkodliwe, ale logicznie niepoprawne.
 Stan otwarcia bramy (fizyczne drzwi) jest przechowywany poza EventFlags (blob binarny WorldGeom) —
 nie da się tego edytować z poziomu edytora save'ów. Gracz musi otworzyć bramę raz w grze.
 
+**Ograniczenie formatu presetu:** `ExportWorldState` przechwytuje tylko flagi activate
+(60350/60360/60370) do `World.Colosseums`. NPC (69xxx), Gate (710xxx) i globalne flagi
+(6080, 60100, 69480) nie są eksportowane, bo nie figurują w żadnej nazwanej tabeli danych.
+`ApplyWorldState` ustawia tylko to, co jest w presecie — nie rozszerza automatycznie jak
+`SetColosseumUnlocked`. Aby w pełni odblokować colosseums przez preset, użytkownik musi
+ręcznie dodać globalne flagi do `World.Colosseums` i upewnić się, że flagi MapPOI są w
+`World.MapFlags`. `ValidateWorldColosseums` ostrzega o brakujących flagach.
+
 #### Quest Varre (Bloody Finger / dostęp do Mohgwyn Palace)
 Kluczowe kroki do odblokowania Bloody Finger przez ścieżkę questa:
 - Otrzymanie „Lord of Blood's Favor" — flaga `400031`
@@ -335,22 +343,38 @@ Helper DB: `db.IsKnownMapFlagID(id uint32) bool` w `backend/db/db.go` — sprawd
 
 ---
 
-### `ValidateWorldColosseums(ids []uint32) []string`
+### `ValidateWorldColosseums(world *WorldPresetData) []string` ✅ Zaimplementowane
 
 **Sprawdza:**
-- Każde ID jest w mapie `data.Colosseums`
-- Dla każdej obecnej flagi Activate sprawdza, czy flagi towarzyszące (`MapPOI`, `NPC`, `Gate`)
-  są również obecne w `MapFlags` presetu → `warning: colosseum X brakuje flag towarzyszących`
-- Flagi obecności `ColosseumGlobalFlags` (`6080, 60100, 69480`)
+- Każde ID w `World.Colosseums` jest rozpoznane w `data.ColosseumFlagSets` → `warning: world.colosseums: ID %d not found in colosseum database`
+- Wykrywa duplikaty → `warning: world.colosseums: ID %d appears more than once — duplicate will be ignored`
+- Dla każdej flagi activate sprawdza obecność MapPOI w `World.MapFlags` → `warning: world.colosseums: %s (ID %d) is missing companion map flag %d — colosseum icon will not appear on map`
+- Flagi globalne (6080, 60100, 69480) muszą być w `World.Colosseums` → `warning: world.colosseums: global colosseum flag %d is missing — add to World.Colosseums for full unlock`
+- Globalne flagi w `World.Colosseums` są akceptowane bez ostrzeżenia
 
-**Zwraca:** ostrzeżenie.
+**Zwraca:** ostrzeżenie (nie błąd). Import nie jest blokowany.
+
+**Gdzie mieszka:** `backend/vm/preset.go` jako `validateWorldColosseums(world *WorldPresetData, warnings *[]string)`.
+Helpery DB: `db.IsKnownColosseumID(id uint32) bool`, `db.GetColosseumFlagSet(id uint32) (data.ColosseumFlagSet, bool)` w `backend/db/db.go`.
 
 **Dlaczego:** Colosseum z ustawioną tylko flagą Activate może pojawić się w matchmakingu,
-ale nie na mapie, lub mieć bramę wizualnie zamkniętą. Wymagany jest pełny `ColosseumFlagSet`.
+ale bez ikony na mapie. `ApplyWorldState` nie rozszerza zestawów flag automatycznie jak
+`SetColosseumUnlocked` — flagi towarzyszące muszą być jawne w presecie.
 
-**Testy:**
-- Pełny `ColosseumFlagSet` dla Limgrave → brak ostrzeżenia
-- Tylko activate → ostrzeżenie: „brakuje MapPOI, NPC, Gate"
+**Znane ograniczenie:** Flagi NPC (69xxx) i Gate (710xxx) nie są przechwytywane przez
+`ExportWorldState` i nie można ich zweryfikować z danych presetu. Stan otwarcia fizycznej
+bramy jest poza EventFlags (blob WorldGeom) — walidator tego nie sprawdza. Pozostaje
+to tematem przyszłych badań.
+
+**Testy (8/8 zaliczone):**
+- Pełny zestaw: Limgrave activate (60360) + globalne (6080/60100/69480) + MapPOI (62730) → brak ostrzeżenia
+- Nieznane ID (99999) → ostrzeżenie
+- Duplikat (60360 ×2) → ostrzeżenie
+- Tylko activate (brak MapPOI, brak globalnych) → ostrzeżenie MapPOI + 3 ostrzeżenia globalnych
+- Brakujące flagi globalne (MapPOI obecne) → 3 ostrzeżenia globalnych
+- `nil` World → brak ostrzeżenia
+- Puste `World.Colosseums` → brak ostrzeżenia
+- Wszystkie trzy kolosea (60350/60360/60370 + globalne + wszystkie MapPOI) → brak ostrzeżenia
 
 ---
 

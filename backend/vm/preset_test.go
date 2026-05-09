@@ -340,6 +340,162 @@ func TestValidatePreset_SummoningPools_NilWorld(t *testing.T) {
 	}
 }
 
+func TestValidatePreset_Colosseums_FullSetLimgrave(t *testing.T) {
+	// Full valid set: Limgrave activate (60360) + global flags (6080, 60100, 69480) in
+	// Colosseums, MapPOI (62730) in MapFlags. Expect no colosseum-related warnings.
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Colosseums: []uint32{60360, 6080, 60100, 69480},
+			MapFlags:   []uint32{62730},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.colosseums") {
+			t.Errorf("unexpected colosseum warning for full Limgrave set: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Colosseums_UnknownID(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Colosseums: []uint32{99999}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.colosseums") && containsString(w, "not found in colosseum database") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected unknown-colosseum warning for ID 99999, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_Colosseums_Duplicate(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Colosseums: []uint32{60360, 6080, 60100, 69480, 60360},
+			MapFlags:   []uint32{62730},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.colosseums") && containsString(w, "duplicate") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected duplicate-colosseum warning for repeated ID 60360, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_Colosseums_ActivateOnlyMissingCompanions(t *testing.T) {
+	// Only activate flag — no MapPOI in MapFlags, no global flags.
+	// Expect: MapPOI warning + 3 global flag warnings.
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Colosseums: []uint32{60360}},
+	}
+	warnings := ValidatePreset(preset)
+	gotMapPOI := false
+	globalCount := 0
+	for _, w := range warnings {
+		if containsString(w, "world.colosseums") && containsString(w, "missing companion map flag") {
+			gotMapPOI = true
+		}
+		if containsString(w, "world.colosseums") && containsString(w, "global colosseum flag") {
+			globalCount++
+		}
+	}
+	if !gotMapPOI {
+		t.Errorf("expected MapPOI missing warning for activate-only colosseum, got: %v", warnings)
+	}
+	if globalCount != 3 {
+		t.Errorf("expected 3 global flag warnings, got %d: %v", globalCount, warnings)
+	}
+}
+
+func TestValidatePreset_Colosseums_MissingGlobalFlags(t *testing.T) {
+	// Activate + MapPOI present, but no global flags in Colosseums.
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Colosseums: []uint32{60360},
+			MapFlags:   []uint32{62730},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	globalCount := 0
+	for _, w := range warnings {
+		if containsString(w, "world.colosseums") && containsString(w, "global colosseum flag") {
+			globalCount++
+		}
+	}
+	if globalCount != 3 {
+		t.Errorf("expected 3 global flag warnings, got %d: %v", globalCount, warnings)
+	}
+}
+
+func TestValidatePreset_Colosseums_NilWorld(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         nil,
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.colosseums") {
+			t.Errorf("unexpected colosseum warning for nil World: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Colosseums_EmptyList(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Colosseums: []uint32{}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.colosseums") {
+			t.Errorf("unexpected colosseum warning for empty list: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Colosseums_AllThree(t *testing.T) {
+	// All three colosseums with full activate + global flags + all MapPOIs.
+	// Caelid=60350/MapPOI=62720, Limgrave=60360/MapPOI=62730, Royal=60370/MapPOI=62740.
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			Colosseums: []uint32{60350, 60360, 60370, 6080, 60100, 69480},
+			MapFlags:   []uint32{62720, 62730, 62740},
+		},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.colosseums") {
+			t.Errorf("unexpected colosseum warning for full 3-colosseum set: %q", w)
+		}
+	}
+}
+
 func TestValidatePreset_MapFlags_KnownVisible(t *testing.T) {
 	// 62010 = "Limgrave, West" in MapVisible; 62000 = "Allow Map Display" in MapSystem
 	preset := &CharacterPreset{

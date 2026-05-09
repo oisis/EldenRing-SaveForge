@@ -946,6 +946,20 @@ func IsKnownMapFlagID(id uint32) bool {
 	return ok
 }
 
+// IsKnownColosseumID reports whether id is a recognised colosseum activate flag
+// present in data.ColosseumFlagSets (60350, 60360, 60370).
+func IsKnownColosseumID(id uint32) bool {
+	_, ok := data.ColosseumFlagSets[id]
+	return ok
+}
+
+// GetColosseumFlagSet returns the full companion flag set for the given colosseum
+// activate flag ID. Returns false if id is not a known colosseum activate flag.
+func GetColosseumFlagSet(id uint32) (data.ColosseumFlagSet, bool) {
+	fs, ok := data.ColosseumFlagSets[id]
+	return fs, ok
+}
+
 // GetAllMapEntries returns all map region entries (visible + acquired + system) sorted by area then name.
 var getAllMapEntries = sync.OnceValue(func() []MapEntry {
 	entries := make([]MapEntry, 0, len(data.MapVisible)+len(data.MapAcquired)+len(data.MapSystem)+len(data.MapUnsafe))

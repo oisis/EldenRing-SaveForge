@@ -196,6 +196,7 @@ func ValidatePreset(preset *CharacterPreset) []string {
 		validateWorldRegions(preset.World.Regions, &warnings)
 		validateWorldGraces(preset.World.Graces, &warnings)
 		validateWorldMapFlags(preset.World.MapFlags, &warnings)
+		validateWorldColosseums(preset.World, &warnings)
 	}
 
 	return warnings
@@ -236,6 +237,71 @@ func validatePresetItem(item *PresetItem, location string, idx int, warnings *[]
 		*warnings = append(*warnings,
 			fmt.Sprintf("%s[%d] %s: quantity %d exceeds max %d — will be clamped",
 				location, idx, itemData.Name, item.Quantity, itemData.MaxStorage))
+	}
+}
+
+// validateWorldColosseums checks each colosseum activate flag for existence,
+// uniqueness, and presence of its MapPOI companion flag in World.MapFlags.
+// Global colosseum flags (data.ColosseumGlobalFlags: 6080, 60100, 69480) are
+// accepted in World.Colosseums and warned about if absent.
+//
+// Known limitation: NPC (69xxx) and Gate (710xxx) companion flags, and the
+// ColosseumGlobalFlags, are not exported by ExportWorldState because they are
+// not in any named data table. Physical gate open state is stored outside
+// EventFlags (in the WorldGeom binary blob) and is not covered by this validator.
+// Use SetColosseumUnlocked for a complete in-game colosseum unlock.
+func validateWorldColosseums(world *WorldPresetData, warnings *[]string) {
+	seen := make(map[uint32]bool, len(world.Colosseums))
+
+	mapFlagSet := make(map[uint32]bool, len(world.MapFlags))
+	for _, id := range world.MapFlags {
+		mapFlagSet[id] = true
+	}
+
+	globalFlagSet := make(map[uint32]bool, len(data.ColosseumGlobalFlags))
+	for _, gid := range data.ColosseumGlobalFlags {
+		globalFlagSet[gid] = true
+	}
+
+	for _, id := range world.Colosseums {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.colosseums: ID %d appears more than once — duplicate will be ignored", id))
+			continue
+		}
+		seen[id] = true
+
+		// Global flags are valid companions stored in World.Colosseums; skip
+		// the activate-flag checks for them, they are verified separately below.
+		if globalFlagSet[id] {
+			continue
+		}
+
+		flagSet, ok := db.GetColosseumFlagSet(id)
+		if !ok {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.colosseums: ID %d not found in colosseum database", id))
+			continue
+		}
+
+		// MapPOI (62xxx) is exported to World.MapFlags by ExportWorldState.
+		// Warn if absent — the colosseum icon will not appear on the world map.
+		if !mapFlagSet[flagSet.MapPOI] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.colosseums: %s (ID %d) is missing companion map flag %d — colosseum icon will not appear on map",
+					data.Colosseums[id].Name, id, flagSet.MapPOI))
+		}
+	}
+
+	// Global colosseum flags are not exported by ExportWorldState; the user
+	// must add them manually to World.Colosseums. Warn for each missing one.
+	if len(seen) > 0 {
+		for _, gid := range data.ColosseumGlobalFlags {
+			if !seen[gid] {
+				*warnings = append(*warnings,
+					fmt.Sprintf("world.colosseums: global colosseum flag %d is missing — add to World.Colosseums for full unlock", gid))
+			}
+		}
 	}
 }
 
