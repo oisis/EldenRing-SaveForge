@@ -1,7 +1,7 @@
 # 47 — Aktywacja Sites of Grace
 
 > **Typ**: Investigacja / Design doc
-> **Status**: ✅ Rozwiązany — zachowanie edytora potwierdzone jako poprawne; dodano wyjaśnienie w UI
+> **Status**: ✅ Rozwiązany dla map/fast-travel unlock; ⚠️ pełna animacja aktywacji in-world pozostaje otwarta
 > **Zakres**: Wszystkie przestrzenie identyfikatorów i pola pliku save związane z odkryciem Sites of Grace, szybką podróżą i fizycznym stanem obiektu w świecie gry.
 
 ---
@@ -10,7 +10,7 @@
 
 Ten dokument powstał, żeby zbadać czy `SetGraceVisited()` — ustawiające EventFlag gracji — jest wystarczające do pełnego odblokowania Site of Grace, czy też trzeba zapisywać dodatkowe pola w pliku save.
 
-**Wniosek (2026-05-09)**: Edytor ustawia dokładnie tę samą EventFlag co gra. `LastRestedGrace` jest automatycznie zarządzane przez grę przy przybyciu do gracji. Nie istnieje żadne persystowane pole "zapalony/niezapalony" w pliku save. Obecna implementacja jest poprawna. Patrz §5 — runtime diff, który to potwierdził.
+**Wniosek (2026-05-09)**: Edytor ustawia dokładnie tę samą EventFlag co gra. `LastRestedGrace` jest automatycznie zarządzane przez grę przy przybyciu do gracji. W teście Church of Elleh nie znaleziono żadnego dodatkowego pola pliku save. Obecna implementacja jest poprawna dla odblokowania znacznika na mapie i fast travel. Niektóre gracje mogą nadal odtworzyć sekwencję aktywacji in-world po teleportacji — to pozostaje osobnym otwartym pytaniem badawczym. Patrz §5 — runtime diff.
 
 ---
 
@@ -32,7 +32,10 @@ Gracje używają **dwóch całkowicie oddzielnych przestrzeni identyfikatorów**
 - Widoczność znacznika na mapie (ikona gracji pojawia się na mapie)
 - Dostępność szybkiej podróży (gracja pokazuje się na liście warp)
 - Stan "odkryty" z perspektywy silnika gry dla celów quest flag
-- Stan wizualny obiektu gracji w świecie gry (EMEVD wyprowadza stan zapalony/niezapalony z tej flagi przy ładowaniu obszaru)
+
+**Stan wizualny/aktywacja in-world (zależny od kategorii):**
+- Może być wyprowadzany przez EMEVD z EventFlag przy ładowaniu obszaru dla niektórych kategorii gracji
+- Nie potwierdzono globalnie dla wszystkich typów gracji — patrz §4 i §8 (Future Research)
 
 **Co ta flaga NIE kontroluje:**
 - Przypisanie punktu respawnu (`LastRestedGrace`) — zarządzane osobno przez grę
@@ -161,7 +164,7 @@ Jest to **identyczne** z wszystkimi trzema implementacjami referencyjnymi:
 | Wpis na liście szybkiej podróży | Grace EventFlag | jw. |
 | Stan "odkryty" dla questów | Grace EventFlag | jw. |
 | Drzwi wejściowe dungeonu | DoorFlag (towarzysząca EventFlag) | `SetGraceVisited()` dla gracji Cat/HG |
-| Stan wizualny obiektu w świecie gry | EMEVD runtime, wyprowadzany z EventFlag | niepersystowany; edytor nic nie robi |
+| Stan wizualny obiektu w świecie gry | Niecałkowicie zbadany — Church of Elleh nie ujawnił persystowanego pola; inne kategorie gracji mogą nadal odtwarzać animację aktywacji po odblokowaniu przez edytor | otwarte pytanie badawcze |
 | Punkt respawnu (`LastRestedGrace`) | Gra, automatycznie przy przybyciu | edytor nie ustawia; gra zapisuje sama |
 
 ### Potwierdzone wartości dla Church of Elleh
@@ -186,10 +189,10 @@ Jest to **identyczne** z wszystkimi trzema implementacjami referencyjnymi:
 
 | Hipoteza | Werdykt |
 |---|---|
-| A — EMEVD re-triggeruje z EventFlag przy ładowaniu obszaru | ✅ **Potwierdzony główny mechanizm** |
-| B — Ukryta towarzysząca EventFlag kontroluje stan wizualny | ❌ Wykluczona — 69070 to tylko trigger bliskości NPC |
-| C — Flaga geometrii WorldGeomMan persystuje stan wizualny | ❌ Brak dowodów w kontrolowanych diffach |
-| D — Stan obiektu gracji jest w pełni runtime, niepersystowany | ✅ **Potwierdzony** |
+| A — EMEVD re-triggeruje z EventFlag przy ładowaniu obszaru | ✅ Potwierdzony dla Church of Elleh (76xxx overworld) |
+| B — Ukryta towarzysząca EventFlag kontroluje stan wizualny | Nie znaleziono towarzyszącej flagi dla Church of Elleh. Globalnie nie wykluczona dla wszystkich kategorii gracji. |
+| C — Flaga geometrii WorldGeomMan persystuje stan wizualny | Brak dowodów w diffach Church of Elleh. Globalnie nie wykluczona. |
+| D — Stan obiektu gracji jest w pełni runtime, niepersystowany | Nie znaleziono persystowanego pola zapalony/niezapalony w teście Church of Elleh. Prawdopodobnie runtime/EMEVD-managed, ale nie udowodnione globalnie dla wszystkich kategorii gracji. |
 
 ---
 
@@ -262,18 +265,43 @@ Raport analizy: `tmp/site-of-grace-debug/grace-activation-analysis.md`.
 
 ### Model 2 — Wyjaśnienie w UI ✅ Zaimplementowany
 
+`SetGraceVisited()` odblokowuje znacznik na mapie i wpis w fast travel. Nie gwarantuje, że wszystkie animacje aktywacji in-world zostaną pominięte.
+
 Krótka notka dodana do sekcji Sites of Grace w zakładce `WorldTab`:
 
-> "Gracje odblokowane tutaj pojawią się na mapie i będą dostępne do szybkiej podróży. Odpoczynek w grze nadal kontroluje normalny punkt odrodzenia/odpoczynku."
+> "Gracje odblokowane tutaj pojawią się na mapie i będą dostępne do szybkiej podróży. Niektóre gracje mogą nadal odtworzyć sekwencję aktywacji po odwiedzeniu w świecie gry."
 
 ### Model 3 — Opcjonalnie: zbadanie flagi 69070
 
 Flaga 69070 jest ustawiana tylko przy fizycznym podejściu (nie przez edytor ani teleportację). Jeśli użytkownicy zgłoszą, że cutsceny NPC przy Church of Elleh (powitanie Kalé, pierwsze pojawienie Ranni) nie triggerują po przybyciu przez fast travel z gracji odblokowanej edytorem, ustawienie 69070 razem z EventFlag gracji może to naprawić. Nie jest wymagane do samego odblokowania gracji.
 
-**Odrzucone podejścia:**
+**Nie podjęte:**
 - Ustawianie `LastRestedGrace` — zbędne; gra zarządza tym automatycznie przy przybyciu
 - Budowanie tablicy lookup EventFlag ID → BonfireId — zbędne
-- Szukanie ukrytej towarzyszącej flagi aktywacji gracji — wykluczone przez runtime diff
+- Szukanie ukrytej towarzyszącej flagi aktywacji gracji — nie znaleziono dla Church of Elleh; otwarte dla innych kategorii gracji (patrz §8)
+
+---
+
+## 8. Future Research
+
+Dalsze badania SoG są wstrzymane; główna uwaga wraca do wątku Faster Invasions.
+
+W razie wznowienia, przetestuj pary save'ów dla wielu kategorii gracji, żeby ustalić czy istnieją flagi towarzyszące specyficzne dla kategorii:
+
+| Kategoria | Zakres | Uwagi |
+|---|---|---|
+| Overworld (przetestowany) | 76xxx | Church of Elleh — nie znaleziono dodatkowego pola |
+| Katakumby / hero graves | 73xxx | Parowane z `DoorFlag`; inna ścieżka aktywacji |
+| Legacy dungeons | 71xxx | Stormveil, Leyndell — gracje przy bossach |
+| DLC | 72xxx, 74xxx | Shadow of the Erdtree — mogą mieć dodatkowe warstwy aktywacji |
+
+Wymagany zestaw save'ów per kategoria gracji:
+1. vanilla / przed
+2. odblokowany przez edytor (tylko EventFlag)
+3. po ręcznej aktywacji in-world
+4. po teleportacji bez ręcznego dotknięcia (opcjonalnie)
+
+Cel: ustalić czy jakaś kategoria produkuje specyficzną dla kategorii towarzyszącą EventFlag, bit WorldState lub inne persystowane pole nieobecne w teście overworld Church of Elleh.
 
 ---
 

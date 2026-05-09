@@ -402,7 +402,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                             })}
                         </div>
                         <p className="text-[10px] text-muted-foreground/60 px-1 pt-1">
-                            Sites of Grace unlocked here will appear on the map and become available for fast travel. Resting in-game still controls the normal checkpoint/rest state.
+                            Sites of Grace unlocked here will appear on the map and become available for fast travel. Some graces may still play their in-world activation sequence when visited.
                         </p>
                     </AccordionSection>
 

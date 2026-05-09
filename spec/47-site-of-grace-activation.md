@@ -1,7 +1,7 @@
 # 47 — Site of Grace Activation
 
 > **Type**: Investigation / Design doc
-> **Status**: ✅ Resolved — editor behaviour confirmed correct; UI clarification added
+> **Status**: ✅ Resolved for map/fast-travel unlock; ⚠️ full in-world activation animation remains open
 > **Scope**: All identifier spaces and save-file fields involved in Site of Grace discovery, fast-travel, and physical in-world object state.
 
 ---
@@ -10,7 +10,7 @@
 
 This document was opened to investigate whether `SetGraceVisited()` — which sets the grace EventFlag — is sufficient to fully unlock a Site of Grace, or whether additional save-file fields need to be written.
 
-**Conclusion (2026-05-09)**: The editor sets exactly the same EventFlag the game sets. `LastRestedGrace` is auto-managed by the game on arrival. No secondary "lit/unlit" save-file field exists. The current implementation is correct. See §5 for the runtime diff that confirmed this.
+**Conclusion (2026-05-09)**: The editor sets exactly the same EventFlag the game sets. `LastRestedGrace` is auto-managed by the game on arrival. No secondary save-file field was found in the Church of Elleh test case. The current implementation is correct for map marker and fast-travel unlock. Some graces may still play their in-world activation sequence after teleport; that behaviour remains a separate open research question. See §5 for the runtime diff.
 
 ---
 
@@ -32,7 +32,10 @@ Graces use **two completely separate identifier spaces**. Conflating them is the
 - Map marker visibility (grace icon appears on map)
 - Fast-travel eligibility (grace shows in the warp list)
 - "Discovered" state from the game engine's perspective for quest flag purposes
-- In-world grace object visual state (EMEVD derives lit/unlit from this flag on area load)
+
+**In-world visual/activation state (case-specific):**
+- May be derived by EMEVD from the EventFlag at area load for some grace categories
+- Not confirmed globally across all grace types — see §4 and §8 (Future Research)
 
 **What this flag does NOT control:**
 - Respawn point assignment (`LastRestedGrace`) — managed separately by the game
@@ -161,7 +164,7 @@ This is **identical** to all three reference implementations:
 | Fast-travel list entry | Grace EventFlag | same |
 | "Discovered" quest state | Grace EventFlag | same |
 | Dungeon entrance door | DoorFlag (companion EventFlag) | `SetGraceVisited()` for Cat/HG graces |
-| In-world object visual state | EMEVD runtime, derived from EventFlag | not persisted; no editor action needed |
+| In-world object visual state | Not fully modeled — Church of Elleh revealed no persistent field; other grace categories may still play activation animation after editor unlock | open research question |
 | Respawn point (`LastRestedGrace`) | Game, automatic on arrival | not set by editor; game writes it |
 
 ### Church of Elleh confirmed values
@@ -186,10 +189,10 @@ None of these flags are required for editor-side grace unlock (map marker + fast
 
 | Hypothesis | Verdict |
 |---|---|
-| A — EMEVD re-triggers from EventFlag on area load | ✅ **Confirmed primary mechanism** |
-| B — Hidden companion EventFlag controls visual state | ❌ Ruled out — 69070 is NPC proximity trigger only |
-| C — WorldGeomMan geometry flag persists visual state | ❌ No evidence in controlled diffs |
-| D — Grace object state is fully runtime, not persisted | ✅ **Confirmed** |
+| A — EMEVD re-triggers from EventFlag on area load | ✅ Confirmed for Church of Elleh (76xxx overworld) |
+| B — Hidden companion EventFlag controls visual state | No companion flag found for Church of Elleh. Not globally ruled out for all grace categories. |
+| C — WorldGeomMan geometry flag persists visual state | No evidence in Church of Elleh diffs. Not globally ruled out. |
+| D — Grace object state is fully runtime, not persisted | No persistent lit/unlit field found in Church of Elleh test. Likely runtime/EMEVD-managed, but not globally proven for all grace categories. |
 
 ---
 
@@ -262,18 +265,43 @@ Analysis report: `tmp/site-of-grace-debug/grace-activation-analysis.md`.
 
 ### Model 2 — UI clarification ✅ Implemented
 
+`SetGraceVisited()` unlocks the map marker and fast-travel entry. It does not guarantee that all in-world activation animations are suppressed.
+
 Short note added to the `WorldTab` Sites of Grace section:
 
-> "Sites of Grace unlocked here will appear on the map and become available for fast travel. Resting in-game still controls the normal checkpoint/rest state."
+> "Sites of Grace unlocked here will appear on the map and become available for fast travel. Some graces may still play their in-world activation sequence when visited."
 
 ### Model 3 — Optional: investigate flag 69070
 
 Flag 69070 is set only during physical approach (not by editor or teleport). If users report that NPC cutscenes at Church of Elleh (Kalé's greeting, Ranni's first appearance) don't trigger when arriving via editor-unlocked fast travel, setting 69070 alongside the grace EventFlag may fix that. Not required for grace unlock itself.
 
-**Rejected approaches:**
+**Not pursued:**
 - Setting `LastRestedGrace` — not needed; game manages it automatically on arrival
 - Building EventFlag ID → BonfireId lookup table — not needed
-- Searching for a hidden companion flag for grace activation — ruled out by runtime diff
+- Searching for a hidden companion flag for grace activation — not found for Church of Elleh; open for other grace categories (see §8)
+
+---
+
+## 8. Future Research
+
+Further SoG investigation is paused; the main focus has returned to the Faster Invasions thread.
+
+If resumed, test save pairs across multiple grace categories to determine whether category-specific companion flags exist:
+
+| Category | Range | Notes |
+|---|---|---|
+| Overworld (tested) | 76xxx | Church of Elleh — no extra field found |
+| Catacombs / hero graves | 73xxx | Paired with `DoorFlag`; different activation path |
+| Legacy dungeons | 71xxx | Stormveil, Leyndell — boss-adjacent graces |
+| DLC | 72xxx, 74xxx | Shadow of the Erdtree — may have additional activation layers |
+
+Required save set per grace category:
+1. vanilla / before
+2. editor-unlocked (EventFlag only)
+3. after manual in-world activation
+4. after teleport without manual touch (optional)
+
+Goal: determine whether any category produces a category-specific companion EventFlag, WorldState bit, or other persistent field absent from the Church of Elleh overworld test.
 
 ---
 
