@@ -14,6 +14,8 @@ export function ApplyMirrorFavoriteToCharacter(arg1:number,arg2:number):Promise<
 
 export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
 
+export function ApplyPvPPreparation(arg1:number,arg2:main.PvPPreparationOptions):Promise<Array<string>>;
+
 export function BulkSetAshOfWarFlags(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
 
 export function BulkSetBellBearings(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
