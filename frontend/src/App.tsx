@@ -75,11 +75,26 @@ function App() {
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
     const [exporting, setExporting] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
+    const [saveDataRevision, setSaveDataRevision] = useState(0);
+    const [pvpOpts, setPvpOpts] = useState<main.PvPPreparationOptions>(
+        new main.PvPPreparationOptions({
+            matchmakingRegions: true,
+            colosseums: false,
+            revealMap: false,
+            summoningPools: false,
+            sitesOfGrace: false,
+        })
+    );
 
     const refreshUndoDepth = useCallback(() => {
         if (!platform) { setUndoDepth(0); return; }
         GetUndoDepth(selectedChar).then(setUndoDepth).catch(() => setUndoDepth(0));
     }, [platform, selectedChar]);
+
+    const handlePvPMutate = useCallback(() => {
+        refreshUndoDepth();
+        setSaveDataRevision(v => v + 1);
+    }, [refreshUndoDepth]);
 
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
 
@@ -571,8 +586,8 @@ function App() {
                                         )}
                                     </div>
                                 )}
-                                {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
-                                {activeTab === 'pvp' && <PvPPreparationTab charIdx={selectedChar} platform={platform} onMutate={refreshUndoDepth} />}
+                                {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={refreshUndoDepth} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
+                                {activeTab === 'pvp' && <PvPPreparationTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
                                 {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>

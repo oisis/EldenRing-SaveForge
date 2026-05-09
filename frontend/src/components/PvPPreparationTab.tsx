@@ -6,6 +6,8 @@ import {main} from '../../wailsjs/go/models';
 interface PvPPreparationTabProps {
     charIdx: number;
     platform?: string | null;
+    pvpOpts: main.PvPPreparationOptions;
+    onPvpOptsChange: (opts: main.PvPPreparationOptions) => void;
     onMutate?: () => void;
 }
 
@@ -80,10 +82,10 @@ const PROFILE_OPTS: Record<Exclude<PvPPreparationProfile, 'custom'>, main.PvPPre
 };
 
 const PROFILES: ProfileDef[] = [
-    {id: 'minimal', label: 'Minimal PvP Ready',      desc: 'Unlock invasion regions only. Recommended starting point for PvP preparation.'},
-    {id: 'full',    label: 'Full PvP Convenience',   desc: 'Adds colosseums and map reveal for navigation convenience. Does not touch NetworkParam or runtime state.'},
-    {id: 'coop',    label: 'Co-op Ready',             desc: 'Activates co-op summon pool support and map reveal. Bloody Finger invasion impact is unconfirmed.'},
-    {id: 'custom',  label: 'Custom',                  desc: 'Manual module selection.'},
+    {id: 'minimal', label: 'Minimal PvP Ready',    desc: 'Unlock invasion regions only. Recommended starting point for PvP preparation.'},
+    {id: 'full',    label: 'Full PvP Convenience', desc: 'Adds colosseums and map reveal for navigation convenience. Does not touch NetworkParam or runtime state.'},
+    {id: 'coop',    label: 'Co-op Ready',           desc: 'Activates co-op summon pool support and map reveal. Bloody Finger invasion impact is unconfirmed.'},
+    {id: 'custom',  label: 'Custom',                desc: 'Manual module selection.'},
 ];
 
 function resolveProfile(opts: main.PvPPreparationOptions): PvPPreparationProfile {
@@ -118,29 +120,20 @@ const Chk = ({checked, onChange, disabled}: {checked: boolean; onChange: (v: boo
     </div>
 );
 
-export function PvPPreparationTab({charIdx, platform, onMutate}: PvPPreparationTabProps) {
-    const [opts, setOpts] = useState<main.PvPPreparationOptions>(
-        new main.PvPPreparationOptions({
-            matchmakingRegions: true,
-            colosseums: false,
-            revealMap: false,
-            summoningPools: false,
-            sitesOfGrace: false,
-        })
-    );
+export function PvPPreparationTab({charIdx, platform, pvpOpts, onPvpOptsChange, onMutate}: PvPPreparationTabProps) {
     const [applying, setApplying] = useState(false);
     const [resultWarnings, setResultWarnings] = useState<string[]>([]);
 
-    const activeProfile = resolveProfile(opts);
+    const activeProfile = resolveProfile(pvpOpts);
     const currentProfileDef = PROFILES.find(p => p.id === activeProfile)!;
 
     const handleProfileSelect = (id: PvPPreparationProfile) => {
         if (id === 'custom') return;
-        setOpts(new main.PvPPreparationOptions({...PROFILE_OPTS[id]}));
+        onPvpOptsChange(new main.PvPPreparationOptions({...PROFILE_OPTS[id]}));
     };
 
     const handleToggle = (key: keyof main.PvPPreparationOptions, value: boolean) => {
-        setOpts(prev => new main.PvPPreparationOptions({...prev, [key]: value}));
+        onPvpOptsChange(new main.PvPPreparationOptions({...pvpOpts, [key]: value}));
     };
 
     const handleApply = async () => {
@@ -148,7 +141,7 @@ export function PvPPreparationTab({charIdx, platform, onMutate}: PvPPreparationT
         setApplying(true);
         setResultWarnings([]);
         try {
-            const warnings = await ApplyPvPPreparation(charIdx, opts);
+            const warnings = await ApplyPvPPreparation(charIdx, pvpOpts);
             setResultWarnings(warnings ?? []);
             toast.success('PvP preparation applied.');
             onMutate?.();
@@ -159,7 +152,7 @@ export function PvPPreparationTab({charIdx, platform, onMutate}: PvPPreparationT
         }
     };
 
-    const anySelected = MODULES.some(m => !m.disabled && opts[m.key]);
+    const anySelected = MODULES.some(m => !m.disabled && pvpOpts[m.key]);
 
     return (
         <div className="space-y-5 animate-in fade-in duration-300 max-w-2xl">
@@ -200,14 +193,14 @@ export function PvPPreparationTab({charIdx, platform, onMutate}: PvPPreparationT
                         className={`flex items-start gap-3 px-3 py-2.5 rounded-lg border transition-all ${
                             mod.disabled
                                 ? 'border-border/40 bg-muted/10 opacity-60'
-                                : opts[mod.key]
+                                : pvpOpts[mod.key]
                                 ? 'border-primary/40 bg-primary/5'
                                 : 'border-border bg-muted/10 hover:bg-muted/20'
                         }`}
                     >
                         <div className="mt-0.5">
                             <Chk
-                                checked={!mod.disabled && opts[mod.key]}
+                                checked={!mod.disabled && pvpOpts[mod.key]}
                                 onChange={v => handleToggle(mod.key, v)}
                                 disabled={mod.disabled}
                             />

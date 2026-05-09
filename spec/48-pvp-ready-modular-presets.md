@@ -561,6 +561,11 @@ A profile selector is displayed above the module checklist. Profiles are UI-only
 - `Sites of Grace` is always `OFF` in all profiles — it is a disabled placeholder.
 - Profiles are not a full character build preset system (planned as a separate feature).
 
+**Session persistence and WorldTab refresh:**
+- `PvP Preparation` module options (`PvPPreparationOptions`) are lifted to `App.tsx` state so they persist while navigating between tabs. No localStorage required.
+- Applying PvP Preparation calls `handlePvPMutate` which increments a shared `saveDataRevision` counter in `App.tsx`. This counter is passed to `WorldTab` and included in `loadExplorationData`'s `useCallback` dependency array, triggering an immediate data reload.
+- This does not change backend save logic — `ApplyPvPPreparation` in `app_pvp.go` is unchanged.
+
 **New test file**: `pvp_test.go` (package `main`) — 7 tests covering: no-save error, invalid slot, empty slot, bad flags offset, SitesOfGrace warning, Colosseums warning, SummoningPools warning.
 
 ---
