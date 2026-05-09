@@ -593,21 +593,60 @@ Owinięty w `AccordionSection` — **domyślnie zwinięty**.
 - Serwer nadpisuje UD11 przy następnym połączeniu online (efekt jest tymczasowy).
 - Agresywne ustawienia mogą zwiększać ryzyko wykrycia online.
 
+**Układ UI:**
+
+```
+▸ Advanced: Network Speed
+
+⚠  Agresywne ustawienia sieciowe mogą zwiększać ryzyko wykrycia online.
+
+   Activation required after import:
+   Load character once → Exit to main menu → Load character again.
+
+   Ustawienia są globalne dla całego save'a, nie per postać.
+
+   Retry czerwonych najazdów jest potwierdzony po przeładowaniu postaci.
+   Presety Summons, Blue i Host modyfikują powiązane pola NetworkParam,
+   ale należy je traktować jako eksperymentalne do czasu osobnych testów online.
+
+[ Restore Vanilla Network Params ]   Targets 5 · interval 30s · timeout 20s · sign download 30s
+
+Reds / Invader
+[ Light Reds ]  [ Fast Reds ]
+
+Summons / Co-op Signs
+[ Fast Summons ]
+
+Blue / Hunter
+[ Fast Blue ]
+
+Host / Taunter's Tongue
+[ Aggressive Host ]
+
+[ Apply Selected Preset ]
+```
+
 **Presety:**
 
-| Preset | `maxBreakInTargetListCount` | `breakInRequestIntervalTimeSec` | `breakInRequestTimeOutSec` | `breakInRequestAreaCount` | Ryzyko | Backend |
-|--------|---|---|---|---|---|---|
-| Vanilla | 5 | 30.0 | 20.0 | 5 | Brak | `ResetNetworkParams()` |
-| Light / Safer | 8 | 10.0 | 8.0 | 5 | Niższe | `GetNetworkPreset("light-invasions")` → `SetNetworkParams()` |
-| Fast Invasions | 10 | 4.0 | 4.0 | 5 | Wyższe | `GetNetworkPreset("fast-invasions")` → `SetNetworkParams()` |
+| Preset | Klucz backendu | Ryzyko | Status | Zmieniane pola |
+|--------|---|---|---|---|
+| Vanilla | `ResetNetworkParams()` | Brak | — | Wszystkie pola zresetowane do domyślnych |
+| Light Reds | `light-invasions` | Niskie | Potwierdzony | targets 8, interval 10s, timeout 8s |
+| Fast Reds | `fast-invasions` | Agresywny | Potwierdzony | targets 10, interval 4s, timeout 4s |
+| Fast Summons | `fast-summons` | Eksperymentalny | Niezweryfikowany w co-op flow | sign download 10s, update 15s, reload 15s, total 40, cells 20, max 64 |
+| Fast Blue | `fast-blue` | Eksperymentalny | Niezweryfikowany w Blue flow | cooldown 5s, count 4, visit list 15, search 10–30s, all-area 75% |
+| Aggressive Host | `aggressive-host` | Eksperymentalny | Niezweryfikowany w Host flow | visitor max 20, timeout 60s, download 10s |
 
-`breakInRequestAreaCount` pozostaje vanilla=5. Nie eksponowane w MVP.
+**Funkcje presetów backendu** (`backend/core/regulation.go`):
+- `NetworkParamLightInvasions()` — Light Reds
+- `NetworkParamFastInvasions()` — Fast Reds
+- `NetworkParamFastSummons()` — Fast Summons (wartości eksperymentalne)
+- `NetworkParamFastBlue()` — Fast Blue (wartości eksperymentalne)
+- `NetworkParamAggressiveHost()` — Aggressive Host (wartości eksperymentalne)
 
-**Nowy backend:**
-- `backend/core/regulation.go`: `NetworkParamLightInvasions()` — fabryka presetu Light/Safer.
-- `app.go` `GetNetworkPreset()`: dodano przypadek `"light-invasions"`.
+Wszystkie podłączone przez `app.go` `GetNetworkPreset(name)`. Brak nowych metod app.go.
 
-**Brak nowych metod app.go.** Używa istniejących: `GetNetworkPreset`, `SetNetworkParams`, `ResetNetworkParams`.
+**Zaawansowany panel sliderów:** `frontend/src/components/NetworkTab.tsx` — osobna zakładka "network", 4 role tabs (Invader / Cooperator / Blue / Host) ze sliderami dla wszystkich 20 pól NetworkParam. Uzupełnia panel szybkich presetów o możliwość ręcznego tuningu.
 
 **NIE patchuje:** UD10, UD0, flag world-state, slotów postaci.
 

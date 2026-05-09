@@ -155,37 +155,37 @@ func NetworkParamLightInvasions() NetworkParamValues {
 	return d
 }
 
-// NetworkParamFastSummons returns the "Fast Summons" preset (Cooperator role). Low ban risk.
+// NetworkParamFastSummons returns the "Fast Summons" preset (Cooperator role). Experimental.
 func NetworkParamFastSummons() NetworkParamValues {
 	d := NetworkParamDefaults()
-	d.ReloadSignIntervalTime2 = 10.0
-	d.ReloadSignTotalCount = 64
+	d.ReloadSignIntervalTime2 = 15.0
+	d.ReloadSignTotalCount = 40
 	d.ReloadSignCellCount = 20
-	d.UpdateSignIntervalTime = 5.0
+	d.UpdateSignIntervalTime = 10.0
 	d.SingGetMax = 64
-	d.SignDownloadSpan = 5.0
-	d.SignUpdateSpan = 10.0
+	d.SignDownloadSpan = 10.0
+	d.SignUpdateSpan = 15.0
 	return d
 }
 
-// NetworkParamFastBlue returns the "Fast Blue" preset (Blue role). Moderate ban risk.
+// NetworkParamFastBlue returns the "Fast Blue" preset (Blue role). Experimental.
 func NetworkParamFastBlue() NetworkParamValues {
 	d := NetworkParamDefaults()
 	d.ReloadVisitListCoolTime = 5.0
 	d.MaxCoopBlueSummonCount = 4
 	d.MaxVisitListCount = 15
-	d.ReloadSearchCoopBlueMin = 5.0
-	d.ReloadSearchCoopBlueMax = 20.0
-	d.AllAreaSearchRateCoopBlue = 100
-	d.AllAreaSearchRateVsBlue = 100
+	d.ReloadSearchCoopBlueMin = 10.0
+	d.ReloadSearchCoopBlueMax = 30.0
+	d.AllAreaSearchRateCoopBlue = 75
+	d.AllAreaSearchRateVsBlue = 75
 	return d
 }
 
-// NetworkParamAggressiveHost returns the "Aggressive Host" preset (Host role). Moderate ban risk.
+// NetworkParamAggressiveHost returns the "Aggressive Host" preset (Host role). Experimental.
 func NetworkParamAggressiveHost() NetworkParamValues {
 	d := NetworkParamDefaults()
-	d.VisitorListMax = 30
-	d.VisitorTimeOutTime = 120.0
+	d.VisitorListMax = 20
+	d.VisitorTimeOutTime = 60.0
 	d.VisitorDownloadSpan = 10.0
 	return d
 }
