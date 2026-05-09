@@ -340,6 +340,142 @@ func TestValidatePreset_SummoningPools_NilWorld(t *testing.T) {
 	}
 }
 
+func TestValidatePreset_MapFlags_KnownVisible(t *testing.T) {
+	// 62010 = "Limgrave, West" in MapVisible; 62000 = "Allow Map Display" in MapSystem
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{MapFlags: []uint32{62000, 62010}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.mapFlags") {
+			t.Errorf("unexpected mapFlags warning for known 62xxx IDs: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_MapFlags_KnownSystem82(t *testing.T) {
+	// 82001 = "Show Underground", 82002 = "Show Shadow Realm Map" in MapSystem
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{MapFlags: []uint32{82001, 82002}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.mapFlags") {
+			t.Errorf("unexpected mapFlags warning for known 82xxx IDs: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_MapFlags_UnknownID(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{MapFlags: []uint32{99999}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.mapFlags") && containsString(w, "not found in map flag database") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected unknown-mapFlag warning for ID 99999, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_MapFlags_Duplicate(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{MapFlags: []uint32{62010, 62000, 62010}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.mapFlags") && containsString(w, "duplicate") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected duplicate-mapFlag warning for repeated ID 62010, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_MapFlags_NilWorld(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         nil,
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.mapFlags") {
+			t.Errorf("unexpected mapFlags warning for nil World: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_MapFlags_EmptyList(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{MapFlags: []uint32{}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.mapFlags") {
+			t.Errorf("unexpected mapFlags warning for empty list: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_MapFlags_GraceIDMisplaced(t *testing.T) {
+	// 76100 = Church of Elleh grace — wrong field, should be in World.Graces
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{MapFlags: []uint32{76100}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.mapFlags") && containsString(w, "not found in map flag database") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected mapFlags warning for misplaced grace ID 76100, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_MapFlags_SummoningPoolIDMisplaced(t *testing.T) {
+	// 670100 = summoning pool ID — wrong field, should be in World.SummoningPools
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{MapFlags: []uint32{670100}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.mapFlags") && containsString(w, "not found in map flag database") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected mapFlags warning for misplaced summoningPool ID 670100, got: %v", warnings)
+	}
+}
+
 func TestValidatePreset_Graces_KnownBase(t *testing.T) {
 	// 71000 = first grace in base game range
 	preset := &CharacterPreset{

@@ -304,14 +304,34 @@ Helper DB: `db.IsKnownGraceID(id uint32) bool` w `backend/db/db.go`.
 
 ---
 
-### `ValidateWorldMapFlags(ids []uint32) []string`
+### `ValidateWorldMapFlags(ids []uint32) []string` ✅ Zaimplementowane
 
 **Sprawdza:**
-- Każde ID jest w znanych zakresach flag mapy (`62xxx` lub `82xxx`)
-- Sprawdza krzyżowo z `data.Maps` jeśli dostępne
-- Flagi ID poza oczekiwanymi zakresami
+- Każde ID jest obecne w jednej z czterech map danych (`data.MapVisible`, `data.MapSystem`, `data.MapAcquired`, `data.MapUnsafe`) → `warning: world.mapFlags: ID %d not found in map flag database`
+- Wykrywa duplikaty ID → `warning: world.mapFlags: ID %d appears more than once — duplicate will be ignored`
+- Grace ID (`71xxx–76xxx`) przypadkowo umieszczone w `MapFlags` → ostrzeżenie (nie znalezione w żadnej mapie danych mapy)
+- Summoning pool ID (`670xxx`) przypadkowo umieszczone w `MapFlags` → ostrzeżenie
 
-**Zwraca:** ostrzeżenie.
+**Zwraca:** ostrzeżenie (nie błąd).
+
+**Gdzie mieszka:** `backend/vm/preset.go` jako `validateWorldMapFlags` (prywatna, wywoływana z `ValidatePreset`).
+Helper DB: `db.IsKnownMapFlagID(id uint32) bool` w `backend/db/db.go` — sprawdza wszystkie cztery mapy danych.
+
+**Pokrycie danych:**
+- `data.MapVisible` — 85 wpisów (`62010–62221`), flagi widoczności kafelków
+- `data.MapSystem` — 79 wpisów (`62000–82002`), w tym `62000` (Allow Map Display), `82001` (Show Underground), `82002` (Show Shadow Realm Map)
+- `data.MapAcquired` — 24 wpisy
+- `data.MapUnsafe` — 56 wpisów
+
+**Testy (8/8 zaliczone):**
+- Znane IDs `MapVisible` (`62000`, `62010`) → brak ostrzeżenia
+- Znane IDs `MapSystem` (`82001`, `82002`) → brak ostrzeżenia
+- Nieznane ID (`99999`) → ostrzeżenie
+- Duplikat znanych ID (`62010` powtórzone) → ostrzeżenie
+- `nil` World → brak ostrzeżenia
+- Pusta lista flag mapy → brak ostrzeżenia
+- Grace ID (`76100`) umieszczone w `MapFlags` → ostrzeżenie (błędna lokalizacja)
+- Summoning pool ID (`670100`) umieszczone w `MapFlags` → ostrzeżenie (błędna lokalizacja)
 
 ---
 

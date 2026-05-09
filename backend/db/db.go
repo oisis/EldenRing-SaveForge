@@ -929,6 +929,23 @@ func IsKnownGraceID(id uint32) bool {
 	return ok
 }
 
+// IsKnownMapFlagID reports whether id is a recognised map flag ID across all
+// four map datasets: MapVisible (62xxx), MapSystem (62xxx/82xxx), MapAcquired
+// (63xxx), and MapUnsafe (62xxx/63xxx).
+func IsKnownMapFlagID(id uint32) bool {
+	if _, ok := data.MapVisible[id]; ok {
+		return true
+	}
+	if _, ok := data.MapSystem[id]; ok {
+		return true
+	}
+	if _, ok := data.MapAcquired[id]; ok {
+		return true
+	}
+	_, ok := data.MapUnsafe[id]
+	return ok
+}
+
 // GetAllMapEntries returns all map region entries (visible + acquired + system) sorted by area then name.
 var getAllMapEntries = sync.OnceValue(func() []MapEntry {
 	entries := make([]MapEntry, 0, len(data.MapVisible)+len(data.MapAcquired)+len(data.MapSystem)+len(data.MapUnsafe))

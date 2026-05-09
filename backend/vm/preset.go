@@ -195,6 +195,7 @@ func ValidatePreset(preset *CharacterPreset) []string {
 		validateWorldSummoningPools(preset.World.SummoningPools, &warnings)
 		validateWorldRegions(preset.World.Regions, &warnings)
 		validateWorldGraces(preset.World.Graces, &warnings)
+		validateWorldMapFlags(preset.World.MapFlags, &warnings)
 	}
 
 	return warnings
@@ -235,6 +236,26 @@ func validatePresetItem(item *PresetItem, location string, idx int, warnings *[]
 		*warnings = append(*warnings,
 			fmt.Sprintf("%s[%d] %s: quantity %d exceeds max %d — will be clamped",
 				location, idx, itemData.Name, item.Quantity, itemData.MaxStorage))
+	}
+}
+
+// validateWorldMapFlags detects unknown or duplicate map flag IDs.
+// Valid IDs are those present in data.MapVisible (62xxx), data.MapSystem
+// (62xxx/82xxx), data.MapAcquired (63xxx), or data.MapUnsafe (62xxx/63xxx).
+// Grace IDs (71xxx–76xxx) and summoning pool IDs (670xxx) are not valid here.
+func validateWorldMapFlags(ids []uint32, warnings *[]string) {
+	seen := make(map[uint32]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.mapFlags: ID %d appears more than once — duplicate will be ignored", id))
+			continue
+		}
+		seen[id] = true
+		if !db.IsKnownMapFlagID(id) {
+			*warnings = append(*warnings,
+				fmt.Sprintf("world.mapFlags: ID %d not found in map flag database", id))
+		}
 	}
 }
 
