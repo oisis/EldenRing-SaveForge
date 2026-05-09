@@ -106,6 +106,7 @@ The save file consists of the following main blocks (in sequential order):
 | 45 | [Ban Risk Reference](45-ban-risk-reference.md) | Community-reported ban triggers, penalty tiers (180-day softban mechanics, save-embedded flag), safe-editing practices — informs spec/32 risk tiers |
 | 46 | [Fast Invasions Research](46-faster-invasions-research.md) | **Investigation** (concluded) — full scan of UD10/NetMan/EventFlags/regulation.bin for invasion timing params; DS3 comparison; Wex Dust mod; verdict: not achievable via save file |
 | 47 | [Site of Grace Activation](47-site-of-grace-activation.md) | **Investigation** (✅ resolved) — Hypothesis D confirmed; editor sets identical EventFlag to game; `LastRestedGrace` auto-set by game on arrival; grace object state is runtime-only; Model 3 (UI note) recommended |
+| 48 | [PvP-Ready Modular Presets](48-pvp-ready-modular-presets.md) | **Design doc** — decomposition of monolithic pvp-ready world preset into 6 modules (Core/Regions/Access/QoL/Coop/Research) with per-module risk tiers, flag-range ownership table, 5 validators, and granular UI proposal |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Testing methods, verification checklist, discovery plan |
 
 ---

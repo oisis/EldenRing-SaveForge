@@ -848,6 +848,37 @@ slots only** in this dataset; PC behavior may differ.
 
 ---
 
+## 13. Product Direction / SaveForge Implications
+
+> Added 2026-05-09 after investigation conclusion. See spec/48 for the full design.
+
+The investigation verdict has direct implications for the SaveForge PvP feature set.
+
+**Region unlocks are the confirmed save-level PvP lever.**
+Module B in spec/48 (`unlocked_regions`) is the primary save-file mechanism. All 104 region
+IDs in `backend/db/data/regions.go` should be applied as the default PvP-ready action.
+The effect is confirmed: the game engine uses this list to determine invasion eligibility per area.
+
+**UD11 NetworkParam is research-grade, not a primary feature.**
+Patched values survive on PS4; runtime effect on invasion timing is unconfirmed. Expose as
+Module F (advanced/research), not as part of the default PvP-ready flow.
+
+**UD10 / UD0 session structures are read-only diagnostics.**
+`UD10+0x5070` and `UD0+0x209B00..0x209C43` should be exposed as a BF state classifier and
+candidate section viewer (Module F). They are runtime state — not a patch target.
+
+**Summoning Pools are a co-op / summon feature.**
+670xxx flags enable Martyr Effigy co-op signs. Bloody Finger invasion impact is unconfirmed.
+Present as Module E with an explicit "Bloody Finger invasion rate impact: unconfirmed" notice.
+
+**The pvp-ready preset must become modular.**
+A single opaque "Apply PvP preset" button conflates confirmed effects (regions, colosseums)
+with unconfirmed ones (summoning pools, NetworkParam) and visual-only changes (map, graces).
+The decomposition into six labelled modules (spec/48) resolves this without removing any
+existing functionality.
+
+---
+
 ## Sources
 
 - `tmp/regulation-bin-dump/csv/NetworkParam.csv` — vanilla NetworkParam field values
@@ -861,5 +892,6 @@ slots only** in this dataset; PC behavior may differ.
 - `backend/core/structures.go` — `SaveSlot.UnlockedRegions` parsing
 - `backend/core/regulation.go` — MD5-recalculating NetworkParam patcher
 - `spec/44-network-param-tuning.md` — full NetworkParam field reference
+- `spec/48-pvp-ready-modular-presets.md` — product direction: modular UI design and validators
 
 ---
