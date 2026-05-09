@@ -1,7 +1,7 @@
 # 48 — Modularne Presety PvP-Ready
 
 > **Typ**: Design doc
-> **Status**: 🔲 Planowane
+> **Status**: ✅ Zaimplementowane (Faza 1 kompletna)
 > **Zakres**: Dekompozycja monolitycznego presetu world PvP-ready na niezależne,
 > oznaczone moduły z poziomami ryzyka per moduł, walidatorami i granularnymi
 > kontrolkami UI.
@@ -378,29 +378,55 @@ to tematem przyszłych badań.
 
 ---
 
-### `ValidateKnownEventFlags(ids []uint32, context string) []string`
+### `validateKnownEventFlags(context string, ids []uint32, warnings *[]string)` ✅ Zaimplementowane
 
-Generyczny walidator dla dowolnej listy event flag:
+Generyczny safety-net dla list event flag bez dedykowanego walidatora per-baza-danych.
 
 **Sprawdza:**
-- Flagi ≥ 1 000 000 000 (poza wszystkimi znanymi blokami EventFlag) → `warning: ID poza wszystkimi znanymi zakresami`
-- Flagi pasujące do wzorca pre-v1.12 summoning pool (≥ 1 000 000 I context == "summoningPools") → przekieruj do `validateWorldSummoningPools`
-- Flagi w nieznanych zakresach bloków → `info: niesklasyfikowany zakres`
+- Duplikaty ID → `warning: <context>: ID %d appears more than once — duplicate will be ignored`
+- ID ≥ 1 000 000 000 (poza przestrzenią adresową EventFlags) → `warning: <context>: ID %d is outside all known EventFlag ranges (>= 1,000,000,000) — likely invalid`
 
-**Zwraca:** ostrzeżenie/info.
+**Gdzie mieszka:** `backend/vm/preset.go` jako `validateKnownEventFlags` (prywatna). Wywoływana z `validatePresetModules` dla pól bez dedykowanego walidatora.
+
+**Stosowana dla:** `World.Bosses`, `World.Cookbooks`, `World.BellBearings`, `World.Whetblades`, `World.WorldPickups`.
+
+**Celowo wykluczona:**
+- `World.SummoningPools` — `validateWorldSummoningPools` używa niższego progu (≥ 1 000 000); generyczny walidator spowodowałby podwójne ostrzeżenie dla ID takich jak `1035530040`
+- `World.Graces`, `World.MapFlags`, `World.Colosseums` — mają dedykowane walidatory DB
+- `World.Regions` — nie są EventFlags; zapis do binarnej struktury `UnlockedRegions`
+- `World.Gestures` — ID slotów gestów, nie ID EventFlag
+
+**Uwaga projektowa:** Generyczny walidator NIE sprawdza „czy to ID jest znane w bazie danych" dla objętych pól. Wymagałoby to dedykowanego lookup'u per pole i powodowałoby false positive dla prawidłowych ID gry nieobecnych w bazie. Sygnalizowane są tylko ewidentnie błędne dane (duplikaty, ekstremalne ID).
+
+**Testy (8/8 zaliczone, przez integrację z `ValidatePreset`):**
+- Duplikat ID boss → ostrzeżenie
+- ID boss ≥ 1B → ostrzeżenie
+- Nieznane, ale nie-ekstremalne ID boss → brak ostrzeżenia
+- Duplikat ID cookbook → ostrzeżenie
+- ID worldPickup ≥ 1B → ostrzeżenie
+- Pre-v1.12 ID summoning pool (`1035530040`, ≥ 1B) → tylko ostrzeżenie „pre-v1.12", NIE generyczne „>= 1B" (brak podwójnego warningu)
+- Puste `WorldPresetData` → brak ostrzeżeń
+- Wiele nieprawidłowych pól → wszystkie ostrzeżenia agregowane
 
 ---
 
-### `ValidatePresetModules(preset *CharacterPreset) []string`
+### `validatePresetModules(world *WorldPresetData, warnings *[]string)` ✅ Zaimplementowane
 
-Orkiestrator. Wywołuje:
-1. `validateWorldSummoningPools` (istniejący)
-2. `ValidateWorldRegions`
-3. `ValidateWorldGraces`
-4. `ValidateWorldMapFlags`
-5. `ValidateWorldColosseums`
+Orkiestrator wszystkich walidatorów presetu world. Zastępuje ręczne wywołania walidatorów w `ValidatePreset`, który teraz wywołuje tylko `validatePresetModules` gdy `preset.World != nil`.
 
-Wywoływany z `ValidatePreset` gdy `preset.World != nil`.
+**Kolejność wykonania (deterministyczna):**
+1. `validateWorldSummoningPools` — dedykowany, próg ≥ 1 000 000
+2. `validateWorldRegions` — dedykowany lookup DB
+3. `validateWorldGraces` — dedykowany lookup DB
+4. `validateWorldMapFlags` — dedykowany lookup DB (4 mapy danych mapy)
+5. `validateWorldColosseums` — dedykowany lookup DB + MapPOI + sprawdzenie globalnych flag
+6. `validateKnownEventFlags("world.bosses", ...)` — generyczny safety-net
+7. `validateKnownEventFlags("world.cookbooks", ...)` — generyczny safety-net
+8. `validateKnownEventFlags("world.bellBearings", ...)` — generyczny safety-net
+9. `validateKnownEventFlags("world.whetblades", ...)` — generyczny safety-net
+10. `validateKnownEventFlags("world.worldPickups", ...)` — generyczny safety-net
+
+**Wykluczone z całej walidacji:** `World.Regions` (dedykowany), `World.Gestures` (nie są EventFlags).
 
 ---
 
@@ -475,16 +501,15 @@ przygotowania PvP przez edycję save'a to:
 
 ## 7. Fazy Implementacji
 
-| Faza | Zakres | Zablokowana na |
+| Faza | Zakres | Status |
 |---|---|---|
-| Faza 1 | Implementacja pozostałych walidatorów (`ValidateWorldRegions`, `ValidateWorldColosseums`, `ValidateWorldMapFlags`, `ValidateWorldGraces`) + podłączenie do `ValidatePreset` | Nic |
-| Faza 2 | Dodanie generycznego walidatora `ValidateKnownEventFlags` | Faza 1 |
-| Faza 3 | Lista checkboxów modułów w UI WorldTab / okno dialogowe apply presetu | Faza 1 |
-| Faza 4 | Moduł F: klasyfikator stanu BF tylko do odczytu (czytniki UD10 + UD0) | spec/46 §7 |
-| Faza 5 | Moduł F: UI inspektora NetworkParam UD11 | spec/44 |
-| Faza 6 | Krok presetu skrótu questa Varre (Moduł C) | wzorzec spec/38 dla flag questów |
+| Faza 1 | `ValidateWorldRegions`, `ValidateWorldColosseums`, `ValidateWorldMapFlags`, `ValidateWorldGraces` + `validateKnownEventFlags` (generyczny) + `validatePresetModules` (orkiestrator) + podłączenie do `ValidatePreset` | ✅ Kompletna |
+| Faza 2 | Lista checkboxów modułów w UI WorldTab / okno dialogowe apply presetu | 🔲 Planowane |
+| Faza 3 | Moduł F: klasyfikator stanu BF tylko do odczytu (czytniki UD10 + UD0) | 🔲 Planowane (blokada: spec/46 §7) |
+| Faza 4 | Moduł F: UI inspektora NetworkParam UD11 | 🔲 Planowane (blokada: spec/44) |
+| Faza 5 | Krok presetu skrótu questa Varre (Moduł C) | 🔲 Planowane (blokada: wzorzec spec/38) |
 
-**Faza 1 to minimalne dostarczalne MVP.** Wszystkie kolejne fazy na niej bazują.
+**Faza 1 jest kompletna.** `validateKnownEventFlags` i `validatePresetModules` zostały skonsolidowane do Fazy 1 (pierwotnie zaplanowane jako Faza 2), ponieważ zależą wyłącznie od walidatorów Fazy 1.
 
 ---
 

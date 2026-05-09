@@ -861,6 +861,179 @@ func TestValidatePreset_Regions_EmptyList(t *testing.T) {
 	}
 }
 
+func TestValidatePreset_Bosses_Duplicate(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Bosses: []uint32{111, 111}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.bosses") && containsString(w, "appears more than once") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected duplicate warning for world.bosses, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_Bosses_VeryHighID(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Bosses: []uint32{1_000_000_001}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.bosses") && containsString(w, "outside all known EventFlag ranges") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected out-of-range warning for world.bosses ID >= 1B, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_Bosses_NoWarningNormalID(t *testing.T) {
+	// Generic validator only checks duplicates and >= 1B IDs.
+	// An unknown but non-extreme boss ID must NOT produce a warning
+	// (no dedicated boss DB lookup in the generic validator).
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Bosses: []uint32{12345}},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.bosses") {
+			t.Errorf("unexpected boss warning for non-extreme unknown ID 12345: %q", w)
+		}
+	}
+}
+
+func TestValidatePreset_Cookbooks_Duplicate(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{Cookbooks: []uint32{222, 333, 222}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.cookbooks") && containsString(w, "appears more than once") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected duplicate warning for world.cookbooks, got: %v", warnings)
+	}
+}
+
+func TestValidatePreset_WorldPickups_VeryHighID(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{WorldPickups: []uint32{2_000_000_000}},
+	}
+	warnings := ValidatePreset(preset)
+	found := false
+	for _, w := range warnings {
+		if containsString(w, "world.worldPickups") && containsString(w, "outside all known EventFlag ranges") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected out-of-range warning for world.worldPickups ID >= 1B, got: %v", warnings)
+	}
+}
+
+func TestValidatePresetModules_EmptyWorld(t *testing.T) {
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{},
+	}
+	warnings := ValidatePreset(preset)
+	for _, w := range warnings {
+		if containsString(w, "world.") {
+			t.Errorf("unexpected world warning for empty WorldPresetData: %q", w)
+		}
+	}
+}
+
+func TestValidatePresetModules_AggregatesWarnings(t *testing.T) {
+	// Each sub-validator must fire at least once. Uses one invalid input per module.
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World: &WorldPresetData{
+			SummoningPools: []uint32{10000040},  // pre-v1.12 → validateWorldSummoningPools
+			Regions:        []uint32{9999999},   // unknown → validateWorldRegions
+			Graces:         []uint32{99999},     // unknown → validateWorldGraces
+			MapFlags:       []uint32{99999},     // unknown → validateWorldMapFlags
+			Colosseums:     []uint32{99999},     // unknown → validateWorldColosseums
+			Bosses:         []uint32{111, 111},  // duplicate → validateKnownEventFlags
+		},
+	}
+	warnings := ValidatePreset(preset)
+	required := []string{
+		"pre-v1.12",
+		"not found in region database",
+		"not found in grace database",
+		"not found in map flag database",
+		"not found in colosseum database",
+		"world.bosses",
+	}
+	for _, substr := range required {
+		found := false
+		for _, w := range warnings {
+			if containsString(w, substr) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected warning containing %q, not found in: %v", substr, warnings)
+		}
+	}
+}
+
+func TestValidatePreset_SummoningPools_NoDoubleWarning(t *testing.T) {
+	// ID 1035530040 is a pre-v1.12 summoning pool ID and also >= 1_000_000_000.
+	// validateKnownEventFlags must NOT be applied to World.SummoningPools —
+	// only the dedicated validateWorldSummoningPools should warn ("pre-v1.12"),
+	// not the generic "outside all known EventFlag ranges" warning.
+	preset := &CharacterPreset{
+		FormatVersion: PresetFormatVersion,
+		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
+		World:         &WorldPresetData{SummoningPools: []uint32{1035530040}},
+	}
+	warnings := ValidatePreset(preset)
+	foundPreV112 := false
+	foundGeneric := false
+	for _, w := range warnings {
+		if containsString(w, "pre-v1.12") {
+			foundPreV112 = true
+		}
+		if containsString(w, "outside all known EventFlag ranges") {
+			foundGeneric = true
+		}
+	}
+	if !foundPreV112 {
+		t.Errorf("expected pre-v1.12 warning for ID 1035530040, got: %v", warnings)
+	}
+	if foundGeneric {
+		t.Errorf("unexpected generic EventFlag-range warning for summoningPools ID: %v", warnings)
+	}
+}
+
 func containsString(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
 }

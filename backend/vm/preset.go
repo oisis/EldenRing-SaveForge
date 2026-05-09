@@ -192,11 +192,7 @@ func ValidatePreset(preset *CharacterPreset) []string {
 	}
 
 	if preset.World != nil {
-		validateWorldSummoningPools(preset.World.SummoningPools, &warnings)
-		validateWorldRegions(preset.World.Regions, &warnings)
-		validateWorldGraces(preset.World.Graces, &warnings)
-		validateWorldMapFlags(preset.World.MapFlags, &warnings)
-		validateWorldColosseums(preset.World, &warnings)
+		validatePresetModules(preset.World, &warnings)
 	}
 
 	return warnings
@@ -380,6 +376,56 @@ func validateWorldSummoningPools(ids []uint32, warnings *[]string) {
 				fmt.Sprintf("world.summoningPools: ID %d not found in current database (670xxx range)", id))
 		}
 	}
+}
+
+// validateKnownEventFlags is a generic safety-net for event flag lists without a
+// dedicated per-database validator. Checks:
+//   - Duplicate IDs → warning
+//   - IDs >= 1_000_000_000 (outside all known EventFlag address space) → warning
+//
+// Not for use with fields that have dedicated validators (World.SummoningPools,
+// World.Graces, World.MapFlags, World.Colosseums) or with non-EventFlag fields
+// (World.Regions writes to UnlockedRegions; World.Gestures uses gesture slot IDs).
+func validateKnownEventFlags(context string, ids []uint32, warnings *[]string) {
+	seen := make(map[uint32]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			*warnings = append(*warnings,
+				fmt.Sprintf("%s: ID %d appears more than once — duplicate will be ignored", context, id))
+			continue
+		}
+		seen[id] = true
+		if id >= 1_000_000_000 {
+			*warnings = append(*warnings,
+				fmt.Sprintf("%s: ID %d is outside all known EventFlag ranges (>= 1,000,000,000) — likely invalid", context, id))
+		}
+	}
+}
+
+// validatePresetModules orchestrates all world preset validators.
+// Called from ValidatePreset when preset.World != nil.
+//
+// Dedicated validators run first (SummoningPools, Regions, Graces, MapFlags,
+// Colosseums), followed by the generic safety-net (validateKnownEventFlags)
+// for fields without a dedicated validator: Bosses, Cookbooks, BellBearings,
+// Whetblades, WorldPickups.
+//
+// Intentionally excluded from generic validation:
+//   - World.SummoningPools — validateWorldSummoningPools uses a different threshold (>= 1_000_000)
+//   - World.Regions — not EventFlags; writes to the UnlockedRegions binary struct
+//   - World.Gestures — gesture slot IDs, not EventFlag IDs
+func validatePresetModules(world *WorldPresetData, warnings *[]string) {
+	validateWorldSummoningPools(world.SummoningPools, warnings)
+	validateWorldRegions(world.Regions, warnings)
+	validateWorldGraces(world.Graces, warnings)
+	validateWorldMapFlags(world.MapFlags, warnings)
+	validateWorldColosseums(world, warnings)
+
+	validateKnownEventFlags("world.bosses", world.Bosses, warnings)
+	validateKnownEventFlags("world.cookbooks", world.Cookbooks, warnings)
+	validateKnownEventFlags("world.bellBearings", world.BellBearings, warnings)
+	validateKnownEventFlags("world.whetblades", world.Whetblades, warnings)
+	validateKnownEventFlags("world.worldPickups", world.WorldPickups, warnings)
 }
 
 func PresetItemToFinalID(item PresetItem) uint32 {
