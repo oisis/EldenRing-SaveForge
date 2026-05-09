@@ -136,7 +136,8 @@ export function PvPPreparationTab({charIdx, platform, pvpOpts, onPvpOptsChange, 
         setApplying(true);
         setResultWarnings([]);
         try {
-            const warnings = await ApplyPvPPreparation(charIdx, new main.PvPPreparationOptions(pvpOpts));
+            const payload = new main.PvPPreparationOptions(pvpOpts);
+            const warnings = await ApplyPvPPreparation(charIdx, payload);
             setResultWarnings(warnings ?? []);
             toast.success('PvP preparation applied.');
             onMutate?.();
