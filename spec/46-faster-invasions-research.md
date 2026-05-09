@@ -652,20 +652,38 @@ to decode these values from the save file alone.
 > state is represented in the save, but does not by itself prove that Summoning Pool flags
 > are the sole cause of faster invasions.
 
-**Best practical save-file lever found so far: all Summoning Pools + all regions.**
+> ⚠️ **Dataset limitation — Summoning Pool flags**: Offline analysis of the `pvp-ready`
+> save pair shows only **one flag** (`670101`) in the `670xxx` range, with no difference
+> between vanilla and pvp-ready. Root cause identified: the preset JSON used to prepare
+> these saves contains summoning pool IDs in the **old pre-DLC format** (`10000040`,
+> `1035530040`…), not the current `670xxx` IDs used by `backend/db/data/summoning_pools.go`.
+> These old IDs are being set in the save (18 flags observed in the 1.0e9 range in the
+> vanilla→pvp-ready diff), but are not recognised by current game versions for summon pool
+> discovery. The `670xxx` ID database (213 entries, 670100–670980) is correct, but has not
+> been applied to the pvp-ready preset JSON.
+>
+> The absence of broad `670xxx` changes in this dataset does **not** prove Summoning Pools
+> are irrelevant to matchmaking — it proves the current `pvp-ready` dataset does not
+> correctly activate them. **Summoning Pool flag mapping remains an open question. Further
+> validation requires a save pair where pools are toggled by the game itself or by applying
+> the current `670xxx` ID map from `summoning_pools.go`.**
 
-Activating all Summoning Pools (213 EventFlags in the `670xxx` range) is the highest-impact
-save-file action observed. With all relevant pool/region flags active, the character appears
-eligible for a broader set of matchmaking areas, which likely increases the chance that the
-first query finds a match — avoiding the 30-second retry interval.
+**Best practical save-file lever found so far: all regions unlocked + PvP items.**
+
+Summoning Pools are primarily a **coop/summon sign discovery mechanism** — they control
+host visibility to potential co-op phantoms and sign puddle availability. A possible
+indirect relation to Bloody Finger invasion matchmaking eligibility (via area/world flags)
+has not been confirmed. Current offline data does not identify Summoning Pools as the
+confirmed mechanism behind faster active invasions.
 
 Observed evidence (not hex-confirmed causality):
 - regulation.bin was successfully edited (no crash), patched values readable on PS4 — but
   whether the runtime uses them is unverified
 - Fast invasions observed on PS4/PS5 without any specific items equipped, across different
-  areas, after all Summoning Pools were activated
-- Around the v1.12-era data, pool flag IDs appear to be in the `670xxx` range; earlier
-  database used pre-v1.12 IDs for ~1 year before correction (2026-05-08)
+  areas; the exact save-file lever responsible could not be isolated in the offline analysis
+- Around the v1.12-era data, pool flag IDs were expected in the `670xxx` range; however,
+  offline analysis of the current `pvp-ready` dataset does not confirm this range is set
+  correctly by the existing editor (see dataset limitation above)
 
 ---
 
@@ -676,12 +694,15 @@ Observed evidence (not hex-confirmed causality):
 - Exact semantic meaning of individual `candidate_id` values (`0x989E20xx`, `0x3097AE00`)
 - Exact server-side interpretation of Summoning Pool flags and region IDs
 - Whether any UD10/UD0 field directly encodes "which pool flags are active"
+- Whether Summoning Pool flags (670100–670980 in `summoning_pools.go`) have any direct
+  effect on Bloody Finger invasion matchmaking, or only affect coop/summon sign visibility —
+  requires a test save where all 213 `670xxx` flags are set and invasion speed is measured
 
 ### Practical actions available via save file
 
 | Action | Mechanism | Impact |
 |--------|-----------|--------|
-| **Activate all Summoning Pools** (213 flags, `670xxx`) | EventFlags batch set | **Highest impact** — searchable in all areas simultaneously |
+| **Activate all Summoning Pools** (flag range TBD; 670xxx unconfirmed) | EventFlags batch set | Impact on invasion **unconfirmed** — primarily a coop/summon mechanism; current editor may use outdated flag IDs |
 | Add all 104 matchmaking regions to `unlocked_regions` | `SetUnlockedRegions` | More areas searched per attempt |
 | Add Taunter's Tongue to inventory | item inject `0x4000006C` | Enables invasions without co-op phantoms |
 | Add Festering Bloody Finger stack | item inject `0x4000006F` | Consumable for active invasions |
@@ -696,13 +717,16 @@ Observed evidence (not hex-confirmed causality):
 | Invade solo host | Yes (default) | No — requires Taunter's Tongue |
 | `breakInRequestIntervalTimeSec` | ~10s | 30s |
 | `breakInRequestTimeOutSec` | ~10s | 20s |
-| Save file invasion levers | None | `unlocked_regions`, Summoning Pools |
+| Save file invasion levers | None | `unlocked_regions`; Summoning Pools — impact on invasion unconfirmed |
 | regulation.bin protection | EAC online ban risk | EAC online ban risk (PS4 patch persists) |
 
 The bottleneck for invasion frequency is how often and how broadly the client queries the
 matchmaking server — controlled by `breakInRequestIntervalTimeSec` and `allAreaSearchRate_*`.
-In ER, Summoning Pools achieve the "broad query" effect at the save-file level without
-runtime NetworkParam changes.
+In ER, `unlocked_regions` broadens the area search per query. Summoning Pools may
+contribute to broader online eligibility, but current offline data does not confirm this
+for Bloody Finger invasions specifically; the current `pvp-ready` dataset is insufficient
+to validate Summoning Pool flag effects (see dataset limitation in §§ Gameplay-observed
+practical mechanism).
 
 ### Unlocked Regions Coverage
 

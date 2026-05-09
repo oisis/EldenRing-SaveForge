@@ -183,7 +183,7 @@ Próby edycji (wszystkie resetowane przez grę przy następnym save):
 ### Otwarte pytanie
 
 Czy runtime gry czyta NetworkParam **z UD11** czy z **osobnej kopii w instalacji** —
-niepotwierdzono. Są nieodróżnialne wyłącznie na podstawie pliku save. Definitywne
+niepotwierdzone. Są nieodróżnialne wyłącznie na podstawie pliku save. Definitywne
 potwierdzenie wymaga zmierzenia rzeczywistych interwałów inwazji w grze przed i po patchu.
 
 ---
@@ -591,7 +591,7 @@ ale nie zostały bezpośrednio potwierdzone wyłącznie z danych pliku save. Tra
 - **Semantyczne znaczenie poszczególnych wartości `entry_id`** (`0x989E20xx`, `0x3097AE00`,
   `0x12B01Exx`) — zero cross-referencji gdziekolwiek w UD0 lub UD10.
   NIE nazywaj ich „PSN account ID" ani „host ID" — używaj `candidate_id` lub
-  `matchmaking_entry_id`. Pochodzenie niepotwierdzono.
+  `matchmaking_entry_id`. Pochodzenie niepotwierdzone.
 - Dlaczego wpisy niebędące targetami są **ODWRÓCONE** zamiast rotowane przy aktywacji BF —
   artefakt algorytmu? Zachowanie stosu MRU/LIFO?
 - Co koduje `header.unk_04/08/0C=0x00000100` (licznik? pojemność? zarezerwowane flagi?)
@@ -654,20 +654,39 @@ cross-referencje pozwalające zdekodować te wartości wyłącznie z pliku save.
 > jest reprezentowany w pliku save, ale sama w sobie nie dowodzi, że flagi Summoning Pools
 > są jedyną przyczyną szybszych inwazji.
 
-**Najlepsza znana dźwignia w pliku save: wszystkie Summoning Pools + regiony.**
+> ⚠️ **Ograniczenie datasetu — flagi Summoning Pools**: Analiza offline pary save'ów
+> `pvp-ready` wykazuje tylko **jedną flagę** (`670101`) w zakresie `670xxx`, bez różnicy
+> między vanilla a pvp-ready. Zidentyfikowana przyczyna: preset JSON użyty do przygotowania
+> tych save'ów zawiera ID Summoning Pools w **starym formacie pre-DLC** (`10000040`,
+> `1035530040`…), a nie w aktualnym formacie `670xxx` stosowanym w
+> `backend/db/data/summoning_pools.go`. Stare ID są ustawiane w save'ie (18 flag
+> zaobserwowanych w przedziale 1,0e9 w diff vanilla→pvp-ready), ale nie są rozpoznawane
+> przez aktualne wersje gry jako summon pool discovery. Baza danych `670xxx`
+> (213 wpisów, 670100–670980) jest poprawna, ale nie została zastosowana w preset JSON.
+>
+> Brak szerokich zmian w zakresie `670xxx` w tym datasecie **nie dowodzi**, że Summoning Pools
+> są nieistotne — dowodzi tylko, że obecny dataset `pvp-ready` nie aktywuje ich poprawnie.
+> **Mapowanie flag Summoning Pools pozostaje otwartą kwestią. Weryfikacja wymaga pary
+> save'ów, gdzie pule są przełączone przez samą grę lub przez zastosowanie aktualnej mapy
+> ID `670xxx` z `summoning_pools.go`.**
 
-Aktywacja wszystkich Summoning Pools (213 EventFlags z zakresu `670xxx`) jest akcją
-o największym zaobserwowanym wpływie. Przy aktywnych flagach pul/regionów postać wydaje
-się kwalifikować do szerszego zestawu obszarów matchmakingu, co prawdopodobnie zwiększa
-szansę, że pierwsza próba znajdzie match — omijając 30-sekundowy interwał retry.
+**Najlepsza znana dźwignia w pliku save: odblokowane regiony + przedmioty PvP.**
+
+Summoning Pools to przede wszystkim **mechanizm odkrywania znaków co-op** — kontrolują
+widoczność hosta dla potencjalnych phantomów i dostępność puddli znaków. Możliwy pośredni
+związek między aktywacją puli/obszarów a kwalifikacją matchmakingu dla Bloody Finger nie
+został potwierdzony. Obecne dane offline nie identyfikują Summoning Pools jako potwierdzonego
+mechanizmu odpowiedzialnego za szybsze aktywne inwazje.
 
 Zaobserwowane dowody (bez potwierdzonej przyczynowości hex):
 - regulation.bin został pomyślnie edytowany (bez crashy), spatchowane wartości odczytywalne na PS4 —
   ale czy runtime ich używa — nieweryfikowane
 - Szybkie inwazje obserwowane na PS4/PS5 bez żadnych specjalnych ekwipowanych przedmiotów,
-  w różnych obszarach, po aktywacji wszystkich Summoning Pools
-- W danych ery v1.12 ID flag pul wydają się być w zakresie `670xxx`; wcześniejsza baza danych
-  używała ID sprzed v1.12 przez ~rok przed korektą (2026-05-08)
+  w różnych obszarach; konkretna dźwignia pliku save odpowiedzialna za ten efekt nie została
+  wyizolowana w analizie offline
+- W danych ery v1.12 ID flag pul oczekiwano w zakresie `670xxx`; jednak analiza offline
+  obecnego datasetu `pvp-ready` nie potwierdza, że zakres ten jest poprawnie ustawiony
+  przez obecny edytor (patrz ograniczenie datasetu powyżej)
 
 ---
 
@@ -678,12 +697,16 @@ Zaobserwowane dowody (bez potwierdzonej przyczynowości hex):
 - Dokładne semantyczne znaczenie poszczególnych wartości `candidate_id`
 - Dokładna interpretacja po stronie serwera flag Summoning Pools i ID regionów
 - Czy jakiekolwiek pole UD10/UD0 bezpośrednio koduje „które flagi pul są aktywne"
+- Czy flagi Summoning Pools (670100–670980 w `summoning_pools.go`) mają jakikolwiek
+  bezpośredni wpływ na matchmaking inwazji Bloody Finger, czy wyłącznie na widoczność
+  znaków co-op — wymaga save'a testowego, gdzie wszystkie 213 flag `670xxx` jest ustawionych,
+  i pomiaru szybkości inwazji
 
 ### Praktyczne akcje dostępne przez plik save
 
 | Akcja | Mechanizm | Wpływ |
 |-------|-----------|-------|
-| **Aktywuj wszystkie Summoning Pools** (213 flag, `670xxx`) | Ustawienie wsadowe EventFlags | **Największy wpływ** — jednoczesne przeszukiwanie wszystkich obszarów |
+| **Aktywuj wszystkie Summoning Pools** (zakres flag TBD; `670xxx` niepotwierdzony) | Ustawienie wsadowe EventFlags | Wpływ na inwazje **niepotwierdzony** — przede wszystkim mechanizm co-op; edytor może używać nieaktualnych ID flag |
 | Dodaj wszystkie 104 regiony matchmakingu do `unlocked_regions` | `SetUnlockedRegions` | Więcej przeszukiwanych obszarów per próba |
 | Dodaj Taunter's Tongue do inwentarza | inject przedmiotu `0x4000006C` | Umożliwia inwazje bez phantomów co-op |
 | Dodaj stos Festering Bloody Finger | inject przedmiotu `0x4000006F` | Materiał zużywalny do aktywnych inwazji |
@@ -698,13 +721,16 @@ Zaobserwowane dowody (bez potwierdzonej przyczynowości hex):
 | Inwazja solo hosta | Tak (domyślnie) | Nie — wymaga Taunter's Tongue |
 | `breakInRequestIntervalTimeSec` | ~10s | 30s |
 | `breakInRequestTimeOutSec` | ~10s | 20s |
-| Dźwignie inwazji w pliku save | Żadne | `unlocked_regions`, Summoning Pools |
+| Dźwignie inwazji w pliku save | Żadne | `unlocked_regions`; Summoning Pools — wpływ na inwazje niepotwierdzony |
 | Ochrona regulation.bin | Ryzyko bana EAC online | Ryzyko bana EAC online (patch PS4 przeżywa) |
 
 Wąskim gardłem częstotliwości inwazji jest to, jak często i jak szeroko klient odpytuje
 serwer matchmakingu — kontrolowane przez `breakInRequestIntervalTimeSec` i `allAreaSearchRate_*`.
-W ER Summoning Pools osiągają efekt „szerokiego zapytania" na poziomie pliku save bez
-zmian NetworkParam w runtime.
+W ER `unlocked_regions` poszerza wyszukiwanie obszarów per zapytanie. Summoning Pools
+mogą przyczyniać się do szerszej kwalifikacji online, ale obecne dane offline nie
+potwierdzają tego dla inwazji Bloody Finger; obecny dataset `pvp-ready` jest niewystarczający
+do walidacji efektów flag Summoning Pools (patrz ograniczenie datasetu w §§ Praktyczny
+mechanizm — obserwacja gameplay).
 
 ### Pokrycie Unlocked Regions
 
