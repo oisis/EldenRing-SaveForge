@@ -877,6 +877,24 @@ with unconfirmed ones (summoning pools, NetworkParam) and visual-only changes (m
 The decomposition into six labelled modules (spec/48) resolves this without removing any
 existing functionality.
 
+**Two-layer region model (Phase 2 research — not yet production).**
+Real playthroughs contain 200–395 region IDs. Phase 2 offline audit (2026-05-09) identified:
+
+- **Named 104** (`backend/db/data/regions.go`) — current production default. Named/fast-travel
+  regions covering all major map areas. Applied by pvp-ready. Safe and confirmed.
+- **Observed internal IDs** (384 high-confidence) — small dungeon interiors (catacombs,
+  hero's graves, evergaols, mines; ranges 3000xxx–4300xxx). Not in production DB. May expand
+  per-location matchmaking coverage. **Hypothesis only — requires runtime A/B test.**
+- **Fresh-default quad** (`1001000|1001001|1001002|1001003`) — present in every vanilla save.
+  Removed when pvp-ready replaces the region list with named104. Runtime significance unknown.
+
+Runtime test variants A/B/C/D generated (2026-05-09):
+`tmp/regulation-bin-debug/region-runtime-test-bundle/region-test-{A,B,C,D}-*.dat`
+Script: `tmp/scripts/diag/region_runtime_test_bundle.go`
+Protocol: `tmp/regulation-bin-debug/region-runtime-test-bundle/region-runtime-test-bundle-report.md`
+
+**Production `regions.go` was not modified.** No UI change. Pending runtime console test.
+
 ---
 
 ## Sources

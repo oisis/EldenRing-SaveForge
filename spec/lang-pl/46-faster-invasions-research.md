@@ -853,6 +853,48 @@ SPEC-VALID** w tym zbiorze danych; zachowanie PC może być inne.
 
 ---
 
+## 13. Kierunek produktu / Implikacje dla SaveForge
+
+> Dodano 2026-05-09 po zakończeniu dochodzenia. Pełny design w spec/48.
+
+**Odblokowania regionów to potwierdzony mechanizm PvP na poziomie pliku save.**
+Moduł B z spec/48 (`unlocked_regions`) jest głównym mechanizmem. Wszystkie 104 ID regionów
+z `backend/db/data/regions.go` powinny być aplikowane domyślnie przez pvp-ready.
+
+**UD11 NetworkParam to badania, nie funkcja główna.**
+Spatchowane wartości przeżywają na PS4; runtime efekt na timing inwazji — niepotwierdzony.
+
+**UD10 / UD0 session structures to diagnostyka (read-only).**
+`UD10+0x5070` i `UD0+0x209B00..0x209C43` — klasyfikator stanu BF, nie cel patcha.
+
+**Summoning Pools to feature co-op / przywoływania.**
+Flagi `670xxx` włączają co-op Martyr Effigy. Wpływ na Bloody Finger inwazje — niepotwierdzony.
+
+**Preset pvp-ready musi stać się modularny.**
+Jeden nieprzejrzysty przycisk "Zastosuj preset PvP" miesza efekty potwierdzone (regiony, kolosei)
+z niepotwierdzonymi (summoning pools, NetworkParam) i wizualnymi (mapa, łaski).
+Dekompozycja na sześć oznaczonych modułów (spec/48) rozwiązuje to bez usuwania istniejących funkcji.
+
+**Dwuwarstwowy model regionów (badania Phase 2 — nie produkcja).**
+Realne save'y z eksploracji zawierają 200–395 ID regionów. Audyt offline Phase 2 (2026-05-09) zidentyfikował:
+
+- **Named 104** (`backend/db/data/regions.go`) — aktualny domyślny produkcyjny. Regiony nazwane
+  pokrywające wszystkie główne obszary mapy. Aplikowane przez pvp-ready. Bezpieczne i potwierdzone.
+- **Observed internal IDs** (384 high-confidence) — wnętrza małych lochów (katakomby, groby bohaterów,
+  evergaole, kopalnie; zakresy 3000xxx–4300xxx). Poza produkcyjną bazą DB. Mogą rozszerzyć pokrycie
+  matchmakingu per lokacja. **Tylko hipoteza — wymaga runtime testu A/B.**
+- **Fresh-default quad** (`1001000|1001001|1001002|1001003`) — obecny w każdym vanilla save.
+  Usuwany gdy pvp-ready zastępuje listę regionów named104. Znaczenie runtime nieznane.
+
+Warianty testu runtime A/B/C/D wygenerowane (2026-05-09):
+`tmp/regulation-bin-debug/region-runtime-test-bundle/region-test-{A,B,C,D}-*.dat`
+Skrypt: `tmp/scripts/diag/region_runtime_test_bundle.go`
+Protokół: `tmp/regulation-bin-debug/region-runtime-test-bundle/region-runtime-test-bundle-report.md`
+
+**Produkcyjny `regions.go` nie został zmodyfikowany.** Brak zmian UI. Oczekuje na test konsolowy.
+
+---
+
 ## Źródła
 
 - `tmp/regulation-bin-dump/csv/NetworkParam.csv` — vanilla NetworkParam wartości pól
