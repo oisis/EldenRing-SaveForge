@@ -990,6 +990,8 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 	switch name {
 	case "fast-invasions":
 		p = core.NetworkParamFastInvasions()
+	case "light-invasions":
+		p = core.NetworkParamLightInvasions()
 	case "fast-summons":
 		p = core.NetworkParamFastSummons()
 	case "fast-blue":

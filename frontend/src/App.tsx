@@ -11,6 +11,7 @@ import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {PvPPreparationTab} from './components/PvPPreparationTab';
+import {NetworkTab} from './components/NetworkTab';
 
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
@@ -107,7 +108,7 @@ function App() {
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
 
     const tabs = platform
-        ? ['character', 'inventory', 'world', 'pvp', 'tools', 'settings']
+        ? ['character', 'inventory', 'world', 'pvp', 'network', 'tools', 'settings']
         : ['character', 'inventory', 'settings'];
 
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
@@ -596,6 +597,7 @@ function App() {
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={refreshUndoDepth} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
                                 {activeTab === 'pvp' && <PvPPreparationTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
+                                {activeTab === 'network' && <NetworkTab platform={platform} />}
                                 {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>

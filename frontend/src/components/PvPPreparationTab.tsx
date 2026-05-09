@@ -3,6 +3,7 @@ import toast from '../lib/toast';
 import {ApplyPvPPreparation} from '../../wailsjs/go/main/App';
 import {main} from '../../wailsjs/go/models';
 import type {PvPOptions} from '../App';
+import {NetworkSpeedPanel} from './NetworkSpeedPanel';
 
 interface PvPPreparationTabProps {
     charIdx: number;
@@ -231,6 +232,10 @@ export function PvPPreparationTab({charIdx, platform, pvpOpts, onPvpOptsChange, 
                 {!platform && (
                     <span className="text-[9px] text-muted-foreground">Load a save file first.</span>
                 )}
+            </div>
+
+            <div className="border-t border-border/40 pt-4">
+                <NetworkSpeedPanel platform={platform ?? null} onMutate={onMutate} />
             </div>
 
             {resultWarnings.length > 0 && (

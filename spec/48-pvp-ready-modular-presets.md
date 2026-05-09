@@ -214,8 +214,10 @@ Present it only as co-op/summon activation.
 #### UD11 NetworkParam Inspector / Patcher
 - Read current values of `breakInRequestIntervalTimeSec`, `breakInRequestTimeOutSec`, etc.
 - Optional write of tuned values (see spec/44 for field table)
-- **Warning to user**: "PS4/PS5 console overwrites regulation.bin from server on online
-  connect. UD11 changes are local-only and unconfirmed to affect actual invasion timing."
+- **Warning to user**: "NetworkParam patch is confirmed effective after character reload
+  (exit to menu → reload). Server overwrites regulation.bin on next online connect —
+  effect is temporary. Online use carries EAC ban risk."
+- Show the confirmed activation procedure (spec/46 §11) inline
 
 #### UD10 BF State Classifier
 - Read-only display of `UD10+0x5070`, `UD10+0x194E4`, `UD10+0x5080`
@@ -229,8 +231,8 @@ Present it only as co-op/summon activation.
 - Display V-queue state (IDLE vs ACTIVE, which entry_id is at V0)
 
 **This module is diagnostic only.** Do not expose as a "PvP speed-up" button.
-The NetworkParam patcher is an advanced feature for research users who understand
-that server-side enforcement renders UD11 changes ineffective online.
+The NetworkParam patcher is an advanced feature. Effect is confirmed after character reload
+(offline); server overwrites UD11 on next online connect, so changes are temporary.
 
 ---
 
@@ -482,9 +484,9 @@ preparation through save editing is:
 
 - **Region unlocks** (Module B) — confirmed to control invasion eligibility and area
   visibility to invaders. This is the primary save-level PvP-relevant feature.
-- **UD11 NetworkParam** — values survive in the PS4 file; runtime effect on invasion
-  timing is unconfirmed. Expose as research-grade diagnostic (Module F), not as a
-  primary PvP feature.
+- **UD11 NetworkParam** — patch confirmed effective after character/session reload.
+  Server overwrites UD11 on online connect. Expose as Module F (advanced/research) with
+  activation instructions and EAC ban risk warning. Not part of the default PvP-ready flow.
 - **UD10 / UD0 session structures** — runtime-only state. Expose as read-only
   diagnostics (Module F). Not a patch target.
 - **Summoning Pools** — co-op / summon feature. Bloody Finger invasion impact is
@@ -502,12 +504,14 @@ preparation through save editing is:
 | Phase 1 | `ValidateWorldRegions`, `ValidateWorldColosseums`, `ValidateWorldMapFlags`, `ValidateWorldGraces` + `validateKnownEventFlags` (generic) + `validatePresetModules` (orchestrator) + wire all into `ValidatePreset` | ✅ Complete |
 | Phase 2 | `PvP Preparation` tab — high-level orchestrator UI with per-module checkboxes | ✅ Complete (MVP) |
 | Phase 3 | Module F: BF state classifier read-only display (UD10 + UD0 reader) | 🔲 Planned (blocked: spec/46 §7) |
-| Phase 4 | Module F: UD11 NetworkParam inspector UI | 🔲 Planned (blocked: spec/44) |
+| Phase 4 | Module F: UD11 NetworkParam — Network Speed Panel (preset picker) | ✅ Complete |
 | Phase 5 | Varre quest shortcut preset step (Module C) | 🔲 Planned (blocked: spec/38 pattern) |
 
 **Phase 1 is complete.** `validateKnownEventFlags` and `validatePresetModules` were consolidated into Phase 1 (originally planned as Phase 2) since they depend only on Phase 1 validators.
 
 **Phase 2 MVP is complete.** The `PvP Preparation` tab ships with 4 active modules (Matchmaking Regions, Colosseums, Map Reveal, Summoning Pools) and 1 planned placeholder (Sites of Grace). See §8 below.
+
+**Phase 4 is complete.** The Network Speed Panel (`NetworkSpeedPanel.tsx`) ships as an accordion under PvP Preparation — see §8.1 below.
 
 ---
 
@@ -571,6 +575,79 @@ A profile selector is displayed above the module checklist. Profiles are UI-only
 
 ---
 
+## 8.1 Network Speed Panel
+
+**Component**: `frontend/src/components/NetworkSpeedPanel.tsx`
+
+Rendered inside `PvPPreparationTab.tsx`, below the module checklist, separated by a border.
+Wrapped in `AccordionSection` — **collapsed by default**.
+
+**What it does:**
+- Patches UD11 NetworkParam inside the save file.
+- Effect is **global for the entire save** — all character slots share UD11.
+- **Requires character reload** to activate: Load character → Exit to main menu → Load again.
+- Server overwrites UD11 on next online connect (effect is temporary).
+- Aggressive settings may increase online enforcement risk.
+
+**UI layout:**
+
+```
+▸ Advanced: Network Speed
+─────────────────────────────────────────────────────
+⚠  Aggressive network settings may increase online enforcement risk.
+
+   Activation required after import:
+   Load character once → Exit to main menu → Load character again.
+
+   These settings are global for the whole save, not per character.
+
+   Red invasion retry is confirmed after character reload.
+   Summons, Blue, and Host presets modify related NetworkParam fields
+   but should be treated as experimental until tested in their specific online flows.
+
+[ Restore Vanilla Network Params ]   Targets 5 · interval 30s · timeout 20s · sign download 30s
+
+Reds / Invader
+[ Light Reds ]  [ Fast Reds ]
+
+Summons / Co-op Signs
+[ Fast Summons ]
+
+Blue / Hunter
+[ Fast Blue ]
+
+Host / Taunter's Tongue
+[ Aggressive Host ]
+
+[ Apply Selected Preset ]
+```
+
+**Presets:**
+
+| Preset | Backend key | Risk | Status | Changed fields |
+|--------|---|---|---|---|
+| Vanilla | `ResetNetworkParams()` | None | — | All fields reset to game defaults |
+| Light Reds | `light-invasions` | Low | Confirmed | targets 8, interval 10s, timeout 8s |
+| Fast Reds | `fast-invasions` | Aggressive | Confirmed | targets 10, interval 4s, timeout 4s |
+| Fast Summons | `fast-summons` | Experimental | Unverified in co-op flow | sign download 10s, update 15s, reload 15s, total 40, cells 20, max 64 |
+| Fast Blue | `fast-blue` | Experimental | Unverified in Blue flow | cooldown 5s, count 4, visit list 15, search 10–30s, all-area 75% |
+| Aggressive Host | `aggressive-host` | Experimental | Unverified in Host flow | visitor max 20, timeout 60s, download 10s |
+
+**Backend preset functions** (`backend/core/regulation.go`):
+- `NetworkParamLightInvasions()` — Light Reds
+- `NetworkParamFastInvasions()` — Fast Reds
+- `NetworkParamFastSummons()` — Fast Summons (experimental values)
+- `NetworkParamFastBlue()` — Fast Blue (experimental values)
+- `NetworkParamAggressiveHost()` — Aggressive Host (experimental values)
+
+All wired via `app.go` `GetNetworkPreset(name)`. No new app.go methods needed.
+
+**Advanced slider UI:** `frontend/src/components/NetworkTab.tsx` — separate tab "network", 4 role tabs (Invader / Cooperator / Blue / Host) with individual sliders for all 20 NetworkParam fields. Complements the quick-preset panel for custom tuning.
+
+**Does NOT patch:** UD10, UD0, world-state flags, character slots.
+
+---
+
 ## Sources
 
 | File | Relevance |
@@ -581,7 +658,7 @@ A profile selector is displayed above the module checklist. Profiles are UI-only
 | `backend/db/data/graces.go` | 419 grace entries with EventFlag IDs + DoorFlags |
 | `backend/db/data/quests.go` | `"White Mask Varre"` — 19 quest steps with flags |
 | `app_world.go` | All World-tab backend functions |
-| `spec/46-faster-invasions-research.md` | Final verdict: UD11 patch has no confirmed runtime effect |
+| `spec/46-faster-invasions-research.md` | Final verdict: UD11 patch confirmed effective after character reload; Track A (UD10 timer) confirmed ineffective |
 | `spec/47-site-of-grace-activation.md` | Grace unlock confirmed for map/fast-travel; in-world animation open |
 | `spec/44-network-param-tuning.md` | NetworkParam field reference |
 | `spec/32-ban-risk-system.md` | Tier 0/1/2 definitions |

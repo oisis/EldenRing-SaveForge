@@ -27,6 +27,7 @@ const INVADER_SLIDERS: SliderDef[] = [
     {key: 'maxBreakInTargetListCount', label: 'Max Targets', desc: 'Invasion target candidates per search', min: 1, max: 20, step: 1, unit: '', defaultVal: 5},
     {key: 'breakInRequestIntervalTimeSec', label: 'Request Interval', desc: 'Delay between matchmaking retries', min: 2, max: 30, step: 1, unit: 's', defaultVal: 30},
     {key: 'breakInRequestTimeOutSec', label: 'Request Timeout', desc: 'Timeout per matchmaking request', min: 3, max: 20, step: 1, unit: 's', defaultVal: 20},
+    {key: 'breakInRequestAreaCount', label: 'Area Count', desc: 'Number of map areas searched per invasion cycle', min: 1, max: 20, step: 1, unit: '', defaultVal: 5},
 ];
 
 const COOPERATOR_SLIDERS: SliderDef[] = [
@@ -222,6 +223,7 @@ function paramsToDict(p: core.NetworkParamValues): Record<string, number> {
         maxBreakInTargetListCount: p.maxBreakInTargetListCount,
         breakInRequestIntervalTimeSec: p.breakInRequestIntervalTimeSec,
         breakInRequestTimeOutSec: p.breakInRequestTimeOutSec,
+        breakInRequestAreaCount: p.breakInRequestAreaCount,
         reloadSignIntervalTime2: p.reloadSignIntervalTime2,
         reloadSignTotalCount: p.reloadSignTotalCount,
         reloadSignCellCount: p.reloadSignCellCount,

@@ -62,7 +62,7 @@ na edycję wyłącznie pliku save bez dotykania UD11.
 1. Pełny skan UD10 pod kątem sygnatur NetworkParam → zmapowane stabilne regiony, brak trwałego NetworkParam
 2. Struktura NetMan wewnątrz slotów postaci → cache historii tylko do odczytu, niekonfigorowalny
 3. EventFlags → flagi questów/obszarów, nie parametry czasowe
-4. UD11 regulation.bin → wartości zapisywalne, ale efekt runtime nieokreślony (patrz §3)
+4. UD11 regulation.bin → patch potwierdzony skuteczny po przeładowaniu postaci/sesji (patrz §3 i §11)
 5. Automat stanów BF w UD10 → odkryto rzeczywisty stan sesji (`UD10+0x5070`)
 6. Skan binarny UD0 → znaleziono `MatchmakingCandidateSection` pod `UD0+0x209B00..0x209C43`
 
@@ -180,11 +180,13 @@ Próby edycji (wszystkie resetowane przez grę przy następnym save):
 
 **Wniosek**: NetMan to log historii. Edycja nie wpływa na zachowanie matchmakingu.
 
-### Otwarte pytanie
+### Potwierdzone: patch UD11 jest skuteczny
 
-Czy runtime gry czyta NetworkParam **z UD11** czy z **osobnej kopii w instalacji** —
-niepotwierdzone. Są nieodróżnialne wyłącznie na podstawie pliku save. Definitywne
-potwierdzenie wymaga zmierzenia rzeczywistych interwałów inwazji w grze przed i po patchu.
+Testy na konsoli (PS4/PS5, 2026-05-09) potwierdziły, że patchowanie wartości NetworkParam w UD11
+**wpływa na timing inwazji** po przeładowaniu postaci/sesji. Gra czyta NetworkParam z UD11
+przy ładowaniu postaci — nie z osobnej kopii w instalacji.
+
+Patrz §11 — potwierdzona procedura aktywacji, analiza Track A vs Track B i tabela presetów.
 
 ---
 
@@ -581,8 +583,9 @@ ale nie zostały bezpośrednio potwierdzone wyłącznie z danych pliku save. Tra
 - `UD10+0x42C54/0x42C58` = współrzędne lub liczniki czasu używane podczas aktywnego wyszukiwania
 - Przepisanie kolejki V = „promowane LRU": wybrany cel przechodzi na czoło, pozostałe wpisy odwrócone
   (spójne z semantyką pop stosu MRU — ostatnio napotkani kandydaci opadają na dół)
-- Spatchowane wartości NetworkParam w UD11 przeżywają na PS4, ale mogą nie wpływać na gameplay
-  jeśli runtime ładuje parametry z kopii w instalacji, a nie z UD11
+- Spatchowane wartości NetworkParam w UD11 przeżywają na PS4 i **wpływają na timing inwazji**
+  po przeładowaniu postaci/sesji — gra czyta z UD11, nie z kopii w instalacji
+  (patrz §11 — Potwierdzona procedura aktywacji)
 
 ---
 
@@ -607,8 +610,6 @@ ale nie zostały bezpośrednio potwierdzone wyłącznie z danych pliku save. Tra
   `f32=1/30` (odwrotność vanilla `breakInRequestIntervalTimeSec=30s`), ale pochodzenie nieznane —
   może to być kanoniczne parametry runtime, stan serwera lub lokalna regulation.
   Pole NIE dowodzi użycia runtime z UD11 NetworkParam.
-- Czy gra czyta NetworkParam z UD11 czy z kopii w instalacji — wymaga zmierzenia rzeczywistego
-  interwału inwazji przed i po patchu
 - **Tablica float `UD10+0x42B00..0x42E00`**: region zawiera gęste wartości `f32=1.0` w save'ach
   bf-on i org, rozproszone wartości niezerowe w innych stanach. Jest to heterogeniczna tablica
   float (tabela wag / tabela prawdopodobieństwa), a nie pojedynczy skalarny marker. Nie traktuj
@@ -623,11 +624,49 @@ ale nie zostały bezpośrednio potwierdzone wyłącznie z danych pliku save. Tra
 Wszystkie poniższe pozycje zweryfikowano binarnie na 6 znanych stanach save.
 Nie zależą od obserwacji gameplay ani pomiarów runtime.
 
-**Patch NetworkParam w UD11 nie wpływa mierzalnie na stan runtime UD0/UD10.**
-Spatchowane wartości przeżywają w pliku PS4 i są odczytywalne po upload/download.
-Żadna kopia nie pojawia się w stabilnych regionach UD0 ani UD10. Automat stanów BF
-nie wykazuje obserwowalnej różnicy między spatchowanymi a vanilla save'ami w równoważnych
-stanach sesji.
+**Patch NetworkParam w UD11 jest potwierdzony skuteczny po przeładowaniu postaci/sesji.**
+Spatchowane wartości przeżywają w pliku PS4 i są odczytywalne po upload/download. Gra
+czyta NetworkParam z UD11 przy ładowaniu postaci — nie z kopii w instalacji.
+Żadna trwała kopia nie pojawia się w stabilnych regionach UD0 ani UD10; snapshot automatu
+stanów BF jest identyczny z vanilla, ale rzeczywisty timing inwazji jest mierzalnie skrócony.
+Efekt jest globalny dla całego pliku save — wszystkie sloty postaci dzielą UD11.
+
+### Potwierdzona procedura aktywacji
+
+Zweryfikowane testem konsolowym (PS4/PS5, 2026-05-09):
+
+1. Zastosuj `PatchNetworkParams()` z wartościami Fast Invasions (interval=4.0, timeout=4.0, targets=10).
+2. Zaimportuj spatchowany save na PS4/PS5 (SafeSync lub USB).
+3. Wczytaj postać do gry. *(Pierwsze wczytanie może nadal używać wartości vanilla.)*
+4. **Wyjdź do menu głównego.**
+5. **Wczytaj tę samą postać ponownie.** → Faster Invasions jest teraz aktywny.
+6. Efekt jest globalny — wszystkie sloty postaci na save'ie dzielą UD11.
+7. Resetuje się automatycznie gdy klient łączy się z serwerami gry (serwer nadpisuje UD11).
+
+⚠️ **Ryzyko bana**: edycja `regulation.bin` jest monitorowana przez EAC (Easy Anti-Cheat).
+Spatchowane wartości przeżywają tylko do następnego połączenia z serwerem. Użycie online
+jest na własne ryzyko gracza.
+
+### Track A vs Track B
+
+| Track | Podejście | Werdykt | Dowód |
+|-------|-----------|---------|-------|
+| **A — patchowanie timerów UD10** | Patch pól timerów runtime pod `UD10+0x194C0..0x19540` | **NIESKUTECZNE** — gra przebudowuje cały stan runtime UD10 (~287 KB) przy każdym init sesji. Spatchowane wartości są nadpisywane. | Roundtrip test wariant 06: diff UD10 287 912 bajtów, klaster `0x5068–0x44C64` |
+| **B — UD11 NetworkParam** | Patch `breakInRequestIntervalTimeSec`, `breakInRequestTimeOutSec`, `maxBreakInTargetListCount` w regulation.bin | **SKUTECZNY** po przeładowaniu postaci. Serwer nadpisuje UD11 przy połączeniu online. | Test konsolowy PS4/PS5, 2026-05-09 |
+
+Skrypty Track A: `tmp/scripts/diag/bf_retry_timer_patch_bundle.go` (10 wariantów testowych),
+`tmp/scripts/diag/bf_timer_patch_roundtrip_compare.go` (porównanie roundtrip, werdykt CASE D).
+
+### Presety NetworkParam
+
+| Preset | `maxBreakInTargetListCount` | `breakInRequestIntervalTimeSec` | `breakInRequestTimeOutSec` | `breakInRequestAreaCount` | Uwagi |
+|--------|---|---|---|---|---|
+| Vanilla | 5 | 30.0 | 20.0 | 5 | Domyślne wartości gry (`NetworkParamDefaults()`) |
+| Light / Safer | 5 | 10.0 | 10.0 | 5 | Umiarkowane przyspieszenie; niższe ryzyko detekcji |
+| Fast Invasions | 10 | 4.0 | 4.0 | 5 | Preset produkcyjny (`NetworkParamFastInvasions()`); potwierdzony na konsoli |
+
+`breakInRequestAreaCount` pod offsetem `0x7C` pozostaje vanilla=5 we wszystkich presetach.
+Preset Light nie jest jeszcze w produkcyjnym `regulation.go` — dodaj w razie potrzeby.
 
 **Rzeczywisty stan matchmakingu/wyszukiwania jest reprezentowany w UD10 i UD0.**
 Główne słowo stanu sesji: `UD10+0x5070`.
@@ -692,8 +731,6 @@ Zaobserwowane dowody (bez potwierdzonej przyczynowości hex):
 
 ### Nieznane (niemożliwe do ustalenia offline)
 
-- Czy runtime gry czyta NetworkParam z UD11 czy z osobnej kopii w instalacji —
-  wymaga zmierzenia live timing inwazji przed i po patchu
 - Dokładne semantyczne znaczenie poszczególnych wartości `candidate_id`
 - Dokładna interpretacja po stronie serwera flag Summoning Pools i ID regionów
 - Czy jakiekolwiek pole UD10/UD0 bezpośrednio koduje „które flagi pul są aktywne"
@@ -712,7 +749,7 @@ Zaobserwowane dowody (bez potwierdzonej przyczynowości hex):
 | Dodaj stos Festering Bloody Finger | inject przedmiotu `0x4000006F` | Materiał zużywalny do aktywnych inwazji |
 | Ustaw EventFlags questlini Varrého | edycja EventFlags | Odblokowuje Mohgwyn + Festering Bloody Finger bez postępu fabularnego |
 | `perform_matchmaking = 1` pod `UD10[0x0013]` | Zapis bajtu UD10 | Zapewnia tryb online — nie jest parametrem przyspieszającym |
-| Patch NetworkParam w UD11 | edycja regulation.bin | PS4: wartości przeżywają; efekt runtime **niepotwierdzony** |
+| Patch NetworkParam w UD11 | edycja regulation.bin | PS4: **potwierdzony skuteczny** po przeładowaniu postaci; serwer nadpisuje przy następnym połączeniu online — patrz §11 Potwierdzona procedura aktywacji |
 
 ### Porównanie z DS3 *(przybliżone porównanie; wartości DS3 bez lokalnego dumpa param)*
 
@@ -861,8 +898,9 @@ SPEC-VALID** w tym zbiorze danych; zachowanie PC może być inne.
 Moduł B z spec/48 (`unlocked_regions`) jest głównym mechanizmem. Wszystkie 104 ID regionów
 z `backend/db/data/regions.go` powinny być aplikowane domyślnie przez pvp-ready.
 
-**UD11 NetworkParam to badania, nie funkcja główna.**
-Spatchowane wartości przeżywają na PS4; runtime efekt na timing inwazji — niepotwierdzony.
+**Patch UD11 NetworkParam jest potwierdzony skuteczny po przeładowaniu postaci/sesji.**
+Eksponuj jako Moduł F (zaawansowany/badawczy) z procedurą aktywacji (wyjście do menu + reload)
+i ostrzeżeniem o ryzyku bana EAC. Serwer nadpisuje UD11 przy połączeniu online.
 
 **UD10 / UD0 session structures to diagnostyka (read-only).**
 `UD10+0x5070` i `UD0+0x209B00..0x209C43` — klasyfikator stanu BF, nie cel patcha.
@@ -872,7 +910,8 @@ Flagi `670xxx` włączają co-op Martyr Effigy. Wpływ na Bloody Finger inwazje 
 
 **Preset pvp-ready musi stać się modularny.**
 Jeden nieprzejrzysty przycisk "Zastosuj preset PvP" miesza efekty potwierdzone (regiony, kolosei)
-z niepotwierdzonymi (summoning pools, NetworkParam) i wizualnymi (mapa, łaski).
+z niepotwierdzonymi (summoning pools), badawczo-tymczasowymi (NetworkParam — potwierdzony
+po reload, ale serwer resetuje przy połączeniu online) i wizualnymi (mapa, łaski).
 Dekompozycja na sześć oznaczonych modułów (spec/48) rozwiązuje to bez usuwania istniejących funkcji.
 
 **Dwuwarstwowy model regionów (badania Phase 2 — nie produkcja).**
