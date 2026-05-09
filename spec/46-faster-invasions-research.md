@@ -213,6 +213,7 @@ This is the only directly actionable network setting confirmed in the save file.
 | `UD10+0x19504` | `0xFFFFFFFF` = PATCHED-IDLE sentinel (E only) |
 | `UD10+0x19508` | `f32=90.0` = active search window timer (F only) |
 | `UD10+0x194F4` | `f32=-150.0` = active search countdown (F only) |
+| `UD10+0x19524` | `f32≈0.0333` — likely reciprocal interval / tick rate field candidate (ACTIVE-BF / F only; origin unconfirmed) |
 | `UD10+0x42C54` | `f32` — coordinates or counter, active search (J/F) |
 | `UD10+0x42C58` | `f32` — coordinates or counter, active search (J/F) |
 | `UD10+0x5080` | `f32=1.0` = invasion success/cleared (I only) |
@@ -232,9 +233,38 @@ This is the only directly actionable network setting confirmed in the save file.
 
 `~0` = near-zero float noise (not a signal value).
 
+### UD10+0x5070 Full Distribution (Batch — 62 active slots)
+
+Complete value distribution observed across all 25 save files, 62 active slots:
+
+| Value | Count | Classifier label | Notes |
+|-------|-------|-----------------|-------|
+| `0x00000000` | 20 | CLEARED | success + timeout + some zeroed slots |
+| `0x3F4A1AF3` | 14 | **UNKNOWN** | likely baseline — no PvP session history |
+| `0xFF545C5D` | 8 | **UNKNOWN** | likely uninitialized (`oisisk_ps4.txt`) |
+| `0x0100018F` | 6 | PASSIVE | confirmed primary state |
+| `0x30307964` | 4 | **UNKNOWN** | garbage / LE bytes = ASCII `dy00` (`oisis_pl-org.txt`) |
+| `0xC20FFFFF` | 4 | **UNKNOWN** | unknown; possible timer artifact |
+| `0x00000001` | 2 | BF-INIT | confirmed primary state |
+| `0x00002F60` | 2 | PATCHED-IDLE | confirmed primary state |
+| `0x01000081` | 2 | ACTIVE-BF | confirmed primary state |
+
+The 4 UNKNOWN values (`0x3F4A1AF3`, `0xFF545C5D`, `0x30307964`, `0xC20FFFFF`) together
+account for 30/62 slots (48%). All 30 slots also have `sect_result = NOT-INITIALIZED` or
+`DEVIATES` — their UD0 candidate sections are uninitialized or garbage. These values
+should **not** be added to the primary BF state machine until reproduced in SPEC-VALID
+active session states where UD0 is also valid.
+
 ---
 
 ## 5. UD0 MatchmakingCandidateSection
+
+> **SPEC-VALID inference caveat**: All structural conclusions in this section are based
+> on `SPEC-VALID` slots only. Batch analysis (62 active slots across 25 files) found:
+> 8 SPEC-VALID (all PS4), 35 NOT-INITIALIZED, 19 DEVIATES. Raw aggregates across all
+> slots contain significant noise — candidate ID values, flag patterns, and queue layouts
+> from NOT-INITIALIZED / DEVIATES slots must not be counted as evidence for or against
+> any structural claim.
 
 ### Location
 
@@ -348,6 +378,21 @@ Key invariants:
 - `flag_a` and `flag_b` are **entry properties** — they travel with `entry_id` through all reorderings
 - Non-target entries V1-V6 in ACTIVE state = **exact REVERSE** of their IDLE order (not a rotation)
 
+### Candidate ID Stability — Batch Analysis Note
+
+Batch analysis across 25 save files (62 active slots) showed **9 distinct A01 signature
+variants** and **9 distinct C0-C4 signature variants** in raw aggregates. These apparent
+variants are noise: all non-canonical variants come exclusively from `NOT-INITIALIZED`
+and `DEVIATES` slots containing uninitialized or garbage data at `UD0+0x209B00..0x209C43`.
+
+After filtering to `SPEC-VALID` slots only (8 PS4 slots):
+
+- **A01 entries** have exactly 1 known variant: `0x12B01F00 | 0x12B01E00`
+- **C0-C4 entries** have exactly 1 known variant: `0x21556E00 | 0x30498E00 | 0x11C50E00 | 0x212E5F00 | 0x212E5E00`
+
+Global stability of these IDs is confirmed **for SPEC-VALID slots only**. Raw aggregate
+counts from all 62 slots are meaningless for ID stability claims.
+
 ### Terminator
 
 `UD0+0x209C40`: `0x00000000` (4 bytes).
@@ -457,6 +502,38 @@ UD0+0x209BA4 == 0x3097AE00?
         └── UD10+0x5080 == 0x00000000  →  TIMEOUT
 ```
 
+### Slot-Level Classifier Caveat
+
+UD10 is **global to the save file**, while UD0 is **per character slot**. During an active
+invasion session, inactive slots will see the global UD10 state (e.g., `0x01000081`), but
+their own UD0 candidate queue may be empty or unrelated to the active session.
+
+Example: `oisis_pl-pvp-ready-netparam-finger-on.dat` slot 1 (`Bydlaczka_150`) had
+`UD10+0x5070=0x01000081`, but `V0ID=0x00000000` (no candidate queue), so the classifier
+correctly returns `UNKNOWN` rather than `ACTIVE-BF`.
+
+The classifier must require **both**:
+- global UD10 state matching a known BF pattern, AND
+- matching per-slot UD0 candidate queue in SPEC-VALID state (`sect_result=SPEC-VALID`).
+
+A non-zero V0 entry alone is not sufficient — DEVIATES slots may have non-zero bytes at
+the V0 offset that are garbage, not a valid candidate ID.
+
+### Structural Deviations Summary
+
+Batch analysis found 19 DEVIATES slots across 25 save files. Key patterns:
+
+- All 10 PC BND4 active slots with characters (in `ER0000.sl2`, `ER0000-out.sl2`) have
+  random bytes at the candidate section offset — either `0xFF`-filled or garbage structs.
+- Several PS4 saves (`oisis_pl-org.txt`, `oisis_pl-pvp-ready.dat`, intermediate `.dat`
+  files) show partial or byte-swapped structures at this offset, indicating the section
+  was written in a different layout or left uninitialized.
+- `ER0000-kro55-vanilla.sl2` (PC, single slot, `Random` lvl 9) is NOT-INITIALIZED.
+
+This confirms: structural deviations do not indicate a parser bug. In the current dataset,
+the `MatchmakingCandidateSection` at `UD0+0x209B00` produced SPEC-VALID results only in
+PS4 saves with prior online invasion session history.
+
 ---
 
 ## 8. Confirmed Findings
@@ -498,6 +575,8 @@ directly confirmed from save file data alone. Treat as working hypotheses.
 - `UD10+0x5070` MSB byte = activity state; LSB word = substatus code
 - `UD10+0x19508=f32=90.0` = invasion search window length in seconds
 - `UD10+0x194F4=f32=-150.0` = countdown timer from -150 toward 0 during active search
+- `UD10+0x19524=f32≈0.0333` may be a reciprocal interval / tick rate field used during
+  active search (1/30 = `breakInRequestIntervalTimeSec` reciprocal in vanilla regulation)
 - `UD10+0x42C54/0x42C58` = coordinates or elapsed-time counters used during active search
 - V-queue rewrite = "promoted LRU": selected target goes to head, remaining entries reversed
   (consistent with MRU stack pop semantics — most recently encountered candidates bubble down)
@@ -523,8 +602,16 @@ directly confirmed from save file data alone. Treat as working hypotheses.
   known NetworkParam or timing field
 - Why `UD10+0x19504=0xFFFFFFFF` appears in E (patched-idle) and not in any other idle save
 - Full semantics of `UD10+0x42B00..0x42E00` — heterogeneous struct, no decoder available
+- **`UD10+0x19524` origin**: field observed only in ACTIVE-BF save (F); likely `f32=1/30`
+  (reciprocal of vanilla `breakInRequestIntervalTimeSec=30s`), but origin is unknown —
+  could be canonical runtime params, server state, or local regulation. This field does NOT
+  prove UD11 NetworkParam runtime usage.
 - Whether the game reads NetworkParam from UD11 or from an in-installation copy — requires
   measuring actual invasion interval timing before and after patching
+- **`UD10+0x42B00..0x42E00` float array**: region contains dense `f32=1.0` values in bf-on
+  and org saves, scattered non-zero offsets in other states. This is a heterogeneous float
+  array (weight table / probability table) rather than a single scalar marker; do not treat
+  individual `f32=1.0` hits as independent signals. No decoder is available.
 
 ---
 
@@ -651,6 +738,29 @@ Capabilities:
 - UD10 state classifier — maps the 4-field combination to one of:
   PASSIVE / BF-INIT / ACTIVE-BF / SUCCESS / TIMEOUT / PATCHED-IDLE
 
+### batch_analysis.go
+
+`tmp/scripts/diag/batch_analysis.go` — batch processor that runs save_inspector logic
+across a directory of save files and emits CSV + Markdown summary.
+
+Output files:
+- `tmp/regulation-bin-debug/batch-save-analysis.csv` — per-slot row for each active slot
+- `tmp/regulation-bin-debug/batch-save-report.md` — aggregate statistics and distribution tables
+
+Batch validation result (2026-05-09):
+
+| Metric | Value |
+|--------|-------|
+| Files processed | 25 |
+| Active slots | 62 |
+| SPEC-VALID | 8 |
+| NOT-INITIALIZED | 35 |
+| DEVIATES | 19 |
+| UNKNOWN classified state | 32 |
+| Load errors | 0 |
+
+All 8 SPEC-VALID slots are PS4. All 16 PC active slots are NOT-INITIALIZED or DEVIATES.
+
 ### Regression Tests
 
 **9/9 passing.**
@@ -689,6 +799,19 @@ content has no semantic meaning.
 `version=0` and no character name must be treated as empty regardless of candidate section
 content.
 
+### Cross-Platform Validation (Batch Result)
+
+| Platform | Active slots | SPEC-VALID MatchmakingCandidateSection |
+|----------|-------------|----------------------------------------|
+| PC | 16 | 0 |
+| PS4 | 46 | 8 |
+
+PC BND4 saves in this dataset do not initialize the same `MatchmakingCandidateSection`
+layout observed in PS4 SPEC-VALID slots. This is not currently treated as a parser bug —
+PC slots with no invasion history contain random non-zero bytes at `UD0+0x209B00`, which
+fail the spec validator. The UD0 candidate queue model is confirmed for **PS4 SPEC-VALID
+slots only** in this dataset; PC behavior may differ.
+
 ### `-compare` Confirms Offset Compatibility
 
 `-compare` on PS4 vs PC saves confirms:
@@ -706,6 +829,8 @@ content.
 - `tmp/regulation-bin-dump/csv/NetworkParam.csv` — vanilla NetworkParam field values
 - `tmp/regulation-bin-dump/defs/NetworkParam.xml` — PARAMDEF field types and offsets
 - `tmp/regulation-bin-debug/final-report.md` — raw output from bf_candidatelist.go analysis
+- `tmp/regulation-bin-debug/batch-save-analysis.csv` — batch analysis of 25 save files (62 active slots)
+- `tmp/regulation-bin-debug/batch-save-report.md` — summary report from batch_analysis.go
 - `tmp/repos/er-save-manager/src/er_save_manager/data/region_ids_map.py` — 103 matchmaking region IDs
 - `tmp/netman_structure.md` — NetMan binary layout documentation
 - `backend/core/section_netman.go` — NetMan struct implementation
