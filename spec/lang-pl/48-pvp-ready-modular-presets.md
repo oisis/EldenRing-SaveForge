@@ -504,12 +504,74 @@ przygotowania PvP przez edycję save'a to:
 | Faza | Zakres | Status |
 |---|---|---|
 | Faza 1 | `ValidateWorldRegions`, `ValidateWorldColosseums`, `ValidateWorldMapFlags`, `ValidateWorldGraces` + `validateKnownEventFlags` (generyczny) + `validatePresetModules` (orkiestrator) + podłączenie do `ValidatePreset` | ✅ Kompletna |
-| Faza 2 | Lista checkboxów modułów w UI WorldTab / okno dialogowe apply presetu | 🔲 Planowane |
+| Faza 2 | Zakładka `PvP Preparation` — high-level orkiestrator UI z checkboxami per moduł | ✅ Kompletna (MVP) |
 | Faza 3 | Moduł F: klasyfikator stanu BF tylko do odczytu (czytniki UD10 + UD0) | 🔲 Planowane (blokada: spec/46 §7) |
 | Faza 4 | Moduł F: UI inspektora NetworkParam UD11 | 🔲 Planowane (blokada: spec/44) |
 | Faza 5 | Krok presetu skrótu questa Varre (Moduł C) | 🔲 Planowane (blokada: wzorzec spec/38) |
 
 **Faza 1 jest kompletna.** `validateKnownEventFlags` i `validatePresetModules` zostały skonsolidowane do Fazy 1 (pierwotnie zaplanowane jako Faza 2), ponieważ zależą wyłącznie od walidatorów Fazy 1.
+
+**MVP Fazy 2 jest kompletne.** Zakładka `PvP Preparation` zawiera 4 aktywne moduły (Matchmaking Regions, Colosseums, Map Reveal, Summoning Pools) i 1 placeholder (Sites of Grace). Patrz §8 poniżej.
+
+---
+
+## 8. Implementacja UI MVP
+
+**Nowa zakładka**: `PvP Preparation` (dodana do listy zakładek w `frontend/src/App.tsx`: `['character', 'inventory', 'world', 'pvp', 'tools', 'settings']`).
+
+**Architektura**:
+- `WorldTab` pozostaje granularnym edytorem (przełączniki per element, akordeony per sekcja).
+- `PvP Preparation` jest high-level orkiestratorem: checkboxy per moduł + jeden przycisk `Apply`.
+- Frontend NIE duplikuje list regionów/koloseów/pul — wszystkie dane są w backendowej DB.
+
+**Backend**:
+- Nowy plik `app_pvp.go` z typem `PvPPreparationOptions` i metodą `ApplyPvPPreparation(slotIndex int, opts PvPPreparationOptions) ([]string, error)`.
+- Pojedynczy `pushUndo` dla całej operacji (bez stackowania undo per moduł).
+- Deleguje do wewnętrznych funkcji core/DB; NIE wywołuje innych metod App (brak podwójnego undo).
+
+**Moduły MVP**:
+
+| Moduł | Domyślnie | Implementacja |
+|---|---|---|
+| Matchmaking Regions | ON | `core.SetUnlockedRegions` dla wszystkich 104 regionów z DB |
+| Colosseums | OFF | `data.ColosseumFlagSets` + `db.SetEventFlag` dla 3 aren + flagi globalne |
+| Map Reveal | OFF | `revealBaseMap` + `revealDLCMap` (funkcje package-level) |
+| Summoning Pools | OFF | `db.SetEventFlag` dla wszystkich ID 670xxx z DB |
+| Sites of Grace | OFF (disabled) | Placeholder — checkbox disabled w UI, backend zwraca warning "planned" |
+
+**Poza zakresem MVP (Faza 3+)**:
+- Presety build postaci (Moduł A)
+- Skrót questa Varre (Moduł C)
+- Klasyfikator stanu BF / diagnostyki UD10+UD0 (Moduł F)
+- Inspektor UD11 / NetworkParam (Moduł F)
+- Brak patchowania UD10, brak patchowania UD11
+
+### Profile przygotowania
+
+Selektor profilu wyświetlany jest nad checklistą modułów. Profile są wyłącznie warstwą wygody w UI — ustawiają checkboxy modułów i nie wprowadzają nowego API backendu ani formatu presetów.
+
+| Profil | matchmakingRegions | colosseums | revealMap | summoningPools | sitesOfGrace |
+|---|---|---|---|---|---|
+| Minimal PvP Ready (domyślny) | ON | OFF | OFF | OFF | OFF |
+| Full PvP Convenience | ON | ON | ON | OFF | OFF |
+| Co-op Ready | OFF | OFF | ON | ON | OFF |
+| Custom | (zachowane) | (zachowane) | (zachowane) | (zachowane) | OFF |
+
+**Zasady:**
+- Stan domyślny przy otwieraniu zakładki: **żaden moduł nie jest zaznaczony** (wszystkie checkboxy odznaczone). Profil pokazuje `Custom`.
+- Kliknięcie nazwanego profilu ustawia wszystkie checkboxy zgodnie z profilem.
+- Ręczna zmiana dowolnego checkboxa automatycznie wybiera `Custom` (wyliczane z aktualnych opts, nie przechowywane jako osobny stan).
+- Kliknięcie `Custom` nie ma efektu — jest to wskaźnik stanu tylko do odczytu.
+- `Sites of Grace` jest zawsze `OFF` we wszystkich profilach — to wyłączony placeholder.
+- Profile nie są pełnym systemem presetów budowania postaci (planowane jako osobna funkcja).
+
+**Persystencja sesji i odświeżanie WorldTab:**
+- Opcje PvP Preparation są przechowywane jako zwykły interfejs `PvPOptions` w stanie `App.tsx`, zachowując się podczas nawigacji między zakładkami. Nie wymaga localStorage.
+- `PvPPreparationTab` jest w pełni kontrolowanym komponentem — cały stan checkboxów płynie przez props `pvpOpts` i callback `onPvpOptsChange`. Brak lokalnego stanu opcji w komponencie.
+- Kliknięcie Apply wywołuje `handlePvPMutate`, który inkrementuje współdzielony licznik `saveDataRevision` w `App.tsx`. Licznik jest przekazywany do `WorldTab` i uwzględniony w tablicy zależności `useCallback` funkcji `loadExplorationData`, co powoduje natychmiastowe przeładowanie danych.
+- Nie zmienia logiki zapisu w backendzie — `ApplyPvPPreparation` w `app_pvp.go` pozostaje bez zmian.
+
+**Nowy plik testowy**: `pvp_test.go` (pakiet `main`) — 7 testów: brak save, nieprawidłowy slot, pusty slot, zły offset flag, warning SitesOfGrace, warning Colosseums, warning SummoningPools.
 
 ---
 

@@ -10,6 +10,7 @@ import {ToolsTab} from './components/ToolsTab';
 import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
+import {PvPPreparationTab} from './components/PvPPreparationTab';
 
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
@@ -27,6 +28,22 @@ export type AddSettings = {
 };
 
 const DEFAULT_ADD_SETTINGS: AddSettings = { upgrade25: 0, upgrade10: 0, infuseOffset: 0, upgradeAsh: 0, talismansHighestOnly: false, includeAshenCapital: false };
+
+export interface PvPOptions {
+    matchmakingRegions: boolean;
+    colosseums: boolean;
+    revealMap: boolean;
+    summoningPools: boolean;
+    sitesOfGrace: boolean;
+}
+
+const DEFAULT_PVP_OPTIONS: PvPOptions = {
+    matchmakingRegions: false,
+    colosseums: false,
+    revealMap: false,
+    summoningPools: false,
+    sitesOfGrace: false,
+};
 
 function App() {
     const [platform, setPlatform] = useState<string | null>(null);
@@ -74,16 +91,23 @@ function App() {
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
     const [exporting, setExporting] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
+    const [saveDataRevision, setSaveDataRevision] = useState(0);
+    const [pvpOpts, setPvpOpts] = useState<PvPOptions>(DEFAULT_PVP_OPTIONS);
 
     const refreshUndoDepth = useCallback(() => {
         if (!platform) { setUndoDepth(0); return; }
         GetUndoDepth(selectedChar).then(setUndoDepth).catch(() => setUndoDepth(0));
     }, [platform, selectedChar]);
 
+    const handlePvPMutate = useCallback(() => {
+        refreshUndoDepth();
+        setSaveDataRevision(v => v + 1);
+    }, [refreshUndoDepth]);
+
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
 
     const tabs = platform
-        ? ['character', 'inventory', 'world', 'tools', 'settings']
+        ? ['character', 'inventory', 'world', 'pvp', 'tools', 'settings']
         : ['character', 'inventory', 'settings'];
 
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
@@ -570,7 +594,8 @@ function App() {
                                         )}
                                     </div>
                                 )}
-                                {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} onMutate={refreshUndoDepth} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
+                                {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={refreshUndoDepth} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
+                                {activeTab === 'pvp' && <PvPPreparationTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
                                 {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>

@@ -14,6 +14,7 @@ interface WorldTabProps {
     platform?: string | null;
     showFlaggedItems?: boolean;
     saveLoadKey?: number;
+    saveDataRevision?: number;
     onMutate?: () => void;
     addSettings?: AddSettings;
 }
@@ -52,7 +53,7 @@ const ChkX = ({checked, onChange}: {checked: boolean; onChange: (v: boolean) => 
 
 const btnSm = "text-[11px] font-black uppercase tracking-widest text-muted-foreground border border-foreground/30 bg-foreground/5 px-2 py-0.5 rounded transition-all";
 
-export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMutate, addSettings}: WorldTabProps) {
+export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, saveDataRevision = 0, onMutate, addSettings}: WorldTabProps) {
     const [graces, setGraces] = useState<db.GraceEntry[]>([]);
     const [bosses, setBosses] = useState<db.BossEntry[]>([]);
     const [pools, setPools] = useState<db.SummoningPoolEntry[]>([]);
@@ -103,7 +104,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
                 setMapEntries(entries);
             }),
         ]).finally(() => setLoading(false));
-    }, [charIdx]);
+    }, [charIdx, saveDataRevision]);
 
     const loadProgressData = useCallback(() => {
         setLoading(true);
@@ -120,7 +121,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, onMu
             GetBellBearings(charIdx).then(res => setBellBearings(res || [])),
             GetWhetblades(charIdx).then(res => setWhetblades(res || [])),
         ]).finally(() => setLoading(false));
-    }, [charIdx]);
+    }, [charIdx, saveDataRevision]);
 
     useEffect(() => { loadExplorationData(); }, [loadExplorationData]);
     useEffect(() => { if (activeSubTab === 'progress') loadProgressData(); }, [activeSubTab, loadProgressData]);
