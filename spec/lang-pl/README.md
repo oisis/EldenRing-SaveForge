@@ -107,6 +107,7 @@ Plik save składa się z następujących głównych bloków (w kolejności sekwe
 | 46 | [Badanie Szybszych Inwazji](46-faster-invasions-research.md) | **Badanie** (zakończone) — pełny skan UD10/NetMan/EventFlags/regulation.bin pod kątem parametrów czasowania inwazji; porównanie DS3; mod Wex Dust; werdykt: niemożliwe do zrealizowania przez plik save |
 | 47 | [Aktywacja Sites of Grace](47-site-of-grace-activation.md) | **Investigacja** (✅ rozwiązana) — Hipoteza D potwierdzona; edytor ustawia identyczną EventFlag co gra; `LastRestedGrace` ustawiany automatycznie przez grę; stan obiektu gracji runtime-only; rekomendacja: Model 3 (notka UI) |
 | 48 | [Modularne Presety PvP-Ready](48-pvp-ready-modular-presets.md) | **Design doc** — dekompozycja monolitycznego presetu pvp-ready na 6 modułów (Core/Regiony/Dostęp/QoL/Coop/Badania) z poziomami ryzyka per moduł, tabelą właściciela zakresów flag, 5 walidatorami i propozycją UI |
+| 49 | [PS4 ZSTD Raw-Block Patch](49-ps4-zstd-rawblock-patch.md) | **Design doc** (✅ zaimplementowany) — naprawa crashu PS4: strategia zastępowania bloków Raw w strumieniu ZSTD, unikająca pełnej rekompresji odrzucanej przez PS4 |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Metody testowania, checklista weryfikacji, plan odkryć |
 
 ---

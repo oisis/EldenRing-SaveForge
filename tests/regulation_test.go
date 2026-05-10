@@ -132,17 +132,17 @@ func TestPatchNetworkParams_PC_RoundTrip(t *testing.T) {
 		t.Fatalf("ReadNetworkParams after patch: %v", err)
 	}
 
-	if !floatEq(vals.ReloadSignIntervalTime2, 10.0) {
-		t.Errorf("reloadSignIntervalTime2 = %f, want 10.0", vals.ReloadSignIntervalTime2)
+	if !floatEq(vals.ReloadSignIntervalTime2, 15.0) {
+		t.Errorf("reloadSignIntervalTime2 = %f, want 15.0", vals.ReloadSignIntervalTime2)
 	}
-	if vals.ReloadSignTotalCount != 64 {
-		t.Errorf("reloadSignTotalCount = %d, want 64", vals.ReloadSignTotalCount)
+	if vals.ReloadSignTotalCount != 40 {
+		t.Errorf("reloadSignTotalCount = %d, want 40", vals.ReloadSignTotalCount)
 	}
 	if vals.SingGetMax != 64 {
 		t.Errorf("singGetMax = %d, want 64", vals.SingGetMax)
 	}
-	if !floatEq(vals.SignDownloadSpan, 5.0) {
-		t.Errorf("signDownloadSpan = %f, want 5.0", vals.SignDownloadSpan)
+	if !floatEq(vals.SignDownloadSpan, 10.0) {
+		t.Errorf("signDownloadSpan = %f, want 10.0", vals.SignDownloadSpan)
 	}
 
 	// Apply FastBlue preset
@@ -161,8 +161,8 @@ func TestPatchNetworkParams_PC_RoundTrip(t *testing.T) {
 	if valsBlue.MaxCoopBlueSummonCount != 4 {
 		t.Errorf("maxCoopBlueSummonCount = %d, want 4", valsBlue.MaxCoopBlueSummonCount)
 	}
-	if valsBlue.AllAreaSearchRateCoopBlue != 100 {
-		t.Errorf("allAreaSearchRateCoopBlue = %d, want 100", valsBlue.AllAreaSearchRateCoopBlue)
+	if valsBlue.AllAreaSearchRateCoopBlue != 75 {
+		t.Errorf("allAreaSearchRateCoopBlue = %d, want 75", valsBlue.AllAreaSearchRateCoopBlue)
 	}
 
 	// Reset to defaults and verify
@@ -195,11 +195,11 @@ func TestPatchNetworkParams_PS4_RoundTrip(t *testing.T) {
 		t.Fatalf("ReadNetworkParams after patch: %v", err)
 	}
 
-	if vals.VisitorListMax != 30 {
-		t.Errorf("visitorListMax = %d, want 30", vals.VisitorListMax)
+	if vals.VisitorListMax != 20 {
+		t.Errorf("visitorListMax = %d, want 20", vals.VisitorListMax)
 	}
-	if !floatEq(vals.VisitorTimeOutTime, 120.0) {
-		t.Errorf("visitorTimeOutTime = %f, want 120.0", vals.VisitorTimeOutTime)
+	if !floatEq(vals.VisitorTimeOutTime, 60.0) {
+		t.Errorf("visitorTimeOutTime = %f, want 60.0", vals.VisitorTimeOutTime)
 	}
 	if !floatEq(vals.VisitorDownloadSpan, 10.0) {
 		t.Errorf("visitorDownloadSpan = %f, want 10.0", vals.VisitorDownloadSpan)

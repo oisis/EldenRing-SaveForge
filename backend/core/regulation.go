@@ -360,15 +360,37 @@ func PatchNetworkParams(ud11 []byte, patch NetworkParamValues) ([]byte, error) {
 	binary.LittleEndian.PutUint32(d[offsetVisitorTimeOutTime:], math.Float32bits(patch.VisitorTimeOutTime))
 	binary.LittleEndian.PutUint32(d[offsetVisitorDownloadSpan:], math.Float32bits(patch.VisitorDownloadSpan))
 
-	recompressed, err := compressDCX(bnd4Data, dcxFormat)
-	if err != nil {
-		return nil, fmt.Errorf("compress DCX: %w", err)
-	}
-
 	regStart := ud11RegulationOffset(ud11)
 	originalCiphertextLen := len(ud11) - regStart - 16
 
-	reencrypted, err := encryptRegulation(recompressed, iv, originalCiphertextLen)
+	var newRegBlob []byte
+	// PS4 saves have no MD5 prefix (regStart == ud11UnkSize), so any recompression of the
+	// ZSTD frame produces different ciphertext that PS4 rejects. Use the rawblock approach:
+	// replace only the ZSTD block(s) containing the patched fields with Raw blocks,
+	// keeping all other blocks byte-for-byte identical to the original encrypted frame.
+	//
+	// PC saves carry a 16-byte MD5 prefix covering the entire regulation blob; we
+	// recalculate the MD5 below, so any valid recompression is accepted on PC.
+	if dcxFormat == dcxFormatZSTD && regStart == ud11UnkSize {
+		firstBND4 := paramOffset + rowDataOffset + offsetReloadSignIntervalTime2
+		lastBND4 := paramOffset + rowDataOffset + offsetVisitorDownloadSpan + 3
+		newRegBlob, err = patchZSTDStreamRawBlock(regBlob, bnd4Data, firstBND4, lastBND4)
+		if err != nil {
+			return nil, fmt.Errorf("rawblock patch: %w", err)
+		}
+	} else {
+		newRegBlob, err = compressDCX(bnd4Data, dcxFormat)
+		if err != nil {
+			return nil, fmt.Errorf("compress DCX: %w", err)
+		}
+	}
+
+	if len(newRegBlob) > originalCiphertextLen {
+		return nil, fmt.Errorf("patched regulation blob (%d bytes) exceeds ciphertext capacity (%d bytes)",
+			len(newRegBlob), originalCiphertextLen)
+	}
+
+	reencrypted, err := encryptRegulation(newRegBlob, iv, originalCiphertextLen)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt regulation: %w", err)
 	}
@@ -577,6 +599,184 @@ func compressDCX(bnd4Data []byte, format string) ([]byte, error) {
 	copy(dcx[76:], compressed)
 
 	return dcx, nil
+}
+
+// --- ZSTD rawblock patch ---
+
+// zstdBlock holds position and type info for one block within a ZSTD compressed stream.
+type zstdBlock struct {
+	streamStart, streamEnd int
+	btype                  int // 0=Raw, 1=RLE, 2=Compressed
+	last                   bool
+}
+
+// zstdDecompBlockSize is the decompressed size of each ZSTD block in FromSoftware's
+// regulation.bin. FromSoftware encodes with FLUSH_BLOCK every 64 KB of plaintext.
+const zstdDecompBlockSize = 64 * 1024
+
+// patchZSTDStreamRawBlock replaces the ZSTD block(s) covering the BND4 byte range
+// [firstPatchedBND4Offset, lastPatchedBND4Offset] with Raw blocks carrying the
+// modified BND4 payload. All other blocks are preserved byte-for-byte from regBlob.
+// Returns a new DCX blob with an updated compressedSize field in the header.
+//
+// Using Raw blocks avoids full ZSTD recompression, which would produce a frame with
+// different encoder parameters (window size, frame header flags) that PS4 rejects.
+// The patched fields span up to two blocks when the NetworkParam row data straddles
+// a 64 KB boundary.
+func patchZSTDStreamRawBlock(regBlob, bnd4 []byte, firstPatchedBND4Offset, lastPatchedBND4Offset int) ([]byte, error) {
+	if len(regBlob) < 76 {
+		return nil, fmt.Errorf("regBlob too short for DCX header (%d bytes)", len(regBlob))
+	}
+	compSize := int(binary.BigEndian.Uint32(regBlob[32:36]))
+	if 76+compSize > len(regBlob) {
+		return nil, fmt.Errorf("DCX compressedSize %d exceeds regBlob length %d", compSize, len(regBlob))
+	}
+	stream := regBlob[76 : 76+compSize]
+
+	firstBlockIdx := firstPatchedBND4Offset / zstdDecompBlockSize
+	lastBlockIdx := lastPatchedBND4Offset / zstdDecompBlockSize
+
+	// Walk enough blocks: last target block + 2 (to check the block after for Treeless_Literals).
+	blocks, err := walkZSTDBlocks(stream, lastBlockIdx+3)
+	if err != nil {
+		return nil, fmt.Errorf("walkZSTDBlocks: %w", err)
+	}
+	if lastBlockIdx >= len(blocks) {
+		return nil, fmt.Errorf("ZSTD block %d not found (walked %d blocks)", lastBlockIdx, len(blocks))
+	}
+
+	// All target blocks must be Compressed (type 2) or Raw (type 0, from a previous patch).
+	// RLE blocks (type 1) are not expected in regulation.bin.
+	for idx := firstBlockIdx; idx <= lastBlockIdx; idx++ {
+		if b := blocks[idx]; b.btype != 2 && b.btype != 0 {
+			return nil, fmt.Errorf("unexpected ZSTD block type %d at idx %d (want Compressed=2 or Raw=0)", b.btype, idx)
+		}
+	}
+
+	// The block immediately after our replacement range may use Treeless_Literals,
+	// which reuses the Huffman tree from the last Compressed block we are removing.
+	// Replace it with a Raw block too to avoid decompression failure.
+	afterIdx := lastBlockIdx + 1
+	replaceStreamEnd := blocks[lastBlockIdx].streamEnd
+	replaceAfterBlock := false
+	if afterIdx < len(blocks) {
+		nxt := blocks[afterIdx]
+		if nxt.btype == 2 {
+			dataStart := nxt.streamStart + 3
+			if dataStart < len(stream) && stream[dataStart]&0x03 == 3 { // Treeless_Literals
+				replaceAfterBlock = true
+				replaceStreamEnd = nxt.streamEnd
+			}
+		}
+	}
+
+	var newStream bytes.Buffer
+	newStream.Write(stream[:blocks[firstBlockIdx].streamStart])
+
+	// Write raw blocks for the target range.
+	for idx := firstBlockIdx; idx <= lastBlockIdx; idx++ {
+		decompStart := idx * zstdDecompBlockSize
+		decompEnd := decompStart + zstdDecompBlockSize
+		if decompEnd > len(bnd4) {
+			decompEnd = len(bnd4)
+		}
+		newStream.Write(makeRawBlockHeader(decompEnd-decompStart, false))
+		newStream.Write(bnd4[decompStart:decompEnd])
+	}
+
+	// Write raw block for the Treeless successor, if any.
+	if replaceAfterBlock {
+		decompStart := afterIdx * zstdDecompBlockSize
+		decompEnd := decompStart + zstdDecompBlockSize
+		if decompEnd > len(bnd4) {
+			decompEnd = len(bnd4)
+		}
+		newStream.Write(makeRawBlockHeader(decompEnd-decompStart, false))
+		newStream.Write(bnd4[decompStart:decompEnd])
+	}
+
+	newStream.Write(stream[replaceStreamEnd:])
+	newStreamBytes := newStream.Bytes()
+
+	newDCX := make([]byte, 76+len(newStreamBytes))
+	copy(newDCX, regBlob[:76])
+	binary.BigEndian.PutUint32(newDCX[32:36], uint32(len(newStreamBytes)))
+	copy(newDCX[76:], newStreamBytes)
+
+	return newDCX, nil
+}
+
+// walkZSTDBlocks parses the ZSTD frame header and collects block metadata.
+// Stops after maxBlocks blocks or when the last block is reached.
+func walkZSTDBlocks(stream []byte, maxBlocks int) ([]zstdBlock, error) {
+	if len(stream) < 6 {
+		return nil, fmt.Errorf("ZSTD stream too short (%d bytes)", len(stream))
+	}
+	if stream[0] != 0x28 || stream[1] != 0xB5 || stream[2] != 0x2F || stream[3] != 0xFD {
+		return nil, fmt.Errorf("invalid ZSTD magic: %X", stream[:4])
+	}
+
+	fhd := stream[4]
+	singleSeg := (fhd>>5)&1 != 0
+	didFlag := int(fhd & 3)
+	didSizes := [4]int{0, 1, 2, 4}
+	fcsFlag := int((fhd >> 6) & 3)
+	// Content_Size field size when Single_Segment=0: FCS=0→0, 1→2, 2→4, 3→8 bytes.
+	// When Single_Segment=1: FCS=0→1, 1→2, 2→4, 3→8 bytes.
+	fcsSizes := [4]int{0, 2, 4, 8}
+
+	pos := 5
+	if !singleSeg {
+		pos++ // window descriptor byte
+	}
+	pos += didSizes[didFlag]
+	if singleSeg && fcsFlag == 0 {
+		pos++ // 1-byte content size for single-segment with FCS_Flag=0
+	} else {
+		pos += fcsSizes[fcsFlag]
+	}
+
+	var blocks []zstdBlock
+	for pos+3 <= len(stream) && len(blocks) < maxBlocks {
+		hdr := int(stream[pos]) | int(stream[pos+1])<<8 | int(stream[pos+2])<<16
+		last := hdr&1 != 0
+		btype := (hdr >> 1) & 3
+		bsize := hdr >> 3
+		start := pos
+		pos += 3
+
+		var end int
+		switch btype {
+		case 0: // Raw: bsize payload bytes
+			end = pos + bsize
+			pos += bsize
+		case 1: // RLE: 1 byte payload
+			end = pos + 1
+			pos++
+		case 2: // Compressed: bsize payload bytes
+			end = pos + bsize
+			pos += bsize
+		default:
+			return nil, fmt.Errorf("reserved ZSTD block type at stream offset %d", start)
+		}
+
+		blocks = append(blocks, zstdBlock{start, end, btype, last})
+		if last {
+			break
+		}
+	}
+	return blocks, nil
+}
+
+// makeRawBlockHeader returns the 3-byte ZSTD Raw block header for a block of dataSize bytes.
+// Block_Type=0 (Raw), Last_Block=last.
+func makeRawBlockHeader(dataSize int, last bool) []byte {
+	var lastBit uint32
+	if last {
+		lastBit = 1
+	}
+	h := uint32(dataSize)<<3 | lastBit
+	return []byte{byte(h), byte(h >> 8), byte(h >> 16)}
 }
 
 // locateNetworkParam does the full read pipeline and returns the row data slice.

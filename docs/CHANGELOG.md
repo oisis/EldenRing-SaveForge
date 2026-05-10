@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(core): PS4 crash on network preset — ZSTD rawblock patch
+
+Root cause: `PatchNetworkParams` was calling `compressDCX` (klauspost ZSTD encoder) to
+recompress the regulation.bin frame after patching. klauspost produces FHD=0x84 (content
+size + checksum), window=8 MB — vs FromSoftware's FHD=0x00, window=64 MB. The different
+plaintext produces different ciphertext; PS4 rejects the file → title-screen crash.
+
+Fix: added `patchZSTDStreamRawBlock` in `backend/core/regulation.go`. For PS4 saves
+(detected by `regStart == ud11UnkSize = 0x10`, no MD5 prefix), only the ZSTD block(s)
+covering NetworkParam fields are replaced with Raw blocks (Block_Type=0); all other blocks
+remain byte-for-byte identical to the original. Treeless_Literals successor blocks are also
+replaced to prevent Huffman tree dependency errors.
+
+PC path unchanged: full `compressDCX` + MD5 recalculation.
+
+- `backend/core/regulation.go`: added `patchZSTDStreamRawBlock`, `walkZSTDBlocks`,
+  `makeRawBlockHeader`; `PatchNetworkParams` dispatches on `regStart`
+- `tests/regulation_test.go`: fixed pre-existing test expectation mismatches (preset values
+  had been changed after tests were written: FastSummons, FastBlue, AggressiveHost)
+- `spec/49-ps4-zstd-rawblock-patch.md` (EN + PL): new design doc
+- `spec/README.md` + `spec/lang-pl/README.md`: spec/49 entry added
+
 ### feat(pvp): add network speed presets
 
 - New component `frontend/src/components/NetworkSpeedPanel.tsx` — collapsed accordion in
