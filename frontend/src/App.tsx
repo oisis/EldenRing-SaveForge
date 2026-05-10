@@ -106,7 +106,7 @@ function App() {
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
 
     const tabs = platform
-        ? ['character', 'inventory', 'world', 'pvp', 'tools', 'settings']
+        ? ['character', 'inventory', 'world', 'advanced', 'tools', 'settings']
         : ['character', 'inventory', 'settings'];
 
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
@@ -447,7 +447,7 @@ function App() {
                                         Open Save
                                     </button>
                                 </div>
-                                <div className={['inventory', 'pvp'].includes(activeTab) ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
+                                <div className={['inventory', 'advanced'].includes(activeTab) ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
                                     {activeTab === 'character' && (
                                         <AppearanceTab charIndex={0} onMutate={() => {}} readOnly />
                                     )}
@@ -488,7 +488,7 @@ function App() {
                                         </div>
                                     );
                                 })()}
-                                <div className={['inventory', 'pvp'].includes(activeTab) ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
+                                <div className={['inventory', 'advanced'].includes(activeTab) ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
                                 <div className={activeTab !== 'character' ? 'hidden' : undefined}>
                                     <CharacterTab charIndex={selectedChar} onNameChange={refreshSlots} onMutate={refreshUndoDepth} refreshKey={inventoryVersion} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsChange={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} infuseTypes={infuseTypes} />
                                 </div>
@@ -586,7 +586,7 @@ function App() {
                                     </div>
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={refreshUndoDepth} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
-                                {activeTab === 'pvp' && <PvPTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
+                                {activeTab === 'advanced' && <PvPTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
                                 {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} platform={platform ?? ''} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>
