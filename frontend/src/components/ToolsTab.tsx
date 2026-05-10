@@ -3,13 +3,14 @@ import toast from '../lib/toast';
 import {CharacterImporter} from './CharacterImporter';
 import {PresetImporter} from './PresetImporter';
 import {FavoritesManager} from './FavoritesManager';
-import {ExportCharacterPresetToFile} from '../../wailsjs/go/main/App';
+import {ExportCharacterPresetToFile, WriteSave} from '../../wailsjs/go/main/App';
 import {useFavorites} from '../state/favorites';
 import type {AddSettings} from '../App';
 import {vm} from '../../wailsjs/go/models';
 
 interface ToolsTabProps {
     charIndex: number;
+    platform: string;
     onComplete: () => void;
     onMutate?: () => void;
     addSettings: AddSettings;
@@ -18,9 +19,24 @@ interface ToolsTabProps {
 
 type ToolView = 'overview' | 'importer' | 'preset-import' | 'favorites';
 
-export function ToolsTab({charIndex, onComplete, onMutate, addSettings, onAddSettingsApplied}: ToolsTabProps) {
+export function ToolsTab({charIndex, platform, onComplete, onMutate, addSettings, onAddSettingsApplied}: ToolsTabProps) {
     const [view, setView] = useState<ToolView>('overview');
+    const [converting, setConverting] = useState(false);
     const {count: favCount} = useFavorites();
+
+    const targetPlatform = platform === 'PC' ? 'PS4' : 'PC';
+
+    const handleConvert = async () => {
+        setConverting(true);
+        try {
+            await WriteSave(targetPlatform);
+            toast.success(`Converted to ${targetPlatform}`);
+        } catch (e) {
+            toast.error('Convert failed: ' + e);
+        } finally {
+            setConverting(false);
+        }
+    };
 
     const handleExportPreset = async () => {
         try {
@@ -153,6 +169,29 @@ export function ToolsTab({charIndex, onComplete, onMutate, addSettings, onAddSet
                         <div>
                             <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Character Importer</h4>
                             <p className="text-[9px] text-muted-foreground mt-1">Import character from another save file into the selected slot</p>
+                        </div>
+                    </div>
+                </button>
+
+                {/* Convert Save Format */}
+                <button onClick={handleConvert} disabled={converting || !platform}
+                    className="card p-5 text-left hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group disabled:opacity-50 disabled:cursor-not-allowed">
+                    <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-violet-500/20 transition-colors">
+                            {converting
+                                ? <div className="w-5 h-5 border-2 border-violet-500/20 border-t-violet-500 rounded-full animate-spin" />
+                                : <svg className="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                </svg>
+                            }
+                        </div>
+                        <div>
+                            <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">
+                                Convert Format
+                            </h4>
+                            <p className="text-[9px] text-muted-foreground mt-1">
+                                {platform ? `Save as ${targetPlatform} (${platform === 'PC' ? '.dat' : '.sl2'})` : 'Load a save file first'}
+                            </p>
                         </div>
                     </div>
                 </button>

@@ -83,13 +83,12 @@ function App() {
     const [diffDetails, setDiffDetails] = useState<Record<number, main.DiffEntry[]>>({});
     const [diffExpanded, setDiffExpanded] = useState<Record<number, boolean>>({});
     const [selectedDeployTarget, setSelectedDeployTarget] = useState<string>(() => localStorage.getItem('selectedDeployTarget') || '');
-    const [targetPlatform, setTargetPlatform] = useState<string>('PC');
     const [showEmptySlots, setShowEmptySlots] = useState(false);
     const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
     const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
     const [invView, setInvView] = useState<'inventory' | 'database'>('inventory');
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
-    const [exporting, setExporting] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
     const [saveDataRevision, setSaveDataRevision] = useState(0);
     const [pvpOpts, setPvpOpts] = useState<PvPOptions>(DEFAULT_PVP_OPTIONS);
@@ -176,11 +175,12 @@ function App() {
         }
     };
 
-    const handleExport = async () => {
-        setExporting(true);
-        try { await WriteSave(targetPlatform); toast.success(`Exported as ${targetPlatform}`); }
+    const handleSaveAs = async () => {
+        if (!platform) return;
+        setSaving(true);
+        try { await WriteSave(platform); toast.success('File saved'); }
         catch (err) { toast.error(String(err)); }
-        finally { setExporting(false); }
+        finally { setSaving(false); }
     };
 
     const refreshSlots = async () => {
@@ -360,20 +360,11 @@ function App() {
                 
                 <div className="p-4 border-t border-border bg-muted/5 space-y-3">
                     {platform && (
-                        <div className="space-y-1.5">
-                            <div className="flex bg-muted/30 p-0.5 rounded border border-border">
-                                {(['PC', 'PS4'] as const).map(p => (
-                                    <button key={p} onClick={() => setTargetPlatform(p)}
-                                        className={`flex-1 py-1 rounded text-[8px] font-black uppercase tracking-widest transition-all ${targetPlatform === p ? 'bg-background text-foreground shadow-sm ring-1 ring-border' : 'text-muted-foreground hover:text-foreground'}`}
-                                    >{p}</button>
-                                ))}
-                            </div>
-                            <button onClick={handleExport} disabled={exporting}
-                                className="w-full bg-primary text-primary-foreground font-black py-2 rounded-lg text-[8px] uppercase tracking-[0.15em] shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center space-x-1.5">
-                                {exporting ? <div className="w-3 h-3 border-2 border-primary-foreground/20 border-t-primary-foreground rounded-full animate-spin" /> :
-                                <><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg><span>Export as {targetPlatform}</span></>}
-                            </button>
-                        </div>
+                        <button onClick={handleSaveAs} disabled={saving}
+                            className="w-full bg-primary text-primary-foreground font-black py-2 rounded-lg text-[8px] uppercase tracking-[0.15em] shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center space-x-1.5">
+                            {saving ? <div className="w-3 h-3 border-2 border-primary-foreground/20 border-t-primary-foreground rounded-full animate-spin" /> :
+                            <><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"></path></svg><span>Save As ({platform})</span></>}
+                        </button>
                     )}
                     <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-50">
                         <span>v0.5.0</span>
@@ -596,7 +587,7 @@ function App() {
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={refreshUndoDepth} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
                                 {activeTab === 'pvp' && <PvPTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
-                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
+                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} platform={platform ?? ''} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>
                         )}
