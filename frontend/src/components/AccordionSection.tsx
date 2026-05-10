@@ -11,6 +11,7 @@ interface AccordionSectionProps {
     headerRight?: ReactNode;
     children: ReactNode;
     className?: string;
+    titleClassName?: string;
     // When defined, section state persists in sessionStorage (survives tab switches /
     // remounts) but resets to defaultOpen whenever this value changes — used to wipe
     // expansion when a different save file is loaded.
@@ -28,6 +29,7 @@ export function AccordionSection({
     headerRight,
     children,
     className = '',
+    titleClassName,
     resetSignal,
 }: AccordionSectionProps) {
     const useLocal = id !== undefined && resetSignal === undefined;
@@ -81,7 +83,7 @@ export function AccordionSection({
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" />
                 </svg>
 
-                <span className="text-[10px] font-black uppercase tracking-[0.15em] text-foreground/80 flex-shrink-0">
+                <span className={`text-[10px] font-black uppercase tracking-[0.15em] flex-shrink-0 ${titleClassName ?? 'text-foreground/80'}`}>
                     {title}
                 </span>
 

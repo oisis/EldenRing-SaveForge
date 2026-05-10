@@ -43,7 +43,7 @@ export function PvPTab({charIdx, platform, pvpOpts, onPvpOptsChange, onMutate}: 
                 </div>
             )}
             {subTab === 'network' && (
-                <div className="flex-1 min-h-0 overflow-hidden">
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
                     <NetworkTab platform={platform} />
                 </div>
             )}
