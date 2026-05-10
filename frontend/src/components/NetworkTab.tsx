@@ -211,7 +211,22 @@ const GLOBAL_PRESETS: Record<GlobalPreset, {label: string; desc: string; values:
 
 const PRESET_LIST: GlobalPreset[] = ['vanilla', 'faster', 'aggressive'];
 
-function resolvePreset(draft: Record<string, number>): GlobalPreset | null {
+const ROLE_KEYS: Record<RoleTab, string[]> = {
+    invader:    ['maxBreakInTargetListCount', 'breakInRequestIntervalTimeSec', 'breakInRequestTimeOutSec', 'breakInRequestAreaCount'],
+    cooperator: ['reloadSignIntervalTime2', 'reloadSignTotalCount', 'reloadSignCellCount', 'updateSignIntervalTime', 'singGetMax', 'signDownloadSpan', 'signUpdateSpan'],
+    blue:       ['reloadVisitListCoolTime', 'maxCoopBlueSummonCount', 'maxVisitListCount', 'reloadSearchCoopBlueMin', 'reloadSearchCoopBlueMax', 'allAreaSearchRateCoopBlue', 'allAreaSearchRateVsBlue'],
+    host:       ['visitorListMax', 'visitorTimeOutTime', 'visitorDownloadSpan'],
+};
+
+function resolveRolePreset(role: RoleTab, draft: Record<string, number>): GlobalPreset | null {
+    const keys = ROLE_KEYS[role];
+    for (const id of PRESET_LIST) {
+        if (keys.every(k => draft[k] === GLOBAL_PRESETS[id].values[k])) return id;
+    }
+    return null;
+}
+
+function resolveGlobalPreset(draft: Record<string, number>): GlobalPreset | null {
     for (const id of PRESET_LIST) {
         if (Object.entries(GLOBAL_PRESETS[id].values).every(([k, v]) => draft[k] === v)) return id;
     }
@@ -263,20 +278,32 @@ export function NetworkTab({platform}: NetworkTabProps) {
         setDirty(true);
     };
 
+    const applyRolePreset = (role: RoleTab, preset: GlobalPreset) => {
+        const values = GLOBAL_PRESETS[preset].values;
+        setDraft(prev => {
+            const next = {...prev};
+            for (const k of ROLE_KEYS[role]) next[k] = values[k];
+            return next;
+        });
+        setDirty(true);
+    };
+
     const updateDraft = (key: string, value: number) => {
         setDraft(prev => ({...prev, [key]: value}));
         setDirty(true);
     };
 
-    const activePreset = resolvePreset(draft);
+    const globalPreset = resolveGlobalPreset(draft);
 
-    const makePresetButtons = (role: RoleTab) => (
+    const makePresetButtons = (role: RoleTab) => {
+        const rolePreset = resolveRolePreset(role, draft);
+        return (
         <div className="flex items-center gap-1">
             {PRESET_LIST.map(id => {
                 const p = GLOBAL_PRESETS[id];
-                const active = activePreset === id;
+                const active = rolePreset === id;
                 return (
-                    <button key={id} onClick={() => applyGlobalPreset(id)} title={p.desc}
+                    <button key={id} onClick={e => { e.stopPropagation(); applyRolePreset(role, id); }} title={p.desc}
                         className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition-all border ${
                             active
                                 ? id === 'aggressive'
@@ -291,13 +318,14 @@ export function NetworkTab({platform}: NetworkTabProps) {
                 );
             })}
             <button
-                onClick={() => { setPresetInfoRole(role); setPresetInfoPreset('vanilla'); }}
+                onClick={e => { e.stopPropagation(); setPresetInfoRole(role); setPresetInfoPreset('vanilla'); }}
                 className="w-4 h-4 rounded-full border border-foreground/30 text-foreground/50 hover:border-primary hover:text-primary transition-all text-[8px] font-black flex items-center justify-center shrink-0 leading-none ml-0.5"
                 title="Preset values explained">
                 ⓘ
             </button>
         </div>
-    );
+        );
+    };
 
     if (!platform) {
         return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">Load a save file first</div>;
@@ -381,6 +409,31 @@ export function NetworkTab({platform}: NetworkTabProps) {
             )}
 
             <div className="space-y-2 animate-in fade-in duration-200">
+                {/* Global preset bar */}
+                <div className="flex items-center gap-2 pb-1 border-b border-border/40">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">All roles:</span>
+                    <div className="flex items-center gap-1">
+                        {PRESET_LIST.map(id => {
+                            const p = GLOBAL_PRESETS[id];
+                            const active = globalPreset === id;
+                            return (
+                                <button key={id} onClick={() => applyGlobalPreset(id)} title={p.desc}
+                                    className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition-all border ${
+                                        active
+                                            ? id === 'aggressive'
+                                                ? 'bg-red-500/20 border-red-500/60 text-red-400'
+                                                : 'bg-primary/20 border-primary/60 text-primary'
+                                            : id === 'aggressive'
+                                                ? 'border-border/50 text-muted-foreground/50 hover:border-red-500/40 hover:text-red-400'
+                                                : 'border-border/50 text-muted-foreground/50 hover:border-primary/40 hover:text-foreground'
+                                    }`}>
+                                    {p.label}
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
                 {ROLES.map(role => {
                     const meta = ROLE_META[role];
                     const sliders = ROLE_SLIDERS[role];
@@ -399,7 +452,7 @@ export function NetworkTab({platform}: NetworkTabProps) {
                             ) : undefined}
                             headerRight={makePresetButtons(role)}
                         >
-                            {activePreset === 'aggressive' && meta.banRisk && (
+                            {resolveRolePreset(role, draft) === 'aggressive' && meta.banRisk && (
                                 <p className="text-[9px] font-bold text-orange-400 mb-2">
                                     ⚠ Aggressive preset active — moderate ban risk. Recommended for offline use only.
                                 </p>
