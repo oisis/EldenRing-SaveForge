@@ -399,6 +399,7 @@ var multiplayerPickupItems = []struct {
 	{data.ItemDuelistsFurledFinger, data.EventFlagObtainedDuelistsFurledFinger, "Duelist's Furled Finger"},
 	{data.ItemSmallRedEffigy, data.EventFlagObtainedSmallRedEffigy, "Small Red Effigy"},
 	{data.ItemWhiteCipherRing, data.EventFlagObtainedWhiteCipherRing, "White Cipher Ring"},
+	{data.ItemBlueCipherRing, data.EventFlagObtainedBlueCipherRing, "Blue Cipher Ring"},
 }
 
 // TestMultiplayerPickupFlagSet verifies that each obtained flag can be set on real
@@ -453,6 +454,7 @@ func TestMultiplayerPickupFlagClear(t *testing.T) {
 		data.EventFlagObtainedDuelistsFurledFinger,
 		data.EventFlagObtainedSmallRedEffigy,
 		data.EventFlagObtainedWhiteCipherRing,
+		data.EventFlagObtainedBlueCipherRing,
 		data.EventFlagObtainedSpectralSteedWhistle,
 		data.EventFlagMelinaGaveWhistle,
 		data.EventFlagWhistleWorldState,

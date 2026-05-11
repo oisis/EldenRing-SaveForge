@@ -116,12 +116,13 @@ func TestCompanionEventFlagsForItem_WhiteCipherRing(t *testing.T) {
 	}
 }
 
-func TestCompanionEventFlagsForItem_BlueCipherRing_NotMapped(t *testing.T) {
-	// Blue Cipher Ring obtained flag unconfirmed — must not be mapped.
-	const ItemBlueCipherRing = uint32(0x40000069)
+func TestCompanionEventFlagsForItem_BlueCipherRing(t *testing.T) {
 	flags := CompanionEventFlagsForItem(ItemBlueCipherRing)
-	if flags != nil {
-		t.Errorf("Blue Cipher Ring must not have companion flags (obtained flag unconfirmed), got %v", flags)
+	if len(flags) != 1 {
+		t.Fatalf("expected exactly 1 companion flag for Blue Cipher Ring, got %d: %v", len(flags), flags)
+	}
+	if flags[0] != EventFlagObtainedBlueCipherRing {
+		t.Errorf("expected flag %d, got %d", EventFlagObtainedBlueCipherRing, flags[0])
 	}
 }
 
@@ -138,10 +139,11 @@ func TestCompanionEventFlagsForItem_MultiplayerPickup_NoForbiddenFlags(t *testin
 		{ItemDuelistsFurledFinger, EventFlagObtainedDuelistsFurledFinger, "DuelistsFurledFinger"},
 		{ItemSmallRedEffigy, EventFlagObtainedSmallRedEffigy, "SmallRedEffigy"},
 		{ItemWhiteCipherRing, EventFlagObtainedWhiteCipherRing, "WhiteCipherRing"},
+		{ItemBlueCipherRing, EventFlagObtainedBlueCipherRing, "BlueCipherRing"},
 	}
 	// Flags that must never appear in ANY item's companion set.
 	alwaysForbidden := []uint32{
-		60220, 60260, 60270, 60300, 60310, // other multiplayer item flags not in this commit
+		60220, 60260, 60270, 60300, 60310, // other multiplayer item flags
 		60100, 4680, 4681, 710520, // Spectral Steed Whistle flags
 	}
 	// All obtained flags for cross-contamination check.
@@ -150,6 +152,7 @@ func TestCompanionEventFlagsForItem_MultiplayerPickup_NoForbiddenFlags(t *testin
 		EventFlagObtainedDuelistsFurledFinger,
 		EventFlagObtainedSmallRedEffigy,
 		EventFlagObtainedWhiteCipherRing,
+		EventFlagObtainedBlueCipherRing,
 	}
 	for _, tc := range cases {
 		for _, cf := range CompanionEventFlagsForItem(tc.id) {
@@ -179,13 +182,15 @@ func TestCompanionEventFlagsForItem_MultiplayerPickup_NoCrossContamination(t *te
 		otherFlags []uint32
 	}{
 		{ItemSmallGoldenEffigy, EventFlagObtainedSmallGoldenEffigy,
-			[]uint32{EventFlagObtainedDuelistsFurledFinger, EventFlagObtainedSmallRedEffigy, EventFlagObtainedWhiteCipherRing}},
+			[]uint32{EventFlagObtainedDuelistsFurledFinger, EventFlagObtainedSmallRedEffigy, EventFlagObtainedWhiteCipherRing, EventFlagObtainedBlueCipherRing}},
 		{ItemDuelistsFurledFinger, EventFlagObtainedDuelistsFurledFinger,
-			[]uint32{EventFlagObtainedSmallGoldenEffigy, EventFlagObtainedSmallRedEffigy, EventFlagObtainedWhiteCipherRing}},
+			[]uint32{EventFlagObtainedSmallGoldenEffigy, EventFlagObtainedSmallRedEffigy, EventFlagObtainedWhiteCipherRing, EventFlagObtainedBlueCipherRing}},
 		{ItemSmallRedEffigy, EventFlagObtainedSmallRedEffigy,
-			[]uint32{EventFlagObtainedSmallGoldenEffigy, EventFlagObtainedDuelistsFurledFinger, EventFlagObtainedWhiteCipherRing}},
+			[]uint32{EventFlagObtainedSmallGoldenEffigy, EventFlagObtainedDuelistsFurledFinger, EventFlagObtainedWhiteCipherRing, EventFlagObtainedBlueCipherRing}},
 		{ItemWhiteCipherRing, EventFlagObtainedWhiteCipherRing,
-			[]uint32{EventFlagObtainedSmallGoldenEffigy, EventFlagObtainedDuelistsFurledFinger, EventFlagObtainedSmallRedEffigy}},
+			[]uint32{EventFlagObtainedSmallGoldenEffigy, EventFlagObtainedDuelistsFurledFinger, EventFlagObtainedSmallRedEffigy, EventFlagObtainedBlueCipherRing}},
+		{ItemBlueCipherRing, EventFlagObtainedBlueCipherRing,
+			[]uint32{EventFlagObtainedSmallGoldenEffigy, EventFlagObtainedDuelistsFurledFinger, EventFlagObtainedSmallRedEffigy, EventFlagObtainedWhiteCipherRing}},
 	}
 	for _, tc := range cases {
 		flags := CompanionEventFlagsForItem(tc.itemID)

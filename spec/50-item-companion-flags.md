@@ -141,7 +141,9 @@ Flag 60100 is also set by `ApplyPvPPreparation()` via `data.ColosseumGlobalFlags
 
 Adding multiplayer pickup items via the editor places them in inventory, but the game's pickup/interact state at the corresponding in-world objects can remain visible — as if the item was never obtained through normal gameplay. The editor synchronises the corresponding `Obtained` EventFlag alongside each item.
 
-**Behaviour (all three items):**
+For Cipher Rings: the flag serves as `eventFlag_forStock` in `ShopLineupParam.csv` — when the flag is 0, the Twin Maiden Husks shop continues to display and offer the item. Without the flag set, a player who received the ring via the editor will still see it in the shop, but cannot purchase a second copy (inventory uniqueness is enforced separately).
+
+**Behaviour (all items):**
 - **SET path** (`AddItemsToCharacter`): fires for every item in `prepared`, including items already at max quantity — enables repair of saves where the item was added without the flag.
 - **CLEAR path** (`RemoveItemsFromCharacter`): fires only when the last instance of the item is removed from the slot (checked via `slot.GaItems` scan).
 - Each item has exactly one companion flag; no cross-contamination between items.
@@ -149,17 +151,26 @@ Adding multiplayer pickup items via the editor places them in inventory, but the
 
 ### Companion flag table
 
-| Item | Item ID | Obtained flag | In-world object |
+| Item | Item ID | Obtained flag | Source / In-world object |
 |---|---|---|---|
 | Small Golden Effigy | `0x4000006D` | **60230** | Effigy of the Martyr (cooperative pools) |
 | Duelist's Furled Finger | `0x40000065` | **60240** | World pickup |
 | Small Red Effigy | `0x4000006E` | **60250** | Effigy of the Martyr (invasion pools) |
-| White Cipher Ring | `0x40000068` | **60280** | Source: er-save-manager `event_flags_db.py` "Obtained White Cipher Ring" |
-| Blue Cipher Ring | `0x40000069` | ❓ **UNRESOLVED** | 60290 absent from all reference DBs (er-save-manager, CT-TGA, ER-Save-Editor). er-save-manager jumps 60280→60300. Not mapped — pending before/after save diff. |
+| White Cipher Ring | `0x40000068` | **60280** | er-save-manager db + ShopLineupParam.csv row 101800 `eventFlag_forStock` |
+| Blue Cipher Ring | `0x40000069` | **60290** | ShopLineupParam.csv row 101801 `eventFlag_forStock` + Steam Deck before/after shop purchase diff |
+
+### Blue Cipher Ring — confirmation details
+
+Flag `60290` was absent from all community event flag databases (er-save-manager, CT-TGA, ER-Save-Editor). Confirmed by two independent regulation.bin-level sources:
+
+1. **ShopLineupParam.csv** row 101801: `equipId=105` (Blue Cipher Ring, `0x40000069`), `eventFlag_forStock=60290`.
+2. **Steam Deck before/after shop purchase diff** (`tmp/quests/ER0000-ring-before.sl2` → `ER0000-ring-after.sl2`): flag 60290 was the only flag in the 60xxx range that changed `0→1` when the ring was purchased from Twin Maiden Husks. Full diff: 8 flags SET in total; 60290 was the sole multiplayer-item-related change.
+
+**Research report**: `tmp/regulation-bin-debug/blue-cipher-ring-shop-diff.md`
 
 ### Flag resolution
 
-Flags 60240 and 60250 are not in the precomputed `EventFlags` lookup table but are correctly resolved via the BST path (`block 60 → bst_pos 10`). Flag 60230 is in the precomputed table. All three resolve correctly through `db.SetEventFlag` / `db.GetEventFlag`.
+Flags 60240, 60250, 60280, 60290 are not in the precomputed `EventFlags` lookup table but are correctly resolved via the BST path (`block 60 → bst_pos 10`). Flag 60230 is in the precomputed table. All resolve correctly through `db.SetEventFlag` / `db.GetEventFlag`.
 
 ### Flags NOT included (and why)
 
@@ -168,7 +179,6 @@ Flags 60240 and 60250 are not in the precomputed `EventFlags` lookup table but a
 | 60220, 60260, 60270, 60300, 60310 | Other multiplayer items — not added in this commit. |
 | 670xxx (Summoning Pool activation) | Independent mechanism — activating a summoning pool is a separate player action. |
 | All Spectral Steed Whistle flags | Unrelated item chain — no overlap. |
-| Blue Cipher Ring (`0x40000069`) | Obtained flag unconfirmed — 60290 absent from all reference DBs. Pending before/after save diff. |
 
 ---
 

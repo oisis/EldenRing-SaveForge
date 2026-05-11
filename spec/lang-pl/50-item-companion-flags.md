@@ -116,7 +116,9 @@ Flaga 60100 jest też ustawiana przez `ApplyPvPPreparation()` przez `data.Coloss
 
 Dodanie tych itemów przez edytor umieszcza je w inventory, ale stan odbioru/interakcji przy odpowiadającym obiekcie w świecie gry może pozostawać widoczny — tak jakby item nigdy nie został odebrany normalną ścieżką. Edytor synchronizuje odpowiadającą flagę `Obtained` przy każdym dodaniu i usunięciu itemu.
 
-**Zachowanie (wszystkie trzy itemy):**
+Dla Cipher Ringów: flaga pełni rolę `eventFlag_forStock` w `ShopLineupParam.csv` — gdy flaga wynosi 0, sklep Twin Maiden Husks nadal wyświetla i oferuje item. Bez ustawionej flagi gracz, który otrzymał pierścień przez edytor, nadal widzi go w sklepie, ale nie może kupić drugiego egzemplarza (uniqueness inventory jest wymuszana osobno).
+
+**Zachowanie (wszystkie itemy):**
 - **Ścieżka SET** (`AddItemsToCharacter`): działa dla każdego itemu w `prepared`, w tym itemów już na maksymalnej ilości — umożliwia naprawę saves, w których item był dodany bez flagi.
 - **Ścieżka CLEAR** (`RemoveItemsFromCharacter`): działa tylko gdy ostatnia instancja itemu została usunięta ze slotu (sprawdzane przez skan `slot.GaItems`).
 - Każdy item ma dokładnie jedną flagę towarzyszącą; brak nakładania między itemami.
@@ -124,17 +126,26 @@ Dodanie tych itemów przez edytor umieszcza je w inventory, ale stan odbioru/int
 
 ### Tabela flag towarzyszących
 
-| Item | Item ID | Flaga obtained | Obiekt in-world |
+| Item | Item ID | Flaga obtained | Źródło / Obiekt in-world |
 |---|---|---|---|
 | Small Golden Effigy | `0x4000006D` | **60230** | Effigy of the Martyr (kooperacja) |
 | Duelist's Furled Finger | `0x40000065` | **60240** | World pickup |
 | Small Red Effigy | `0x4000006E` | **60250** | Effigy of the Martyr (inwazje) |
-| White Cipher Ring | `0x40000068` | **60280** | Źródło: er-save-manager `event_flags_db.py` „Obtained White Cipher Ring" |
-| Blue Cipher Ring | `0x40000069` | ❓ **NIEROZWIĄZANE** | 60290 nieobecne we wszystkich bazach referencyjnych (er-save-manager, CT-TGA, ER-Save-Editor). er-save-manager przeskakuje 60280→60300. Nie zmapowano — oczekuje na diff save przed/po. |
+| White Cipher Ring | `0x40000068` | **60280** | er-save-manager + ShopLineupParam.csv row 101800 `eventFlag_forStock` |
+| Blue Cipher Ring | `0x40000069` | **60290** | ShopLineupParam.csv row 101801 `eventFlag_forStock` + diff save Steam Deck przed/po zakupie |
+
+### Blue Cipher Ring — szczegóły potwierdzenia
+
+Flaga `60290` była nieobecna we wszystkich publicznych bazach (er-save-manager, CT-TGA, ER-Save-Editor). Potwierdzona przez dwa niezależne źródła na poziomie regulation.bin:
+
+1. **ShopLineupParam.csv** row 101801: `equipId=105` (Blue Cipher Ring, `0x40000069`), `eventFlag_forStock=60290`.
+2. **Diff save Steam Deck przed/po zakupie** (`tmp/quests/ER0000-ring-before.sl2` → `ER0000-ring-after.sl2`): flaga 60290 była jedyną flagą w zakresie 60xxx, która zmieniła się `0→1` przy zakupie pierścienia w Twin Maiden Husks. Łącznie SET 8 flag; 60290 to jedyna zmiana związana z itemem multiplayer.
+
+**Raport badawczy**: `tmp/regulation-bin-debug/blue-cipher-ring-shop-diff.md`
 
 ### Rozwiązywanie flag
 
-Flagi 60240 i 60250 nie są w prekomputowanej tabeli `EventFlags`, ale są poprawnie rozwiązywane przez ścieżkę BST (`blok 60 → bst_pos 10`). Flaga 60230 jest w prekomputowanej tabeli. Wszystkie trzy działają poprawnie przez `db.SetEventFlag` / `db.GetEventFlag`.
+Flagi 60240, 60250, 60280, 60290 nie są w prekomputowanej tabeli `EventFlags`, ale są poprawnie rozwiązywane przez ścieżkę BST (`blok 60 → bst_pos 10`). Flaga 60230 jest w prekomputowanej tabeli. Wszystkie działają poprawnie przez `db.SetEventFlag` / `db.GetEventFlag`.
 
 ### Flagi NIE uwzględnione (i dlaczego)
 
@@ -143,7 +154,6 @@ Flagi 60240 i 60250 nie są w prekomputowanej tabeli `EventFlags`, ale są popra
 | 60220, 60260, 60270, 60300, 60310 | Inne przedmioty multiplayer — nie dodano w tym commicie. |
 | 670xxx (aktywacja Summoning Pool) | Osobny mechanizm — aktywacja Statuetki Przyzywania to osobna akcja gracza. |
 | Wszystkie flagi Spectral Steed Whistle | Niezwiązany łańcuch itemów — brak nakładania się. |
-| Blue Cipher Ring (`0x40000069`) | Flaga obtained niepotwierzona — 60290 nieobecne we wszystkich bazach referencyjnych. Oczekuje na diff save przed/po. |
 
 ---
 
