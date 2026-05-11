@@ -1,0 +1,118 @@
+# 50 — Item Companion Flags (Towarzyszące Flagi Przedmiotów)
+
+> **Typ**: Design doc
+> **Status**: ✅ Zaimplementowano (v0.14.0)
+> **Zakres**: Mechanizm ustawiania zależnych od przedmiotu EventFlag przy dodawaniu przedmiotów do slotu postaci.
+
+---
+
+## Problem
+
+Dodanie niektórych przedmiotów przez edytor powoduje, że przedmiot fizycznie trafia do ekwipunku, ale gra traktuje postać tak, jakby nigdy nie otrzymała go normalną ścieżką questową. Skutki:
+
+- Ponowne uruchamianie cutscenek i dialogów NPC przy odpoczynku w Miejscu Łaski.
+- Mechaniki gry zablokowane za EventFlagami pozostają niedostępne (np. Torrent nie może być przyzwany bez flagi 60100, nawet jeśli Spectral Steed Whistle jest w ekwipunku).
+- Niespójność stanu questa — EMEVD gry czyta EventFlaги, nie inwentarz, dla bramek mechanicznych.
+
+## Przyczyna źródłowa
+
+Gra ustawia EventFlaги podczas normalnego przepływu pozyskania przedmiotu (wykonanie skryptu EMEVD). `AddItemsToCharacter()` edytora wcześniej ustawiało jedynie flagi jednoelementowe (`AoWItemToFlagID`, `WorldPickupFlagID`, `BolsteringPickupFlags`) i ID tutoriali. Przedmioty pozyskiwane przez dialog questowy (nie przez world pickup ani sklep) nie miały żadnego pokrycia flagowego.
+
+---
+
+## Design
+
+### Companion flag set (zestaw flag towarzyszących)
+
+**Companion flag set** to minimalna grupa EventFlag, które gra ustawia wspólnie podczas normalnego pozyskania przedmiotu, przy czym:
+
+1. Bramka mechaniczna gry dla przedmiotu jest odblokowana (przedmiot jest używalny).
+2. EMEVD gry nie uruchamia ponownie dialogu/cutscenki pozyskania.
+3. Nie zawiera flag przejściowych (czyszczonych przez silnik po użyciu).
+4. Nie zawiera flag obszarowych ani flagów out-of-bounds na PS4.
+
+### Struktura danych
+
+```go
+// backend/db/data/item_companion_flags.go
+var itemCompanionEventFlags = map[uint32][]uint32{
+    0x40000082: {60100, 4680, 710520, 4681},
+}
+
+func CompanionEventFlagsForItem(itemID uint32) []uint32
+```
+
+### Miejsce podpięcia (hook)
+
+Blok POST-FLAGS w `AddItemsToCharacter()` (`app.go`), po `AboutTutorialID`. Uruchamia się dla każdego przedmiotu w slice `prepared` — w tym dla przedmiotów już na maksymalnej ilości w ekwipunku — co pozwala **naprawiać saves**, w których przedmiot był wcześniej dodany bez flag towarzyszących.
+
+```go
+if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 {
+    if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+        eflags := slot.Data[slot.EventFlagsOffset:]
+        for _, f := range companions {
+            if err := db.SetEventFlag(eflags, f, true); err != nil {
+                runtime.LogWarningf(a.ctx, "companion flag %d for item 0x%08X: %v", f, p.baseID, err)
+            }
+        }
+    }
+}
+```
+
+---
+
+## Spectral Steed Whistle — `0x40000082`
+
+### Flagi towarzyszące
+
+| Flaga | Nazwa | Klasyfikacja | Źródło |
+|---|---|---|---|
+| **60100** | Obtained Spectral Steed Whistle | CONFIRMED_MINIMAL — odblokowuje mechanikę Torrenta | spec/12, spec/15, er-save-manager `event_flags_db.py`, 5× slot PC |
+| **4680** | Melina gave Spectral Steed Whistle | CONFIRMED — stan questa „przekazano", zapobiega ponownemu dialogowi | quests.go krok 6, 5× slot PC |
+| **710520** | Whistle world/map state | CONFIRMED — ustawiana razem z 60100 przez grę | quests.go krok 6, 5× slot PC |
+| **4681** | Melina accept/refuse popup shown | CONFIRMED — warunek wstępny wyskakującego okna | quests.go krok 5, 5× slot PC |
+
+### Weryfikacja
+
+Potwierdzone w 5 aktywnych slotach `ER0000.sl2` (PC, postacie po Melinie, 2026-05-11). Wszystkie 4 flagi SET w każdym slocie. Potwierdzone przez vanilla save PS4 (wszystkie 0) i er-save-manager `event_flags_db.py`.
+
+### Flagi NIE uwzględnione (i dlaczego)
+
+| Flaga(i) | Powód wykluczenia |
+|---|---|
+| 710770, 69090, 69370 | Melina opuszcza Gatefront — kandydat badawczy; odłożone do czasu dostępności pary przed/po. Obecne we wszystkich zapisach PC, ale nie potwierdzone jako konieczne dla poprawności mechaniki. |
+| 4698 | Wyzwalacz cutscenki Meliny — przejściowy, czyszczony przez silnik po odtworzeniu cutscenki. 0 we wszystkich prawdziwych savach. |
+| 4651, 4652, 4653 | Stany dialogu Meliny — przejściowe, czyszczone po dialogu. 0 we wszystkich prawdziwych savach. |
+| 4656 | Level Up wykonany — osobna akcja użytkownika, niezwiązana z pozyskaniem przedmiotu. |
+| Zakres 1042xxx | Out of bounds na PS4 (offset BST ~130 MB vs ~2,3 MB tablica flag). Fizycznie nie można ustawić. |
+
+### Kontekst: ColosseumGlobalFlags
+
+Flaga 60100 jest też ustawiana przez `ApplyPvPPreparation()` przez `data.ColosseumGlobalFlags` gdy `opts.Colosseums = true`. To tłumaczy, dlaczego niektórzy użytkownicy zgłaszali działającego Torrenta po dodaniu gwizdka przez edytor — mieli wcześniej zastosowane PvP Preparation z Colosseums. Użytkownicy bez tego kroku mieli 60100=0 i Torrent był bezużyteczny.
+
+---
+
+## Dodawanie kolejnych zestawów flag towarzyszących
+
+Aby dodać flagi towarzyszące dla kolejnego przedmiotu:
+
+1. Zbadaj które flagi gra ustawia podczas normalnego pozyskania (sprawdź `quests.go`, porównaj pary save przed/po, cross-reference er-save-manager `event_flags_db.py`).
+2. Zweryfikuj każdą flagę w prawdziwych savach po pozyskaniu (PC i PS4, gdzie możliwe).
+3. Wyklucz flagi przejściowe (wartości 0 w w pełni ustabilizowanych savach po pozyskaniu).
+4. Wyklucz zakres 1042xxx (out of bounds na PS4).
+5. Dodaj ID przedmiotu i listę flag do `itemCompanionEventFlags` w `backend/db/data/item_companion_flags.go`.
+6. Dodaj testy jednostkowe do `backend/db/data/item_companion_flags_test.go`.
+7. Dodaj przypadki testowe integracyjne do `tests/item_companion_flags_test.go`.
+
+---
+
+## Źródła
+
+- `backend/db/data/item_companion_flags.go` — implementacja
+- `backend/db/data/item_companion_flags_test.go` — testy jednostkowe
+- `tests/item_companion_flags_test.go` — testy integracyjne
+- `spec/12-torrent.md` — flagi mechaniki Torrenta
+- `spec/15-event-flags.md` — rejestr EventFlag
+- `backend/db/data/quests.go` — kroki questa łańcucha Meliny z flagami
+- `tmp/repos/er-save-manager/src/er_save_manager/data/event_flags_db.py` — społecznościowa baza flag
+- `tmp/regulation-bin-debug/spectral-steed-whistle-research.md` — pełny raport badawczy (2026-05-11)

@@ -532,6 +532,16 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 				runtime.LogWarningf(a.ctx, "tutorial ID %d: %v", tutorialID, err)
 			}
 		}
+		if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 {
+			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+				eflags := slot.Data[slot.EventFlagsOffset:]
+				for _, f := range companions {
+					if err := db.SetEventFlag(eflags, f, true); err != nil {
+						runtime.LogWarningf(a.ctx, "companion flag %d for item 0x%08X: %v", f, p.baseID, err)
+					}
+				}
+			}
+		}
 	}
 
 	// Auto-add / update container key item quantities.
