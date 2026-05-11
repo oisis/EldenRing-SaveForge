@@ -154,6 +154,8 @@ Adding multiplayer pickup items via the editor places them in inventory, but the
 | Small Golden Effigy | `0x4000006D` | **60230** | Effigy of the Martyr (cooperative pools) |
 | Duelist's Furled Finger | `0x40000065` | **60240** | World pickup |
 | Small Red Effigy | `0x4000006E` | **60250** | Effigy of the Martyr (invasion pools) |
+| White Cipher Ring | `0x40000068` | **60280** | Source: er-save-manager `event_flags_db.py` "Obtained White Cipher Ring" |
+| Blue Cipher Ring | `0x40000069` | ❓ **UNRESOLVED** | 60290 absent from all reference DBs (er-save-manager, CT-TGA, ER-Save-Editor). er-save-manager jumps 60280→60300. Not mapped — pending before/after save diff. |
 
 ### Flag resolution
 
@@ -166,6 +168,7 @@ Flags 60240 and 60250 are not in the precomputed `EventFlags` lookup table but a
 | 60220, 60260, 60270, 60300, 60310 | Other multiplayer items — not added in this commit. |
 | 670xxx (Summoning Pool activation) | Independent mechanism — activating a summoning pool is a separate player action. |
 | All Spectral Steed Whistle flags | Unrelated item chain — no overlap. |
+| Blue Cipher Ring (`0x40000069`) | Obtained flag unconfirmed — 60290 absent from all reference DBs. Pending before/after save diff. |
 
 ---
 

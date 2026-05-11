@@ -31,9 +31,12 @@ var itemCompanionEventFlags = map[uint32][]uint32{
 	//
 	// NOT included: Summoning Pool activation flags (670xxx) — separate mechanism.
 	// NOT included: flags for other multiplayer items not listed here.
-	ItemSmallGoldenEffigy: {EventFlagObtainedSmallGoldenEffigy},
+	// NOT included: Blue Cipher Ring (0x40000069) — obtained flag unconfirmed (60290 absent from
+	// all reference DBs: er-save-manager, CT-TGA, ER-Save-Editor). Pending investigation.
+	ItemSmallGoldenEffigy:    {EventFlagObtainedSmallGoldenEffigy},
 	ItemDuelistsFurledFinger: {EventFlagObtainedDuelistsFurledFinger},
-	ItemSmallRedEffigy: {EventFlagObtainedSmallRedEffigy},
+	ItemSmallRedEffigy:       {EventFlagObtainedSmallRedEffigy},
+	ItemWhiteCipherRing:      {EventFlagObtainedWhiteCipherRing},
 }
 
 // Item IDs with companion flags.
@@ -44,6 +47,8 @@ const (
 	ItemSmallGoldenEffigy    = uint32(0x4000006D)
 	ItemDuelistsFurledFinger = uint32(0x40000065)
 	ItemSmallRedEffigy       = uint32(0x4000006E)
+	ItemWhiteCipherRing      = uint32(0x40000068)
+	// ItemBlueCipherRing = uint32(0x40000069) — obtained flag unconfirmed; pending investigation.
 )
 
 // EventFlag IDs for Spectral Steed Whistle companion set.
@@ -80,6 +85,11 @@ const (
 	// Without it the pickup/interact state at Effigies of the Martyr can remain
 	// visible even when the item is already in inventory.
 	EventFlagObtainedSmallRedEffigy = uint32(60250)
+
+	// EventFlagObtainedWhiteCipherRing marks the item as obtained.
+	// Without it the pickup/interact state can remain visible in the world.
+	// Source: er-save-manager event_flags_db.py "Obtained White Cipher Ring".
+	EventFlagObtainedWhiteCipherRing = uint32(60280)
 )
 
 // CompanionEventFlagsForItem returns the list of event flags that must be SET

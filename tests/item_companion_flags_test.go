@@ -51,7 +51,7 @@ func TestCompanionFlagsSetOnRealSave(t *testing.T) {
 // appear in any companion set.
 func TestCompanionFlagsForbiddenAbsent(t *testing.T) {
 	forbidden := []uint32{
-		4698, // Melina cutscene trigger
+		4698,             // Melina cutscene trigger
 		4651, 4652, 4653, // Melina dialogue states
 		4656, // Level up
 	}
@@ -389,15 +389,16 @@ func TestCompanionFlagsRemainingItemPreventsClearing(t *testing.T) {
 
 // --- Multiplayer pickup items: Duelist's Furled Finger + Small Red Effigy ---
 
-// multiplayerPickupItems lists the three multiplayer pickup items and their obtained flags.
+// multiplayerPickupItems lists the multiplayer pickup items and their obtained flags.
 var multiplayerPickupItems = []struct {
-	itemID  uint32
-	flag    uint32
-	name    string
+	itemID uint32
+	flag   uint32
+	name   string
 }{
 	{data.ItemSmallGoldenEffigy, data.EventFlagObtainedSmallGoldenEffigy, "Small Golden Effigy"},
 	{data.ItemDuelistsFurledFinger, data.EventFlagObtainedDuelistsFurledFinger, "Duelist's Furled Finger"},
 	{data.ItemSmallRedEffigy, data.EventFlagObtainedSmallRedEffigy, "Small Red Effigy"},
+	{data.ItemWhiteCipherRing, data.EventFlagObtainedWhiteCipherRing, "White Cipher Ring"},
 }
 
 // TestMultiplayerPickupFlagSet verifies that each obtained flag can be set on real
@@ -451,6 +452,7 @@ func TestMultiplayerPickupFlagClear(t *testing.T) {
 		data.EventFlagObtainedSmallGoldenEffigy,
 		data.EventFlagObtainedDuelistsFurledFinger,
 		data.EventFlagObtainedSmallRedEffigy,
+		data.EventFlagObtainedWhiteCipherRing,
 		data.EventFlagObtainedSpectralSteedWhistle,
 		data.EventFlagMelinaGaveWhistle,
 		data.EventFlagWhistleWorldState,

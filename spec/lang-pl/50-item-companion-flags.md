@@ -129,6 +129,8 @@ Dodanie tych itemów przez edytor umieszcza je w inventory, ale stan odbioru/int
 | Small Golden Effigy | `0x4000006D` | **60230** | Effigy of the Martyr (kooperacja) |
 | Duelist's Furled Finger | `0x40000065` | **60240** | World pickup |
 | Small Red Effigy | `0x4000006E` | **60250** | Effigy of the Martyr (inwazje) |
+| White Cipher Ring | `0x40000068` | **60280** | Źródło: er-save-manager `event_flags_db.py` „Obtained White Cipher Ring" |
+| Blue Cipher Ring | `0x40000069` | ❓ **NIEROZWIĄZANE** | 60290 nieobecne we wszystkich bazach referencyjnych (er-save-manager, CT-TGA, ER-Save-Editor). er-save-manager przeskakuje 60280→60300. Nie zmapowano — oczekuje na diff save przed/po. |
 
 ### Rozwiązywanie flag
 
@@ -141,6 +143,7 @@ Flagi 60240 i 60250 nie są w prekomputowanej tabeli `EventFlags`, ale są popra
 | 60220, 60260, 60270, 60300, 60310 | Inne przedmioty multiplayer — nie dodano w tym commicie. |
 | 670xxx (aktywacja Summoning Pool) | Osobny mechanizm — aktywacja Statuetki Przyzywania to osobna akcja gracza. |
 | Wszystkie flagi Spectral Steed Whistle | Niezwiązany łańcuch itemów — brak nakładania się. |
+| Blue Cipher Ring (`0x40000069`) | Flaga obtained niepotwierzona — 60290 nieobecne we wszystkich bazach referencyjnych. Oczekuje na diff save przed/po. |
 
 ---
 
