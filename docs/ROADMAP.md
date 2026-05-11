@@ -69,6 +69,115 @@
 
 ## Planned
 
+### 🟡 PvP Presets — Advanced → Presets tab (one-click PvP build setup)
+
+One-click curated build templates for invasions, duels, and PvP-ready characters.
+Replaces the "Coming Soon" placeholder in **Advanced → Presets** (currently `PvPTab.tsx`).
+**Mockup:** `tmp/presets-mockup.png` | **Design:** spec/52 (to be created)
+
+#### UI (based on mockup)
+
+Left panel — preset browser:
+- Search field + filter chips: All · Built-in · Custom · Invasions · Duels
+- Preset list cards (name, RL badge, category tag, starting class hint)
+
+Right panel — preset details:
+- Header: preset name, tags (RL · category · starting class)
+- **What will be applied** — per-section checkbox list, togglable before apply
+- **Build Summary** — stats preview + weapon/armor/talisman/spell list with upgrade/affinity details
+- **Apply Mode** radio at bottom:
+  - *Build Only* — stats + inventory + equipment; world-state untouched
+  - *Build + PvP Travel* — build + key Sites of Grace + map reveal (travel convenience)
+  - *Full PvP Ready* — build + summoning pools + all PvP-relevant world unlocks defined in preset
+- Action row: **Apply Preset** · **Save as Custom** · **Export JSON** · **Manage Presets**
+
+#### Built-in presets (starter library, ~5)
+
+| Preset | RL | Category | Use case |
+|---|---|---|---|
+| RL30 Stormveil Invader | 30 | Invasion | Early-game twink |
+| RL60 Liurnia Invader | 60 | Invasion | Mid-game dex |
+| RL90 Altus Invader | 90 | Invasion | Altus plateau |
+| RL125 Duelist Meta | 125 | Duel | Standard bracket |
+| RL150 Endgame Hybrid | 150 | Duel | End-game hybrid |
+
+#### What a preset can contain
+
+- **Character:** level, stats (Vig/Min/End/Str/Dex/Int/Fai/Arc), runes, starting class hint
+- **Inventory:** weapons (base ID + upgrade level + affinity offset + socketed AoW), armor, talismans, spells/incantations, consumables, multiplayer items (effigies, cipher rings, fingers), flask setup
+- **Equipment slots:** pre-equipped weapon/armor/talismans (applied after inventory add)
+- **PvP readiness** (optional — Travel/Full modes only): map reveal, Sites of Grace selection, summoning pools
+
+#### Out of scope
+
+NPC quest progression, boss kills, story endings, narrative flags, "unlock everything" world state.
+`Full PvP Ready` applies only the PvP-relevant subset defined in the preset — not a blanket world unlock.
+
+#### Preset JSON schema (`schemaVersion: 1`)
+
+```json
+{
+  "schemaVersion": 1,
+  "type": "preset",
+  "id": "rl60_liurnia_invader",
+  "name": "RL60 Liurnia Invader",
+  "description": "Balanced dex build optimized for Liurnia invasions.",
+  "category": "PvP / Invasion",
+  "tags": ["pvp", "invasion", "rl60", "dex"],
+  "recommendedStartingClass": "Warrior",
+  "editable": {
+    "stats": true, "weapons": true, "armor": true, "talismans": true,
+    "spells": true, "consumables": true, "multiplayerItems": true,
+    "maps": true, "sitesOfGrace": true, "summoningPools": true
+  },
+  "payload": {
+    "stats": {},
+    "inventory": {},
+    "equipment": {},
+    "pvpReadiness": { "maps": {}, "sitesOfGrace": {}, "summoningPools": {} }
+  }
+}
+```
+
+Built-in presets ship as embedded JSON files (Go `embed`); each item is resolved by `BaseID`
+against existing `backend/db` data — no raw offsets, no hardcoded byte blobs.
+
+#### Safety
+
+- Preview diff shown before apply (per-section summary of what changes)
+- Per-section toggles in "What will be applied" — user controls exactly what gets written
+- Preset validated before apply: unknown item IDs warned, quantity capped per spec/34, stat floor checked
+- Unknown/unrecognised JSON sections are silently ignored or surfaced as warnings — never auto-applied
+- World-state / PvP readiness: applied **only** in Travel or Full modes, never in Build Only
+- PvP readiness warnings mirror spec/32 risk tier system
+
+#### Implementation phases
+
+1. **Preset model + JSON schema** — Go struct `PvPPreset`, JSON marshal/unmarshal, `schemaVersion` validation
+2. **Preset loader + validation** — `LoadBuiltInPresets()`, `LoadPresetFromFile()`, `ValidatePreset()` (IDs, qty caps, stat floor)
+3. **UI shell** — `PresetsTab.tsx`: left list + right detail panel, search + filter chips, apply mode radio, action row
+4. **Preview / diff engine** — `PreviewPresetApply()` returns per-section change summary before commit
+5. **Apply engine** — `ApplyPreset(charIdx, preset, mode, toggles)`: reuses `AddItemsToCharacter`, `ApplyVMToParsedSlot`, `ApplyPvPPreparation`; pushes undo before apply
+6. **Built-in preset library** — 5 JSON presets compiled-in via Go `embed`; items resolved by BaseID against `backend/db`
+7. **Custom preset import/export** — `SaveAsCustomPreset()` (file dialog), `ImportCustomPreset()` (validate + add to custom list), Manage Presets list
+8. **Safety + manual testing** — end-to-end on PS4 save: each mode, each built-in preset, invalid JSON, apply → save → load → verify
+
+#### Acceptance criteria
+
+- Advanced → Presets no longer shows "Coming Soon"
+- Built-in preset list visible and filterable (All / Built-in / Custom / Invasions / Duels)
+- Selecting a preset populates right panel (Build Summary + What will be applied)
+- Per-section toggles adjust what gets written before apply
+- Apply Mode controls world-state writes: SoG/map/pools absent in Build Only
+- Applied preset → stats + inventory match preset definition after save/reload
+- Save as Custom → file dialog → JSON written with correct schema
+- Import JSON → validated → appears in Custom filter
+- Invalid/unknown JSON sections do not silently corrupt the save
+
+**Effort:** ~30-40h (all 8 phases) | **Depends on:** spec/43 (transactional add), spec/32 (risk tiers), `ApplyPvPPreparation` (existing in `app_pvp.go`)
+
+---
+
 ### 🔵 Advanced Save Editor — power-user / research tab
 Single tab under **Advanced → Save Editor** for reading and writing known and experimental save values across three technically distinct layers: Event Flags, regulation snapshot params, and raw offsets.
 
