@@ -76,11 +76,21 @@ if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 
 
 Confirmed in: 5 active slots of `ER0000.sl2` (PC, post-Melina characters, 2026-05-11). All 4 flags SET in every slot. Corroborated by vanilla PS4 save (all 0) and er-save-manager `event_flags_db.py`.
 
+### Runtime Validation — Spectral Steed Whistle ✅ Runtime confirmed
+
+**Date**: 2026-05-11  
+**Platform**: PS4  
+**Result**: PASS
+
+Confirmed: adding Spectral Steed Whistle with companion flags 60100, 4680, 710520, 4681 prevents the normal Melina whistle-gift scene from replaying. The item works in-game. No additional Gatefront/Melina cleanup flags were required.
+
+Flags 710770, 69090, 69370 (Melina leaves Gatefront) were **not set** and were **not needed** — runtime confirmed. These remain research candidates only.
+
 ### Flags NOT included (and why)
 
 | Flag(s) | Reason excluded |
 |---|---|
-| 710770, 69090, 69370 | Melina leaves Gatefront — research candidate; deferred until before/after diff available. Present in all PC saves but not confirmed as necessary for correct mechanics. |
+| 710770, 69090, 69370 | Melina leaves Gatefront — research candidates; **runtime confirmed not required** (2026-05-11 PS4 test). Present in all post-Melina PC saves but not needed for correct item mechanics. |
 | 4698 | Melina cutscene trigger — transient, cleared by engine after cutscene plays. 0 in all real saves. |
 | 4651, 4652, 4653 | Melina dialogue states — transient, cleared after dialogue. 0 in all real saves. |
 | 4656 | Level Up performed — separate user action, not part of item acquisition. |

@@ -76,11 +76,21 @@ if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 
 
 Potwierdzone w 5 aktywnych slotach `ER0000.sl2` (PC, postacie po Melinie, 2026-05-11). Wszystkie 4 flagi SET w każdym slocie. Potwierdzone przez vanilla save PS4 (wszystkie 0) i er-save-manager `event_flags_db.py`.
 
+### Runtime Validation — Spectral Steed Whistle ✅ Runtime confirmed
+
+**Data**: 2026-05-11  
+**Platforma**: PS4  
+**Wynik**: PASS
+
+Potwierdzone: dodanie Spectral Steed Whistle wraz z companion flags 60100, 4680, 710520, 4681 zapobiega ponownemu odpaleniu sceny Meliny z przekazaniem gwizdka. Item działa w grze. Dodatkowe flagi cleanup Meliny/Gatefront nie były wymagane.
+
+Flagi 710770, 69090, 69370 (Melina opuszcza Gatefront) **nie były ustawiane** i **nie były wymagane** — potwierdzone runtime. Pozostają wyłącznie kandydatami badawczymi.
+
 ### Flagi NIE uwzględnione (i dlaczego)
 
 | Flaga(i) | Powód wykluczenia |
 |---|---|
-| 710770, 69090, 69370 | Melina opuszcza Gatefront — kandydat badawczy; odłożone do czasu dostępności pary przed/po. Obecne we wszystkich zapisach PC, ale nie potwierdzone jako konieczne dla poprawności mechaniki. |
+| 710770, 69090, 69370 | Melina opuszcza Gatefront — kandydaci badawczy; **potwierdzono runtime że nie są wymagane** (test PS4 2026-05-11). Obecne we wszystkich post-Melina savach PC, ale niepotrzebne dla poprawności mechaniki itemu. |
 | 4698 | Wyzwalacz cutscenki Meliny — przejściowy, czyszczony przez silnik po odtworzeniu cutscenki. 0 we wszystkich prawdziwych savach. |
 | 4651, 4652, 4653 | Stany dialogu Meliny — przejściowe, czyszczone po dialogu. 0 we wszystkich prawdziwych savach. |
 | 4656 | Level Up wykonany — osobna akcja użytkownika, niezwiązana z pozyskaniem przedmiotu. |
