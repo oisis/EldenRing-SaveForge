@@ -44,6 +44,7 @@ interface DatabaseTabProps {
     onCloseDetail?: () => void;
     readOnly?: boolean;
     showOnlyFavorites?: boolean;
+    onToggleFavorites?: () => void;
 }
 
 // Determine if ALL selected items are non-stackable (max qty == 1)
@@ -59,7 +60,7 @@ function effectiveCap(item: db.ItemEntry, kind: 'inv' | 'storage', clearCount: n
     return base;
 }
 
-export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, selectedDetailItem, onCloseDetail, readOnly = false, showOnlyFavorites = false}: DatabaseTabProps) {
+export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, selectedDetailItem, onCloseDetail, readOnly = false, showOnlyFavorites = false, onToggleFavorites}: DatabaseTabProps) {
     const {upgrade25, upgrade10, infuseOffset, upgradeAsh} = addSettings;
     const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
@@ -703,7 +704,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             )}
 
             {/* Top Bar: [Category] [Owned/Total badge] [buttons] [spacer] [view toggle] [Search] */}
-            <div className="flex items-center gap-4 bg-muted/10 p-4 rounded-xl border border-border/50 backdrop-blur-sm sticky top-0 z-20">
+            <div className="flex items-center gap-4 bg-muted/10 rounded-xl backdrop-blur-sm sticky top-0 z-20">
                 <CategorySelect value={category} onChange={setCategory} className="w-56 shrink-0" />
 
                 <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
@@ -738,6 +739,20 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 <div className="flex-1" />
 
                 <div className="flex items-center gap-1 shrink-0">
+                    {onToggleFavorites && (
+                        <>
+                            <button
+                                onClick={onToggleFavorites}
+                                className={`p-1.5 rounded transition-all ${showOnlyFavorites ? 'bg-amber-500/20 text-amber-500' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
+                                title="Show favorites only"
+                            >
+                                <svg className="w-4 h-4" fill={showOnlyFavorites ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                </svg>
+                            </button>
+                            <div className="w-px h-4 bg-border/50 mx-0.5" />
+                        </>
+                    )}
                     <button onClick={() => setViewMode('table')} className={`p-1.5 rounded transition-all ${viewMode === 'table' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Table view">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
                     </button>

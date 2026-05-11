@@ -376,7 +376,7 @@ function App() {
             {/* Main Content */}
             <main className="flex-1 flex flex-col relative z-10 bg-background overflow-hidden">
                 <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-background/50 backdrop-blur-md sticky top-0 z-30">
-                    <nav className="flex space-x-1">
+                    <nav className="flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50">
                         {tabs.map(tab => (
                             <button
                                 key={tab}
@@ -384,7 +384,7 @@ function App() {
                                     if (tab === 'inventory') setInventoryVersion(v => v + 1);
                                     setActiveTab(tab);
                                 }}
-                                className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}
+                                className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === tab ? 'bg-green-700/80 shadow-sm text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}
                             >
                                 {tab}
                             </button>
@@ -415,7 +415,7 @@ function App() {
                 </header>
 
                 <div className="flex-1 flex flex-col min-h-0 relative">
-                    <div className="w-full h-full p-6 flex flex-col min-h-0">
+                    <div className="w-full h-full px-6 pb-6 pt-3 flex flex-col min-h-0">
                         {activeTab === 'settings' ? (
                             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 overflow-y-auto custom-scrollbar pr-2">
                                 <SettingsTab
@@ -509,7 +509,7 @@ function App() {
                                                         onClick={() => { setInvView(id); if (id !== 'database') setDetailItem(null); }}
                                                         className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${
                                                             invView === id
-                                                                ? 'bg-card shadow-sm border border-border/80 text-foreground'
+                                                                ? 'bg-green-700/80 shadow-sm text-white'
                                                                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
                                                         }`}
                                                     >
@@ -541,27 +541,6 @@ function App() {
                                             )}
                                         </div>
 
-                                        {/* Favorites filter — secondary row, database view only (inventory uses inline star) */}
-                                        {invView === 'database' && (
-                                            <div className="flex items-center gap-2 mb-2 shrink-0">
-                                                <button
-                                                    onClick={() => setShowOnlyFavorites(v => !v)}
-                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.12em] transition-all ${showOnlyFavorites ? 'bg-blue-900/30 text-blue-800 border border-blue-800/50' : 'text-muted-foreground hover:text-blue-800 hover:bg-blue-900/10 border border-transparent'}`}
-                                                >
-                                                    <svg className={`w-3 h-3 ${showOnlyFavorites ? 'fill-amber-600' : 'fill-none stroke-amber-600'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                                                    </svg>
-                                                    Favorites
-                                                </button>
-                                                {detailItem && (
-                                                    <button onClick={() => setDetailItem(null)}
-                                                        className="ml-auto text-[8px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
-                                                        Close Detail
-                                                    </button>
-                                                )}
-                                            </div>
-                                        )}
-
                                         {invView === 'inventory' ? (
                                             <InventoryTab charIndex={selectedChar} inventoryVersion={inventoryVersion} columnVisibility={columnVisibility} showFlaggedItems={showFlaggedItems} category={category} setCategory={setCategory} onMutate={refreshUndoDepth} showOnlyFavorites={showOnlyFavorites} onToggleFavorites={() => setShowOnlyFavorites(v => !v)} />
                                         ) : invView === 'database' ? (
@@ -579,6 +558,7 @@ function App() {
                                                 selectedDetailItem={detailItem}
                                                 onCloseDetail={() => setDetailItem(null)}
                                                 showOnlyFavorites={showOnlyFavorites}
+                                                onToggleFavorites={() => setShowOnlyFavorites(v => !v)}
                                             />
                                         ) : (
                                             <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-6">

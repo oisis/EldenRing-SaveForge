@@ -22,7 +22,7 @@ export function PvPTab({charIdx: _charIdx, platform, pvpOpts: _pvpOpts, onPvpOpt
                     <button key={t} onClick={() => setSubTab(t)}
                         className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${
                             subTab === t
-                                ? 'bg-card shadow-sm border border-border/80 text-foreground'
+                                ? 'bg-green-700/80 shadow-sm text-white'
                                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
                         }`}>
                         {t}

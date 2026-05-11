@@ -300,10 +300,10 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
             )}
 
             {/* Sub-tab selector */}
-            <div className="flex items-center space-x-1">
+            <div className="inline-flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50">
                 {(['exploration', 'progress', 'unlocks'] as const).map(st => (
                     <button key={st} onClick={() => setActiveSubTab(st)}
-                        className={`px-4 py-1.5 rounded-full text-[11px] font-black uppercase tracking-[0.15em] transition-all ${activeSubTab === st ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}>
+                        className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${activeSubTab === st ? 'bg-green-700/80 shadow-sm text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}>
                         {st}
                     </button>
                 ))}
