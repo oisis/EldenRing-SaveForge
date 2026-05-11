@@ -320,10 +320,6 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
     // Total items in selected category from the database (for the Owned/Total badge).
     const [categoryTotal, setCategoryTotal] = useState<number>(0);
     useEffect(() => {
-        if (category === 'all') {
-            setCategoryTotal(0);
-            return;
-        }
         let cancelled = false;
         GetItemList(category).then(items => {
             if (!cancelled) setCategoryTotal((items || []).length);
@@ -352,7 +348,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
     });
 
     return (
-        <div className="flex-1 flex flex-col min-h-0 space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="flex-1 flex flex-col min-h-0 space-y-3 animate-in fade-in slide-in-from-bottom-4 duration-700">
             {/* Remove Confirm Modal */}
             {removeModal && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-300">
@@ -436,7 +432,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                         {category === 'all' ? 'Owned' : CATEGORY_LABEL[category] ?? category}
                     </span>
                     <span className="text-[10px] font-bold tabular-nums text-foreground">
-                        {ownedCount}{category !== 'all' ? `/${categoryTotal}` : ''}
+                        {ownedCount}/{categoryTotal}
                     </span>
                 </div>
 
@@ -465,7 +461,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                         <>
                             <button
                                 onClick={onToggleFavorites}
-                                className={`p-1.5 rounded transition-all ${showOnlyFavorites ? 'bg-amber-500/20 text-amber-500' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
+                                className={`p-1.5 rounded transition-all ${showOnlyFavorites ? 'bg-amber-500/20 text-amber-500' : 'text-amber-700/60 hover:text-amber-500'}`}
                                 title="Show favorites only"
                             >
                                 <svg className="w-4 h-4" fill={showOnlyFavorites ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">

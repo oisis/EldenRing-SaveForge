@@ -501,7 +501,7 @@ function App() {
                                             <div className="flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50 shrink-0">
                                                 {([
                                                     { id: 'database', label: 'Item Database' },
-                                                    { id: 'inventory', label: 'Inventory' },
+                                                    { id: 'inventory', label: 'Equipment' },
                                                     { id: 'weapon_edit', label: 'Weapon Edit' },
                                                 ] as { id: 'database' | 'inventory' | 'weapon_edit'; label: string }[]).map(({ id, label }) => (
                                                     <button
