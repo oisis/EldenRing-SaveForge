@@ -37,9 +37,10 @@ interface InventoryTabProps {
     setCategory: (value: string) => void;
     onMutate?: () => void;
     showOnlyFavorites?: boolean;
+    onToggleFavorites?: () => void;
 }
 
-export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, showFlaggedItems, category, setCategory, onMutate, showOnlyFavorites = false }: InventoryTabProps) {
+export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, showFlaggedItems, category, setCategory, onMutate, showOnlyFavorites = false, onToggleFavorites }: InventoryTabProps) {
     const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
     const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
@@ -460,6 +461,20 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                 <div className="flex-1" />
 
                 <div className="flex items-center gap-1 shrink-0">
+                    {onToggleFavorites && (
+                        <>
+                            <button
+                                onClick={onToggleFavorites}
+                                className={`p-1.5 rounded transition-all ${showOnlyFavorites ? 'bg-amber-500/20 text-amber-500' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
+                                title="Show favorites only"
+                            >
+                                <svg className="w-4 h-4" fill={showOnlyFavorites ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                </svg>
+                            </button>
+                            <div className="w-px h-4 bg-border/50 mx-0.5" />
+                        </>
+                    )}
                     <button onClick={() => setViewMode('table')} className={`p-1.5 rounded transition-all ${viewMode === 'table' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Table view">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
                     </button>
