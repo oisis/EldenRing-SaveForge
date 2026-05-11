@@ -69,6 +69,13 @@
 
 ## Planned
 
+### 🔵 Advanced Save Editor — power-user / research tab
+Single tab under **Advanced → Save Editor** for reading and writing known and experimental save values across three technically distinct layers: Event Flags, regulation snapshot params, and raw offsets.
+
+MVP: known EventFlags read/write, manual EventFlag by ID, NetworkParam fields (NETWORK_PARAM_ST), app-known macros, pending changes list, preview diff, atomic Apply, Export patch report.
+Not in MVP: raw offset editor, full regulation browser, ShopLineupParam/ItemLotParam write support, patch import/export.
+**Design:** [spec/51](spec/51-advanced-save-editor.md) | **Effort:** estimated 20-30h (MVP only)
+
 ### 🟡 Character Preset Export/Import — JSON build sharing
 Export/import stats + inventory + storage + appearance to portable `.preset.json`.
 Replaces disabled `App.ImportCharacter`. Community build sharing.

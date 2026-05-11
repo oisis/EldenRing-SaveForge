@@ -30,7 +30,7 @@ JSON z `formatVersion: 1` i `appVersion` w nagłówku — wersjonowany dla backw
   "exportedAt": "2026-04-29T20:14:00Z",
   "appVersion": "0.7.0",
   "character": {
-    "name": "OiSiSk", "class": 0, "className": "Vagabond",
+    "name": "OiSiS", "class": 0, "className": "Vagabond",
     "level": 150, "souls": 999999999,
     "vigor": 60, "mind": 25, "endurance": 40,
     "strength": 50, "dexterity": 30, "intelligence": 9, "faith": 7, "arcane": 9,

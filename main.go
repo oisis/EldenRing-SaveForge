@@ -19,7 +19,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:         "Elden Ring SaveForge by OiSiSk",
+		Title:         "Elden Ring SaveForge by OiSiS",
 		Width:         1280,
 		Height:        800,
 		MinWidth:      1024,
@@ -47,7 +47,7 @@ func main() {
 			WebviewIsTransparent: true,
 			WindowIsTranslucent:  true,
 			About: &mac.AboutInfo{
-				Title:   "Elden Ring SaveForge by OiSiSk",
+				Title:   "Elden Ring SaveForge by OiSiS",
 				Message: "© 2026 OiSiS",
 			},
 		},

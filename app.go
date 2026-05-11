@@ -532,6 +532,16 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 				runtime.LogWarningf(a.ctx, "tutorial ID %d: %v", tutorialID, err)
 			}
 		}
+		if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 {
+			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+				eflags := slot.Data[slot.EventFlagsOffset:]
+				for _, f := range companions {
+					if err := db.SetEventFlag(eflags, f, true); err != nil {
+						runtime.LogWarningf(a.ctx, "companion flag %d for item 0x%08X: %v", f, p.baseID, err)
+					}
+				}
+			}
+		}
 	}
 
 	// Auto-add / update container key item quantities.
@@ -611,6 +621,16 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 
 	slot := &a.save.Slots[charIdx]
 
+	// Pre-scan: collect item IDs with companion flags being removed.
+	companionRemovals := make(map[uint32]bool)
+	for _, handle := range handles {
+		if itemID, ok := slot.GaMap[handle]; ok {
+			if len(data.CompanionEventFlagsForItem(itemID)) > 0 {
+				companionRemovals[itemID] = true
+			}
+		}
+	}
+
 	// Count removals per bolstering material baseID to restore pickup flags.
 	bolsteringRemovals := make(map[uint32]int)
 	for _, handle := range handles {
@@ -643,6 +663,27 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 				if val, err := db.GetEventFlag(flags, f); err == nil && val {
 					if err := db.SetEventFlag(flags, f, false); err == nil {
 						restored++
+					}
+				}
+			}
+		}
+	}
+
+	// Clear companion flags for items no longer present in slot after removal.
+	if len(companionRemovals) > 0 && slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+		eflags := slot.Data[slot.EventFlagsOffset:]
+		for itemID := range companionRemovals {
+			remaining := false
+			for _, g := range slot.GaItems {
+				if !g.IsEmpty() && g.ItemID == itemID {
+					remaining = true
+					break
+				}
+			}
+			if !remaining {
+				for _, f := range data.CompanionEventFlagsForItem(itemID) {
+					if err := db.SetEventFlag(eflags, f, false); err != nil {
+						runtime.LogWarningf(a.ctx, "clear companion flag %d for item 0x%08X: %v", f, itemID, err)
 					}
 				}
 			}

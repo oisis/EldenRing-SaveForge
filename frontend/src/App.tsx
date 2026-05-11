@@ -269,7 +269,7 @@ function App() {
                             </div>
                             <div>
                                 <h1 className="text-[10px] font-black tracking-[0.2em] leading-none">Elden Ring SaveForge</h1>
-                                <p className="text-[7px] text-primary tracking-wider mt-0.5">by OiSiSk</p>
+                                <p className="text-[7px] text-primary tracking-wider mt-0.5">by OiSiS</p>
                             </div>
                         </div>
                     </div>

@@ -1,0 +1,208 @@
+# 50 — Item Companion Flags
+
+> **Type**: Design doc
+> **Status**: ✅ Implemented (v0.14.0) — SET on add + CLEAR on remove
+> **Scope**: Mechanism for synchronising item-dependent EventFlags when items are added to or removed from a character slot.
+
+---
+
+## Problem
+
+Adding certain items via the editor results in the item being physically present in inventory, but the game treats the character as if the item was never obtained through the normal questline. This causes:
+
+- Re-triggering of cutscenes and NPC dialogues on grace rest.
+- Game mechanics gated behind EventFlags remaining locked (e.g. Torrent cannot be summoned without flag 60100 even if the Spectral Steed Whistle is in inventory).
+- Quest state inconsistency — the game's EMEVD reads EventFlags, not inventory, for mechanic gates.
+
+## Root Cause
+
+The game sets EventFlags during the normal acquisition flow (EMEVD script execution). The editor's `AddItemsToCharacter()` previously only set single-per-item flags (`AoWItemToFlagID`, `WorldPickupFlagID`, `BolsteringPickupFlags`) and tutorial IDs. Items obtained through quest dialogue (rather than world pickup or shop) had no flag coverage.
+
+---
+
+## Design
+
+### Companion flag set
+
+A **companion flag set** is the minimal group of EventFlags that the game co-sets during normal item acquisition, such that:
+
+1. The game's mechanic gate for the item is cleared (item is usable).
+2. The game's EMEVD does not re-trigger the acquisition dialogue/cutscene.
+3. No transient flags (cleared by engine after use) are included.
+4. No area-specific or zone flags out of bounds on PS4 are included.
+
+### Data structure
+
+```go
+// backend/db/data/item_companion_flags.go
+var itemCompanionEventFlags = map[uint32][]uint32{
+    0x40000082: {60100, 4680, 710520, 4681},
+}
+
+func CompanionEventFlagsForItem(itemID uint32) []uint32
+```
+
+### Hook locations
+
+**SET** — POST-FLAGS block in `AddItemsToCharacter()` (`app.go`), after `AboutTutorialID`. Fires for every item in the `prepared` slice — including items already at max inventory quantity — enabling the mechanism to **repair saves** where the item was previously added without companion flags.
+
+```go
+if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 {
+    if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+        eflags := slot.Data[slot.EventFlagsOffset:]
+        for _, f := range companions {
+            if err := db.SetEventFlag(eflags, f, true); err != nil {
+                runtime.LogWarningf(a.ctx, "companion flag %d for item 0x%08X: %v", f, p.baseID, err)
+            }
+        }
+    }
+}
+```
+
+**CLEAR** — post-removal block in `RemoveItemsFromCharacter()` (`app.go`). Fires only when the last instance of the item has been removed from the slot (checked via `slot.GaItems` scan).
+
+```go
+// Pre-scan: collect item IDs with companion flags.
+for _, handle := range handles {
+    if itemID, ok := slot.GaMap[handle]; ok {
+        if len(data.CompanionEventFlagsForItem(itemID)) > 0 {
+            companionRemovals[itemID] = true
+        }
+    }
+}
+// After removal: clear flags if no instance remains.
+for itemID := range companionRemovals {
+    remaining := false
+    for _, g := range slot.GaItems {
+        if !g.IsEmpty() && g.ItemID == itemID {
+            remaining = true; break
+        }
+    }
+    if !remaining {
+        for _, f := range data.CompanionEventFlagsForItem(itemID) {
+            db.SetEventFlag(eflags, f, false)
+        }
+    }
+}
+```
+
+### Out of scope
+
+- `CompanionEventFlagsForGrace` — no grace-level companion flag hooks exist.
+- `SetGraceVisited` — not modified by this mechanism.
+- Roundtable Hold invitation flags (`10009655`, `11109658`, `11109659`) — not part of item companion flags.
+- Site of Grace progress flags — not part of this mechanism.
+- Flags `4656`, `11109786` and context flags (`710770`, `69090`, `69370`) — never set or cleared here.
+
+---
+
+## Spectral Steed Whistle — `0x40000082`
+
+### Companion flags
+
+| Flag | Name | Classification | Source |
+|---|---|---|---|
+| **60100** | Obtained Spectral Steed Whistle | CONFIRMED_MINIMAL — Torrent mechanic unlock | spec/12, spec/15, er-save-manager `event_flags_db.py`, 5× PC slot |
+| **4680** | Melina gave Spectral Steed Whistle | CONFIRMED — quest-give state, prevents dialogue re-trigger | quests.go step 6, 5× PC slot |
+| **710520** | Whistle world/map state | CONFIRMED — co-set with 60100 in game | quests.go step 6, 5× PC slot |
+| **4681** | Melina accept/refuse popup shown | CONFIRMED — popup prerequisite | quests.go step 5, 5× PC slot |
+
+### Verification
+
+Confirmed in: 5 active slots of `ER0000.sl2` (PC, post-Melina characters, 2026-05-11). All 4 flags SET in every slot. Corroborated by vanilla PS4 save (all 0) and er-save-manager `event_flags_db.py`.
+
+### Runtime Validation — Spectral Steed Whistle ✅ Runtime confirmed
+
+**Date**: 2026-05-11  
+**Platform**: PS4  
+**Result**: PASS
+
+Confirmed: adding Spectral Steed Whistle with companion flags 60100, 4680, 710520, 4681 prevents the normal Melina whistle-gift scene from replaying. The item works in-game. No additional Gatefront/Melina cleanup flags were required.
+
+Flags 710770, 69090, 69370 (Melina leaves Gatefront) were **not set** and were **not needed** — runtime confirmed. These remain research candidates only.
+
+### Flags NOT included (and why)
+
+| Flag(s) | Reason excluded |
+|---|---|
+| 710770, 69090, 69370 | Melina leaves Gatefront — research candidates; **runtime confirmed not required** (2026-05-11 PS4 test). Present in all post-Melina PC saves but not needed for correct item mechanics. |
+| 4698 | Melina cutscene trigger — transient, cleared by engine after cutscene plays. 0 in all real saves. |
+| 4651, 4652, 4653 | Melina dialogue states — transient, cleared after dialogue. 0 in all real saves. |
+| 4656 | Level Up performed — separate user action, not part of item acquisition. |
+| 1042xxx range | Out of bounds on PS4 (BST offset ~130 MB vs ~2.3 MB flag array). Physically cannot be set. |
+
+### Context: ColosseumGlobalFlags
+
+Flag 60100 is also set by `ApplyPvPPreparation()` via `data.ColosseumGlobalFlags` when `opts.Colosseums = true`. This explains why some users reported Torrent working after editor-adding the whistle — they had previously applied PvP Preparation with Colosseums enabled. Users without that step had 60100=0 and Torrent was unusable.
+
+---
+
+## Multiplayer pickup items
+
+Adding multiplayer pickup items via the editor places them in inventory, but the game's pickup/interact state at the corresponding in-world objects can remain visible — as if the item was never obtained through normal gameplay. The editor synchronises the corresponding `Obtained` EventFlag alongside each item.
+
+For Cipher Rings: the flag serves as `eventFlag_forStock` in `ShopLineupParam.csv` — when the flag is 0, the Twin Maiden Husks shop continues to display and offer the item. Without the flag set, a player who received the ring via the editor will still see it in the shop, but cannot purchase a second copy (inventory uniqueness is enforced separately).
+
+**Behaviour (all items):**
+- **SET path** (`AddItemsToCharacter`): fires for every item in `prepared`, including items already at max quantity — enables repair of saves where the item was added without the flag.
+- **CLEAR path** (`RemoveItemsFromCharacter`): fires only when the last instance of the item is removed from the slot (checked via `slot.GaItems` scan).
+- Each item has exactly one companion flag; no cross-contamination between items.
+- Summoning Pool activation flags (`670xxx`) are a separate mechanism and are never touched here.
+
+### Companion flag table
+
+| Item | Item ID | Obtained flag | Source / In-world object |
+|---|---|---|---|
+| Small Golden Effigy | `0x4000006D` | **60230** | Effigy of the Martyr (cooperative pools) |
+| Duelist's Furled Finger | `0x40000065` | **60240** | World pickup |
+| Small Red Effigy | `0x4000006E` | **60250** | Effigy of the Martyr (invasion pools) |
+| White Cipher Ring | `0x40000068` | **60280** | er-save-manager db + ShopLineupParam.csv row 101800 `eventFlag_forStock` |
+| Blue Cipher Ring | `0x40000069` | **60290** | ShopLineupParam.csv row 101801 `eventFlag_forStock` + Steam Deck before/after shop purchase diff |
+
+### Blue Cipher Ring — confirmation details
+
+Flag `60290` was absent from all community event flag databases (er-save-manager, CT-TGA, ER-Save-Editor). Confirmed by two independent regulation.bin-level sources:
+
+1. **ShopLineupParam.csv** row 101801: `equipId=105` (Blue Cipher Ring, `0x40000069`), `eventFlag_forStock=60290`.
+2. **Steam Deck before/after shop purchase diff** (`tmp/quests/ER0000-ring-before.sl2` → `ER0000-ring-after.sl2`): flag 60290 was the only flag in the 60xxx range that changed `0→1` when the ring was purchased from Twin Maiden Husks. Full diff: 8 flags SET in total; 60290 was the sole multiplayer-item-related change.
+
+**Research report**: `tmp/regulation-bin-debug/blue-cipher-ring-shop-diff.md`
+
+### Flag resolution
+
+Flags 60240, 60250, 60280, 60290 are not in the precomputed `EventFlags` lookup table but are correctly resolved via the BST path (`block 60 → bst_pos 10`). Flag 60230 is in the precomputed table. All resolve correctly through `db.SetEventFlag` / `db.GetEventFlag`.
+
+### Flags NOT included (and why)
+
+| Flag(s) | Reason excluded |
+|---|---|
+| 60220, 60260, 60270, 60300, 60310 | Other multiplayer items — not added in this commit. |
+| 670xxx (Summoning Pool activation) | Independent mechanism — activating a summoning pool is a separate player action. |
+| All Spectral Steed Whistle flags | Unrelated item chain — no overlap. |
+
+---
+
+## Adding future companion flag sets
+
+To add companion flags for another item:
+
+1. Research which flags the game sets during normal acquisition (check `quests.go`, compare before/after save pairs, cross-reference er-save-manager `event_flags_db.py`).
+2. Verify each flag is present in post-acquisition real saves (both PC and PS4 where possible).
+3. Exclude transient flags (values that are 0 in fully-settled post-acquisition saves).
+4. Exclude 1042xxx range flags (out of bounds on PS4).
+5. Add the item ID and flag list to `itemCompanionEventFlags` in `backend/db/data/item_companion_flags.go`.
+6. Add unit tests to `backend/db/data/item_companion_flags_test.go`.
+7. Add integration test cases to `tests/item_companion_flags_test.go`.
+
+---
+
+## Sources
+
+- `backend/db/data/item_companion_flags.go` — implementation
+- `backend/db/data/item_companion_flags_test.go` — unit tests
+- `tests/item_companion_flags_test.go` — integration tests
+- `spec/12-torrent.md` — Torrent mechanic flags
+- `spec/15-event-flags.md` — EventFlag registry
+- `backend/db/data/quests.go` — Melina quest chain flag steps
+- `tmp/repos/er-save-manager/src/er_save_manager/data/event_flags_db.py` — community flag database
+- `tmp/regulation-bin-debug/spectral-steed-whistle-research.md` — full research report (2026-05-11)
