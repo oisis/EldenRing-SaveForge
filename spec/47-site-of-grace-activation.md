@@ -140,9 +140,32 @@ Setting grace EventFlags (71xxx–76xxx) does NOT set map flags. The two layers 
 1. Reads `slot.Data[slot.EventFlagsOffset:]`
 2. Calls `db.SetEventFlag(flags, graceID, visited)` — sets the 71xxx/76xxx bit
 3. If `DoorFlag != 0`: calls `db.SetEventFlag(flags, gd.DoorFlag, visited)` — sets door flag
-4. Does NOT touch `LastRestedGrace` (correct — game manages this automatically)
-5. Does NOT set any MapFlags
-6. Does NOT set any BonfireId-indexed data
+4. If `visited == true` and `CompanionEventFlagsForGrace(graceID)` is non-empty: sets each companion flag (SET-only — never cleared on deactivation)
+5. Does NOT touch `LastRestedGrace` (correct — game manages this automatically)
+6. Does NOT set any MapFlags
+7. Does NOT set any BonfireId-indexed data
+
+### 3.1 Grace Companion Flags
+
+`CompanionEventFlagsForGrace` in `backend/db/data/grace_companion_flags.go` maps grace EventFlag IDs to the minimal set of EventFlags the game co-sets during normal first-visit acquisition.
+
+**Design constraints (SET-only):**
+- Companion flags are **SET on activation only** (`visited=true`).
+- They are **never cleared** when a grace is deactivated (`visited=false`).
+- Reason: the same flags may be set by item companion flags (e.g. Spectral Steed Whistle) or by normal game progression. Clearing them on grace deactivation would regress saves that reached the same state through other paths.
+
+**Current entries:**
+
+| Grace | EventFlag ID | Companion flags set |
+|---|---|---|
+| Gatefront (Limgrave West) | 76111 (`0x0001294F`) | 60100, 4680, 4681, 710520 — Initial Melina Accord |
+
+**Not included (explicitly excluded):**
+- RTH invitation flags: `10009655`, `11109658`, `11109659` — separate progression step
+- `11109786` — RTH transport trigger (transient, cleared by engine)
+- `710770`, `69090`, `69370` — Melina leaves Gatefront (research candidates; runtime confirmed not required — spec/50 PS4 test 2026-05-11)
+- `4698`, `4651`, `4652`, `4653` — Melina dialogue states (transient)
+- `4656` — Level Up performed (separate user action)
 
 This is **identical** to all three reference implementations:
 
@@ -310,11 +333,15 @@ Goal: determine whether any category produces a category-specific companion Even
 | File | Relevance |
 |---|---|
 | `backend/db/data/graces.go` | All 419 grace entries with EventFlag IDs and DoorFlags |
+| `backend/db/data/grace_companion_flags.go` | Grace companion flag map and `CompanionEventFlagsForGrace()` |
+| `backend/db/data/grace_companion_flags_test.go` | Unit tests for grace companion flags |
+| `tests/grace_companion_flags_test.go` | Integration tests on real save slot data |
 | `backend/core/section_eventflags.go` | `PreEventFlagsScalars` struct, `EventFlagsBlock` |
 | `app_world.go` | `SetGraceVisited()` implementation |
 | `spec/14-game-state.md` | `LastRestedGrace` field, BonfireId semantics |
 | `spec/15-event-flags.md` | "Bonfire IDs" section, EventFlag byte offsets |
 | `spec/16-world-state.md` | WorldGeomMan / WorldArea (partial) |
+| `spec/50-item-companion-flags.md` | Item companion flags (Spectral Steed Whistle) — shares 60100/4680/4681/710520 |
 | `tmp/repos/er-save-manager/src/er_save_manager/parser/event_flags.py` | Reference: single-flag approach |
 | `tmp/repos/ER-Save-Editor/src/db/graces.rs` | Reference: single u32 EventFlag ID per grace |
 | `tmp/repos/Elden-Ring-Save-Editor/src/Final.py` | Reference: single bit per grace |

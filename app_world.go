@@ -67,6 +67,19 @@ func (a *App) SetGraceVisited(slotIndex int, graceID uint32, visited bool) error
 		}
 	}
 
+	// SET-only: companion flags are set on activation but never cleared on deactivation.
+	// They may also be set by item companion flags or normal game progression — clearing
+	// them on visited=false would regress saves that obtained the flags through other paths.
+	if visited {
+		if companions := data.CompanionEventFlagsForGrace(graceID); len(companions) > 0 {
+			for _, f := range companions {
+				if err := db.SetEventFlag(flags, f, true); err != nil {
+					fmt.Printf("Warning: companion flag %d for grace %d: %v\n", f, graceID, err)
+				}
+			}
+		}
+	}
+
 	return nil
 }
 

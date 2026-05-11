@@ -140,9 +140,32 @@ Ustawienie EventFlag gracji (71xxx–76xxx) NIE ustawia MapFlags. Te dwie warstw
 1. Odczytuje `slot.Data[slot.EventFlagsOffset:]`
 2. Wywołuje `db.SetEventFlag(flags, graceID, visited)` — ustawia bit 71xxx/76xxx
 3. Jeśli `DoorFlag != 0`: wywołuje `db.SetEventFlag(flags, gd.DoorFlag, visited)` — ustawia flagę drzwi
-4. NIE dotyka `LastRestedGrace` (poprawne — gra zarządza tym automatycznie)
-5. NIE ustawia żadnych MapFlags
-6. NIE ustawia żadnych danych indeksowanych BonfireId
+4. Jeśli `visited == true` i `CompanionEventFlagsForGrace(graceID)` jest niepuste: ustawia każdą flagę towarzyszącą (tylko SET — nigdy nie czyści przy dezaktywacji)
+5. NIE dotyka `LastRestedGrace` (poprawne — gra zarządza tym automatycznie)
+6. NIE ustawia żadnych MapFlags
+7. NIE ustawia żadnych danych indeksowanych BonfireId
+
+### 3.1 Grace Companion Flags (flagi towarzyszące gracji)
+
+`CompanionEventFlagsForGrace` w `backend/db/data/grace_companion_flags.go` mapuje EventFlag ID gracji na minimalny zestaw EventFlag, które gra ustawia wspólnie podczas normalnej pierwszej wizyty.
+
+**Zasady projektowe (tylko SET):**
+- Flagi towarzyszące są **ustawiane tylko przy aktywacji** (`visited=true`).
+- **Nigdy nie są czyszczone** przy dezaktywacji gracji (`visited=false`).
+- Powód: te same flagi mogą być ustawiane przez item companion flags (np. Spectral Steed Whistle) lub przez normalny postęp gry. Czyszczenie ich przy dezaktywacji gracji cofałoby saves, które osiągnęły ten stan innymi ścieżkami.
+
+**Aktualne wpisy:**
+
+| Gracja | EventFlag ID | Ustawiane flagi towarzyszące |
+|---|---|---|
+| Gatefront (Limgrave West) | 76111 (`0x0001294F`) | 60100, 4680, 4681, 710520 — Initial Melina Accord |
+
+**Nie uwzględniono (jawnie wykluczone):**
+- Flagi zaproszenia RTH: `10009655`, `11109658`, `11109659` — osobny krok postępu
+- `11109786` — wyzwalacz transportu RTH (przejściowy, czyszczony przez silnik)
+- `710770`, `69090`, `69370` — Melina opuszcza Gatefront (kandydaci badawczy; runtime potwierdził, że nie są wymagane — spec/50 test PS4 2026-05-11)
+- `4698`, `4651`, `4652`, `4653` — stany dialogu Meliny (przejściowe)
+- `4656` — Level Up wykonany (osobna akcja użytkownika)
 
 Jest to **identyczne** z wszystkimi trzema implementacjami referencyjnymi:
 
@@ -310,11 +333,15 @@ Cel: ustalić czy jakaś kategoria produkuje specyficzną dla kategorii towarzys
 | Plik | Istotność |
 |---|---|
 | `backend/db/data/graces.go` | Wszystkie 419 wpisów gracji z EventFlag ID i DoorFlags |
+| `backend/db/data/grace_companion_flags.go` | Mapa flag towarzyszących gracji i `CompanionEventFlagsForGrace()` |
+| `backend/db/data/grace_companion_flags_test.go` | Testy jednostkowe flag towarzyszących gracji |
+| `tests/grace_companion_flags_test.go` | Testy integracyjne na danych realnego slotu |
 | `backend/core/section_eventflags.go` | Struct `PreEventFlagsScalars`, `EventFlagsBlock` |
 | `app_world.go` | Implementacja `SetGraceVisited()` |
 | `spec/14-game-state.md` | Pole `LastRestedGrace`, semantyka BonfireId |
 | `spec/15-event-flags.md` | Sekcja "Bonfire IDs", offsety bajtów EventFlag |
 | `spec/16-world-state.md` | WorldGeomMan / WorldArea (częściowe) |
+| `spec/50-item-companion-flags.md` | Item companion flags (Spectral Steed Whistle) — współdzieli 60100/4680/4681/710520 |
 | `tmp/repos/er-save-manager/src/er_save_manager/parser/event_flags.py` | Referencja: podejście single-flag |
 | `tmp/repos/ER-Save-Editor/src/db/graces.rs` | Referencja: pojedyncze u32 EventFlag ID per gracja |
 | `tmp/repos/Elden-Ring-Save-Editor/src/Final.py` | Referencja: pojedynczy bit per gracja |
