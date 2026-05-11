@@ -112,6 +112,36 @@ Flaga 60100 jest też ustawiana przez `ApplyPvPPreparation()` przez `data.Coloss
 
 ---
 
+## Small Golden Effigy — `0x4000006D`
+
+**Kategoria**: Narzędzia → Multiplayer  
+**Nazwa EN**: Small Golden Effigy
+
+### Problem
+
+Dodanie Small Golden Effigy przez edytor umieszcza item w inventory, ale stan odbioru/interakcji przy Statuetce Przyzywania (Effigy of the Martyr) może pozostawać widoczny — tak jakby item nigdy nie został odebrany normalną ścieżką.
+
+### Flagi towarzyszące
+
+| Flaga | Nazwa | Klasyfikacja |
+|---|---|---|
+| **60230** | Obtained Small Golden Effigy | SET przy dodaniu, CLEAR przy usunięciu |
+
+### Zachowanie
+
+- **Ścieżka SET** (`AddItemsToCharacter`): działa dla każdego itemu w `prepared`, w tym itemów już na maksymalnej ilości w ekwipunku — umożliwia **naprawę saves**, w których item był dodany bez flagi.
+- **Ścieżka CLEAR** (`RemoveItemsFromCharacter`): działa tylko wtedy, gdy ostatnia instancja itemu została usunięta ze slotu (sprawdzane przez skan `slot.GaItems`).
+
+### Flagi NIE uwzględnione (i dlaczego)
+
+| Flaga(i) | Powód wykluczenia |
+|---|---|
+| 60220, 60240, 60250, 60260, 60270, 60300, 60310 | Inne przedmioty multiplayer — osobne zestawy flag, nie są częścią tego mappingu. |
+| 670xxx (aktywacja Summoning Pool) | Osobny mechanizm. Aktywacja statki przyzywania to osobna akcja gracza, niezwiązana z pozyskaniem itemu. |
+| Wszystkie flagi Spectral Steed Whistle | Niezwiązany łańcuch itemów — brak nakładania się. |
+
+---
+
 ## Dodawanie kolejnych zestawów flag towarzyszących
 
 Aby dodać flagi towarzyszące dla kolejnego przedmiotu:

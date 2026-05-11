@@ -137,6 +137,36 @@ Flag 60100 is also set by `ApplyPvPPreparation()` via `data.ColosseumGlobalFlags
 
 ---
 
+## Small Golden Effigy — `0x4000006D`
+
+**Category**: Tools → Multiplayer  
+**In-game name**: Small Golden Effigy
+
+### Problem
+
+Adding the Small Golden Effigy via the editor places the item in inventory, but the game's pickup/interact state at Effigies of the Martyr (summoning pool statues) can remain visible — as if the item was never obtained through normal gameplay.
+
+### Companion flags
+
+| Flag | Name | Classification |
+|---|---|---|
+| **60230** | Obtained Small Golden Effigy | SET on add, CLEAR on remove |
+
+### Behaviour
+
+- **SET path** (`AddItemsToCharacter`): fires for every item in `prepared`, including items already at max quantity — enables repair of saves where the item was added without the flag.
+- **CLEAR path** (`RemoveItemsFromCharacter`): fires only when the last instance of the item is removed from the slot (checked via `slot.GaItems` scan).
+
+### Flags NOT included (and why)
+
+| Flag(s) | Reason excluded |
+|---|---|
+| 60220, 60240, 60250, 60260, 60270, 60300, 60310 | Other multiplayer items — separate companion sets, not part of this mapping. |
+| 670xxx (Summoning Pool activation) | Independent mechanism. Activating a summoning pool is a separate player action, not tied to item acquisition. |
+| All Spectral Steed Whistle flags | Unrelated item chain — no overlap. |
+
+---
+
 ## Adding future companion flag sets
 
 To add companion flags for another item:

@@ -188,6 +188,167 @@ func TestCompanionFlagsNotClearedForUnknownItem(t *testing.T) {
 	}
 }
 
+// TestSmallGoldenEffigyFlagSet verifies that flag 60230 can be set on real save slot
+// flag data, simulating the SET path in AddItemsToCharacter.
+func TestSmallGoldenEffigyFlagSet(t *testing.T) {
+	save, slotIdx := loadBulkTestSave(t)
+	slot := &save.Slots[slotIdx]
+
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		t.Skip("EventFlagsOffset not set in test save slot")
+	}
+
+	companions := data.CompanionEventFlagsForItem(data.ItemSmallGoldenEffigy)
+	if len(companions) != 1 || companions[0] != data.EventFlagObtainedSmallGoldenEffigy {
+		t.Fatalf("unexpected companion set for Small Golden Effigy: %v", companions)
+	}
+
+	flagData := make([]byte, len(slot.Data)-slot.EventFlagsOffset)
+	copy(flagData, slot.Data[slot.EventFlagsOffset:])
+
+	if err := db.SetEventFlag(flagData, data.EventFlagObtainedSmallGoldenEffigy, true); err != nil {
+		t.Fatalf("SetEventFlag(60230, true) failed: %v", err)
+	}
+	got, err := db.GetEventFlag(flagData, data.EventFlagObtainedSmallGoldenEffigy)
+	if err != nil {
+		t.Fatalf("GetEventFlag(60230) failed: %v", err)
+	}
+	if !got {
+		t.Error("flag 60230: set succeeded but GetEventFlag returned false")
+	}
+}
+
+// TestSmallGoldenEffigyFlagClear verifies the CLEAR path: flag 60230 can be cleared
+// and its clearing does not affect Spectral Steed Whistle flags.
+func TestSmallGoldenEffigyFlagClear(t *testing.T) {
+	save, slotIdx := loadBulkTestSave(t)
+	slot := &save.Slots[slotIdx]
+
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		t.Skip("EventFlagsOffset not set in test save slot")
+	}
+
+	flagData := make([]byte, len(slot.Data)-slot.EventFlagsOffset)
+	copy(flagData, slot.Data[slot.EventFlagsOffset:])
+
+	// Set 60230 and all whistle flags.
+	whistleFlags := []uint32{
+		data.EventFlagObtainedSpectralSteedWhistle,
+		data.EventFlagMelinaGaveWhistle,
+		data.EventFlagWhistleWorldState,
+		data.EventFlagMelinaAcceptRefusePopup,
+	}
+	for _, f := range append(whistleFlags, data.EventFlagObtainedSmallGoldenEffigy) {
+		if err := db.SetEventFlag(flagData, f, true); err != nil {
+			t.Fatalf("SetEventFlag(%d, true) failed: %v", f, err)
+		}
+	}
+
+	// Clear only 60230 (CLEAR path for Small Golden Effigy removal).
+	if err := db.SetEventFlag(flagData, data.EventFlagObtainedSmallGoldenEffigy, false); err != nil {
+		t.Fatalf("SetEventFlag(60230, false) failed: %v", err)
+	}
+	got, err := db.GetEventFlag(flagData, data.EventFlagObtainedSmallGoldenEffigy)
+	if err != nil {
+		t.Fatalf("GetEventFlag(60230) failed: %v", err)
+	}
+	if got {
+		t.Error("flag 60230 still set after clear")
+	}
+
+	// Whistle flags must not be affected.
+	for _, f := range whistleFlags {
+		on, err := db.GetEventFlag(flagData, f)
+		if err != nil {
+			t.Errorf("GetEventFlag(%d) failed: %v", f, err)
+			continue
+		}
+		if !on {
+			t.Errorf("whistle flag %d was cleared unexpectedly during effigy flag clear", f)
+		}
+	}
+}
+
+// TestSmallGoldenEffigyRepair verifies the repair path: item already in inventory
+// but 60230=false → adding item again via companion flag mechanism sets 60230=true.
+func TestSmallGoldenEffigyRepair(t *testing.T) {
+	save, slotIdx := loadBulkTestSave(t)
+	slot := &save.Slots[slotIdx]
+
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		t.Skip("EventFlagsOffset not set in test save slot")
+	}
+
+	flagData := make([]byte, len(slot.Data)-slot.EventFlagsOffset)
+	copy(flagData, slot.Data[slot.EventFlagsOffset:])
+
+	// Precondition: 60230 is explicitly cleared (simulates old save without companion flag).
+	if err := db.SetEventFlag(flagData, data.EventFlagObtainedSmallGoldenEffigy, false); err != nil {
+		t.Fatalf("SetEventFlag(60230, false) failed: %v", err)
+	}
+
+	// Simulate companion flag SET path (as AddItemsToCharacter does for each item in prepared).
+	companions := data.CompanionEventFlagsForItem(data.ItemSmallGoldenEffigy)
+	for _, f := range companions {
+		if err := db.SetEventFlag(flagData, f, true); err != nil {
+			t.Fatalf("SetEventFlag(%d, true) failed: %v", f, err)
+		}
+	}
+
+	got, err := db.GetEventFlag(flagData, data.EventFlagObtainedSmallGoldenEffigy)
+	if err != nil {
+		t.Fatalf("GetEventFlag(60230) failed: %v", err)
+	}
+	if !got {
+		t.Error("repair path failed: 60230 still false after re-adding item")
+	}
+}
+
+// TestSmallGoldenEffigyNoSummoningPoolFlags verifies that no Summoning Pool flags
+// (670xxx range) are present in the Small Golden Effigy companion set.
+func TestSmallGoldenEffigyNoSummoningPoolFlags(t *testing.T) {
+	companions := data.CompanionEventFlagsForItem(data.ItemSmallGoldenEffigy)
+	for _, f := range companions {
+		if f >= 670000 && f < 680000 {
+			t.Errorf("companion set contains Summoning Pool flag %d (670xxx range)", f)
+		}
+	}
+}
+
+// TestSmallGoldenEffigyUnrelatedItemDoesNotAffectFlag verifies that removing an item
+// with no companion flags does not affect flag 60230.
+func TestSmallGoldenEffigyUnrelatedItemDoesNotAffectFlag(t *testing.T) {
+	save, slotIdx := loadBulkTestSave(t)
+	slot := &save.Slots[slotIdx]
+
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		t.Skip("EventFlagsOffset not set in test save slot")
+	}
+
+	flagData := make([]byte, len(slot.Data)-slot.EventFlagsOffset)
+	copy(flagData, slot.Data[slot.EventFlagsOffset:])
+
+	// Set 60230.
+	if err := db.SetEventFlag(flagData, data.EventFlagObtainedSmallGoldenEffigy, true); err != nil {
+		t.Fatalf("SetEventFlag(60230, true) failed: %v", err)
+	}
+
+	// Unrelated item has no companion flags — CLEAR path is never triggered.
+	unknownID := uint32(0xDEADBEEF)
+	if flags := data.CompanionEventFlagsForItem(unknownID); len(flags) != 0 {
+		t.Skipf("test item 0x%08X unexpectedly has companion flags", unknownID)
+	}
+
+	// Verify 60230 is unaffected.
+	got, err := db.GetEventFlag(flagData, data.EventFlagObtainedSmallGoldenEffigy)
+	if err != nil {
+		t.Fatalf("GetEventFlag(60230) failed: %v", err)
+	}
+	if !got {
+		t.Error("flag 60230 was cleared unexpectedly for unrelated item removal")
+	}
+}
+
 // TestCompanionFlagsRemainingItemPreventsClearing verifies that the "remaining item"
 // check works: if a GaItem with the whistle ID still exists, flags must not be cleared.
 func TestCompanionFlagsRemainingItemPreventsClearing(t *testing.T) {

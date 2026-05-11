@@ -24,11 +24,22 @@ var itemCompanionEventFlags = map[uint32][]uint32{
 		EventFlagWhistleWorldState,
 		EventFlagMelinaAcceptRefusePopup,
 	},
+
+	// Small Golden Effigy — obtained flag for the cooperative summoning pool broadcaster.
+	// Without this flag the pickup/interact state at Effigies of the Martyr can remain
+	// visible even when the item is already in inventory.
+	//
+	// NOT included: 60220/60240/60250/60260/60270/60300/60310 (other multiplayer items).
+	// NOT included: Summoning Pool activation flags (670xxx) — separate mechanism.
+	ItemSmallGoldenEffigy: {
+		EventFlagObtainedSmallGoldenEffigy,
+	},
 }
 
 // Item IDs with companion flags.
 const (
 	ItemSpectralSteedWhistle = uint32(0x40000082)
+	ItemSmallGoldenEffigy    = uint32(0x4000006D)
 )
 
 // EventFlag IDs for Spectral Steed Whistle companion set.
@@ -48,6 +59,14 @@ const (
 	// EventFlagMelinaAcceptRefusePopup marks the accept/refuse popup as shown.
 	// Set as prerequisite before the give step in the Melina quest chain.
 	EventFlagMelinaAcceptRefusePopup = uint32(4681)
+)
+
+// EventFlag IDs for Small Golden Effigy companion set.
+const (
+	// EventFlagObtainedSmallGoldenEffigy marks the item as obtained.
+	// Without it the pickup/interact state at Effigies of the Martyr can remain
+	// visible even when the item is already in inventory.
+	EventFlagObtainedSmallGoldenEffigy = uint32(60230)
 )
 
 // CompanionEventFlagsForItem returns the list of event flags that must be SET
