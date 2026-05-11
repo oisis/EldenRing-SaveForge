@@ -137,32 +137,34 @@ Flag 60100 is also set by `ApplyPvPPreparation()` via `data.ColosseumGlobalFlags
 
 ---
 
-## Small Golden Effigy — `0x4000006D`
+## Multiplayer pickup items
 
-**Category**: Tools → Multiplayer  
-**In-game name**: Small Golden Effigy
+Adding multiplayer pickup items via the editor places them in inventory, but the game's pickup/interact state at the corresponding in-world objects can remain visible — as if the item was never obtained through normal gameplay. The editor synchronises the corresponding `Obtained` EventFlag alongside each item.
 
-### Problem
-
-Adding the Small Golden Effigy via the editor places the item in inventory, but the game's pickup/interact state at Effigies of the Martyr (summoning pool statues) can remain visible — as if the item was never obtained through normal gameplay.
-
-### Companion flags
-
-| Flag | Name | Classification |
-|---|---|---|
-| **60230** | Obtained Small Golden Effigy | SET on add, CLEAR on remove |
-
-### Behaviour
-
+**Behaviour (all three items):**
 - **SET path** (`AddItemsToCharacter`): fires for every item in `prepared`, including items already at max quantity — enables repair of saves where the item was added without the flag.
 - **CLEAR path** (`RemoveItemsFromCharacter`): fires only when the last instance of the item is removed from the slot (checked via `slot.GaItems` scan).
+- Each item has exactly one companion flag; no cross-contamination between items.
+- Summoning Pool activation flags (`670xxx`) are a separate mechanism and are never touched here.
+
+### Companion flag table
+
+| Item | Item ID | Obtained flag | In-world object |
+|---|---|---|---|
+| Small Golden Effigy | `0x4000006D` | **60230** | Effigy of the Martyr (cooperative pools) |
+| Duelist's Furled Finger | `0x40000065` | **60240** | World pickup |
+| Small Red Effigy | `0x4000006E` | **60250** | Effigy of the Martyr (invasion pools) |
+
+### Flag resolution
+
+Flags 60240 and 60250 are not in the precomputed `EventFlags` lookup table but are correctly resolved via the BST path (`block 60 → bst_pos 10`). Flag 60230 is in the precomputed table. All three resolve correctly through `db.SetEventFlag` / `db.GetEventFlag`.
 
 ### Flags NOT included (and why)
 
 | Flag(s) | Reason excluded |
 |---|---|
-| 60220, 60240, 60250, 60260, 60270, 60300, 60310 | Other multiplayer items — separate companion sets, not part of this mapping. |
-| 670xxx (Summoning Pool activation) | Independent mechanism. Activating a summoning pool is a separate player action, not tied to item acquisition. |
+| 60220, 60260, 60270, 60300, 60310 | Other multiplayer items — not added in this commit. |
+| 670xxx (Summoning Pool activation) | Independent mechanism — activating a summoning pool is a separate player action. |
 | All Spectral Steed Whistle flags | Unrelated item chain — no overlap. |
 
 ---

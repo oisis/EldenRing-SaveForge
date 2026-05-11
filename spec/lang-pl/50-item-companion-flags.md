@@ -112,32 +112,34 @@ Flaga 60100 jest też ustawiana przez `ApplyPvPPreparation()` przez `data.Coloss
 
 ---
 
-## Small Golden Effigy — `0x4000006D`
+## Przedmioty multiplayer pickup
 
-**Kategoria**: Narzędzia → Multiplayer  
-**Nazwa EN**: Small Golden Effigy
+Dodanie tych itemów przez edytor umieszcza je w inventory, ale stan odbioru/interakcji przy odpowiadającym obiekcie w świecie gry może pozostawać widoczny — tak jakby item nigdy nie został odebrany normalną ścieżką. Edytor synchronizuje odpowiadającą flagę `Obtained` przy każdym dodaniu i usunięciu itemu.
 
-### Problem
+**Zachowanie (wszystkie trzy itemy):**
+- **Ścieżka SET** (`AddItemsToCharacter`): działa dla każdego itemu w `prepared`, w tym itemów już na maksymalnej ilości — umożliwia naprawę saves, w których item był dodany bez flagi.
+- **Ścieżka CLEAR** (`RemoveItemsFromCharacter`): działa tylko gdy ostatnia instancja itemu została usunięta ze slotu (sprawdzane przez skan `slot.GaItems`).
+- Każdy item ma dokładnie jedną flagę towarzyszącą; brak nakładania między itemami.
+- Flagi aktywacji Summoning Pool (`670xxx`) to osobny mechanizm — nie są dotykane.
 
-Dodanie Small Golden Effigy przez edytor umieszcza item w inventory, ale stan odbioru/interakcji przy Statuetce Przyzywania (Effigy of the Martyr) może pozostawać widoczny — tak jakby item nigdy nie został odebrany normalną ścieżką.
+### Tabela flag towarzyszących
 
-### Flagi towarzyszące
+| Item | Item ID | Flaga obtained | Obiekt in-world |
+|---|---|---|---|
+| Small Golden Effigy | `0x4000006D` | **60230** | Effigy of the Martyr (kooperacja) |
+| Duelist's Furled Finger | `0x40000065` | **60240** | World pickup |
+| Small Red Effigy | `0x4000006E` | **60250** | Effigy of the Martyr (inwazje) |
 
-| Flaga | Nazwa | Klasyfikacja |
-|---|---|---|
-| **60230** | Obtained Small Golden Effigy | SET przy dodaniu, CLEAR przy usunięciu |
+### Rozwiązywanie flag
 
-### Zachowanie
-
-- **Ścieżka SET** (`AddItemsToCharacter`): działa dla każdego itemu w `prepared`, w tym itemów już na maksymalnej ilości w ekwipunku — umożliwia **naprawę saves**, w których item był dodany bez flagi.
-- **Ścieżka CLEAR** (`RemoveItemsFromCharacter`): działa tylko wtedy, gdy ostatnia instancja itemu została usunięta ze slotu (sprawdzane przez skan `slot.GaItems`).
+Flagi 60240 i 60250 nie są w prekomputowanej tabeli `EventFlags`, ale są poprawnie rozwiązywane przez ścieżkę BST (`blok 60 → bst_pos 10`). Flaga 60230 jest w prekomputowanej tabeli. Wszystkie trzy działają poprawnie przez `db.SetEventFlag` / `db.GetEventFlag`.
 
 ### Flagi NIE uwzględnione (i dlaczego)
 
 | Flaga(i) | Powód wykluczenia |
 |---|---|
-| 60220, 60240, 60250, 60260, 60270, 60300, 60310 | Inne przedmioty multiplayer — osobne zestawy flag, nie są częścią tego mappingu. |
-| 670xxx (aktywacja Summoning Pool) | Osobny mechanizm. Aktywacja statki przyzywania to osobna akcja gracza, niezwiązana z pozyskaniem itemu. |
+| 60220, 60260, 60270, 60300, 60310 | Inne przedmioty multiplayer — nie dodano w tym commicie. |
+| 670xxx (aktywacja Summoning Pool) | Osobny mechanizm — aktywacja Statuetki Przyzywania to osobna akcja gracza. |
 | Wszystkie flagi Spectral Steed Whistle | Niezwiązany łańcuch itemów — brak nakładania się. |
 
 ---

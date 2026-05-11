@@ -25,21 +25,25 @@ var itemCompanionEventFlags = map[uint32][]uint32{
 		EventFlagMelinaAcceptRefusePopup,
 	},
 
-	// Small Golden Effigy — obtained flag for the cooperative summoning pool broadcaster.
-	// Without this flag the pickup/interact state at Effigies of the Martyr can remain
-	// visible even when the item is already in inventory.
+	// Obtained flags for multiplayer pickup items. Without these flags,
+	// the item pickup/interact state can remain visible in the world even
+	// when the item is already in inventory.
 	//
-	// NOT included: 60220/60240/60250/60260/60270/60300/60310 (other multiplayer items).
 	// NOT included: Summoning Pool activation flags (670xxx) — separate mechanism.
-	ItemSmallGoldenEffigy: {
-		EventFlagObtainedSmallGoldenEffigy,
-	},
+	// NOT included: flags for other multiplayer items not listed here.
+	ItemSmallGoldenEffigy: {EventFlagObtainedSmallGoldenEffigy},
+	ItemDuelistsFurledFinger: {EventFlagObtainedDuelistsFurledFinger},
+	ItemSmallRedEffigy: {EventFlagObtainedSmallRedEffigy},
 }
 
 // Item IDs with companion flags.
 const (
 	ItemSpectralSteedWhistle = uint32(0x40000082)
+
+	// Multiplayer pickup items (tools, SubcatToolsMultiplayer).
 	ItemSmallGoldenEffigy    = uint32(0x4000006D)
+	ItemDuelistsFurledFinger = uint32(0x40000065)
+	ItemSmallRedEffigy       = uint32(0x4000006E)
 )
 
 // EventFlag IDs for Spectral Steed Whistle companion set.
@@ -61,12 +65,21 @@ const (
 	EventFlagMelinaAcceptRefusePopup = uint32(4681)
 )
 
-// EventFlag IDs for Small Golden Effigy companion set.
+// EventFlag IDs for multiplayer pickup item companion sets.
 const (
 	// EventFlagObtainedSmallGoldenEffigy marks the item as obtained.
 	// Without it the pickup/interact state at Effigies of the Martyr can remain
 	// visible even when the item is already in inventory.
 	EventFlagObtainedSmallGoldenEffigy = uint32(60230)
+
+	// EventFlagObtainedDuelistsFurledFinger marks the item as obtained.
+	// Without it the pickup/interact state can remain visible in the world.
+	EventFlagObtainedDuelistsFurledFinger = uint32(60240)
+
+	// EventFlagObtainedSmallRedEffigy marks the item as obtained.
+	// Without it the pickup/interact state at Effigies of the Martyr can remain
+	// visible even when the item is already in inventory.
+	EventFlagObtainedSmallRedEffigy = uint32(60250)
 )
 
 // CompanionEventFlagsForItem returns the list of event flags that must be SET
