@@ -1,8 +1,8 @@
 # 50 — Item Companion Flags (Towarzyszące Flagi Przedmiotów)
 
 > **Typ**: Design doc
-> **Status**: ✅ Zaimplementowano (v0.14.0)
-> **Zakres**: Mechanizm ustawiania zależnych od przedmiotu EventFlag przy dodawaniu przedmiotów do slotu postaci.
+> **Status**: ✅ Zaimplementowano (v0.14.0) — SET przy dodaniu + CLEAR przy usunięciu
+> **Zakres**: Mechanizm synchronizacji zależnych od przedmiotu EventFlag przy dodawaniu przedmiotów do slotu postaci i ich usuwaniu.
 
 ---
 
@@ -42,9 +42,9 @@ var itemCompanionEventFlags = map[uint32][]uint32{
 func CompanionEventFlagsForItem(itemID uint32) []uint32
 ```
 
-### Miejsce podpięcia (hook)
+### Miejsca podpięcia (hooks)
 
-Blok POST-FLAGS w `AddItemsToCharacter()` (`app.go`), po `AboutTutorialID`. Uruchamia się dla każdego przedmiotu w slice `prepared` — w tym dla przedmiotów już na maksymalnej ilości w ekwipunku — co pozwala **naprawiać saves**, w których przedmiot był wcześniej dodany bez flag towarzyszących.
+**SET** — blok POST-FLAGS w `AddItemsToCharacter()` (`app.go`), po `AboutTutorialID`. Uruchamia się dla każdego przedmiotu w slice `prepared` — w tym dla przedmiotów już na maksymalnej ilości w ekwipunku — co pozwala **naprawiać saves**, w których przedmiot był wcześniej dodany bez flag towarzyszących.
 
 ```go
 if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 {
@@ -58,6 +58,16 @@ if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 
     }
 }
 ```
+
+**CLEAR** — blok post-removal w `RemoveItemsFromCharacter()` (`app.go`). Uruchamia się tylko wtedy, gdy ostatnia instancja przedmiotu została usunięta ze slotu (sprawdzane przez skan `slot.GaItems`).
+
+### Poza zakresem
+
+- `CompanionEventFlagsForGrace` — nie istnieje żaden hook na poziomie grace.
+- `SetGraceVisited` — nie jest modyfikowane przez ten mechanizm.
+- Flagi zaproszenia do Roundtable Hold (`10009655`, `11109658`, `11109659`) — nie są częścią item companion flags.
+- Flagi postępu Site of Grace — nie są częścią tego mechanizmu.
+- Flagi `4656`, `11109786` oraz context flags (`710770`, `69090`, `69370`) — nigdy nie są ustawiane ani czyszczone przez ten mechanizm.
 
 ---
 

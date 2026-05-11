@@ -1,8 +1,8 @@
 # 50 — Item Companion Flags
 
 > **Type**: Design doc
-> **Status**: ✅ Implemented (v0.14.0)
-> **Scope**: Mechanism for setting item-dependent EventFlags when items are added to a character slot.
+> **Status**: ✅ Implemented (v0.14.0) — SET on add + CLEAR on remove
+> **Scope**: Mechanism for synchronising item-dependent EventFlags when items are added to or removed from a character slot.
 
 ---
 
@@ -42,9 +42,9 @@ var itemCompanionEventFlags = map[uint32][]uint32{
 func CompanionEventFlagsForItem(itemID uint32) []uint32
 ```
 
-### Hook location
+### Hook locations
 
-POST-FLAGS block in `AddItemsToCharacter()` (`app.go`), after `AboutTutorialID`. Fires for every item in the `prepared` slice — including items already at max inventory quantity — enabling the mechanism to **repair saves** where the item was previously added without companion flags.
+**SET** — POST-FLAGS block in `AddItemsToCharacter()` (`app.go`), after `AboutTutorialID`. Fires for every item in the `prepared` slice — including items already at max inventory quantity — enabling the mechanism to **repair saves** where the item was previously added without companion flags.
 
 ```go
 if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 {
@@ -58,6 +58,41 @@ if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 
     }
 }
 ```
+
+**CLEAR** — post-removal block in `RemoveItemsFromCharacter()` (`app.go`). Fires only when the last instance of the item has been removed from the slot (checked via `slot.GaItems` scan).
+
+```go
+// Pre-scan: collect item IDs with companion flags.
+for _, handle := range handles {
+    if itemID, ok := slot.GaMap[handle]; ok {
+        if len(data.CompanionEventFlagsForItem(itemID)) > 0 {
+            companionRemovals[itemID] = true
+        }
+    }
+}
+// After removal: clear flags if no instance remains.
+for itemID := range companionRemovals {
+    remaining := false
+    for _, g := range slot.GaItems {
+        if !g.IsEmpty() && g.ItemID == itemID {
+            remaining = true; break
+        }
+    }
+    if !remaining {
+        for _, f := range data.CompanionEventFlagsForItem(itemID) {
+            db.SetEventFlag(eflags, f, false)
+        }
+    }
+}
+```
+
+### Out of scope
+
+- `CompanionEventFlagsForGrace` — no grace-level companion flag hooks exist.
+- `SetGraceVisited` — not modified by this mechanism.
+- Roundtable Hold invitation flags (`10009655`, `11109658`, `11109659`) — not part of item companion flags.
+- Site of Grace progress flags — not part of this mechanism.
+- Flags `4656`, `11109786` and context flags (`710770`, `69090`, `69370`) — never set or cleared here.
 
 ---
 

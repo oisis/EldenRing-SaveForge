@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(items): sync spectral steed whistle companion flags on add and remove
+
+When adding `Spectral Steed Whistle` (`0x40000082`) the editor sets companion EventFlags
+(`60100`, `4680`, `4681`, `710520`) that the game co-sets during normal Melina acquisition.
+When removing the item (and no other instance remains in the slot), the same flags are cleared.
+
+- SET fires even when the item is already in inventory — repairs saves missing the flags.
+- CLEAR fires only when the last instance is removed (checked via `GaItems` scan).
+- Roundtable Hold flags (`10009655`, `11109658`, `11109659`) are not touched.
+- Transient flags (`4698`, `4651–4653`, `4656`, `11109786`) are never set or cleared.
+
+Implementation: `CompanionEventFlagsForItem()` in `backend/db/data/item_companion_flags.go`,
+SET hook in `AddItemsToCharacter()`, CLEAR hook in `RemoveItemsFromCharacter()` (`app.go`).
+Design doc: `spec/50-item-companion-flags.md`.
+
 ### fix(core): PS4 crash on network preset — ZSTD rawblock patch
 
 Root cause: `PatchNetworkParams` was calling `compressDCX` (klauspost ZSTD encoder) to
