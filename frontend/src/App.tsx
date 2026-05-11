@@ -86,7 +86,7 @@ function App() {
     const [showEmptySlots, setShowEmptySlots] = useState(false);
     const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
     const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
-    const [invView, setInvView] = useState<'inventory' | 'database'>('inventory');
+    const [invView, setInvView] = useState<'inventory' | 'database' | 'weapon_edit'>('inventory');
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
     const [saving, setSaving] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
@@ -376,7 +376,7 @@ function App() {
             {/* Main Content */}
             <main className="flex-1 flex flex-col relative z-10 bg-background overflow-hidden">
                 <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-background/50 backdrop-blur-md sticky top-0 z-30">
-                    <nav className="flex space-x-1">
+                    <nav className="flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50">
                         {tabs.map(tab => (
                             <button
                                 key={tab}
@@ -384,7 +384,7 @@ function App() {
                                     if (tab === 'inventory') setInventoryVersion(v => v + 1);
                                     setActiveTab(tab);
                                 }}
-                                className={`px-4 py-1.5 rounded-full text-[9px] font-black uppercase tracking-[0.2em] transition-all ${activeTab === tab ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}
+                                className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === tab ? 'bg-green-700/80 shadow-sm text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}
                             >
                                 {tab}
                             </button>
@@ -415,7 +415,7 @@ function App() {
                 </header>
 
                 <div className="flex-1 flex flex-col min-h-0 relative">
-                    <div className="w-full h-full p-6 flex flex-col min-h-0">
+                    <div className="w-full h-full px-6 pb-6 pt-3 flex flex-col min-h-0">
                         {activeTab === 'settings' ? (
                             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 overflow-y-auto custom-scrollbar pr-2">
                                 <SettingsTab
@@ -496,77 +496,54 @@ function App() {
                                     <div className="flex-1 flex flex-col min-h-0">
                                         {/* Header consolidation (spec/36): toggle pills + capacity bar (Inventory) OR
                                             Add Settings accordion (Database) on a single row. */}
-                                        {(() => {
-                                            const togglePills = (
-                                                <div className="flex items-center gap-1 shrink-0">
-                                                    {(['inventory', 'database'] as const).map(v => (
-                                                        <button key={v} onClick={() => { setInvView(v); if (v === 'inventory') setDetailItem(null); }}
-                                                            className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.12em] transition-all ${invView === v ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'}`}>
-                                                            {v === 'inventory' ? 'Inventory' : 'Item Database'}
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            );
+                                        {/* Mode bar: left = tabs, right = capacity stats */}
+                                        <div className="flex items-center justify-between mb-3 shrink-0 gap-4">
+                                            <div className="flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50 shrink-0">
+                                                {([
+                                                    { id: 'database', label: 'Item Database' },
+                                                    { id: 'inventory', label: 'Equipment' },
+                                                    { id: 'weapon_edit', label: 'Weapon Edit' },
+                                                ] as { id: 'database' | 'inventory' | 'weapon_edit'; label: string }[]).map(({ id, label }) => (
+                                                    <button
+                                                        key={id}
+                                                        onClick={() => { setInvView(id); if (id !== 'database') setDetailItem(null); }}
+                                                        className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${
+                                                            invView === id
+                                                                ? 'bg-green-700/80 shadow-sm text-white'
+                                                                : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                                                        }`}
+                                                    >
+                                                        {label}
+                                                    </button>
+                                                ))}
+                                            </div>
 
-                                            const favToggle = (
-                                                <button
-                                                    onClick={() => setShowOnlyFavorites(v => !v)}
-                                                    className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-[0.12em] transition-all ${showOnlyFavorites ? 'bg-blue-900/30 text-blue-800 border border-blue-800/50' : 'text-muted-foreground hover:text-blue-800 hover:bg-blue-900/10 border border-transparent'}`}
-                                                >
-                                                    <svg className={`w-3 h-3 ${showOnlyFavorites ? 'fill-amber-600' : 'fill-none stroke-amber-600'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-                                                    </svg>
-                                                    Favorites
-                                                </button>
-                                            );
-
-                                            if (invView === 'inventory') {
-                                                return (
-                                                    <div className="flex items-center gap-4 mb-3 shrink-0">
-                                                        {togglePills}
-                                                        {favToggle}
-                                                        {capacity && (
-                                                            <div className="flex flex-wrap items-center gap-3 flex-1">
-                                                                {[
-                                                                    { label: 'All Items', used: capacity.gaItemsUsed, max: capacity.gaItemsMax },
-                                                                    { label: 'Inventory', used: capacity.inventoryUsed, max: capacity.inventoryMax },
-                                                                    { label: 'Storage', used: capacity.storageUsed, max: capacity.storageMax },
-                                                                ].map(({ label, used, max }) => {
-                                                                    const pct = max > 0 ? (used / max) * 100 : 0;
-                                                                    const color = pct >= 95 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-primary';
-                                                                    return (
-                                                                        <div key={label} className="flex items-center gap-2 min-w-[170px]">
-                                                                            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap text-right">{label}</span>
-                                                                            <div className="flex-1 h-1.5 bg-muted/30 rounded-full overflow-hidden">
-                                                                                <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                                                                            </div>
-                                                                            <span className={`text-[9px] font-bold tabular-nums ${pct >= 95 ? 'text-red-400' : 'text-muted-foreground'}`}>{used}/{max}</span>
-                                                                        </div>
-                                                                    );
-                                                                })}
+                                            {invView !== 'weapon_edit' && capacity && (
+                                                <div className="flex items-center gap-4">
+                                                    {[
+                                                        { label: 'All Items', used: capacity.gaItemsUsed, max: capacity.gaItemsMax },
+                                                        { label: 'Inventory', used: capacity.inventoryUsed, max: capacity.inventoryMax },
+                                                        { label: 'Storage', used: capacity.storageUsed, max: capacity.storageMax },
+                                                    ].map(({ label, used, max }) => {
+                                                        const pct = max > 0 ? (used / max) * 100 : 0;
+                                                        const color = pct >= 95 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-primary';
+                                                        return (
+                                                            <div key={label} className="flex items-center gap-2">
+                                                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{label}</span>
+                                                                <div className="w-16 h-1.5 bg-muted/30 rounded-full overflow-hidden">
+                                                                    <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                                                                </div>
+                                                                <span className={`text-[9px] font-bold tabular-nums ${pct >= 95 ? 'text-red-400' : 'text-muted-foreground'}`}>{used}/{max}</span>
                                                             </div>
-                                                        )}
-                                                    </div>
-                                                );
-                                            }
-
-                                            // Database view: pills + fav toggle only (Add Settings moved to Character tab).
-                                            return (
-                                                <div className="flex items-center gap-2 mb-3 shrink-0">
-                                                    {togglePills}{favToggle}
-                                                    {detailItem && (
-                                                        <button onClick={() => setDetailItem(null)}
-                                                            className="ml-auto text-[8px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
-                                                            Close Detail
-                                                        </button>
-                                                    )}
+                                                        );
+                                                    })}
                                                 </div>
-                                            );
-                                        })()}
+                                            )}
+                                        </div>
 
                                         {invView === 'inventory' ? (
-                                            <InventoryTab charIndex={selectedChar} inventoryVersion={inventoryVersion} columnVisibility={columnVisibility} showFlaggedItems={showFlaggedItems} category={category} setCategory={setCategory} onMutate={refreshUndoDepth} showOnlyFavorites={showOnlyFavorites} />
-                                        ) : (
+                                            <InventoryTab charIndex={selectedChar} inventoryVersion={inventoryVersion} columnVisibility={columnVisibility} showFlaggedItems={showFlaggedItems} category={category} setCategory={setCategory} onMutate={refreshUndoDepth} showOnlyFavorites={showOnlyFavorites} onToggleFavorites={() => setShowOnlyFavorites(v => !v)} />
+                                        ) : invView === 'database' ? (
                                             <DatabaseTab
                                                 columnVisibility={columnVisibility}
                                                 platform={platform}
@@ -581,7 +558,22 @@ function App() {
                                                 selectedDetailItem={detailItem}
                                                 onCloseDetail={() => setDetailItem(null)}
                                                 showOnlyFavorites={showOnlyFavorites}
+                                                onToggleFavorites={() => setShowOnlyFavorites(v => !v)}
                                             />
+                                        ) : (
+                                            <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-6">
+                                                <div className="w-12 h-12 rounded-full bg-muted/30 border border-border/50 flex items-center justify-center">
+                                                    <svg className="w-6 h-6 text-muted-foreground/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
+                                                    </svg>
+                                                </div>
+                                                <div>
+                                                    <p className="text-[11px] font-black uppercase tracking-[0.15em] text-foreground/60">Weapon Edit</p>
+                                                    <p className="text-[10px] text-muted-foreground mt-1 max-w-xs leading-relaxed">
+                                                        Ashes of War and infusion editing will be available here.
+                                                    </p>
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
                                 )}

@@ -423,40 +423,43 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                     return (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-5 py-2">
                             <div className="flex items-center space-x-3">
-                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +25</span>
+                                <span className="text-[11px] font-normal uppercase tracking-widest text-foreground w-24 shrink-0">Weapon +25</span>
                                 <input type="range" min={0} max={25} value={addSettings.upgrade25} onChange={e => set({upgrade25: parseInt(e.target.value)})}
-                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
+                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer"
+                                    style={{background: 'hsl(var(--border))'}} />
                                 <span className="text-[10px] font-mono font-bold text-primary w-6 text-right">+{addSettings.upgrade25}</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Weapon +10</span>
+                                <span className="text-[11px] font-normal uppercase tracking-widest text-foreground w-24 shrink-0">Weapon +10</span>
                                 <input type="range" min={0} max={10} value={addSettings.upgrade10} onChange={e => set({upgrade10: parseInt(e.target.value)})}
-                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
+                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer"
+                                    style={{background: 'hsl(var(--border))'}} />
                                 <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{addSettings.upgrade10}</span>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Infuse</span>
+                                <span className="text-[11px] font-normal uppercase tracking-widest text-foreground w-24 shrink-0">Infuse</span>
                                 <select value={addSettings.infuseOffset} onChange={e => set({infuseOffset: parseInt(e.target.value)})}
                                     className="flex-1 bg-muted/20 border border-border rounded-md px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider focus:ring-1 focus:ring-primary/30 outline-none transition-all cursor-pointer">
                                     {infuseTypes.map(t => <option key={t.offset} value={t.offset}>{t.name}</option>)}
                                 </select>
                             </div>
                             <div className="flex items-center space-x-3">
-                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground w-24 shrink-0">Spirit Ash</span>
+                                <span className="text-[11px] font-normal uppercase tracking-widest text-foreground w-24 shrink-0">Spirit Ash</span>
                                 <input type="range" min={0} max={10} value={addSettings.upgradeAsh} onChange={e => set({upgradeAsh: parseInt(e.target.value)})}
-                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-runnable-track]:bg-border [&::-webkit-slider-runnable-track]:rounded-lg" />
+                                    className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer"
+                                    style={{background: 'hsl(var(--border))'}} />
                                 <span className="text-[10px] font-mono font-bold text-primary w-5 text-right">+{addSettings.upgradeAsh}</span>
                             </div>
                             <div className="flex items-center gap-8 md:col-span-2 pt-1 border-t border-border/30">
                                 <label title="When enabled, only the highest-tier variant of each talisman family is shown — lower upgrade levels are hidden." className="flex items-center gap-2 cursor-pointer">
                                     <input type="checkbox" checked={addSettings.talismansHighestOnly} onChange={e => set({talismansHighestOnly: e.target.checked})}
                                         className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
-                                    <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Talismans: highest only</span>
+                                    <span className="text-[11px] font-normal uppercase tracking-widest text-foreground">Talismans: highest only</span>
                                 </label>
                                 <label title="When enabled, 'Unlock All' Sites of Grace in World tab will also include Leyndell, Ashen Capital graces. Disable if you haven't triggered the capital's transformation yet." className="flex items-center gap-2 cursor-pointer">
                                     <input type="checkbox" checked={addSettings.includeAshenCapital} onChange={e => set({includeAshenCapital: e.target.checked})}
                                         className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20" />
-                                    <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">SoG: Leyndell, Ashen Capital</span>
+                                    <span className="text-[11px] font-normal uppercase tracking-widest text-foreground">SoG: Leyndell, Ashen Capital</span>
                                 </label>
                             </div>
                         </div>
@@ -550,7 +553,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                     {/* Mirror Favorites */}
                     {usedSafeSlots.length > 0 && (
                         <div className="pt-3 border-t border-border/50">
-                            <p className="text-[11px] font-black uppercase tracking-widest text-muted-foreground mb-2">Mirror Favorites ({usedSafeSlots.length} used · {freeSlots} free)</p>
+                            <p className="text-[11px] font-normal uppercase tracking-widest text-foreground mb-2">Mirror Favorites ({usedSafeSlots.length} used · {freeSlots} free)</p>
                             <div className="flex flex-wrap gap-2">
                                 {usedSafeSlots.map(s => (
                                     <div key={s.index} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-1.5">

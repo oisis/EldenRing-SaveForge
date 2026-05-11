@@ -44,6 +44,7 @@ interface DatabaseTabProps {
     onCloseDetail?: () => void;
     readOnly?: boolean;
     showOnlyFavorites?: boolean;
+    onToggleFavorites?: () => void;
 }
 
 // Determine if ALL selected items are non-stackable (max qty == 1)
@@ -59,7 +60,7 @@ function effectiveCap(item: db.ItemEntry, kind: 'inv' | 'storage', clearCount: n
     return base;
 }
 
-export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, selectedDetailItem, onCloseDetail, readOnly = false, showOnlyFavorites = false}: DatabaseTabProps) {
+export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, selectedDetailItem, onCloseDetail, readOnly = false, showOnlyFavorites = false, onToggleFavorites}: DatabaseTabProps) {
     const {upgrade25, upgrade10, infuseOffset, upgradeAsh} = addSettings;
     const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
@@ -703,7 +704,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             )}
 
             {/* Top Bar: [Category] [Owned/Total badge] [buttons] [spacer] [view toggle] [Search] */}
-            <div className="flex items-center gap-4 bg-muted/10 p-4 rounded-xl border border-border/50 backdrop-blur-sm sticky top-0 z-20">
+            <div className="flex items-center gap-4 bg-muted/10 rounded-xl backdrop-blur-sm sticky top-0 z-20">
                 <CategorySelect value={category} onChange={setCategory} className="w-56 shrink-0" />
 
                 <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
@@ -738,6 +739,20 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 <div className="flex-1" />
 
                 <div className="flex items-center gap-1 shrink-0">
+                    {onToggleFavorites && (
+                        <>
+                            <button
+                                onClick={onToggleFavorites}
+                                className={`p-1.5 rounded transition-all ${showOnlyFavorites ? 'bg-amber-500/20 text-amber-500' : 'text-amber-700/60 hover:text-amber-500'}`}
+                                title="Show favorites only"
+                            >
+                                <svg className="w-4 h-4" fill={showOnlyFavorites ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                                </svg>
+                            </button>
+                            <div className="w-px h-4 bg-border/50 mx-0.5" />
+                        </>
+                    )}
                     <button onClick={() => setViewMode('table')} className={`p-1.5 rounded transition-all ${viewMode === 'table' ? 'bg-primary/20 text-primary' : 'text-muted-foreground/40 hover:text-muted-foreground'}`} title="Table view">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" /></svg>
                     </button>
@@ -760,20 +775,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 </div>
             </div>
 
-            {/* Progressive-load progress strip — non-blocking, lets user scroll while remaining categories load. */}
-            {chunkProgress && chunkProgress.done < chunkProgress.total && (
-                <div className="px-4 py-1 flex items-center gap-3 pointer-events-none">
-                    <div className="flex-1 h-1 bg-muted/30 rounded-full overflow-hidden">
-                        <div className="h-full bg-primary rounded-full transition-all duration-200" style={{ width: `${(chunkProgress.done / chunkProgress.total) * 100}%` }} />
-                    </div>
-                    <span className="text-[9px] font-bold tabular-nums text-muted-foreground">
-                        {chunkProgress.done}/{chunkProgress.total} categories
-                    </span>
-                </div>
-            )}
+            {/* Progress strip hidden — loading handled silently in background */}
 
             {/* Content — Table or Grid + Detail Panel */}
-            <div className="flex-1 bg-muted/5 rounded-xl border border-border/50 overflow-hidden flex flex-col relative">
+            <div className="flex-1 bg-card rounded-xl border border-border overflow-hidden flex flex-col relative">
                 {loading && (
                     <div className="absolute inset-0 bg-background/50 backdrop-blur-[2px] z-30 flex items-center justify-center">
                         <div className="flex flex-col items-center space-y-4">
@@ -845,10 +850,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
 
                 <div ref={scrollRef} className="flex-1 overflow-y-auto custom-scrollbar">
                     <table className="w-full text-left border-collapse">
-                        <thead className="sticky top-0 z-20 bg-muted/80 backdrop-blur-md border-b border-border shadow-sm">
-                            <tr className="text-[9px] font-black uppercase tracking-[0.15em] text-muted-foreground">
+                        <thead className="bg-muted/30 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] sticky top-0 z-20 backdrop-blur-md border-b border-border">
+                            <tr>
                                 {!readOnly && (
-                                    <th className="p-4 w-10">
+                                    <th className="px-4 py-4 w-10">
                                         <div
                                             onClick={toggleAll}
                                             className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${selectedDbItems.size === filteredItems.length && filteredItems.length > 0 ? 'bg-primary border-primary' : 'bg-muted/30 border-border hover:border-primary/50'}`}
@@ -858,28 +863,28 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                         </div>
                                     </th>
                                 )}
-                                <th className="p-4 w-8"></th>
-                                <th className="p-4 w-12">Icon</th>
-                                <th className="p-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
+                                <th className="px-2 py-4 w-8"></th>
+                                <th className="px-6 py-4 w-16">Icon</th>
+                                <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
                                     Name {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
                                 </th>
                                 {columnVisibility.id && (
-                                    <th className="p-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('id')}>
+                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('id')}>
                                         ID {sortCol === 'id' && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
                                 {columnVisibility.category && showSubGroupColumn && (
-                                    <th className="p-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort(category === 'all' ? 'category' : 'subCategory')}>
+                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort(category === 'all' ? 'category' : 'subCategory')}>
                                         Sub-Category {sortCol === (category === 'all' ? 'category' : 'subCategory') && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
                                 {showWeightColumn && (
-                                    <th className="p-4 cursor-pointer hover:text-primary transition-colors text-right w-20" onClick={() => handleSort('weight')}>
+                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors text-right w-20" onClick={() => handleSort('weight')}>
                                         Weight {sortCol === 'weight' && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
-                                <th className="p-4 text-center w-32">Inventory</th>
-                                <th className="p-4 text-center w-32">Storage</th>
+                                <th className="px-6 py-4 text-center w-32">Inventory</th>
+                                <th className="px-6 py-4 text-center w-32">Storage</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border/30">

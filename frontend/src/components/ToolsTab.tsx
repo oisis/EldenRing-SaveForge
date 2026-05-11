@@ -103,11 +103,6 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate, addSettings
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500 max-w-4xl mx-auto">
-            <div className="flex items-center space-x-2">
-                <div className="w-1 h-3 bg-primary rounded-full" />
-                <h3 className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Tools</h3>
-            </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* Export Preset */}
                 <button onClick={handleExportPreset}
