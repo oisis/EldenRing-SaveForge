@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { GetCharacter, GetItemList, ApplyWeaponInfusion, ApplyWeaponAoW, ApplyWeaponAoWStrict, GetAoWAvailability } from '../../wailsjs/go/main/App';
+import { GetCharacter, GetItemList, ApplyWeaponInfusion, ApplyWeaponAoW, ApplyWeaponAoWStrict, GetAoWAvailability, RevertSlot } from '../../wailsjs/go/main/App';
 import { db } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 
@@ -94,6 +94,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
     const [applying, setApplying] = useState(false);
     const [aowAvailability, setAowAvailability] = useState<Map<number, AoWAvailabilityEntry>>(new Map());
     const [showCopyModal, setShowCopyModal] = useState(false);
+    const [modalForCombined, setModalForCombined] = useState(false);
 
     useEffect(() => {
         setAowLoading(true);
@@ -235,14 +236,29 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
             || selectedAoWCompatStatus === 'compatible'
             || (selectedAoWCompatStatus === 'unknown' && isWepTypeUnmapped));
 
+    // Combined gate: both infusion + AoW pending at the same time.
+    // Same AoW rules as canApplyAoW, but both changes must be valid simultaneously.
+    const canApplyCombined = infusionChanged && aowChanged
+        && canInfuse === true && canMountAoW === true
+        && selectedAoWStatus !== 'conflict'
+        && (selectedAoW === 0
+            || selectedAoWCompatStatus === 'compatible'
+            || (selectedAoWCompatStatus === 'unknown' && isWepTypeUnmapped));
+
     const canApply = selectedWeapon !== null
         && !applying
-        && ((isInfusionOnlyChange && canInfuse === true) || canApplyAoW);
+        && ((isInfusionOnlyChange && canInfuse === true) || canApplyAoW || canApplyCombined);
 
     const applyTooltip = (() => {
         if (!selectedWeapon) return 'No weapon selected';
         if (applying) return 'Applying changes...';
-        if (aowChanged && infusionChanged) return 'Apply one change type at a time: either Infusion or Ash of War.';
+        if (aowChanged && infusionChanged) {
+            if (selectedAoWStatus === 'conflict') return 'Cannot apply — Ash of War conflict detected';
+            if (selectedAoW !== 0 && selectedAoWCompatStatus === 'incompatible') return 'This Ash of War is not compatible with this weapon type';
+            if (selectedAoW !== 0 && selectedAoWCompatStatus === 'unknown' && !isWepTypeUnmapped) return 'Ash of War compatibility is unknown for this weapon type';
+            if (selectedAoWStatus === 'missing' || selectedAoWStatus === 'equipped') return 'Apply — a confirmation prompt will appear to add a new copy';
+            return 'Apply infusion and Ash of War changes';
+        }
         if (infusionChanged) return canInfuse === true ? 'Apply infusion change' : 'This weapon does not support affinity changes';
         if (aowChanged) {
             if (canMountAoW !== true) return 'This weapon does not support Ash of War';
@@ -261,18 +277,21 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         setSelectedAoW(null);
         setSelectedInfusion(null);
         setShowCopyModal(false);
+        setModalForCombined(false);
     };
 
     const handleReset = () => {
         setSelectedAoW(null);
         setSelectedInfusion(null);
         setShowCopyModal(false);
+        setModalForCombined(false);
     };
 
     const doApplyAoW = async (createCopy: boolean) => {
         if (selectedAoW === null || !selectedWeapon) return;
         setApplying(true);
         setShowCopyModal(false);
+        setModalForCombined(false);
         try {
             if (createCopy) {
                 await ApplyWeaponAoW(charIndex, selectedWeapon.handle, selectedAoW);
@@ -289,8 +308,56 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         }
     };
 
+    // Applies both infusion and AoW in sequence with rollback on AoW failure.
+    // createCopy=true → ApplyWeaponAoW (adds inventory copy); false → ApplyWeaponAoWStrict (links free copy).
+    // On AoW failure: attempts 2× RevertSlot to handle both pre-pushUndo (1 snapshot) and
+    // post-pushUndo (2 snapshots) failure paths. The second call is silently ignored if stack is empty.
+    const doApplyCombined = async (createCopy: boolean) => {
+        if (selectedAoW === null || selectedInfusion === null || !selectedWeapon) return;
+        setApplying(true);
+        setShowCopyModal(false);
+        setModalForCombined(false);
+        const newItemId = selectedWeapon.baseId + selectedWeapon.currentUpgrade + selectedInfusion;
+        try {
+            await ApplyWeaponInfusion(charIndex, selectedWeapon.handle, selectedWeapon.id, newItemId);
+        } catch (e) {
+            toast.error('Failed to apply infusion: ' + e);
+            setApplying(false);
+            return;
+        }
+        try {
+            if (createCopy) {
+                await ApplyWeaponAoW(charIndex, selectedWeapon.handle, selectedAoW);
+            } else {
+                await ApplyWeaponAoWStrict(charIndex, selectedWeapon.handle, selectedAoW);
+            }
+        } catch (_e) {
+            try { await RevertSlot(charIndex); } catch (_) {}
+            try { await RevertSlot(charIndex); } catch (_) {}
+            toast.error('Ash of War could not be applied; infusion change was rolled back.');
+            setApplying(false);
+            return;
+        }
+        toast.success('Infusion and Ash of War updated successfully.');
+        setSelectedAoW(null);
+        setSelectedInfusion(null);
+        setLocalVersion(v => v + 1);
+        setApplying(false);
+    };
+
     const handleApply = async () => {
         if (!selectedWeapon) return;
+
+        if (infusionChanged && aowChanged) {
+            if (selectedAoW === null || selectedInfusion === null) return;
+            if (selectedAoW === 0 || selectedAoWStatus === 'available') {
+                await doApplyCombined(false);
+            } else if (selectedAoWStatus === 'missing' || selectedAoWStatus === 'equipped') {
+                setModalForCombined(true);
+                setShowCopyModal(true);
+            }
+            return;
+        }
 
         if (isInfusionOnlyChange) {
             if (selectedInfusion === null) return;
@@ -324,9 +391,14 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         return <span className="text-foreground font-bold">Standard</span>;
     })();
 
-    const modalText = selectedAoWStatus === 'equipped'
-        ? 'This Ash of War is already equipped on another weapon. Do you want to add another copy and apply it here?'
-        : 'This Ash of War is not available as a free copy in your inventory. Do you want to add one and apply it to this weapon?';
+    const modalText = (() => {
+        const base = selectedAoWStatus === 'equipped'
+            ? 'This Ash of War is already equipped on another weapon. Do you want to add another copy and apply it here?'
+            : 'This Ash of War is not available as a free copy in your inventory. Do you want to add one and apply it to this weapon?';
+        return modalForCombined
+            ? base + ' The pending infusion change will also be applied at the same time.'
+            : base;
+    })();
 
     return (
         <div className="flex-1 flex flex-col min-h-0 gap-3 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -339,13 +411,13 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                         <p className="text-[10px] text-muted-foreground leading-relaxed">{modalText}</p>
                         <div className="flex gap-2 mt-4">
                             <button
-                                onClick={() => doApplyAoW(true)}
+                                onClick={() => modalForCombined ? doApplyCombined(true) : doApplyAoW(true)}
                                 className="flex-1 px-4 py-2 bg-green-700 text-white rounded-lg text-[9px] font-black uppercase tracking-widest hover:bg-green-600 transition-all"
                             >
                                 Yes, add copy
                             </button>
                             <button
-                                onClick={() => setShowCopyModal(false)}
+                                onClick={() => { setShowCopyModal(false); setModalForCombined(false); }}
                                 className="flex-1 px-4 py-2 bg-muted/40 text-foreground rounded-lg text-[9px] font-black uppercase tracking-widest border border-border hover:bg-muted/60 transition-all"
                             >
                                 Cancel
@@ -755,19 +827,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                         )}
                                     </div>
                                 </div>
-                                {aowChanged && infusionChanged && (
-                                    <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                                        <svg className="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                                        </svg>
-                                        <span className="text-[9px] font-bold text-amber-600">
-                                            Apply one change type at a time: either Infusion or Ash of War.
-                                        </span>
-                                    </div>
-                                )}
-                                {!(aowChanged && infusionChanged) && (
-                                    <p className="text-[9px] text-muted-foreground/40 mt-3 italic">Stat preview is not available yet.</p>
-                                )}
+                                <p className="text-[9px] text-muted-foreground/40 mt-3 italic">Stat preview is not available yet.</p>
                             </div>
                         </>
                     )}
@@ -805,8 +865,17 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                 </button>
                 <span className="ml-auto text-[9px] italic">
                     {(() => {
-                        if (aowChanged && infusionChanged)
-                            return <span className="text-amber-600 font-bold">Apply one change type at a time: either Infusion or Ash of War.</span>;
+                        if (aowChanged && infusionChanged) {
+                            if (selectedAoWStatus === 'conflict')
+                                return <span className="text-red-500/70">Cannot apply — Ash of War conflict detected.</span>;
+                            if (selectedAoW !== 0 && selectedAoWCompatStatus === 'incompatible')
+                                return <span className="text-red-500/70">This Ash of War is not compatible with this weapon type.</span>;
+                            if (selectedAoW !== 0 && selectedAoWCompatStatus === 'unknown' && !isWepTypeUnmapped)
+                                return <span className="text-amber-500/70">Ash of War compatibility is unknown for this weapon.</span>;
+                            if (selectedAoWStatus === 'missing' || selectedAoWStatus === 'equipped')
+                                return <span className="text-amber-500/70">A copy of this Ash of War will be added when applied.</span>;
+                            return null;
+                        }
                         if (aowChanged && selectedAoW === 0)
                             return <span className="text-sky-400/70">Ash of War will be removed from this weapon.</span>;
                         if (aowChanged && selectedAoW !== 0 && selectedAoWCompatStatus === 'unknown')
