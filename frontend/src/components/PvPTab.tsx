@@ -32,7 +32,7 @@ export function PvPTab({charIdx, platform, pvpOpts: _pvpOpts, onPvpOptsChange: _
             </div>
 
             {subTab === 'presets' && (
-                <PresetsTab charIdx={charIdx} />
+                <PresetsTab charIdx={charIdx} onMutate={onMutate} />
             )}
             {subTab === 'network' && (
                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">

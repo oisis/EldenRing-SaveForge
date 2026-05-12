@@ -8,6 +8,8 @@ import {core} from '../models';
 
 export function AddItemsToCharacter(arg1:number,arg2:Array<number>,arg3:number,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<main.AddResult>;
 
+export function ApplyBuiltinCharacterPresetStats(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
+
 export function ApplyCharacterPreset(arg1:number,arg2:vm.CharacterPreset,arg3:vm.ApplyOptions):Promise<vm.PresetApplyResult>;
 
 export function ApplyMirrorFavoriteToCharacter(arg1:number,arg2:number):Promise<void>;

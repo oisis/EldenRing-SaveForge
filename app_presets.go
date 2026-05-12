@@ -132,12 +132,45 @@ func (a *App) ListBuiltinCharacterPresets() []BuiltinCharacterPresetInfo {
 	return result
 }
 
+// isStatOnlyPreset returns true when the preset has no inventory, storage, or world data.
+func isStatOnlyPreset(p vm.CharacterPreset) bool {
+	return len(p.Inventory) == 0 && len(p.Storage) == 0 && p.World == nil
+}
+
 // GetBuiltinCharacterPreset returns the full CharacterPreset for a given built-in preset ID.
 func (a *App) GetBuiltinCharacterPreset(id string) (*vm.CharacterPreset, error) {
 	for _, p := range builtinCharacterPresets {
 		if p.info.ID == id {
 			preset := p.preset
 			return &preset, nil
+		}
+	}
+	return nil, fmt.Errorf("built-in preset not found: %s", id)
+}
+
+// ApplyBuiltinCharacterPresetStats applies the stat-only portion of a built-in preset to a character slot.
+// Inventory, storage, and world state are never modified.
+// Uses KeepName=true to preserve the existing character name.
+func (a *App) ApplyBuiltinCharacterPresetStats(charIdx int, id string) (*vm.PresetApplyResult, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return nil, fmt.Errorf("invalid slot index")
+	}
+	for _, p := range builtinCharacterPresets {
+		if p.info.ID == id {
+			if !isStatOnlyPreset(p.preset) {
+				return nil, fmt.Errorf("preset %q is not stat-only", id)
+			}
+			return a.ApplyCharacterPreset(charIdx, p.preset, vm.ApplyOptions{
+				ReplaceStats:     true,
+				ReplaceInventory: false,
+				ReplaceStorage:   false,
+				ReplaceWorld:     false,
+				KeepName:         true,
+				KeepClass:        false,
+			})
 		}
 	}
 	return nil, fmt.Errorf("built-in preset not found: %s", id)

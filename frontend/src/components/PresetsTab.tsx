@@ -1,6 +1,13 @@
 import {useState, useEffect} from 'react';
-import {ListBuiltinCharacterPresets, GetBuiltinCharacterPreset, GetCharacter, ValidateBuiltinCharacterPreset} from '../../wailsjs/go/main/App';
+import {
+    ListBuiltinCharacterPresets,
+    GetBuiltinCharacterPreset,
+    GetCharacter,
+    ValidateBuiltinCharacterPreset,
+    ApplyBuiltinCharacterPresetStats,
+} from '../../wailsjs/go/main/App';
 import {main, vm} from '../../wailsjs/go/models';
+import toast from '../lib/toast';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -8,6 +15,12 @@ interface PreviewData {
     preset: vm.CharacterPreset;
     char: vm.CharacterViewModel;
     warnings: string[];
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function isStatOnly(preset: main.BuiltinCharacterPresetInfo): boolean {
+    return preset.modules.length === 1 && preset.modules[0] === 'Stats';
 }
 
 // ─── Stat field definitions ───────────────────────────────────────────────────
@@ -146,14 +159,24 @@ function PresetCard({
     loading,
     error,
     previewData,
+    applyEnabled,
+    applyLoading,
+    applyResult,
+    applyError,
     onPreview,
+    onApply,
 }: {
     preset: main.BuiltinCharacterPresetInfo;
     isExpanded: boolean;
     loading: boolean;
     error: string | null;
     previewData: PreviewData | null;
+    applyEnabled: boolean;
+    applyLoading: boolean;
+    applyResult: vm.PresetApplyResult | null;
+    applyError: string | null;
     onPreview: () => void;
+    onApply: () => void;
 }) {
     return (
         <div className={`bg-muted/20 border rounded-lg px-4 py-3 flex flex-col gap-2.5 transition-colors ${
@@ -208,13 +231,42 @@ function PresetCard({
                     {loading ? 'Loading…' : isExpanded ? 'Hide Preview ▲' : 'Preview ▼'}
                 </button>
                 <button
-                    disabled
-                    title="Apply coming in a future update"
-                    className="flex-1 py-1.5 rounded border border-border/30 text-[10px] font-black uppercase tracking-widest text-muted-foreground/30 bg-muted/10 cursor-not-allowed"
+                    onClick={applyEnabled ? onApply : undefined}
+                    disabled={!applyEnabled || applyLoading}
+                    title={!applyEnabled ? 'Only stat-only presets can be applied here' : 'Apply stats to current character'}
+                    className={`flex-1 py-1.5 rounded border text-[10px] font-black uppercase tracking-widest transition-all ${
+                        applyEnabled && !applyLoading
+                            ? 'border-green-500/50 bg-green-500/10 text-green-400 hover:bg-green-500/20 cursor-pointer'
+                            : 'border-border/30 text-muted-foreground/30 bg-muted/10 cursor-not-allowed'
+                    }`}
                 >
-                    Apply
+                    {applyLoading ? 'Applying…' : 'Apply'}
                 </button>
             </div>
+
+            {/* Apply result / error */}
+            {applyResult && (
+                <div className="px-3 py-2 rounded border border-green-500/30 bg-green-500/8 flex flex-col gap-1">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-green-400/80">
+                        Applied — go to Character tab to verify
+                    </p>
+                    {applyResult.warnings && applyResult.warnings.length > 0 && (
+                        <div className="mt-0.5 flex flex-col gap-0.5">
+                            {applyResult.warnings.map((w, i) => (
+                                <div key={i} className="flex items-start gap-1.5">
+                                    <span className="text-yellow-400/70 text-[10px] leading-none mt-px">⚠</span>
+                                    <span className="text-[10px] text-yellow-200/70">{w}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+            {applyError && (
+                <div className="px-3 py-2 rounded border border-red-500/30 bg-red-500/10 text-[10px] text-red-400 leading-relaxed">
+                    {applyError}
+                </div>
+            )}
 
             {/* Inline preview panel */}
             {isExpanded && !loading && (
@@ -256,14 +308,20 @@ function EmptyState() {
 
 interface PresetsTabProps {
     charIdx: number;
+    onMutate?: () => void;
 }
 
-export function PresetsTab({charIdx}: PresetsTabProps) {
+export function PresetsTab({charIdx, onMutate}: PresetsTabProps) {
     const [presets, setPresets] = useState<main.BuiltinCharacterPresetInfo[]>([]);
     const [previewId, setPreviewId] = useState<string | null>(null);
     const [previewData, setPreviewData] = useState<PreviewData | null>(null);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewError, setPreviewError] = useState<string | null>(null);
+
+    const [applyId, setApplyId] = useState<string | null>(null);
+    const [applyLoading, setApplyLoading] = useState(false);
+    const [applyResult, setApplyResult] = useState<vm.PresetApplyResult | null>(null);
+    const [applyError, setApplyError] = useState<string | null>(null);
 
     useEffect(() => {
         ListBuiltinCharacterPresets().then(setPresets).catch(() => setPresets([]));
@@ -295,6 +353,40 @@ export function PresetsTab({charIdx}: PresetsTabProps) {
             setPreviewError(String(e));
         } finally {
             setPreviewLoading(false);
+        }
+    }
+
+    async function handleApply(id: string) {
+        const ok = window.confirm(
+            'Apply this stat preset to the selected character? This will change character stats. Export or backup your save first.'
+        );
+        if (!ok) return;
+
+        setApplyId(id);
+        setApplyResult(null);
+        setApplyError(null);
+        setApplyLoading(true);
+        try {
+            const res = await ApplyBuiltinCharacterPresetStats(charIdx, id);
+            setApplyResult(res);
+            onMutate?.();
+            toast.success('Preset applied successfully!');
+            // Refresh preview char data if this card is currently expanded
+            if (previewId === id && previewData) {
+                try {
+                    const freshChar = await GetCharacter(charIdx);
+                    if (freshChar) {
+                        setPreviewData(prev => prev ? {...prev, char: freshChar} : null);
+                    }
+                } catch {
+                    // Non-critical — preview refresh failure does not affect apply success
+                }
+            }
+        } catch (e) {
+            setApplyError(String(e));
+            toast.error('Apply failed: ' + String(e));
+        } finally {
+            setApplyLoading(false);
         }
     }
 
@@ -333,7 +425,12 @@ export function PresetsTab({charIdx}: PresetsTabProps) {
                             loading={previewLoading && previewId === p.id}
                             error={previewId === p.id ? previewError : null}
                             previewData={previewId === p.id ? previewData : null}
+                            applyEnabled={isStatOnly(p) && !applyLoading}
+                            applyLoading={applyLoading && applyId === p.id}
+                            applyResult={applyId === p.id ? applyResult : null}
+                            applyError={applyId === p.id ? applyError : null}
                             onPreview={() => handlePreview(p.id)}
+                            onApply={() => handleApply(p.id)}
                         />
                     ))}
                 </div>
