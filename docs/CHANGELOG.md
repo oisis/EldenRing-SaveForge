@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(weapon-edit): apply weapon infusion / affinity in-place
+
+Weapon Edit tab can now save infusion (affinity) changes for infusable weapons (maxUpgrade == 25).
+
+Backend:
+- `PatchWeaponItemID` in `backend/core/writer.go` — in-place patch of a single GaItem's
+  ItemID in `slot.Data` (4 bytes, no RebuildSlotFull needed — weapon record size stays 21 B).
+  Updates `slot.GaItems[i].ItemID`, `slot.GaMap[handle]`, calls `upsertGaItemData(newItemID)`.
+  Old GaItemData entry is intentionally left (game tolerates extra entries, same as item removal).
+- `ApplyWeaponInfusion(charIdx, handle, expectedCurrentItemID, newItemID)` in `app.go` —
+  backend-side validation: weapon IDs, same base/upgrade, valid infusion offset, maxUpgrade==25,
+  categorySupportsInfusion, stale-data guard via expectedCurrentItemID.
+
+Frontend (`WeaponEditTab.tsx`):
+- `OwnedWeapon` now has `handle: number` and `location: 'inventory' | 'storage'` instead of
+  `inInventory/inStorage`. Merge key changed from `baseId` to `handle` — each weapon instance
+  (one GaItem) is a separate list entry, preventing accidental multi-copy edits.
+- `locationFilter` and location badges updated to use `location` field.
+- Apply Changes enabled only for infusion-only changes (`canApply` guard).
+- `handleApply()` calls `ApplyWeaponInfusion`, shows toast, triggers re-fetch via `localVersion`.
+- Apply button has loading spinner, dynamic tooltip, green active state.
+- Bottom bar shows contextual status message for each pending-change scenario.
+
 ### fix(items): sync spectral steed whistle companion flags on add and remove
 
 When adding `Spectral Steed Whistle` (`0x40000082`) the editor sets companion EventFlags

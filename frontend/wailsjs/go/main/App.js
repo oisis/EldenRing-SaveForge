@@ -22,6 +22,14 @@ export function ApplyPvPPreparation(arg1, arg2) {
   return window['go']['main']['App']['ApplyPvPPreparation'](arg1, arg2);
 }
 
+export function ApplyWeaponAoW(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyWeaponAoW'](arg1, arg2, arg3);
+}
+
+export function ApplyWeaponInfusion(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ApplyWeaponInfusion'](arg1, arg2, arg3, arg4);
+}
+
 export function BulkSetAshOfWarFlags(arg1, arg2, arg3) {
   return window['go']['main']['App']['BulkSetAshOfWarFlags'](arg1, arg2, arg3);
 }

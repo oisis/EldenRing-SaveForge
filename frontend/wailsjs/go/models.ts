@@ -982,6 +982,10 @@ export namespace vm {
 	    iconPath: string;
 	    flags: string[];
 	    readOnly: boolean;
+	    aowId: number;
+	    canMountAoW: boolean;
+	    wepType: number;
+	    aowCompatBitmask: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ItemViewModel(source);
@@ -1004,6 +1008,10 @@ export namespace vm {
 	        this.iconPath = source["iconPath"];
 	        this.flags = source["flags"];
 	        this.readOnly = source["readOnly"];
+	        this.aowId = source["aowId"];
+	        this.canMountAoW = source["canMountAoW"];
+	        this.wepType = source["wepType"];
+	        this.aowCompatBitmask = source["aowCompatBitmask"];
 	    }
 	}
 	export class CharacterViewModel {

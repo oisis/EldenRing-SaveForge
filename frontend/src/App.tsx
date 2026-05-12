@@ -11,6 +11,7 @@ import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {PvPTab} from './components/PvPTab';
+import {WeaponEditTab} from './components/WeaponEditTab';
 
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
@@ -561,19 +562,12 @@ function App() {
                                                 onToggleFavorites={() => setShowOnlyFavorites(v => !v)}
                                             />
                                         ) : (
-                                            <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center px-6">
-                                                <div className="w-12 h-12 rounded-full bg-muted/30 border border-border/50 flex items-center justify-center">
-                                                    <svg className="w-6 h-6 text-muted-foreground/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125" />
-                                                    </svg>
-                                                </div>
-                                                <div>
-                                                    <p className="text-[11px] font-black uppercase tracking-[0.15em] text-foreground/60">Weapon Edit</p>
-                                                    <p className="text-[10px] text-muted-foreground mt-1 max-w-xs leading-relaxed">
-                                                        Ashes of War and infusion editing will be available here.
-                                                    </p>
-                                                </div>
-                                            </div>
+                                            <WeaponEditTab
+                                                charIndex={selectedChar}
+                                                inventoryVersion={inventoryVersion}
+                                                infuseTypes={infuseTypes}
+                                                platform={platform}
+                                            />
                                         )}
                                     </div>
                                 )}

@@ -1049,3 +1049,181 @@ func sortUint32Slice(s []uint32) {
 		s[j+1] = v
 	}
 }
+
+// PatchWeaponItemID changes the ItemID of a single weapon GaItem in-place.
+// Both IDs must be in the weapon range (prefix 0x00000000 → record size 21 B).
+// Since the record size doesn't change, no RebuildSlotFull is needed — we
+// overwrite exactly 4 bytes at the ItemID field and update derived state.
+//
+// Caller guarantees:
+//   - handle identifies one weapon instance in slot.GaItems / slot.GaMap
+//   - expectedCurrentItemID matches what the slot currently stores (stale-data guard)
+//   - newItemID encodes the same base weapon + same upgrade level, different infusion
+func PatchWeaponItemID(slot *SaveSlot, handle, expectedCurrentItemID, newItemID uint32) error {
+	// Both IDs must be weapons: upper nibble 0x0.
+	if expectedCurrentItemID>>28 != 0 {
+		return fmt.Errorf("PatchWeaponItemID: expectedCurrentItemID 0x%08X is not a weapon ID", expectedCurrentItemID)
+	}
+	if newItemID>>28 != 0 {
+		return fmt.Errorf("PatchWeaponItemID: newItemID 0x%08X is not a weapon ID", newItemID)
+	}
+	if expectedCurrentItemID == newItemID {
+		return nil
+	}
+
+	// Locate the GaItem by handle; simultaneously compute its byte offset in slot.Data.
+	// Real entries are stored contiguously from GaItemsStart; synthetic empty entries
+	// (those beyond slot.InventoryEnd) have no backing bytes in slot.Data.
+	curr := GaItemsStart
+	found := -1
+	for i := range slot.GaItems {
+		if curr >= slot.InventoryEnd {
+			break // beyond real data
+		}
+		g := &slot.GaItems[i]
+		if !g.IsEmpty() && g.Handle == handle {
+			found = i
+			break
+		}
+		curr += GaItemRecordSize(g.ItemID)
+	}
+	if found == -1 {
+		return fmt.Errorf("PatchWeaponItemID: handle 0x%08X not found in GaItems", handle)
+	}
+
+	if slot.GaItems[found].ItemID != expectedCurrentItemID {
+		return fmt.Errorf("PatchWeaponItemID: handle 0x%08X: expected ItemID 0x%08X, got 0x%08X (stale data?)",
+			handle, expectedCurrentItemID, slot.GaItems[found].ItemID)
+	}
+
+	// Overwrite ItemID field (bytes [curr+4, curr+8]) in slot.Data.
+	sa := NewSlotAccessor(slot.Data)
+	if err := sa.CheckBounds(curr+4, 4, "PatchWeaponItemID/itemID"); err != nil {
+		return err
+	}
+	binary.LittleEndian.PutUint32(slot.Data[curr+4:], newItemID)
+
+	// Update in-memory derived state.
+	slot.GaItems[found].ItemID = newItemID
+	slot.GaMap[handle] = newItemID
+
+	// Ensure new weapon ID is present in GaitemGameData section.
+	// We intentionally leave the old entry in GaItemData — the game tolerates
+	// extra entries (same behaviour as when a weapon is removed from inventory
+	// but AddItemsToSlot already registered it in GaItemData).
+	return upsertGaItemData(slot, newItemID)
+}
+
+// PatchWeaponAoW sets or removes the Ash of War attached to a weapon GaItem.
+//
+// newAoWItemID == 0: removes AoW — patches AoWGaItemHandle to 0xFFFFFFFF in-place.
+// No GaItem allocation, no RebuildSlotFull.
+//
+// newAoWItemID != 0: allocates a fresh AoW GaItem (never reuses an existing handle —
+// sharing an AoW handle between two weapons causes EXCEPTION_ACCESS_VIOLATION),
+// upserts GaItemData, calls RebuildSlotFull + parseFromData, then patches the
+// weapon's AoWGaItemHandle field after the rebuild settles offsets.
+//
+// Old AoW GaItems are intentionally left in place — the game tolerates orphaned entries.
+func PatchWeaponAoW(slot *SaveSlot, weaponHandle, newAoWItemID uint32) error {
+	if slot == nil {
+		return fmt.Errorf("PatchWeaponAoW: slot is nil")
+	}
+
+	// findWeapon locates the weapon GaItem by handle, returning (index, byteOffset).
+	// Must be called fresh after RebuildSlotFull because byte offsets shift.
+	findWeapon := func() (int, int, error) {
+		curr := GaItemsStart
+		for i := range slot.GaItems {
+			if curr >= slot.InventoryEnd {
+				break
+			}
+			g := &slot.GaItems[i]
+			if !g.IsEmpty() && g.Handle == weaponHandle {
+				if GaItemRecordSize(g.ItemID) != GaRecordWeapon {
+					return -1, -1, fmt.Errorf("PatchWeaponAoW: handle 0x%08X is not a weapon record (itemID 0x%08X)", weaponHandle, g.ItemID)
+				}
+				return i, curr, nil
+			}
+			curr += GaItemRecordSize(g.ItemID)
+		}
+		return -1, -1, fmt.Errorf("PatchWeaponAoW: weapon handle 0x%08X not found in GaItems", weaponHandle)
+	}
+
+	if newAoWItemID == 0 {
+		// Remove AoW — patch in-place, no rebuild needed.
+		idx, curr, err := findWeapon()
+		if err != nil {
+			return err
+		}
+		sa := NewSlotAccessor(slot.Data)
+		if err := sa.CheckBounds(curr+16, 4, "PatchWeaponAoW/remove"); err != nil {
+			return err
+		}
+		binary.LittleEndian.PutUint32(slot.Data[curr+16:], 0xFFFFFFFF)
+		slot.GaItems[idx].AoWGaItemHandle = 0xFFFFFFFF
+		return nil
+	}
+
+	// newAoWItemID must be in the Ash of War item ID range: upper nibble 0x8.
+	if newAoWItemID>>28 != 8 {
+		return fmt.Errorf("PatchWeaponAoW: newAoWItemID 0x%08X is not an Ash of War item ID", newAoWItemID)
+	}
+
+	// Allocate a fresh AoW GaItem. Never reuse an existing AoW handle —
+	// shared handles between weapons cause EXCEPTION_ACCESS_VIOLATION on game load.
+	newAoWHandle, err := generateUniqueHandle(slot, ItemTypeAow)
+	if err != nil {
+		return fmt.Errorf("PatchWeaponAoW: %w", err)
+	}
+	if err := allocateGaItem(slot, newAoWHandle, newAoWItemID); err != nil {
+		return fmt.Errorf("PatchWeaponAoW: %w", err)
+	}
+	slot.GaMap[newAoWHandle] = newAoWItemID
+
+	if err := upsertGaItemData(slot, newAoWItemID); err != nil {
+		return fmt.Errorf("PatchWeaponAoW: %w", err)
+	}
+
+	// Save indices advanced by allocateGaItem; parseFromData may underscan them.
+	savedNextAoW := slot.NextAoWIndex
+	savedNextArmament := slot.NextArmamentIndex
+	savedNextHandle := slot.NextGaItemHandle
+
+	// Rebuild — GaItems section grew by 8B (one AoW record). All byte offsets
+	// derived from GaItems are now stale; parseFromData refreshes them.
+	rebuilt, err := RebuildSlotFull(slot)
+	if err != nil {
+		return fmt.Errorf("PatchWeaponAoW: rebuild: %w", err)
+	}
+	copy(slot.Data, rebuilt)
+	if err := slot.parseFromData(); err != nil {
+		return fmt.Errorf("PatchWeaponAoW: re-parse: %w", err)
+	}
+
+	// Restore indices if parseFromData undershot.
+	if savedNextAoW > slot.NextAoWIndex {
+		slot.NextAoWIndex = savedNextAoW
+	}
+	if savedNextArmament > slot.NextArmamentIndex {
+		slot.NextArmamentIndex = savedNextArmament
+	}
+	if savedNextHandle > slot.NextGaItemHandle {
+		slot.NextGaItemHandle = savedNextHandle
+	}
+
+	// Re-locate the weapon after rebuild — its byte offset may have shifted.
+	idx, curr, err := findWeapon()
+	if err != nil {
+		return fmt.Errorf("PatchWeaponAoW: post-rebuild weapon lookup: %w", err)
+	}
+
+	sa := NewSlotAccessor(slot.Data)
+	if err := sa.CheckBounds(curr+16, 4, "PatchWeaponAoW/set"); err != nil {
+		return err
+	}
+	binary.LittleEndian.PutUint32(slot.Data[curr+16:], newAoWHandle)
+	slot.GaItems[idx].AoWGaItemHandle = newAoWHandle
+
+	return nil
+}
