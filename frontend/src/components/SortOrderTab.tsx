@@ -87,8 +87,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
 
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-48 text-[10px] text-muted-foreground">
-                Loading weapon inventory…
+            <div className="flex flex-col items-center justify-center h-48 gap-3 text-muted-foreground">
+                <div className="w-6 h-6 border-2 border-foreground/20 border-t-foreground rounded-full animate-spin" />
+                <p className="text-[10px] font-bold uppercase tracking-widest">
+                    Loading weapon inventory…
+                </p>
             </div>
         );
     }
@@ -164,7 +167,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                 </div>
             )}
 
-            <div className="flex flex-col gap-3 h-full min-h-0">
+            <div className="flex flex-col h-full min-h-0 gap-2">
                 {/* ── Controls row ──────────────────────────────────────────── */}
                 <div className="flex items-center justify-between shrink-0 gap-4">
                     <div className="flex items-center gap-2">
@@ -222,8 +225,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                     </button>
                 </div>
 
-                {/* ── Info banners ──────────────────────────────────────────── */}
-                <div className="flex flex-col gap-1.5 shrink-0">
+                {/* ── Info banner ───────────────────────────────────────────── */}
+                <div className="shrink-0">
                     {hasChanges ? (
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md">
                             <span className="text-amber-400 text-[11px]">⚠</span>
@@ -235,21 +238,32 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/10 border border-border/30 rounded-md">
                             <span className="text-muted-foreground/60 text-[11px]">ℹ</span>
                             <span className="text-[10px] text-muted-foreground/70">
-                                Sort Order changes how weapons appear under in-game Acquisition Order. Storage is not affected.
+                                Sort Order changes how weapons appear under in-game Acquisition
+                                Order. Storage is not affected.
                             </span>
                         </div>
                     )}
                 </div>
 
                 {/* ── 5×6 grid ──────────────────────────────────────────────── */}
-                <div className="grid grid-cols-5 gap-1.5 content-start flex-1 overflow-y-auto custom-scrollbar">
-                    {gridCells.map((item, idx) =>
-                        item != null ? (
-                            <WeaponTile key={item.handle} item={item} />
-                        ) : (
-                            <EmptyCell key={`empty-${idx}`} />
-                        ),
-                    )}
+                {/*
+                    flex-1 min-h-0: takes all remaining height without overflow.
+                    Inner wrapper uses aspect-ratio 5:6 so that each of the 5×6
+                    cells is exactly square: cell_w = height*(5/6)/5 = height/6 = cell_h.
+                    No overflow-y — all 30 slots always visible.
+                */}
+                <div className="flex-1 min-h-0 flex justify-center items-start overflow-hidden">
+                    <div className="h-full" style={{ aspectRatio: '5 / 6' }}>
+                        <div className="grid grid-cols-5 grid-rows-6 h-full gap-1">
+                            {gridCells.map((item, idx) =>
+                                item != null ? (
+                                    <WeaponTile key={item.handle} item={item} />
+                                ) : (
+                                    <EmptyCell key={`empty-${idx}`} />
+                                ),
+                            )}
+                        </div>
+                    </div>
                 </div>
 
                 {/* ── Pagination ────────────────────────────────────────────── */}
@@ -289,28 +303,44 @@ function WeaponTile({ item }: { item: main.InventoryOrderItem }) {
                 : `+${item.currentUpgrade}`
             : item.infusionName || null;
 
+    const tooltip = [item.name, upgradeLabel, `#${item.acquisitionIndex}`]
+        .filter(Boolean)
+        .join(' · ');
+
     return (
-        <div className="border border-border/40 bg-muted/10 rounded p-1.5 flex flex-col items-center gap-0.5 min-h-[78px] hover:border-border/70 hover:bg-muted/20 transition-colors">
-            <div className="w-8 h-8 rounded bg-muted/30 flex items-center justify-center text-[13px] font-black text-muted-foreground select-none shrink-0">
-                {item.name.charAt(0).toUpperCase()}
+        <div
+            title={tooltip}
+            className="relative bg-card border border-border/50 rounded-md overflow-hidden cursor-default group transition-all hover:border-primary/40 hover:bg-primary/[0.03]"
+        >
+            {/* absolute inset-0 so text never affects cell height */}
+            <div className="absolute inset-0 flex flex-col items-center p-1 gap-0.5">
+                {/* Letter avatar — grows to fill available space */}
+                <div className="flex-1 min-h-0 flex items-center justify-center w-full">
+                    <span className="text-xl font-black text-muted-foreground/35 select-none group-hover:text-muted-foreground/55 transition-colors leading-none">
+                        {item.name.charAt(0).toUpperCase()}
+                    </span>
+                </div>
+
+                {/* Name + upgrade pinned to bottom, never expands tile */}
+                <div className="w-full shrink-0 overflow-hidden">
+                    <div className="text-[8px] font-bold text-foreground/60 truncate text-center leading-tight group-hover:text-primary/80 transition-colors">
+                        {item.name}
+                    </div>
+                    {upgradeLabel && (
+                        <div className="text-[7px] font-mono text-primary/50 truncate text-center leading-tight">
+                            {upgradeLabel}
+                        </div>
+                    )}
+                </div>
             </div>
-            <span className="text-[8.5px] font-semibold text-foreground leading-tight text-center line-clamp-2 w-full">
-                {item.name}
-            </span>
-            {upgradeLabel && (
-                <span className="text-[7.5px] font-bold text-amber-400 text-center leading-tight">
-                    {upgradeLabel}
-                </span>
-            )}
-            <span className="text-[7px] text-muted-foreground/50 text-center mt-auto tabular-nums">
-                #{item.acquisitionIndex}
-            </span>
         </div>
     );
 }
 
 function EmptyCell() {
-    return <div className="border border-border/15 bg-muted/5 rounded min-h-[78px] opacity-40" />;
+    return (
+        <div className="relative bg-card/20 border border-border/15 rounded-md opacity-25" />
+    );
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
