@@ -671,26 +671,25 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                     : 'unknown';
                                                 const isIncompatible = itemCompatStatus === 'incompatible';
                                                 const isUnknown = itemCompatStatus === 'unknown';
-                                                // Clicking unknown AoW is blocked — cannot create pending change.
-                                                const isClickBlocked = canMountAoW === false || isUnknown;
+                                                // Block clicks for incompatible/unknown non-current items — prevents spurious pending changes.
+                                                // Current AoW is never blocked: clicking it sets selectedAoW=currentAoWId → aowChanged=false, no pending change.
+                                                const isClickBlocked = canMountAoW === false || ((isUnknown || isIncompatible) && !isCurrent);
                                                 return (
                                                     <button
                                                         key={aow.id}
                                                         disabled={canMountAoW === false}
                                                         onClick={() => !isClickBlocked && setSelectedAoW(aow.id === selectedAoW ? null : aow.id)}
-                                                        title={isUnknown ? 'Ash of War compatibility is unknown for this weapon type.' : undefined}
+                                                        title={!isCurrent && isUnknown ? 'Ash of War compatibility is unknown for this weapon type.' : undefined}
                                                         className={`relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-left transition-all border ${
                                                             canMountAoW === false
                                                                 ? 'border-border/30 text-foreground cursor-not-allowed'
-                                                                : isUnknown
+                                                                : (isUnknown || isIncompatible) && !isCurrent
                                                                     ? 'opacity-40 border-border/20 text-foreground/60 cursor-not-allowed'
-                                                                    : isIncompatible
-                                                                        ? 'opacity-40 border-border/20 text-foreground/60 cursor-not-allowed'
-                                                                        : isPending
-                                                                            ? 'bg-green-700/80 text-white border-green-700'
-                                                                            : isSelected && !aowChanged
-                                                                                ? 'bg-muted/40 text-foreground border-border'
-                                                                                : 'hover:bg-muted/30 border-border/30 text-foreground'
+                                                                    : isPending
+                                                                        ? 'bg-green-700/80 text-white border-green-700'
+                                                                        : isSelected && !aowChanged
+                                                                            ? 'bg-muted/40 text-foreground border-border'
+                                                                            : 'hover:bg-muted/30 border-border/30 text-foreground'
                                                         }`}
                                                     >
                                                         <div className="w-6 h-6 rounded bg-muted/30 flex items-center justify-center shrink-0 overflow-hidden">
@@ -705,15 +704,16 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                                 <span className="text-[7px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 rounded">DLC</span>
                                                             )}
                                                             {(() => {
-                                                                // Badge priority: Conflict > Unknown > Incompatible > availability
+                                                                // Badge priority: Conflict > Current (blue dot, no badge) > Unknown > Incompatible > availability
                                                                 const st = getAoWStatus(aow.id);
                                                                 if (st === 'conflict') return <span className="text-[7px] font-black uppercase text-red-500/70 bg-red-500/10 border border-red-500/20 px-1 rounded">Conflict</span>;
+                                                                if (st === 'current') return null; // blue dot already shows Current — takes priority over compat badges
                                                                 if (isUnknown) return <span className="text-[7px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 rounded">Unknown</span>;
                                                                 if (isIncompatible) return <span className="text-[7px] font-black uppercase text-red-500/70 bg-red-500/10 border border-red-500/20 px-1 rounded">Incompatible</span>;
                                                                 if (st === 'available') return <span className="text-[7px] font-black uppercase text-green-500/70 bg-green-500/10 border border-green-500/20 px-1 rounded">Available</span>;
                                                                 if (st === 'equipped') return <span className="text-[7px] font-black uppercase text-orange-400/70 bg-orange-500/10 border border-orange-500/20 px-1 rounded">Equipped</span>;
                                                                 if (st === 'missing') return <span className="text-[7px] font-black uppercase text-muted-foreground/40 bg-muted/20 border border-border/30 px-1 rounded">Missing</span>;
-                                                                return null; // 'current' shown via blue dot
+                                                                return null;
                                                             })()}
                                                         </div>
                                                         {isCurrent && (
