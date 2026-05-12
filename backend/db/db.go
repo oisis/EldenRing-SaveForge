@@ -209,6 +209,23 @@ func init() {
 			globalItemIndex[id] = entry
 		}
 	}
+	// Merge weapon AoW mount data (gemMountType, wepType) from generated lookup maps.
+	// WeaponGemMounts keys include base variants (upgrade 0) and infusion variants (+100, +200, ...).
+	// We only update entries already in the index (i.e. base weapons in our DB).
+	for id, mount := range data.WeaponGemMounts {
+		if entry, ok := globalItemIndex[id]; ok {
+			entry.GemMountType = mount.GemMountType
+			entry.WepType = mount.WepType
+			globalItemIndex[id] = entry
+		}
+	}
+	// Merge AoW weapon compatibility bitmasks.
+	for id, bitmask := range data.AoWCompatMasks {
+		if entry, ok := globalItemIndex[id]; ok {
+			entry.AoWCompatBitmask = bitmask
+			globalItemIndex[id] = entry
+		}
+	}
 }
 
 // GetItemData returns the full metadata of an item by its ID via the global index.
@@ -217,6 +234,29 @@ func GetItemData(id uint32) data.ItemData {
 		return item
 	}
 	return data.ItemData{}
+}
+
+// CanWeaponMountAoW returns true if the weapon (by base item ID) supports standard AoW mounting
+// (gemMountType == 2). Returns false for unique/somber weapons (gemMountType == 1) and
+// weapons that cannot mount AoW at all (gemMountType == 0 or not found in data).
+func CanWeaponMountAoW(baseItemID uint32) bool {
+	item := GetItemData(baseItemID)
+	return item.GemMountType == 2
+}
+
+// IsAoWCompatibleWithWepType returns (compatible, known) where compatible indicates whether
+// the AoW can be mounted on weapons of the given wepType, and known indicates whether the
+// wepType→bit mapping is available. If known==false, the caller should treat as compatible.
+func IsAoWCompatibleWithWepType(aowItemID uint32, wepType uint16) (compatible bool, known bool) {
+	aow := GetItemData(aowItemID)
+	if aow.AoWCompatBitmask == 0 {
+		return true, false
+	}
+	bitPos, ok := data.WepTypeToCanMountBit[wepType]
+	if !ok {
+		return true, false
+	}
+	return (aow.AoWCompatBitmask>>bitPos)&1 == 1, true
 }
 
 // enrichItemEntry populates Description, Weight, and stat fields from the Descriptions table,

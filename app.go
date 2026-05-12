@@ -1048,6 +1048,118 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 }
 
 
+// ApplyWeaponInfusion changes the infusion (affinity) of a specific weapon instance
+// identified by its GaItemHandle. Only the weapon's ItemID is patched — upgrade level,
+// AoW gem, quantity, and location are preserved.
+//
+// expectedCurrentItemID is a stale-data guard: the request is rejected if the weapon's
+// ItemID has already changed since the frontend loaded the character data.
+// newItemID must encode the same base weapon and the same upgrade level; only the
+// infusion offset portion may differ.
+func (a *App) ApplyWeaponInfusion(charIdx int, handle uint32, expectedCurrentItemID, newItemID uint32) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+
+	// Both IDs must be in the weapon range (upper nibble 0x0).
+	if expectedCurrentItemID>>28 != 0 {
+		return fmt.Errorf("expectedCurrentItemID 0x%08X is not a weapon ID", expectedCurrentItemID)
+	}
+	if newItemID>>28 != 0 {
+		return fmt.Errorf("newItemID 0x%08X is not a weapon ID", newItemID)
+	}
+
+	// Resolve base weapon from expectedCurrentItemID. DB lookup is authoritative —
+	// do not trust the frontend's baseId / maxUpgrade values.
+	baseData, baseID := db.GetItemDataFuzzy(expectedCurrentItemID)
+	if baseData.Name == "" {
+		return fmt.Errorf("unknown weapon 0x%08X", expectedCurrentItemID)
+	}
+	if baseData.MaxUpgrade != 25 {
+		return fmt.Errorf("weapon %q (0x%08X) is not infusable (maxUpgrade=%d)", baseData.Name, baseID, baseData.MaxUpgrade)
+	}
+	if !weaponCategorySupportsInfusion(baseData.Category) {
+		return fmt.Errorf("weapon category %q does not support infusion", baseData.Category)
+	}
+
+	expectedDiff := expectedCurrentItemID - baseID
+	expectedUpgrade := expectedDiff % 100
+
+	// Validate newItemID resolves to the same base weapon and same upgrade level.
+	_, newBaseID := db.GetItemDataFuzzy(newItemID)
+	if newBaseID != baseID {
+		return fmt.Errorf("newItemID 0x%08X resolves to a different base weapon (got 0x%08X, expected 0x%08X)",
+			newItemID, newBaseID, baseID)
+	}
+	newDiff := newItemID - baseID
+	newUpgrade := newDiff % 100
+	if newUpgrade != expectedUpgrade {
+		return fmt.Errorf("newItemID 0x%08X changes the upgrade level (%d→%d); only the infusion offset may change",
+			newItemID, expectedUpgrade, newUpgrade)
+	}
+
+	// Validate the resulting infusion offset is one of the known types.
+	newInfuseOffset := int(newDiff - newUpgrade)
+	validOffset := false
+	for _, t := range db.InfuseTypes {
+		if t.Offset == newInfuseOffset {
+			validOffset = true
+			break
+		}
+	}
+	if !validOffset {
+		return fmt.Errorf("infusion offset %d is not a recognised infusion type", newInfuseOffset)
+	}
+
+	a.pushUndo(charIdx)
+	slot := &a.save.Slots[charIdx]
+	return core.PatchWeaponItemID(slot, handle, expectedCurrentItemID, newItemID)
+}
+
+// ApplyWeaponAoW sets or removes the Ash of War on a specific weapon instance.
+// newAoWItemID == 0 removes the AoW; any other value sets it.
+func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+
+	slot := &a.save.Slots[charIdx]
+	currentItemID, ok := slot.GaMap[weaponHandle]
+	if !ok {
+		return fmt.Errorf("weapon handle 0x%08X not found in save", weaponHandle)
+	}
+	if currentItemID>>28 != 0 {
+		return fmt.Errorf("handle 0x%08X (itemID 0x%08X) is not a weapon", weaponHandle, currentItemID)
+	}
+
+	baseData, baseID := db.GetItemDataFuzzy(currentItemID)
+	if baseData.Name == "" {
+		return fmt.Errorf("unknown weapon 0x%08X", currentItemID)
+	}
+	if !db.CanWeaponMountAoW(baseID) {
+		return fmt.Errorf("weapon %q does not support Ash of War (gemMountType=%d)", baseData.Name, baseData.GemMountType)
+	}
+
+	if newAoWItemID != 0 {
+		if newAoWItemID>>28 != 8 {
+			return fmt.Errorf("newAoWItemID 0x%08X is not an Ash of War item ID", newAoWItemID)
+		}
+		aowData, _ := db.GetItemDataFuzzy(newAoWItemID)
+		if aowData.Name == "" {
+			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
+		}
+	}
+
+	a.pushUndo(charIdx)
+	return core.PatchWeaponAoW(slot, weaponHandle, newAoWItemID)
+}
+
 // Dummy method to force Wails to export types
 func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions) {
 	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}

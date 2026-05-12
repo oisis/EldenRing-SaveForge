@@ -30,21 +30,25 @@ func runesCostForLevel(level uint32) uint32 {
 }
 
 type ItemViewModel struct {
-	Handle         uint32   `json:"handle"`
-	ID             uint32   `json:"id"`
-	BaseID         uint32   `json:"baseId"`
-	Name           string   `json:"name"`
-	Category       string   `json:"category"`    // broad type from handle prefix: "Weapon"/"Armor"/"Talisman"/"Item"/"Ash of War"
-	SubCategory    string   `json:"subCategory"` // main game tab: "tools", "key_items", "melee_armaments", ...
-	SubGroup       string   `json:"subGroup"`    // sub-grouping within tab: "Sacred Flasks", "Daggers", ...
-	Quantity       uint32   `json:"quantity"`
-	MaxInventory   uint32   `json:"maxInventory"`
-	MaxStorage     uint32   `json:"maxStorage"`
-	MaxUpgrade     uint32   `json:"maxUpgrade"`
-	CurrentUpgrade uint32   `json:"currentUpgrade"`
-	IconPath       string   `json:"iconPath"`
-	Flags          []string `json:"flags"`
-	ReadOnly       bool     `json:"readOnly"`
+	Handle           uint32   `json:"handle"`
+	ID               uint32   `json:"id"`
+	BaseID           uint32   `json:"baseId"`
+	Name             string   `json:"name"`
+	Category         string   `json:"category"`    // broad type from handle prefix: "Weapon"/"Armor"/"Talisman"/"Item"/"Ash of War"
+	SubCategory      string   `json:"subCategory"` // main game tab: "tools", "key_items", "melee_armaments", ...
+	SubGroup         string   `json:"subGroup"`    // sub-grouping within tab: "Sacred Flasks", "Daggers", ...
+	Quantity         uint32   `json:"quantity"`
+	MaxInventory     uint32   `json:"maxInventory"`
+	MaxStorage       uint32   `json:"maxStorage"`
+	MaxUpgrade       uint32   `json:"maxUpgrade"`
+	CurrentUpgrade   uint32   `json:"currentUpgrade"`
+	IconPath         string   `json:"iconPath"`
+	Flags            []string `json:"flags"`
+	ReadOnly         bool     `json:"readOnly"`
+	AoWID            uint32   `json:"aowId"`       // item ID of the AoW gem attached to this weapon (0 = none / not a weapon)
+	CanMountAoW      bool     `json:"canMountAoW"` // true iff gemMountType==2 (standard infusable weapon)
+	WepType          uint16   `json:"wepType"`     // weapon category integer from EquipParamWeapon (0 for non-weapons)
+	AoWCompatBitmask uint64   `json:"aowCompatBitmask"` // 36-bit canMountWep bitmask (non-zero for AoWs only)
 }
 
 type CharacterViewModel struct {
@@ -127,11 +131,19 @@ func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 	validation := vm.ValidateStatsConsistency(data.Class)
 	vm.StatValidation = &validation
 
+	// Build handle→GaItemFull index to resolve per-weapon AoW handles.
+	gaItemsByHandle := make(map[uint32]core.GaItemFull, len(slot.GaItems))
+	for _, gi := range slot.GaItems {
+		if !gi.IsEmpty() {
+			gaItemsByHandle[gi.Handle] = gi
+		}
+	}
+
 	// Map Inventory
-	vm.Inventory = mapItems(slot.Inventory, slot.GaMap)
+	vm.Inventory = mapItems(slot.Inventory, slot.GaMap, gaItemsByHandle)
 
 	// Map Storage
-	vm.Storage = mapItems(slot.Storage, slot.GaMap)
+	vm.Storage = mapItems(slot.Storage, slot.GaMap, gaItemsByHandle)
 
 	// Populate MemoryStones — addToInventory writes to CommonItems; stones obtained
 	// in-game may reside in KeyItems. Scan both to handle either case.
@@ -153,7 +165,7 @@ func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 	return vm, nil
 }
 
-func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32) []ItemViewModel {
+func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHandle map[uint32]core.GaItemFull) []ItemViewModel {
 	items := []ItemViewModel{}
 
 	processItem := func(item core.InventoryItem) {
@@ -210,22 +222,37 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32) []ItemViewM
 				displayQuantity = item.Quantity & 0x7FFFFFFF
 			}
 
+			// Resolve the AoW gem attached to this weapon instance.
+			// AoWGaItemHandle == 0xFFFFFFFF means no AoW gem is applied.
+			var aowID uint32
+			if category == "Weapon" {
+				if gi, ok2 := gaItemsByHandle[item.GaItemHandle]; ok2 && gi.AoWGaItemHandle != 0xFFFFFFFF {
+					if aowItemID, ok3 := gaMap[gi.AoWGaItemHandle]; ok3 && aowItemID != 0 {
+						aowID = aowItemID
+					}
+				}
+			}
+
 			items = append(items, ItemViewModel{
-				Handle:         item.GaItemHandle,
-				ID:             itemID,
-				BaseID:         baseID,
-				Name:           name,
-				Category:       category,
-				SubCategory:    db.GetItemSubCategory(itemID, itemData, category),
-				SubGroup:       itemData.SubCategory,
-				Quantity:       displayQuantity,
-				MaxInventory:   itemData.MaxInventory,
-				MaxStorage:     itemData.MaxStorage,
-				MaxUpgrade:     itemData.MaxUpgrade,
-				CurrentUpgrade: currentUpgrade,
-				IconPath:       itemData.IconPath,
-				Flags:          itemData.Flags,
-				ReadOnly:       gamedata.IsCookbookItemID(itemID) || gamedata.IsWhetbladeItemID(itemID) || gamedata.IsBellBearingItemID(itemID) || slices.Contains(itemData.Flags, "no_database"),
+				Handle:           item.GaItemHandle,
+				ID:               itemID,
+				BaseID:           baseID,
+				Name:             name,
+				Category:         category,
+				SubCategory:      db.GetItemSubCategory(itemID, itemData, category),
+				SubGroup:         itemData.SubCategory,
+				Quantity:         displayQuantity,
+				MaxInventory:     itemData.MaxInventory,
+				MaxStorage:       itemData.MaxStorage,
+				MaxUpgrade:       itemData.MaxUpgrade,
+				CurrentUpgrade:   currentUpgrade,
+				IconPath:         itemData.IconPath,
+				Flags:            itemData.Flags,
+				ReadOnly:         gamedata.IsCookbookItemID(itemID) || gamedata.IsWhetbladeItemID(itemID) || gamedata.IsBellBearingItemID(itemID) || slices.Contains(itemData.Flags, "no_database"),
+				AoWID:            aowID,
+				CanMountAoW:      itemData.GemMountType == 2,
+				WepType:          itemData.WepType,
+				AoWCompatBitmask: itemData.AoWCompatBitmask,
 			})
 		}
 	}
