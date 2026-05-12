@@ -755,7 +755,19 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                         )}
                                     </div>
                                 </div>
-                                <p className="text-[9px] text-muted-foreground/40 mt-3 italic">Stat preview is not available yet.</p>
+                                {aowChanged && infusionChanged && (
+                                    <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                                        <svg className="w-3.5 h-3.5 text-amber-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                                        </svg>
+                                        <span className="text-[9px] font-bold text-amber-600">
+                                            Apply one change type at a time: either Infusion or Ash of War.
+                                        </span>
+                                    </div>
+                                )}
+                                {!(aowChanged && infusionChanged) && (
+                                    <p className="text-[9px] text-muted-foreground/40 mt-3 italic">Stat preview is not available yet.</p>
+                                )}
                             </div>
                         </>
                     )}
@@ -794,7 +806,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                 <span className="ml-auto text-[9px] italic">
                     {(() => {
                         if (aowChanged && infusionChanged)
-                            return <span className="text-amber-600/70">Apply one change type at a time: either Infusion or Ash of War.</span>;
+                            return <span className="text-amber-600 font-bold">Apply one change type at a time: either Infusion or Ash of War.</span>;
                         if (aowChanged && selectedAoW === 0)
                             return <span className="text-sky-400/70">Ash of War will be removed from this weapon.</span>;
                         if (aowChanged && selectedAoW !== 0 && selectedAoWCompatStatus === 'unknown')
