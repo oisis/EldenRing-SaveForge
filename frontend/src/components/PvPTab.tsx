@@ -13,7 +13,7 @@ interface PvPTabProps {
     onMutate?: () => void;
 }
 
-export function PvPTab({charIdx: _charIdx, platform, pvpOpts: _pvpOpts, onPvpOptsChange: _onPvpOptsChange, onMutate}: PvPTabProps) {
+export function PvPTab({charIdx, platform, pvpOpts: _pvpOpts, onPvpOptsChange: _onPvpOptsChange, onMutate}: PvPTabProps) {
     const [subTab, setSubTab] = useState<PvPSubTab>('network');
 
     return (
@@ -32,7 +32,7 @@ export function PvPTab({charIdx: _charIdx, platform, pvpOpts: _pvpOpts, onPvpOpt
             </div>
 
             {subTab === 'presets' && (
-                <PresetsTab />
+                <PresetsTab charIdx={charIdx} />
             )}
             {subTab === 'network' && (
                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
