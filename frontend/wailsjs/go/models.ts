@@ -723,6 +723,7 @@ export namespace main {
 	    acquisitionIndex: number;
 	    currentUpgrade?: number;
 	    infusionName?: string;
+	    iconPath?: string;
 	    isTechnical?: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -738,6 +739,7 @@ export namespace main {
 	        this.acquisitionIndex = source["acquisitionIndex"];
 	        this.currentUpgrade = source["currentUpgrade"];
 	        this.infusionName = source["infusionName"];
+	        this.iconPath = source["iconPath"];
 	        this.isTechnical = source["isTechnical"];
 	    }
 	}

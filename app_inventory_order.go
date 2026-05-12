@@ -18,6 +18,7 @@ type InventoryOrderItem struct {
 	AcquisitionIndex uint32 `json:"acquisitionIndex"`
 	CurrentUpgrade   int    `json:"currentUpgrade,omitempty"`
 	InfusionName     string `json:"infusionName,omitempty"`
+	IconPath         string `json:"iconPath,omitempty"`
 	IsTechnical      bool   `json:"isTechnical,omitempty"`
 }
 
@@ -90,6 +91,7 @@ func (a *App) GetWeaponInventoryOrder(charIdx int) ([]InventoryOrderItem, error)
 			AcquisitionIndex: acqIdx,
 			CurrentUpgrade:   upgradeLevel,
 			InfusionName:     infusionName,
+			IconPath:         itemData.IconPath,
 		})
 	}
 

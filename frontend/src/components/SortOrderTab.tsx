@@ -296,6 +296,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function WeaponTile({ item }: { item: main.InventoryOrderItem }) {
+    const [imgError, setImgError] = useState(false);
+
     const upgradeLabel =
         item.currentUpgrade && item.currentUpgrade > 0
             ? item.infusionName
@@ -307,18 +309,29 @@ function WeaponTile({ item }: { item: main.InventoryOrderItem }) {
         .filter(Boolean)
         .join(' · ');
 
+    const showIcon = !!item.iconPath && !imgError;
+
     return (
         <div
             title={tooltip}
             className="relative bg-card border border-border/50 rounded-md overflow-hidden cursor-default group transition-all hover:border-primary/40 hover:bg-primary/[0.03]"
         >
-            {/* absolute inset-0 so text never affects cell height */}
+            {/* absolute inset-0 so content never affects cell height */}
             <div className="absolute inset-0 flex flex-col items-center p-1 gap-0.5">
-                {/* Letter avatar — grows to fill available space */}
-                <div className="flex-1 min-h-0 flex items-center justify-center w-full">
-                    <span className="text-xl font-black text-muted-foreground/35 select-none group-hover:text-muted-foreground/55 transition-colors leading-none">
-                        {item.name.charAt(0).toUpperCase()}
-                    </span>
+                {/* Icon / fallback avatar — grows to fill available space */}
+                <div className="flex-1 min-h-0 flex items-center justify-center w-full overflow-hidden">
+                    {showIcon ? (
+                        <img
+                            src={item.iconPath}
+                            alt=""
+                            className="max-w-full max-h-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform duration-200"
+                            onError={() => setImgError(true)}
+                        />
+                    ) : (
+                        <span className="text-xl font-black text-muted-foreground/35 select-none group-hover:text-muted-foreground/55 transition-colors leading-none">
+                            {item.name.charAt(0).toUpperCase()}
+                        </span>
+                    )}
                 </div>
 
                 {/* Name + upgrade pinned to bottom, never expands tile */}
