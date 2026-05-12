@@ -193,6 +193,13 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
     const canInfuse = selectedWeapon ? selectedWeapon.canMountAoW : null;
     const canMountAoW = canInfuse; // currently the same gate; split when per-weapon AoW data matures
 
+    // true when the weapon has a real wepType that is absent from WEP_TYPE_TO_BIT (DLC weapon types
+    // like 69 / 94 / 95 that were not in the game at launch). Backend already allows Apply for these
+    // via the known==false passthrough in ApplyWeaponAoW / ApplyWeaponAoWStrict.
+    const isWepTypeUnmapped = selectedWeapon !== null
+        && selectedWeapon.wepType !== 0
+        && WEP_TYPE_TO_BIT[selectedWeapon.wepType] === undefined;
+
     const currentInfuseOffset = selectedWeapon
         ? selectedWeapon.id - selectedWeapon.baseId - selectedWeapon.currentUpgrade
         : null;
@@ -251,13 +258,19 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
 
     // Editor mode: allows Missing/Equipped (creates a new copy); blocks Conflict, incompatible, unknown.
     // Remove (selectedAoW === 0) is always allowed regardless of compat — mirrors Strict semantics.
+    // DLC weapons with unmapped wepType (isWepTypeUnmapped) pass the unknown check — backend allows it.
     const canApplyAoWEditor = isAoWOnlyChange && canMountAoW === true
         && selectedAoWStatus !== 'conflict'
-        && (selectedAoW === 0 || selectedAoWCompatStatus === 'compatible');
+        && (selectedAoW === 0
+            || selectedAoWCompatStatus === 'compatible'
+            || (selectedAoWCompatStatus === 'unknown' && isWepTypeUnmapped));
     // Strict mode: allows only Available (or None/remove); blocks Missing/Equipped/Conflict/incompatible/unknown.
+    // DLC weapons with unmapped wepType pass the unknown check — backend allows it via known==false passthrough.
     const canApplyAoWStrict = isAoWOnlyChange && canMountAoW === true
         && (selectedAoW === 0 || selectedAoWStatus === 'available')
-        && (selectedAoW === 0 || selectedAoWCompatStatus === 'compatible');
+        && (selectedAoW === 0
+            || selectedAoWCompatStatus === 'compatible'
+            || (selectedAoWCompatStatus === 'unknown' && isWepTypeUnmapped));
 
     const canApply = selectedWeapon !== null
         && !applying
@@ -279,7 +292,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         if (infusionChanged) return canInfuse === true ? 'Apply infusion change' : 'This weapon does not support affinity changes';
         if (aowChanged) {
             if (canMountAoW !== true) return 'This weapon does not support Ash of War';
-            if (selectedAoW !== 0 && selectedAoWCompatStatus === 'unknown') return 'Ash of War compatibility is unknown for this weapon';
+            if (selectedAoW !== 0 && selectedAoWCompatStatus === 'unknown' && !isWepTypeUnmapped) return 'Ash of War compatibility is unknown for this weapon';
             if (selectedAoW !== 0 && selectedAoWCompatStatus === 'incompatible') return 'This Ash of War is not compatible with this weapon type';
             if (aowApplyMode === 'editor') {
                 if (selectedAoW === 0) return 'Remove Ash of War from this weapon';
@@ -675,17 +688,24 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                 const isUnknown = itemCompatStatus === 'unknown';
                                                 // Block clicks for incompatible/unknown non-current items — prevents spurious pending changes.
                                                 // Current AoW is never blocked: clicking it sets selectedAoW=currentAoWId → aowChanged=false, no pending change.
-                                                const isClickBlocked = canMountAoW === false || ((isUnknown || isIncompatible) && !isCurrent);
+                                                // DLC weapons with unmapped wepType: unknown is NOT blocked — backend allows Apply via known==false passthrough.
+                                                const isClickBlocked = canMountAoW === false
+                                                    || (isIncompatible && !isCurrent)
+                                                    || (isUnknown && !isCurrent && !isWepTypeUnmapped);
                                                 return (
                                                     <button
                                                         key={aow.id}
                                                         disabled={canMountAoW === false}
                                                         onClick={() => !isClickBlocked && setSelectedAoW(aow.id === selectedAoW ? null : aow.id)}
-                                                        title={!isCurrent && isUnknown ? 'Ash of War compatibility is unknown for this weapon type.' : undefined}
+                                                        title={!isCurrent && isUnknown
+                                                            ? isWepTypeUnmapped
+                                                                ? 'Compatibility data for this DLC weapon type is unavailable; backend will allow this save edit.'
+                                                                : 'Ash of War compatibility is unknown for this weapon type.'
+                                                            : undefined}
                                                         className={`relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-left transition-all border ${
                                                             canMountAoW === false
                                                                 ? 'border-border/30 text-foreground cursor-not-allowed'
-                                                                : (isUnknown || isIncompatible) && !isCurrent
+                                                                : (isIncompatible || (isUnknown && !isWepTypeUnmapped)) && !isCurrent
                                                                     ? 'opacity-40 border-border/20 text-foreground/60 cursor-not-allowed'
                                                                     : isPending
                                                                         ? 'bg-green-700/80 text-white border-green-700'
@@ -707,10 +727,11 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                             )}
                                                             {(() => {
                                                                 // Badge priority: Conflict > Current (blue dot, no badge) > Unknown > Incompatible > availability
+                                                                // For DLC unmapped wepTypes: skip Unknown badge so availability (Available/Equipped/Missing) shows instead.
                                                                 const st = getAoWStatus(aow.id);
                                                                 if (st === 'conflict') return <span className="text-[7px] font-black uppercase text-red-500/70 bg-red-500/10 border border-red-500/20 px-1 rounded">Conflict</span>;
                                                                 if (st === 'current') return null; // blue dot already shows Current — takes priority over compat badges
-                                                                if (isUnknown) return <span className="text-[7px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 rounded">Unknown</span>;
+                                                                if (isUnknown && !isWepTypeUnmapped) return <span className="text-[7px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 rounded">Unknown</span>;
                                                                 if (isIncompatible) return <span className="text-[7px] font-black uppercase text-red-500/70 bg-red-500/10 border border-red-500/20 px-1 rounded">Incompatible</span>;
                                                                 if (st === 'available') return <span className="text-[7px] font-black uppercase text-green-500/70 bg-green-500/10 border border-green-500/20 px-1 rounded">Available</span>;
                                                                 if (st === 'equipped') return <span className="text-[7px] font-black uppercase text-orange-400/70 bg-orange-500/10 border border-orange-500/20 px-1 rounded">Equipped</span>;
@@ -887,7 +908,9 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                         if (aowChanged && selectedAoW === 0)
                             return <span className="text-sky-400/70">Ash of War will be removed from this weapon.</span>;
                         if (aowChanged && selectedAoW !== 0 && selectedAoWCompatStatus === 'unknown')
-                            return <span className="text-amber-500/70">Ash of War compatibility is unknown for this weapon.</span>;
+                            return isWepTypeUnmapped
+                                ? <span className="text-sky-400/70">Compatibility data for this DLC weapon type is unavailable; backend will allow this save edit.</span>
+                                : <span className="text-amber-500/70">Ash of War compatibility is unknown for this weapon.</span>;
                         if (aowChanged && selectedAoW !== 0 && selectedAoWCompatStatus === 'incompatible')
                             return <span className="text-red-500/70">This Ash of War is not compatible with this weapon type.</span>;
                         if (aowChanged && aowApplyMode === 'editor') {
