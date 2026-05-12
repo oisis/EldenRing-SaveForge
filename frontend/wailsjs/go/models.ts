@@ -715,6 +715,32 @@ export namespace main {
 	        this.name = source["name"];
 	    }
 	}
+	export class InventoryOrderItem {
+	    handle: number;
+	    itemId: number;
+	    name: string;
+	    category: string;
+	    acquisitionIndex: number;
+	    currentUpgrade?: number;
+	    infusionName?: string;
+	    isTechnical?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new InventoryOrderItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.handle = source["handle"];
+	        this.itemId = source["itemId"];
+	        this.name = source["name"];
+	        this.category = source["category"];
+	        this.acquisitionIndex = source["acquisitionIndex"];
+	        this.currentUpgrade = source["currentUpgrade"];
+	        this.infusionName = source["infusionName"];
+	        this.isTechnical = source["isTechnical"];
+	    }
+	}
 	export class PresetInfo {
 	    name: string;
 	    image: string;

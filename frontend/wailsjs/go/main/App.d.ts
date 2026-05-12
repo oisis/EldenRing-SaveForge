@@ -118,6 +118,8 @@ export function GetUndoDepth(arg1:number):Promise<number>;
 
 export function GetUnlockedRegions(arg1:number):Promise<Array<db.RegionEntry>>;
 
+export function GetWeaponInventoryOrder(arg1:number):Promise<Array<main.InventoryOrderItem>>;
+
 export function GetWhetblades(arg1:number):Promise<Array<db.WhetbladeEntry>>;
 
 export function ImportCharacter(arg1:number,arg2:number):Promise<void>;
@@ -137,6 +139,8 @@ export function RemoveFavoritePreset(arg1:number):Promise<void>;
 export function RemoveFogOfWar(arg1:number):Promise<void>;
 
 export function RemoveItemsFromCharacter(arg1:number,arg2:Array<number>,arg3:boolean,arg4:boolean):Promise<void>;
+
+export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<void>;
 
 export function ResetMapExploration(arg1:number):Promise<void>;
 

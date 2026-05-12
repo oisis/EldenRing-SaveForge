@@ -226,6 +226,10 @@ export function GetUnlockedRegions(arg1) {
   return window['go']['main']['App']['GetUnlockedRegions'](arg1);
 }
 
+export function GetWeaponInventoryOrder(arg1) {
+  return window['go']['main']['App']['GetWeaponInventoryOrder'](arg1);
+}
+
 export function GetWhetblades(arg1) {
   return window['go']['main']['App']['GetWhetblades'](arg1);
 }
@@ -264,6 +268,10 @@ export function RemoveFogOfWar(arg1) {
 
 export function RemoveItemsFromCharacter(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RemoveItemsFromCharacter'](arg1, arg2, arg3, arg4);
+}
+
+export function ReorderWeaponInventory(arg1, arg2) {
+  return window['go']['main']['App']['ReorderWeaponInventory'](arg1, arg2);
 }
 
 export function ResetMapExploration(arg1) {
