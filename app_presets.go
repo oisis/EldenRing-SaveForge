@@ -23,7 +23,8 @@ type builtinCharacterPreset struct {
 }
 
 // builtinCharacterPresets is the static registry of built-in character presets.
-// All presets are stat-only: no inventory, no storage, no world flags.
+// Stat-only presets: no inventory, no storage, no world flags.
+// Inventory presets: non-empty Inventory, no storage, no world, no weapons/infusion.
 // Level = Vigor+Mind+Endurance+Strength+Dexterity+Intelligence+Faith+Arcane - 79
 var builtinCharacterPresets = []builtinCharacterPreset{
 	{
@@ -121,6 +122,29 @@ var builtinCharacterPresets = []builtinCharacterPreset{
 			Storage:   []vm.PresetItem{},
 		},
 	},
+	// ─── Inventory presets ─────────────────────────────────────────────────────
+	{
+		info: BuiltinCharacterPresetInfo{
+			ID:          "pvp-consumables",
+			Name:        "PvP Consumables",
+			Description: "Replaces inventory with essential PvP consumables: Rune Arcs and Furlcalling Finger Remedies. Warning: clears existing inventory.",
+			Tags:        []string{"pvp", "consumables", "tools"},
+			Modules:     []string{"Inventory"},
+			Level:       0,
+			ClassName:   "",
+		},
+		preset: vm.CharacterPreset{
+			FormatVersion: vm.PresetFormatVersion,
+			Character:     vm.CharacterPresetCore{},
+			Inventory: []vm.PresetItem{
+				// Rune Arc — activates equipped Great Rune
+				{BaseID: 0x400000BE, Name: "Rune Arc", Quantity: 10},
+				// Furlcalling Finger Remedy — reveals cooperative summon signs
+				{BaseID: 0x40000096, Name: "Furlcalling Finger Remedy", Quantity: 50},
+			},
+			Storage: []vm.PresetItem{},
+		},
+	},
 }
 
 // ListBuiltinCharacterPresets returns the frontend-facing summaries of all built-in character presets.
@@ -166,6 +190,53 @@ func (a *App) ApplyBuiltinCharacterPresetStats(charIdx int, id string) (*vm.Pres
 			return a.ApplyCharacterPreset(charIdx, p.preset, vm.ApplyOptions{
 				ReplaceStats:     true,
 				ReplaceInventory: false,
+				ReplaceStorage:   false,
+				ReplaceWorld:     false,
+				KeepName:         true,
+				KeepClass:        false,
+			})
+		}
+	}
+	return nil, fmt.Errorf("built-in preset not found: %s", id)
+}
+
+// isInventoryCompatiblePreset returns true when the preset may be applied as inventory-only:
+// it has at least one inventory item, no storage, no world data, and no infused/upgraded items
+// (which would indicate weapons — not supported in inventory-only apply).
+func isInventoryCompatiblePreset(p vm.CharacterPreset) bool {
+	if len(p.Inventory) == 0 || len(p.Storage) > 0 || p.World != nil {
+		return false
+	}
+	for _, item := range p.Inventory {
+		if item.InfuseOffset != 0 || item.CurrentUpgrade != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// ApplyBuiltinCharacterPresetInventory replaces the inventory of a character slot
+// with the items defined in the built-in preset. Stats, storage, and world are never modified.
+//
+// Semantics of ReplaceInventory=true (from ApplyCharacterPreset):
+//   - ClearInventoryItems removes ALL current inventory items (including weapons, armor, talismans).
+//   - Preset items are then added to the now-empty inventory.
+//   - This is a FULL REPLACE — destructive. The user must backup the save first.
+func (a *App) ApplyBuiltinCharacterPresetInventory(charIdx int, id string) (*vm.PresetApplyResult, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return nil, fmt.Errorf("invalid slot index")
+	}
+	for _, p := range builtinCharacterPresets {
+		if p.info.ID == id {
+			if !isInventoryCompatiblePreset(p.preset) {
+				return nil, fmt.Errorf("preset %q is not inventory-compatible (may have storage, world, or infused items)", id)
+			}
+			return a.ApplyCharacterPreset(charIdx, p.preset, vm.ApplyOptions{
+				ReplaceStats:     false,
+				ReplaceInventory: true,
 				ReplaceStorage:   false,
 				ReplaceWorld:     false,
 				KeepName:         true,

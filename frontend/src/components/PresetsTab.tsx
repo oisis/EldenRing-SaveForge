@@ -5,6 +5,7 @@ import {
     GetCharacter,
     ValidateBuiltinCharacterPreset,
     ApplyBuiltinCharacterPresetStats,
+    ApplyBuiltinCharacterPresetInventory,
 } from '../../wailsjs/go/main/App';
 import {main, vm} from '../../wailsjs/go/models';
 import toast from '../lib/toast';
@@ -21,6 +22,16 @@ interface PreviewData {
 
 function isStatOnly(preset: main.BuiltinCharacterPresetInfo): boolean {
     return preset.modules.length === 1 && preset.modules[0] === 'Stats';
+}
+
+function isInventoryOnly(preset: main.BuiltinCharacterPresetInfo): boolean {
+    return preset.modules.length === 1 && preset.modules[0] === 'Inventory';
+}
+
+function getApplyMode(preset: main.BuiltinCharacterPresetInfo): 'stats' | 'inventory' | 'unsupported' {
+    if (isStatOnly(preset)) return 'stats';
+    if (isInventoryOnly(preset)) return 'inventory';
+    return 'unsupported';
 }
 
 // ─── Stat field definitions ───────────────────────────────────────────────────
@@ -153,6 +164,35 @@ function StatPreviewPanel({data}: {data: PreviewData}) {
     );
 }
 
+function InventoryPreviewPanel({data}: {data: PreviewData}) {
+    const items = data.preset.inventory ?? [];
+    return (
+        <div className="mt-2 pt-3 border-t border-border/30 flex flex-col gap-2">
+            <div className="flex items-center gap-1.5">
+                <svg className="w-3 h-3 text-yellow-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.539-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400/80">
+                    Destructive — replaces entire inventory
+                </p>
+            </div>
+            <div className="flex flex-col">
+                <div className="grid grid-cols-[1fr_auto] gap-1 pb-1 mb-0.5 border-b border-border/20">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40">Item</span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground/40 text-right">Qty</span>
+                </div>
+                {items.map((item, i) => (
+                    <div key={i} className="grid grid-cols-[1fr_auto] gap-1 py-0.5">
+                        <span className="text-[10px] text-foreground/70">{item.name}</span>
+                        <span className="text-[10px] tabular-nums text-right text-foreground/60">×{item.quantity}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
 function PresetCard({
     preset,
     isExpanded,
@@ -162,6 +202,7 @@ function PresetCard({
     applyEnabled,
     applyLoading,
     applyResult,
+    applyMode,
     applyError,
     onPreview,
     onApply,
@@ -174,6 +215,7 @@ function PresetCard({
     applyEnabled: boolean;
     applyLoading: boolean;
     applyResult: vm.PresetApplyResult | null;
+    applyMode: 'stats' | 'inventory' | 'unsupported';
     applyError: string | null;
     onPreview: () => void;
     onApply: () => void;
@@ -188,12 +230,14 @@ function PresetCard({
                     <p className="text-[11px] font-black uppercase tracking-[0.12em] text-foreground/90 truncate">
                         {preset.name}
                     </p>
-                    <p className="text-[10px] text-muted-foreground/70 mt-0.5">
-                        {preset.className} · Level {preset.level}
-                    </p>
+                    {preset.level > 0 && (
+                        <p className="text-[10px] text-muted-foreground/70 mt-0.5">
+                            {preset.className} · Level {preset.level}
+                        </p>
+                    )}
                 </div>
                 <span className="shrink-0 px-2 py-0.5 rounded bg-muted/40 border border-border/40 text-[9px] font-black text-muted-foreground/60 tabular-nums">
-                    RL {preset.level}
+                    {preset.level > 0 ? `RL ${preset.level}` : 'INV'}
                 </span>
             </div>
 
@@ -233,7 +277,13 @@ function PresetCard({
                 <button
                     onClick={applyEnabled ? onApply : undefined}
                     disabled={!applyEnabled || applyLoading}
-                    title={!applyEnabled ? 'Only stat-only presets can be applied here' : 'Apply stats to current character'}
+                    title={
+                        applyMode === 'unsupported'
+                            ? 'This preset type cannot be applied from this panel'
+                            : applyMode === 'inventory'
+                                ? 'Replace entire inventory with preset items'
+                                : 'Apply stats to current character'
+                    }
                     className={`flex-1 py-1.5 rounded border text-[10px] font-black uppercase tracking-widest transition-all ${
                         applyEnabled && !applyLoading
                             ? 'border-green-500/50 bg-green-500/10 text-green-400 hover:bg-green-500/20 cursor-pointer'
@@ -248,7 +298,9 @@ function PresetCard({
             {applyResult && (
                 <div className="px-3 py-2 rounded border border-green-500/30 bg-green-500/8 flex flex-col gap-1">
                     <p className="text-[9px] font-black uppercase tracking-widest text-green-400/80">
-                        Applied — go to Character tab to verify
+                        {applyMode === 'inventory'
+                            ? `Inventory replaced — ${applyResult.itemsAdded} items added, ${applyResult.itemsRemoved} removed`
+                            : 'Applied — go to Character tab to verify'}
                     </p>
                     {applyResult.warnings && applyResult.warnings.length > 0 && (
                         <div className="mt-0.5 flex flex-col gap-0.5">
@@ -276,7 +328,8 @@ function PresetCard({
                             {error}
                         </div>
                     )}
-                    {previewData && <StatPreviewPanel data={previewData} />}
+                    {previewData && applyMode === 'inventory' && <InventoryPreviewPanel data={previewData} />}
+                    {previewData && applyMode !== 'inventory' && <StatPreviewPanel data={previewData} />}
                 </>
             )}
         </div>
@@ -339,11 +392,17 @@ export function PresetsTab({charIdx, onMutate}: PresetsTabProps) {
         setPreviewError(null);
         setPreviewLoading(true);
         try {
-            const [preset, char, warnings] = await Promise.all([
+            const info = presets.find(p => p.id === id);
+            const mode = info ? getApplyMode(info) : 'unsupported';
+            const [preset, char, rawWarnings] = await Promise.all([
                 GetBuiltinCharacterPreset(id),
                 GetCharacter(charIdx),
                 ValidateBuiltinCharacterPreset(charIdx, id),
             ]);
+            // For inventory-only presets: keep only item warnings (stat warnings are irrelevant).
+            const warnings = mode === 'inventory'
+                ? (rawWarnings ?? []).filter(w => w.includes('inventory[') || w.includes('storage['))
+                : (rawWarnings ?? []);
             if (!char) {
                 setPreviewError('No character loaded. Open a save file and select a character first.');
             } else {
@@ -357,9 +416,14 @@ export function PresetsTab({charIdx, onMutate}: PresetsTabProps) {
     }
 
     async function handleApply(id: string) {
-        const ok = window.confirm(
-            'Apply this stat preset to the selected character? This will change character stats. Export or backup your save first.'
-        );
+        const info = presets.find(p => p.id === id);
+        const mode = info ? getApplyMode(info) : 'unsupported';
+
+        const confirmMsg = mode === 'inventory'
+            ? 'Apply this inventory preset? This will REPLACE your entire inventory (weapons, armor, talismans, consumables — everything). This action cannot be undone. Export or backup your save first.'
+            : 'Apply this stat preset to the selected character? This will change character stats. Export or backup your save first.';
+
+        const ok = window.confirm(confirmMsg);
         if (!ok) return;
 
         setApplyId(id);
@@ -367,12 +431,14 @@ export function PresetsTab({charIdx, onMutate}: PresetsTabProps) {
         setApplyError(null);
         setApplyLoading(true);
         try {
-            const res = await ApplyBuiltinCharacterPresetStats(charIdx, id);
+            const res = mode === 'inventory'
+                ? await ApplyBuiltinCharacterPresetInventory(charIdx, id)
+                : await ApplyBuiltinCharacterPresetStats(charIdx, id);
             setApplyResult(res);
             onMutate?.();
-            toast.success('Preset applied successfully!');
-            // Refresh preview char data if this card is currently expanded
-            if (previewId === id && previewData) {
+            toast.success(mode === 'inventory' ? 'Inventory preset applied!' : 'Preset applied successfully!');
+            // Refresh preview stat diff if stat preset expanded
+            if (previewId === id && previewData && mode !== 'inventory') {
                 try {
                     const freshChar = await GetCharacter(charIdx);
                     if (freshChar) {
@@ -425,9 +491,10 @@ export function PresetsTab({charIdx, onMutate}: PresetsTabProps) {
                             loading={previewLoading && previewId === p.id}
                             error={previewId === p.id ? previewError : null}
                             previewData={previewId === p.id ? previewData : null}
-                            applyEnabled={isStatOnly(p) && !applyLoading}
+                            applyEnabled={getApplyMode(p) !== 'unsupported' && !applyLoading}
                             applyLoading={applyLoading && applyId === p.id}
                             applyResult={applyId === p.id ? applyResult : null}
+                            applyMode={getApplyMode(p)}
                             applyError={applyId === p.id ? applyError : null}
                             onPreview={() => handlePreview(p.id)}
                             onApply={() => handleApply(p.id)}
