@@ -26,6 +26,10 @@ export function ApplyWeaponAoW(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyWeaponAoW'](arg1, arg2, arg3);
 }
 
+export function ApplyWeaponAoWStrict(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyWeaponAoWStrict'](arg1, arg2, arg3);
+}
+
 export function ApplyWeaponInfusion(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ApplyWeaponInfusion'](arg1, arg2, arg3, arg4);
 }

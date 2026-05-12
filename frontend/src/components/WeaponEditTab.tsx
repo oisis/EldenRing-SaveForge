@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { GetCharacter, GetItemList, ApplyWeaponInfusion, ApplyWeaponAoW, GetAoWAvailability } from '../../wailsjs/go/main/App';
+import { GetCharacter, GetItemList, ApplyWeaponInfusion, ApplyWeaponAoW, ApplyWeaponAoWStrict, GetAoWAvailability } from '../../wailsjs/go/main/App';
 import { db } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 
@@ -75,6 +75,8 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
     const [selectedInfusion, setSelectedInfusion] = useState<number | null>(null);
     const [applying, setApplying] = useState(false);
     const [aowAvailability, setAowAvailability] = useState<Map<number, AoWAvailabilityEntry>>(new Map());
+    // TODO(strict-mode-default): consider making 'strict' the default once users are familiar with the modes.
+    const [aowApplyMode, setAoWApplyMode] = useState<'editor' | 'strict'>('editor');
 
     // Load Ashes of War from game database once on mount — game data, not character-specific.
     useEffect(() => {
@@ -208,28 +210,49 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         return 'equipped';
     };
 
-    // When aowChanged, warn if the target AoW has no free copy.
-    // Current ApplyWeaponAoW always allocates a fresh GaItem — it never consumes an existing copy.
-    // TODO(strict-mode): require availableCopies > 0; consume/attach an existing free handle instead of allocating fresh.
     const selectedAoWStatus = selectedAoW !== null && selectedAoW !== 0
         ? getAoWStatus(selectedAoW)
         : null;
-    const showAoWCopyWarning = aowChanged
-        && (selectedAoWStatus === 'missing' || selectedAoWStatus === 'equipped');
+
+    const isAoWOnlyChange = aowChanged && !infusionChanged;
+    const isInfusionOnlyChange = infusionChanged && !aowChanged;
+
+    // Editor mode: allows Missing/Equipped (creates a new copy); blocks only Conflict.
+    const canApplyAoWEditor = isAoWOnlyChange && canMountAoW === true && selectedAoWStatus !== 'conflict';
+    // Strict mode: allows only Available (or None/remove); blocks Missing/Equipped/Conflict.
+    const canApplyAoWStrict = isAoWOnlyChange && canMountAoW === true
+        && (selectedAoW === 0 || selectedAoWStatus === 'available');
 
     const canApply = selectedWeapon !== null
         && !applying
         && (
-            (infusionChanged && !aowChanged && canInfuse === true) ||
-            (aowChanged && !infusionChanged && canMountAoW === true)
+            (isInfusionOnlyChange && canInfuse === true) ||
+            (aowApplyMode === 'editor' && canApplyAoWEditor) ||
+            (aowApplyMode === 'strict' && canApplyAoWStrict)
         );
+
+    // Show inline amber warning only in editor mode for Missing/Equipped — not in strict (apply is blocked there).
+    const showAoWCopyWarning = aowChanged
+        && aowApplyMode === 'editor'
+        && (selectedAoWStatus === 'missing' || selectedAoWStatus === 'equipped');
 
     const applyTooltip = (() => {
         if (!selectedWeapon) return 'No weapon selected';
         if (applying) return 'Applying changes...';
         if (aowChanged && infusionChanged) return 'Apply one change type at a time. Reset either Ash of War or Infusion selection.';
         if (infusionChanged) return canInfuse === true ? 'Apply infusion change' : 'This weapon does not support affinity changes';
-        if (aowChanged) return canMountAoW === true ? 'Apply Ash of War change' : 'This weapon does not support Ash of War';
+        if (aowChanged) {
+            if (canMountAoW !== true) return 'This weapon does not support Ash of War';
+            if (aowApplyMode === 'editor') {
+                if (selectedAoWStatus === 'conflict') return 'Cannot apply — Ash of War handle conflict detected';
+                return 'Apply Ash of War (editor mode — creates a new copy if needed)';
+            }
+            if (selectedAoW === 0) return 'Remove Ash of War from this weapon';
+            if (selectedAoWStatus === 'missing') return 'This Ash of War is not present in the save';
+            if (selectedAoWStatus === 'equipped') return 'No free copy of this Ash of War is available';
+            if (selectedAoWStatus === 'conflict') return 'Ash of War handle conflict — cannot apply';
+            return 'Apply Ash of War (strict mode — attaches existing free copy)';
+        }
         return 'No pending changes';
     })();
 
@@ -305,16 +328,22 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                 currentAoWId,
                 selectedAoW,
                 newAoWItemId,
+                mode: aowApplyMode,
             });
 
             setApplying(true);
             try {
-                await ApplyWeaponAoW(charIndex, selectedWeapon.handle, newAoWItemId);
+                if (aowApplyMode === 'strict') {
+                    await ApplyWeaponAoWStrict(charIndex, selectedWeapon.handle, newAoWItemId);
+                } else {
+                    await ApplyWeaponAoW(charIndex, selectedWeapon.handle, newAoWItemId);
+                }
                 toast.success('Weapon Ash of War updated successfully.');
                 setSelectedAoW(null);
                 setLocalVersion(v => v + 1);
             } catch (e) {
                 toast.error('Failed to apply Ash of War: ' + e);
+                // Do not clear pending changes on error — let user retry or reset manually.
             } finally {
                 setApplying(false);
             }
@@ -506,12 +535,31 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
 
                                 {/* Ash of War */}
                                 <div className="flex-1 card p-4 flex flex-col gap-3 min-w-0">
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">Ash of War</span>
-                                        {canMountAoW === false && (
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground shrink-0">Ash of War</span>
+                                        {canMountAoW === false ? (
                                             <span className="text-[8px] font-bold text-red-500/70 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">
                                                 Not supported
                                             </span>
+                                        ) : (
+                                            <div className="flex items-center gap-0.5 bg-muted/20 rounded p-0.5">
+                                                {(['editor', 'strict'] as const).map(mode => (
+                                                    <button
+                                                        key={mode}
+                                                        onClick={() => setAoWApplyMode(mode)}
+                                                        title={mode === 'editor'
+                                                            ? 'Editor mode — creates a new Ash of War copy if no free copy is available'
+                                                            : 'Strict mode — uses only free copies already present in the save'}
+                                                        className={`px-2 py-0.5 text-[8px] font-black uppercase tracking-wider rounded transition-all ${
+                                                            aowApplyMode === mode
+                                                                ? 'bg-background text-foreground shadow-sm'
+                                                                : 'text-muted-foreground/50 hover:text-muted-foreground'
+                                                        }`}
+                                                    >
+                                                        {mode === 'editor' ? 'Editor' : 'Strict'}
+                                                    </button>
+                                                ))}
+                                            </div>
                                         )}
                                     </div>
 
@@ -626,11 +674,21 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                         )}
                                     </div>
 
-                                    {/* AoW availability notice — shown when selected AoW has no free copy */}
-                                    {showAoWCopyWarning && (
+                                    {/* Inline notices for editor mode (missing/equipped) */}
+                                    {showAoWCopyWarning && selectedAoWStatus === 'missing' && (
                                         <div className="flex flex-col gap-0.5 px-2.5 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
                                             <p className="text-[8px] font-bold text-amber-500/80">
-                                                This Ash of War is not currently available as a free copy.
+                                                This Ash of War is missing from the save.
+                                            </p>
+                                            <p className="text-[8px] text-sky-400/70">
+                                                Applying will create a new Ash of War copy in your save.
+                                            </p>
+                                        </div>
+                                    )}
+                                    {showAoWCopyWarning && selectedAoWStatus === 'equipped' && (
+                                        <div className="flex flex-col gap-0.5 px-2.5 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                                            <p className="text-[8px] font-bold text-amber-500/80">
+                                                No free copy is available.
                                             </p>
                                             <p className="text-[8px] text-sky-400/70">
                                                 Applying will create a new Ash of War copy in your save.
@@ -769,14 +827,29 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                     Save as Loadout
                 </button>
                 <span className="ml-auto text-[9px] italic">
-                    {aowChanged && infusionChanged
-                        ? <span className="text-amber-600/70">Apply one change type at a time. Reset either Ash of War or Infusion selection.</span>
-                        : showAoWCopyWarning
-                            ? <span className="text-amber-500/70">Not a free copy — applying will create a new Ash of War copy.</span>
-                            : !hasPendingChanges
-                                ? <span className="text-muted-foreground/40">No pending changes.</span>
-                                : null
-                    }
+                    {(() => {
+                        if (aowChanged && infusionChanged)
+                            return <span className="text-amber-600/70">Apply one change type at a time. Reset either Ash of War or Infusion selection.</span>;
+                        if (aowChanged && selectedAoW === 0)
+                            return <span className="text-sky-400/70">Ash of War will be removed from this weapon.</span>;
+                        if (aowChanged && aowApplyMode === 'editor') {
+                            if (selectedAoWStatus === 'missing')
+                                return <span className="text-amber-500/70">This Ash of War is missing from the save. Applying will create a new copy.</span>;
+                            if (selectedAoWStatus === 'equipped')
+                                return <span className="text-amber-500/70">No free copy is available. Applying will create a new copy.</span>;
+                        }
+                        if (aowChanged && aowApplyMode === 'strict') {
+                            if (selectedAoWStatus === 'missing')
+                                return <span className="text-red-500/70">This Ash of War is not present in the save.</span>;
+                            if (selectedAoWStatus === 'equipped')
+                                return <span className="text-red-500/70">No free copy of this Ash of War is available.</span>;
+                            if (selectedAoWStatus === 'available')
+                                return <span className="text-sky-400/70">A free copy will be attached to this weapon.</span>;
+                        }
+                        if (!hasPendingChanges)
+                            return <span className="text-muted-foreground/40">No pending changes.</span>;
+                        return null;
+                    })()}
                 </span>
             </div>
         </div>

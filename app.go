@@ -1211,6 +1211,79 @@ func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error)
 	return result, nil
 }
 
+// ApplyWeaponAoWStrict sets or removes the AoW on a weapon using only pre-existing free copies.
+// newAoWItemID == 0: removes the AoW (patches AoWGaItemHandle to 0xFFFFFFFF in-place).
+// newAoWItemID != 0: finds the first free copy of that AoW in the slot and attaches it.
+//   Returns an error if no free copy exists, if a shared-handle conflict is detected,
+//   or if any standard validation fails. Unlike ApplyWeaponAoW, never allocates new GaItem records.
+func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+
+	slot := &a.save.Slots[charIdx]
+	currentItemID, ok := slot.GaMap[weaponHandle]
+	if !ok {
+		return fmt.Errorf("weapon handle 0x%08X not found in save", weaponHandle)
+	}
+	if currentItemID>>28 != 0 {
+		return fmt.Errorf("handle 0x%08X (itemID 0x%08X) is not a weapon", weaponHandle, currentItemID)
+	}
+
+	baseData, baseID := db.GetItemDataFuzzy(currentItemID)
+	if baseData.Name == "" {
+		return fmt.Errorf("unknown weapon 0x%08X", currentItemID)
+	}
+	if !db.CanWeaponMountAoW(baseID) {
+		return fmt.Errorf("weapon %q does not support Ash of War changes", baseData.Name)
+	}
+
+	var newAoWHandle uint32
+	if newAoWItemID == 0 {
+		newAoWHandle = 0xFFFFFFFF
+	} else {
+		if newAoWItemID>>28 != 8 {
+			return fmt.Errorf("newAoWItemID 0x%08X is not an Ash of War item ID", newAoWItemID)
+		}
+		aowData, _ := db.GetItemDataFuzzy(newAoWItemID)
+		if aowData.Name == "" {
+			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
+		}
+
+		rawCopies := core.ScanAoWAvailability(slot)
+		hasConflict := false
+		hasCopies := false
+		newAoWHandle = 0
+		for _, c := range rawCopies {
+			if c.ItemID != newAoWItemID {
+				continue
+			}
+			hasCopies = true
+			if c.HasSharedHandleConflict {
+				hasConflict = true
+			}
+			if c.UsedByWeaponHandle == 0 && newAoWHandle == 0 {
+				newAoWHandle = c.Handle
+			}
+		}
+		if hasConflict {
+			return fmt.Errorf("Ash of War handle conflict detected — cannot safely apply in strict mode")
+		}
+		if !hasCopies {
+			return fmt.Errorf("selected Ash of War is not present in save")
+		}
+		if newAoWHandle == 0 {
+			return fmt.Errorf("no free copy of selected Ash of War is available")
+		}
+	}
+
+	a.pushUndo(charIdx)
+	return core.PatchWeaponAoWHandle(slot, weaponHandle, newAoWHandle)
+}
+
 // Dummy method to force Wails to export types
 func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry) {
 	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}

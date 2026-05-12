@@ -1114,6 +1114,75 @@ func PatchWeaponItemID(slot *SaveSlot, handle, expectedCurrentItemID, newItemID 
 	return upsertGaItemData(slot, newItemID)
 }
 
+// PatchWeaponAoWHandle patches the AoWGaItemHandle field of a weapon GaItem in-place.
+// newAoWHandle == 0xFFFFFFFF: removes AoW attachment (always allowed).
+// newAoWHandle != 0xFFFFFFFF: attaches an existing AoW GaItem — validates that the handle
+// identifies an existing AoW GaItem and is not already referenced by a different weapon.
+// No GaItem allocation, no RebuildSlotFull — exactly 4 bytes at [weaponOff+16] are overwritten.
+func PatchWeaponAoWHandle(slot *SaveSlot, weaponHandle uint32, newAoWHandle uint32) error {
+	if slot == nil {
+		return fmt.Errorf("PatchWeaponAoWHandle: slot is nil")
+	}
+
+	// Locate the weapon GaItem and its byte offset in slot.Data.
+	curr := GaItemsStart
+	weaponIdx := -1
+	weaponByteOff := 0
+	for i := range slot.GaItems {
+		if curr >= slot.InventoryEnd {
+			break
+		}
+		g := &slot.GaItems[i]
+		if !g.IsEmpty() && g.Handle == weaponHandle {
+			if g.Handle&GaHandleTypeMask != ItemTypeWeapon {
+				return fmt.Errorf("PatchWeaponAoWHandle: handle 0x%08X is not a weapon handle", weaponHandle)
+			}
+			weaponIdx = i
+			weaponByteOff = curr
+			break
+		}
+		curr += GaItemRecordSize(g.ItemID)
+	}
+	if weaponIdx == -1 {
+		return fmt.Errorf("PatchWeaponAoWHandle: weapon handle 0x%08X not found in GaItems", weaponHandle)
+	}
+
+	if newAoWHandle != 0xFFFFFFFF {
+		if newAoWHandle&GaHandleTypeMask != ItemTypeAow {
+			return fmt.Errorf("PatchWeaponAoWHandle: newAoWHandle 0x%08X is not an AoW handle (expected prefix 0xC0000000)", newAoWHandle)
+		}
+		aowFound := false
+		for i := range slot.GaItems {
+			g := &slot.GaItems[i]
+			if !g.IsEmpty() && g.Handle == newAoWHandle {
+				aowFound = true
+				break
+			}
+		}
+		if !aowFound {
+			return fmt.Errorf("PatchWeaponAoWHandle: AoW GaItem with handle 0x%08X not found in slot", newAoWHandle)
+		}
+		// Ensure no OTHER weapon already references this AoW handle — sharing causes EXCEPTION_ACCESS_VIOLATION.
+		for i := range slot.GaItems {
+			g := &slot.GaItems[i]
+			if g.IsEmpty() || g.Handle == weaponHandle {
+				continue
+			}
+			if g.Handle&GaHandleTypeMask == ItemTypeWeapon && g.AoWGaItemHandle == newAoWHandle {
+				return fmt.Errorf("PatchWeaponAoWHandle: AoW handle 0x%08X is already used by weapon 0x%08X", newAoWHandle, g.Handle)
+			}
+		}
+	}
+
+	sa := NewSlotAccessor(slot.Data)
+	if err := sa.CheckBounds(weaponByteOff+16, 4, "PatchWeaponAoWHandle"); err != nil {
+		return err
+	}
+	binary.LittleEndian.PutUint32(slot.Data[weaponByteOff+16:], newAoWHandle)
+	slot.GaItems[weaponIdx].AoWGaItemHandle = newAoWHandle
+	return nil
+}
+
 // PatchWeaponAoW sets or removes the Ash of War attached to a weapon GaItem.
 //
 // newAoWItemID == 0: removes AoW — patches AoWGaItemHandle to 0xFFFFFFFF in-place.
