@@ -32,7 +32,8 @@ type ItemEntry struct {
 	Weight       float64           `json:"weight,omitempty"`
 	Weapon       *data.WeaponStats `json:"weapon,omitempty"`
 	Armor        *data.ArmorStats  `json:"armor,omitempty"`
-	Spell        *data.SpellStats  `json:"spell,omitempty"`
+	Spell            *data.SpellStats  `json:"spell,omitempty"`
+	AoWCompatBitmask uint64            `json:"aowCompatBitmask,omitempty"`
 }
 
 // weightedCategory lists item categories that have physical weight from regulation.bin weapon/armor params.
@@ -551,6 +552,11 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 		processMap(data.Talismans, "talismans")
 	case "ashes_of_war":
 		processMap(data.Aows, "ashes_of_war")
+		for i := range items {
+			if enriched, ok := globalItemIndex[items[i].ID]; ok {
+				items[i].AoWCompatBitmask = enriched.AoWCompatBitmask
+			}
+		}
 	case "ashes":
 		// StandardAshes stores each upgrade level as a separate entry.
 		// Only return base (+0) entries — filter out " +N" variants.

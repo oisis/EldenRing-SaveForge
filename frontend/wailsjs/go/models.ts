@@ -356,6 +356,7 @@ export namespace db {
 	    weapon?: data.WeaponStats;
 	    armor?: data.ArmorStats;
 	    spell?: data.SpellStats;
+	    aowCompatBitmask?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ItemEntry(source);
@@ -378,6 +379,7 @@ export namespace db {
 	        this.weapon = this.convertValues(source["weapon"], data.WeaponStats);
 	        this.armor = this.convertValues(source["armor"], data.ArmorStats);
 	        this.spell = this.convertValues(source["spell"], data.SpellStats);
+	        this.aowCompatBitmask = source["aowCompatBitmask"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
