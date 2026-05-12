@@ -250,9 +250,10 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
     const isInfusionOnlyChange = infusionChanged && !aowChanged;
 
     // Editor mode: allows Missing/Equipped (creates a new copy); blocks Conflict, incompatible, unknown.
+    // Remove (selectedAoW === 0) is always allowed regardless of compat — mirrors Strict semantics.
     const canApplyAoWEditor = isAoWOnlyChange && canMountAoW === true
         && selectedAoWStatus !== 'conflict'
-        && selectedAoWCompatStatus === 'compatible';
+        && (selectedAoW === 0 || selectedAoWCompatStatus === 'compatible');
     // Strict mode: allows only Available (or None/remove); blocks Missing/Equipped/Conflict/incompatible/unknown.
     const canApplyAoWStrict = isAoWOnlyChange && canMountAoW === true
         && (selectedAoW === 0 || selectedAoWStatus === 'available')
@@ -281,6 +282,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
             if (selectedAoW !== 0 && selectedAoWCompatStatus === 'unknown') return 'Ash of War compatibility is unknown for this weapon';
             if (selectedAoW !== 0 && selectedAoWCompatStatus === 'incompatible') return 'This Ash of War is not compatible with this weapon type';
             if (aowApplyMode === 'editor') {
+                if (selectedAoW === 0) return 'Remove Ash of War from this weapon';
                 if (selectedAoWStatus === 'conflict') return 'Cannot apply — Ash of War handle conflict detected';
                 return 'Apply Ash of War (editor mode — creates a new copy if needed)';
             }
