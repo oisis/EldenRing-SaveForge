@@ -645,7 +645,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                     </div>
 
                                     {/* AoW grid — 3 columns */}
-                                    <div className={`grid grid-cols-3 gap-2 max-h-80 overflow-y-auto custom-scrollbar ${canMountAoW === false ? 'opacity-40 pointer-events-none' : ''}`}>
+                                    <div className={`grid grid-cols-3 gap-2 max-h-96 overflow-y-auto custom-scrollbar ${canMountAoW === false ? 'opacity-40 pointer-events-none' : ''}`}>
                                         {aowLoading ? (
                                             <div className="col-span-3 flex items-center justify-center py-8">
                                                 <div className="w-4 h-4 border-2 border-foreground/20 border-t-foreground rounded-full animate-spin" />
@@ -680,13 +680,13 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                 })();
 
                                                 const statusBadge = (() => {
-                                                    if (avSt === 'conflict') return <span className="text-[7px] font-black uppercase text-red-500/80 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">Conflict</span>;
-                                                    if (isCurrent) return <span className="text-[7px] font-black uppercase text-blue-400/80 bg-blue-400/10 border border-blue-400/20 px-1.5 py-0.5 rounded">Current</span>;
-                                                    if (isIncompatible) return <span className="text-[7px] font-black uppercase text-red-500/80 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">Incompatible</span>;
-                                                    if (isUnknown && !isWepTypeUnmapped) return <span className="text-[7px] font-black uppercase text-amber-500/80 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">Unknown</span>;
-                                                    if (avSt === 'available') return <span className="text-[7px] font-black uppercase text-green-500/80 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded">Available</span>;
-                                                    if (avSt === 'equipped') return <span className="text-[7px] font-black uppercase text-orange-400/80 bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded">Equipped</span>;
-                                                    if (avSt === 'missing') return <span className="text-[7px] font-black uppercase text-muted-foreground/50 bg-muted/20 border border-border/30 px-1.5 py-0.5 rounded">Missing</span>;
+                                                    if (avSt === 'conflict') return <span className="text-[8px] font-black uppercase text-red-500/80 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">Conflict</span>;
+                                                    if (isCurrent) return <span className="text-[8px] font-black uppercase text-blue-400/80 bg-blue-400/10 border border-blue-400/20 px-1.5 py-0.5 rounded">Current</span>;
+                                                    if (isIncompatible) return <span className="text-[8px] font-black uppercase text-red-500/80 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">Incompatible</span>;
+                                                    if (isUnknown && !isWepTypeUnmapped) return <span className="text-[8px] font-black uppercase text-amber-500/80 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">Unknown</span>;
+                                                    if (avSt === 'available') return <span className="text-[8px] font-black uppercase text-green-500/80 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded">Available</span>;
+                                                    if (avSt === 'equipped') return <span className="text-[8px] font-black uppercase text-orange-400/80 bg-orange-500/10 border border-orange-500/20 px-1.5 py-0.5 rounded">Equipped</span>;
+                                                    if (avSt === 'missing') return <span className="text-[8px] font-black uppercase text-muted-foreground/50 bg-muted/20 border border-border/30 px-1.5 py-0.5 rounded">Missing</span>;
                                                     return null;
                                                 })();
 
@@ -696,7 +696,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                         disabled={canMountAoW === false}
                                                         onClick={() => !isClickBlocked && setSelectedAoW(aow.id === selectedAoW ? null : aow.id)}
                                                         title={tileTitle}
-                                                        className={`flex items-stretch min-h-[72px] rounded-xl border transition-all overflow-hidden ${
+                                                        className={`flex flex-col items-center gap-2 p-2.5 rounded-xl border transition-all min-h-[120px] text-center ${
                                                             canMountAoW === false
                                                                 ? 'border-border/20 cursor-not-allowed'
                                                                 : isClickBlocked && !isCurrent
@@ -710,24 +710,23 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                                                 : 'hover:bg-muted/30 border-border/30'
                                                         }`}
                                                     >
-                                                        {/* Icon — 50% of tile width, stretches to full tile height */}
-                                                        <div className="w-1/2 shrink-0 p-1.5">
-                                                            <div className="w-full h-full rounded-lg bg-muted/30 flex items-center justify-center overflow-hidden">
-                                                                {brokenIcons.has(aow.iconPath)
-                                                                    ? <span className="text-[9px] text-muted-foreground/30">?</span>
-                                                                    : <img src={aow.iconPath} alt="" className="w-full h-full object-contain" onError={() => setBrokenIcons(p => new Set(p).add(aow.iconPath))} />
-                                                                }
-                                                            </div>
+                                                        {/* Icon — 56 px square, centered */}
+                                                        <div className="w-14 h-14 rounded-xl bg-muted/30 flex items-center justify-center overflow-hidden shrink-0">
+                                                            {brokenIcons.has(aow.iconPath)
+                                                                ? <span className="text-xs text-muted-foreground/30">?</span>
+                                                                : <img src={aow.iconPath} alt="" className="w-full h-full object-contain p-1" onError={() => setBrokenIcons(p => new Set(p).add(aow.iconPath))} />
+                                                            }
                                                         </div>
-                                                        {/* Text — 50% of tile width */}
-                                                        <div className="w-1/2 flex flex-col justify-center gap-1 pr-2 py-1.5 min-w-0">
-                                                            <span className={`text-[9px] font-bold leading-tight line-clamp-3 text-left ${isPending ? 'text-white' : 'text-foreground'}`}>{aow.name}</span>
-                                                            <div className="flex flex-wrap gap-0.5">
-                                                                {statusBadge}
-                                                                {aow.isDlc && (
-                                                                    <span className="text-[7px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 py-0.5 rounded">DLC</span>
-                                                                )}
-                                                            </div>
+                                                        {/* Name */}
+                                                        <span className={`text-xs font-bold leading-tight line-clamp-2 w-full px-0.5 flex-1 flex items-center justify-center ${isPending ? 'text-white' : 'text-foreground'}`}>
+                                                            {aow.name}
+                                                        </span>
+                                                        {/* Badges */}
+                                                        <div className="flex flex-wrap justify-center gap-0.5 w-full">
+                                                            {statusBadge}
+                                                            {aow.isDlc && (
+                                                                <span className="text-[8px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 py-0.5 rounded">DLC</span>
+                                                            )}
                                                         </div>
                                                     </button>
                                                 );
