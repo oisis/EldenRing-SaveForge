@@ -110,6 +110,10 @@ export function GetBosses(arg1) {
   return window['go']['main']['App']['GetBosses'](arg1);
 }
 
+export function GetBuiltinCharacterPreset(arg1) {
+  return window['go']['main']['App']['GetBuiltinCharacterPreset'](arg1);
+}
+
 export function GetCharacter(arg1) {
   return window['go']['main']['App']['GetCharacter'](arg1);
 }
@@ -228,6 +232,10 @@ export function LaunchRemoteGame(arg1) {
 
 export function ListAppearancePresets() {
   return window['go']['main']['App']['ListAppearancePresets']();
+}
+
+export function ListBuiltinCharacterPresets() {
+  return window['go']['main']['App']['ListBuiltinCharacterPresets']();
 }
 
 export function LoadCharacterPresetFromFile() {

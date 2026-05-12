@@ -651,6 +651,30 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class BuiltinCharacterPresetInfo {
+	    id: string;
+	    name: string;
+	    description: string;
+	    tags: string[];
+	    modules: string[];
+	    level: number;
+	    className: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuiltinCharacterPresetInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.tags = source["tags"];
+	        this.modules = source["modules"];
+	        this.level = source["level"];
+	        this.className = source["className"];
+	    }
+	}
 	export class DiffEntry {
 	    category: string;
 	    action: string;

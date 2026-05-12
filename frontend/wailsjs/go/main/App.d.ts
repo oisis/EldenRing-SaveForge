@@ -60,6 +60,8 @@ export function GetBellBearings(arg1:number):Promise<Array<db.BellBearingEntry>>
 
 export function GetBosses(arg1:number):Promise<Array<db.BossEntry>>;
 
+export function GetBuiltinCharacterPreset(arg1:string):Promise<vm.CharacterPreset>;
+
 export function GetCharacter(arg1:number):Promise<vm.CharacterViewModel>;
 
 export function GetCharacterNames():Promise<Array<string>>;
@@ -119,6 +121,8 @@ export function ImportCharacter(arg1:number,arg2:number):Promise<void>;
 export function LaunchRemoteGame(arg1:string):Promise<string>;
 
 export function ListAppearancePresets():Promise<Array<main.PresetInfo>>;
+
+export function ListBuiltinCharacterPresets():Promise<Array<main.BuiltinCharacterPresetInfo>>;
 
 export function LoadCharacterPresetFromFile():Promise<vm.CharacterPreset>;
 
