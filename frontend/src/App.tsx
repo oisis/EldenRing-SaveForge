@@ -567,6 +567,7 @@ function App() {
                                             <SortOrderTab
                                                 charIndex={selectedChar}
                                                 inventoryVersion={inventoryVersion}
+                                                onMutate={refreshUndoDepth}
                                             />
                                         ) : (
                                             <WeaponEditTab
