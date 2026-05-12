@@ -12,6 +12,7 @@ import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {PvPTab} from './components/PvPTab';
 import {WeaponEditTab} from './components/WeaponEditTab';
+import {SortOrderTab} from './components/SortOrderTab';
 
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
@@ -87,7 +88,7 @@ function App() {
     const [showEmptySlots, setShowEmptySlots] = useState(false);
     const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
     const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
-    const [invView, setInvView] = useState<'inventory' | 'database' | 'weapon_edit'>('inventory');
+    const [invView, setInvView] = useState<'inventory' | 'database' | 'weapon_edit' | 'sort_order'>('inventory');
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
     const [saving, setSaving] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
@@ -504,7 +505,8 @@ function App() {
                                                     { id: 'database', label: 'Item Database' },
                                                     { id: 'inventory', label: 'Equipment' },
                                                     { id: 'weapon_edit', label: 'Weapon Edit' },
-                                                ] as { id: 'database' | 'inventory' | 'weapon_edit'; label: string }[]).map(({ id, label }) => (
+                                                    { id: 'sort_order', label: 'Sort Order' },
+                                                ] as { id: 'database' | 'inventory' | 'weapon_edit' | 'sort_order'; label: string }[]).map(({ id, label }) => (
                                                     <button
                                                         key={id}
                                                         onClick={() => { setInvView(id); if (id !== 'database') setDetailItem(null); }}
@@ -519,7 +521,7 @@ function App() {
                                                 ))}
                                             </div>
 
-                                            {invView !== 'weapon_edit' && capacity && (
+                                            {invView !== 'weapon_edit' && invView !== 'sort_order' && capacity && (
                                                 <div className="flex items-center gap-4">
                                                     {[
                                                         { label: 'All Items', used: capacity.gaItemsUsed, max: capacity.gaItemsMax },
@@ -560,6 +562,11 @@ function App() {
                                                 onCloseDetail={() => setDetailItem(null)}
                                                 showOnlyFavorites={showOnlyFavorites}
                                                 onToggleFavorites={() => setShowOnlyFavorites(v => !v)}
+                                            />
+                                        ) : invView === 'sort_order' ? (
+                                            <SortOrderTab
+                                                charIndex={selectedChar}
+                                                inventoryVersion={inventoryVersion}
                                             />
                                         ) : (
                                             <WeaponEditTab
