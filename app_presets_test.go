@@ -116,3 +116,60 @@ func TestApplyBuiltinCharacterPresetStats_RejectsNonStatOnly(t *testing.T) {
 		t.Error("preset with inventory items should be rejected by isStatOnlyPreset")
 	}
 }
+
+func TestApplyBuiltinCharacterPresetStats_Success_WretchRL1(t *testing.T) {
+	app := minimalSave(0)
+	// Set a non-empty character name so ApplyCharacterPreset doesn't treat slot as empty.
+	app.save.Slots[0].Player.CharacterName[0] = uint16('T')
+
+	res, err := app.ApplyBuiltinCharacterPresetStats(0, "wretch-rl1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Result flags
+	if !res.StatsApplied {
+		t.Error("StatsApplied should be true")
+	}
+	if res.WorldApplied {
+		t.Error("WorldApplied should be false")
+	}
+	if res.ItemsAdded != 0 {
+		t.Errorf("ItemsAdded = %d, want 0", res.ItemsAdded)
+	}
+	if res.ItemsRemoved != 0 {
+		t.Errorf("ItemsRemoved = %d, want 0", res.ItemsRemoved)
+	}
+
+	// Slot Player fields match Wretch RL1 preset values
+	p := app.save.Slots[0].Player
+	if p.Level != 1 {
+		t.Errorf("Level = %d, want 1", p.Level)
+	}
+	if p.Class != 9 { // Wretch
+		t.Errorf("Class = %d, want 9 (Wretch)", p.Class)
+	}
+	for _, tc := range []struct {
+		name string
+		got  uint32
+		want uint32
+	}{
+		{"Vigor", p.Vigor, 10},
+		{"Mind", p.Mind, 10},
+		{"Endurance", p.Endurance, 10},
+		{"Strength", p.Strength, 10},
+		{"Dexterity", p.Dexterity, 10},
+		{"Intelligence", p.Intelligence, 10},
+		{"Faith", p.Faith, 10},
+		{"Arcane", p.Arcane, 10},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %d, want %d", tc.name, tc.got, tc.want)
+		}
+	}
+
+	// Character name preserved (KeepName=true)
+	if app.save.Slots[0].Player.CharacterName[0] != uint16('T') {
+		t.Error("CharacterName was overwritten; KeepName=true should preserve it")
+	}
+}
