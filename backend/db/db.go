@@ -244,31 +244,31 @@ func CanWeaponMountAoW(baseItemID uint32) bool {
 	return item.GemMountType == 2
 }
 
-// IsAoWCompatibleWithWepType returns (compatible, known) where compatible indicates whether
-// the AoW can be mounted on weapons of the given wepType, and known indicates whether the
-// wepType→bit mapping is available. If known==false, the caller should treat as compatible.
+// IsAoWCompatibleWithWepType returns (compatible, known).
+// known=false means data is insufficient — the caller must block the operation, not assume compatibility.
+// Reasons for known=false: AoW not in compat table (bitmask=0), or wepType not in WepTypeToCanMountBit.
 func IsAoWCompatibleWithWepType(aowItemID uint32, wepType uint16) (compatible bool, known bool) {
 	aow := GetItemData(aowItemID)
 	if aow.AoWCompatBitmask == 0 {
-		return true, false
+		return false, false // AoW compatibility data missing
 	}
 	bitPos, ok := data.WepTypeToCanMountBit[wepType]
 	if !ok {
-		return true, false
+		return false, false // weapon type not in bit map
 	}
 	return (aow.AoWCompatBitmask>>bitPos)&1 == 1, true
 }
 
 // IsAshOfWarCompatibleWithWeapon checks whether a specific Ash of War can be mounted on a
 // specific weapon, combining the weapon-level GemMountType gate with the per-AoW bitmask check.
-// Returns (compatible, known). If known==false the data is insufficient; callers should fail open.
+// Returns (compatible, known). known=false means data is insufficient; callers must block, not assume.
 func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (compatible bool, known bool) {
 	weaponData, _ := GetItemDataFuzzy(weaponItemID)
 	if weaponData.GemMountType != 2 {
 		return false, true // weapon doesn't support standard AoW (somber or no mount)
 	}
 	if weaponData.WepType == 0 {
-		return true, false // WepType unknown — fail open
+		return false, false // weapon type unknown — data insufficient
 	}
 	return IsAoWCompatibleWithWepType(aowItemID, weaponData.WepType)
 }

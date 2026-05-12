@@ -54,24 +54,24 @@ func TestIsAoWCompatibleWithWepType_ShieldOnlyAoW_ShieldCompatible(t *testing.T)
 }
 
 func TestIsAoWCompatibleWithWepType_ZeroBitmask(t *testing.T) {
-	// An AoW not in the compat map has bitmask=0 → unknown, fail-open.
+	// An AoW not in the compat map has bitmask=0 → known=false, compatible=false (fail-closed).
 	compatible, known := IsAoWCompatibleWithWepType(0x8FFFFFFF, 1)
 	if known {
 		t.Error("expected known=false for AoW with zero bitmask")
 	}
-	if !compatible {
-		t.Error("expected compatible=true (fail-open) for unknown bitmask")
+	if compatible {
+		t.Error("expected compatible=false (fail-closed) for unknown bitmask")
 	}
 }
 
 func TestIsAoWCompatibleWithWepType_UnknownWepType(t *testing.T) {
-	// wepType 99 is not in WepTypeToCanMountBit → unknown, fail-open.
+	// wepType 99 is not in WepTypeToCanMountBit → known=false, compatible=false (fail-closed).
 	compatible, known := IsAoWCompatibleWithWepType(0x80003070, 99)
 	if known {
 		t.Error("expected known=false for unknown wepType")
 	}
-	if !compatible {
-		t.Error("expected compatible=true (fail-open) for unknown wepType")
+	if compatible {
+		t.Error("expected compatible=false (fail-closed) for unknown wepType")
 	}
 }
 

@@ -1154,7 +1154,11 @@ func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint
 		if aowData.Name == "" {
 			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
 		}
-		if compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID); known && !compatible {
+		compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID)
+		if !known {
+			return fmt.Errorf("Ash of War compatibility is unknown for this weapon")
+		}
+		if !compatible {
 			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
 		}
 	}
@@ -1255,7 +1259,11 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 		if aowData.Name == "" {
 			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
 		}
-		if compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID); known && !compatible {
+		compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID)
+		if !known {
+			return fmt.Errorf("Ash of War compatibility is unknown for this weapon")
+		}
+		if !compatible {
 			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
 		}
 
