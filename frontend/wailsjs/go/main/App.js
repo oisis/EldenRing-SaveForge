@@ -158,6 +158,10 @@ export function GetInfuseTypes() {
   return window['go']['main']['App']['GetInfuseTypes']();
 }
 
+export function GetInventoryOrder(arg1, arg2) {
+  return window['go']['main']['App']['GetInventoryOrder'](arg1, arg2);
+}
+
 export function GetItemDetail(arg1) {
   return window['go']['main']['App']['GetItemDetail'](arg1);
 }
@@ -268,6 +272,10 @@ export function RemoveFogOfWar(arg1) {
 
 export function RemoveItemsFromCharacter(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RemoveItemsFromCharacter'](arg1, arg2, arg3, arg4);
+}
+
+export function ReorderInventory(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReorderInventory'](arg1, arg2, arg3);
 }
 
 export function ReorderWeaponInventory(arg1, arg2) {

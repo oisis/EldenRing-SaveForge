@@ -9,7 +9,7 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
 
-// InventoryOrderItem is the DTO for a single weapon in the Sort Order view.
+// InventoryOrderItem is the DTO for a single item in the Sort Order view.
 type InventoryOrderItem struct {
 	Handle           uint32 `json:"handle"`
 	ItemID           uint32 `json:"itemId"`
@@ -22,13 +22,25 @@ type InventoryOrderItem struct {
 	IsTechnical      bool   `json:"isTechnical,omitempty"`
 }
 
-// weaponOrderCategories is the set of item categories included in Sort Order MVP.
-// Shields share handle prefix 0x80 with melee/ranged weapons, support
-// infusion/AoW, and are treated as weapons throughout the codebase.
-var weaponOrderCategories = map[string]bool{
-	"melee_armaments":      true,
-	"ranged_and_catalysts": true,
-	"shields":              true,
+// inventoryOrderTabs maps Sort Order tab names to their item categories.
+var inventoryOrderTabs = map[string][]string{
+	"weapons":   {"melee_armaments", "ranged_and_catalysts", "shields"},
+	"talismans": {"talismans"},
+	"head":      {"head"},
+	"chest":     {"chest"},
+	"arms":      {"arms"},
+	"legs":      {"legs"},
+}
+
+// tabLabel maps a Sort Order tab to its singular human-readable label for error messages.
+// Weapons → "weapon", talismans → "talisman", etc.
+var tabLabel = map[string]string{
+	"weapons":   "weapon",
+	"talismans": "talisman",
+	"head":      "head",
+	"chest":     "chest",
+	"arms":      "arm",
+	"legs":      "leg",
 }
 
 // invUnarmedBaseID is the DB base ID of the "Unarmed" placeholder weapon.
@@ -40,11 +52,31 @@ func isWeaponOrderTechnical(name string, baseID uint32) bool {
 	return name == "Unarmed" || baseID == invUnarmedBaseID
 }
 
-// GetWeaponInventoryOrder returns all weapons in slot charIdx's CommonItems
-// inventory (not storage), sorted by AcquisitionIndex ascending.
-// Categories returned: melee_armaments, ranged_and_catalysts, shields.
-// Technical placeholders (Unarmed) are excluded.
-func (a *App) GetWeaponInventoryOrder(charIdx int) ([]InventoryOrderItem, error) {
+// tabCategorySet builds a category→bool lookup for a given tab.
+// Returns an error for unknown tab names.
+func tabCategorySet(tab string) (map[string]bool, error) {
+	cats, ok := inventoryOrderTabs[tab]
+	if !ok {
+		return nil, fmt.Errorf("unknown sort order tab %q", tab)
+	}
+	m := make(map[string]bool, len(cats))
+	for _, c := range cats {
+		m[c] = true
+	}
+	return m, nil
+}
+
+// GetInventoryOrder returns all items in slot charIdx's CommonItems inventory
+// for the given Sort Order tab, sorted by AcquisitionIndex ascending.
+//
+// Valid tab values: "weapons", "talismans", "head", "chest", "arms", "legs".
+// The weapons tab excludes technical Unarmed placeholders.
+// Storage items are never included.
+func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, error) {
+	categories, err := tabCategorySet(tab)
+	if err != nil {
+		return nil, err
+	}
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
@@ -73,15 +105,20 @@ func (a *App) GetWeaponInventoryOrder(charIdx int) ([]InventoryOrderItem, error)
 			continue
 		}
 		itemData, baseID := db.GetItemDataFuzzy(itemID)
-		if !weaponOrderCategories[itemData.Category] {
+		if !categories[itemData.Category] {
 			continue
 		}
-		if isWeaponOrderTechnical(itemData.Name, baseID) {
+		if tab == "weapons" && isWeaponOrderTechnical(itemData.Name, baseID) {
 			continue
 		}
 
 		acqIdx := binary.LittleEndian.Uint32(slot.Data[off+8:])
-		upgradeLevel, infusionName := decodeWeaponUpgradeInfusion(itemID, baseID)
+
+		var upgradeLevel int
+		var infusionName string
+		if tab == "weapons" {
+			upgradeLevel, infusionName = decodeWeaponUpgradeInfusion(itemID, baseID)
+		}
 
 		items = append(items, InventoryOrderItem{
 			Handle:           h,
@@ -102,17 +139,20 @@ func (a *App) GetWeaponInventoryOrder(charIdx int) ([]InventoryOrderItem, error)
 	return items, nil
 }
 
-// ReorderWeaponInventory rewrites the acquisition indices of all weapons in slot
-// charIdx's CommonItems inventory so that orderedHandles[0] sorts first under
-// "Kolejność zakupu / Rosnąco" in-game.
+// ReorderInventory rewrites the acquisition indices of all items in slot charIdx's
+// CommonItems inventory for the given tab so that orderedHandles[0] sorts first
+// under "Kolejność zakupu / Rosnąco" in-game.
 //
-// orderedHandles must be the COMPLETE list of weapons from GetWeaponInventoryOrder
-// — no omissions, no duplicates. Partial lists are rejected to prevent leaving
-// some weapons interleaved with stale indices from the old order.
+// orderedHandles must be the COMPLETE list of items for the tab from GetInventoryOrder
+// — no omissions, no duplicates. Partial lists are rejected.
 //
 // Only InventoryItem.Index values are changed. GaItems, handles, quantities,
 // equipped slots, AoW handles, KeyItems, and storage are untouched.
-func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error {
+func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32) error {
+	categories, err := tabCategorySet(tab)
+	if err != nil {
+		return err
+	}
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
@@ -127,6 +167,8 @@ func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error
 		return fmt.Errorf("orderedHandles must not be empty")
 	}
 
+	label := tabLabel[tab]
+
 	// --- Guard: no duplicates in orderedHandles ---
 	seen := make(map[uint32]int, len(orderedHandles))
 	for i, h := range orderedHandles {
@@ -138,7 +180,7 @@ func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error
 
 	startOff := slot.MagicOffset + core.InvStartFromMagic
 
-	// --- Locate requested handles in CommonItems; validate each is a non-technical weapon ---
+	// --- Locate requested handles in CommonItems; validate category and technical ---
 	type invLoc struct{ off int }
 	located := make(map[uint32]invLoc, len(orderedHandles))
 
@@ -152,17 +194,17 @@ func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error
 			continue
 		}
 		if _, want := seen[h]; !want {
-			continue // skip slots not in the requested set
+			continue
 		}
 		itemID, ok := slot.GaMap[h]
 		if !ok {
 			continue
 		}
 		itemData, baseID := db.GetItemDataFuzzy(itemID)
-		if !weaponOrderCategories[itemData.Category] {
-			return fmt.Errorf("handle 0x%08X (category %q) is not in the weapon sort order scope", h, itemData.Category)
+		if !categories[itemData.Category] {
+			return fmt.Errorf("handle 0x%08X (category %q) does not belong to sort order tab %q", h, itemData.Category, tab)
 		}
-		if isWeaponOrderTechnical(itemData.Name, baseID) {
+		if tab == "weapons" && isWeaponOrderTechnical(itemData.Name, baseID) {
 			return fmt.Errorf("handle 0x%08X is a technical placeholder (%s) and cannot be used in sort order", h, itemData.Name)
 		}
 		located[h] = invLoc{off: off}
@@ -171,12 +213,12 @@ func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error
 	// --- All requested handles must be in inventory ---
 	for _, h := range orderedHandles {
 		if _, ok := located[h]; !ok {
-			return fmt.Errorf("handle 0x%08X not found in weapon inventory (may be in storage, or not a weapon)", h)
+			return fmt.Errorf("handle 0x%08X not found in %s inventory (may be in storage, or not a %s)", h, label, label)
 		}
 	}
 
-	// --- Require complete list: count all non-technical weapons in inventory ---
-	totalWeapons := 0
+	// --- Require complete list: count all eligible items for this tab ---
+	totalItems := 0
 	for i := 0; i < core.CommonItemCount; i++ {
 		off := startOff + i*core.InvRecordLen
 		if off+core.InvRecordLen > len(slot.Data) {
@@ -191,14 +233,16 @@ func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error
 			continue
 		}
 		itemData, baseID := db.GetItemDataFuzzy(itemID)
-		if weaponOrderCategories[itemData.Category] && !isWeaponOrderTechnical(itemData.Name, baseID) {
-			totalWeapons++
+		if categories[itemData.Category] {
+			if tab != "weapons" || !isWeaponOrderTechnical(itemData.Name, baseID) {
+				totalItems++
+			}
 		}
 	}
-	if len(orderedHandles) != totalWeapons {
+	if len(orderedHandles) != totalItems {
 		return fmt.Errorf(
-			"orderedHandles has %d weapons but inventory has %d; provide the full list from GetWeaponInventoryOrder",
-			len(orderedHandles), totalWeapons,
+			"orderedHandles has %d %ss but inventory has %d; provide the full list from GetInventoryOrder",
+			len(orderedHandles), label, totalItems,
 		)
 	}
 
@@ -244,6 +288,18 @@ func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error
 	}
 
 	return nil
+}
+
+// GetWeaponInventoryOrder returns all weapons in slot charIdx's CommonItems inventory,
+// sorted by AcquisitionIndex ascending. Delegates to GetInventoryOrder("weapons").
+func (a *App) GetWeaponInventoryOrder(charIdx int) ([]InventoryOrderItem, error) {
+	return a.GetInventoryOrder(charIdx, "weapons")
+}
+
+// ReorderWeaponInventory rewrites the acquisition indices of all weapons in slot
+// charIdx's CommonItems inventory. Delegates to ReorderInventory("weapons").
+func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error {
+	return a.ReorderInventory(charIdx, "weapons", orderedHandles)
 }
 
 // decodeWeaponUpgradeInfusion extracts upgrade level and infusion name from

@@ -84,6 +84,8 @@ export function GetGraces(arg1:number):Promise<Array<db.GraceEntry>>;
 
 export function GetInfuseTypes():Promise<Array<db.InfuseType>>;
 
+export function GetInventoryOrder(arg1:number,arg2:string):Promise<Array<main.InventoryOrderItem>>;
+
 export function GetItemDetail(arg1:number):Promise<db.ItemEntry>;
 
 export function GetItemList(arg1:string):Promise<Array<db.ItemEntry>>;
@@ -139,6 +141,8 @@ export function RemoveFavoritePreset(arg1:number):Promise<void>;
 export function RemoveFogOfWar(arg1:number):Promise<void>;
 
 export function RemoveItemsFromCharacter(arg1:number,arg2:Array<number>,arg3:boolean,arg4:boolean):Promise<void>;
+
+export function ReorderInventory(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
 
 export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<void>;
 
