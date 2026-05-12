@@ -1154,6 +1154,9 @@ func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint
 		if aowData.Name == "" {
 			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
 		}
+		if compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID); known && !compatible {
+			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
+		}
 	}
 
 	a.pushUndo(charIdx)
@@ -1251,6 +1254,9 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 		aowData, _ := db.GetItemDataFuzzy(newAoWItemID)
 		if aowData.Name == "" {
 			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
+		}
+		if compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID); known && !compatible {
+			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
 		}
 
 		rawCopies := core.ScanAoWAvailability(slot)

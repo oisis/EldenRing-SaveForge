@@ -4,6 +4,28 @@ import { db } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 
 const WEAPON_CATEGORIES = new Set(['melee_armaments', 'ranged_and_catalysts', 'shields']);
+
+// Mirrors backend data.WepTypeToCanMountBit — maps weapon wepType → bit position in AoWCompatBitmask.
+const WEP_TYPE_TO_BIT: Record<number, number> = {
+    1: 0, 3: 1, 5: 2, 7: 3, 9: 8, 11: 9, 13: 6, 14: 5, 15: 4, 16: 7, 17: 7,
+    19: 11, 21: 13, 23: 10, 24: 10, 25: 12, 28: 14, 29: 14, 31: 15, 32: 17,
+    33: 18, 35: 16, 37: 19, 39: 20, 41: 21, 43: 22, 50: 23, 51: 24, 52: 25,
+    53: 26, 54: 27, 55: 28, 57: 29, 61: 30, 65: 32, 66: 33, 67: 34, 68: 35,
+    87: 25, 88: 25, 89: 26, 90: 27, 91: 26, 92: 26, 93: 26,
+};
+
+// Returns { compatible, known }. Uses BigInt because bits 32–35 exceed JS 32-bit bitwise range.
+// Fail-open: bitmask==0 or wepType unknown → { compatible: true, known: false }.
+function isAoWCompatibleWithWeapon(
+    aowCompatBitmask: number,
+    wepType: number,
+): { compatible: boolean; known: boolean } {
+    if (aowCompatBitmask === 0) return { compatible: true, known: false };
+    const bitPos = WEP_TYPE_TO_BIT[wepType];
+    if (bitPos === undefined) return { compatible: true, known: false };
+    const compatible = (BigInt(aowCompatBitmask) >> BigInt(bitPos) & BigInt(1)) === BigInt(1);
+    return { compatible, known: true };
+}
 const WEAPON_CATEGORY_LABELS: Record<string, string> = {
     melee_armaments: 'Melee Armaments',
     ranged_and_catalysts: 'Ranged / Catalysts',
@@ -214,14 +236,29 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         ? getAoWStatus(selectedAoW)
         : null;
 
+    // Per-AoW bitmask compatibility with the currently selected weapon's wepType.
+    // Null when no AoW is selected or selectedAoW==0 (remove).
+    const selectedAoWCompatResult = selectedAoW !== null && selectedAoW !== 0 && selectedWeapon !== null
+        ? (() => {
+            const aowEntry = ashesOfWar.find(a => a.id === selectedAoW);
+            if (!aowEntry) return { compatible: true, known: false };
+            return isAoWCompatibleWithWeapon(aowEntry.aowCompatBitmask, selectedWeapon.wepType);
+        })()
+        : null;
+    // Fail-open: treat as compatible when result is null (remove) or unknown.
+    const selectedAoWIsCompatible = selectedAoWCompatResult?.compatible ?? true;
+
     const isAoWOnlyChange = aowChanged && !infusionChanged;
     const isInfusionOnlyChange = infusionChanged && !aowChanged;
 
-    // Editor mode: allows Missing/Equipped (creates a new copy); blocks only Conflict.
-    const canApplyAoWEditor = isAoWOnlyChange && canMountAoW === true && selectedAoWStatus !== 'conflict';
-    // Strict mode: allows only Available (or None/remove); blocks Missing/Equipped/Conflict.
+    // Editor mode: allows Missing/Equipped (creates a new copy); blocks Conflict and incompatible.
+    const canApplyAoWEditor = isAoWOnlyChange && canMountAoW === true
+        && selectedAoWStatus !== 'conflict'
+        && selectedAoWIsCompatible;
+    // Strict mode: allows only Available (or None/remove); blocks Missing/Equipped/Conflict/incompatible.
     const canApplyAoWStrict = isAoWOnlyChange && canMountAoW === true
-        && (selectedAoW === 0 || selectedAoWStatus === 'available');
+        && (selectedAoW === 0 || selectedAoWStatus === 'available')
+        && selectedAoWIsCompatible;
 
     const canApply = selectedWeapon !== null
         && !applying
@@ -243,6 +280,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         if (infusionChanged) return canInfuse === true ? 'Apply infusion change' : 'This weapon does not support affinity changes';
         if (aowChanged) {
             if (canMountAoW !== true) return 'This weapon does not support Ash of War';
+            if (selectedAoW !== 0 && !selectedAoWIsCompatible) return 'This Ash of War is not compatible with this weapon type';
             if (aowApplyMode === 'editor') {
                 if (selectedAoWStatus === 'conflict') return 'Cannot apply — Ash of War handle conflict detected';
                 return 'Apply Ash of War (editor mode — creates a new copy if needed)';
@@ -629,6 +667,10 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                 const isCurrent = currentAoWId !== 0 && aow.id === currentAoWId;
                                                 const isSelected = aow.id === selectedAoW;
                                                 const isPending = isSelected && aowChanged;
+                                                const compatResult = selectedWeapon
+                                                    ? isAoWCompatibleWithWeapon(aow.aowCompatBitmask, selectedWeapon.wepType)
+                                                    : { compatible: true, known: false };
+                                                const isIncompatible = compatResult.known && !compatResult.compatible;
                                                 return (
                                                     <button
                                                         key={aow.id}
@@ -637,11 +679,13 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                         className={`relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-left transition-all border ${
                                                             canMountAoW === false
                                                                 ? 'border-border/30 text-foreground cursor-not-allowed'
-                                                                : isPending
-                                                                    ? 'bg-green-700/80 text-white border-green-700'
-                                                                    : isSelected && !aowChanged
-                                                                        ? 'bg-muted/40 text-foreground border-border'
-                                                                        : 'hover:bg-muted/30 border-border/30 text-foreground'
+                                                                : isIncompatible
+                                                                    ? 'opacity-40 border-border/20 text-foreground/60 cursor-not-allowed'
+                                                                    : isPending
+                                                                        ? 'bg-green-700/80 text-white border-green-700'
+                                                                        : isSelected && !aowChanged
+                                                                            ? 'bg-muted/40 text-foreground border-border'
+                                                                            : 'hover:bg-muted/30 border-border/30 text-foreground'
                                                         }`}
                                                     >
                                                         <div className="w-6 h-6 rounded bg-muted/30 flex items-center justify-center shrink-0 overflow-hidden">
@@ -655,14 +699,17 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                             {aow.isDlc && (
                                                                 <span className="text-[7px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 rounded">DLC</span>
                                                             )}
-                                                            {(() => {
-                                                                const st = getAoWStatus(aow.id);
-                                                                if (st === 'conflict') return <span className="text-[7px] font-black uppercase text-red-500/70 bg-red-500/10 border border-red-500/20 px-1 rounded">Conflict</span>;
-                                                                if (st === 'equipped') return <span className="text-[7px] font-black uppercase text-orange-400/70 bg-orange-500/10 border border-orange-500/20 px-1 rounded">Equipped</span>;
-                                                                if (st === 'missing') return <span className="text-[7px] font-black uppercase text-muted-foreground/40 bg-muted/20 border border-border/30 px-1 rounded">Missing</span>;
-                                                                if (st === 'available') return <span className="text-[7px] font-black uppercase text-green-500/70 bg-green-500/10 border border-green-500/20 px-1 rounded">Available</span>;
-                                                                return null; // 'current' shown via blue dot
-                                                            })()}
+                                                            {isIncompatible
+                                                                ? <span className="text-[7px] font-black uppercase text-red-500/70 bg-red-500/10 border border-red-500/20 px-1 rounded">Incompatible</span>
+                                                                : (() => {
+                                                                    const st = getAoWStatus(aow.id);
+                                                                    if (st === 'conflict') return <span className="text-[7px] font-black uppercase text-red-500/70 bg-red-500/10 border border-red-500/20 px-1 rounded">Conflict</span>;
+                                                                    if (st === 'equipped') return <span className="text-[7px] font-black uppercase text-orange-400/70 bg-orange-500/10 border border-orange-500/20 px-1 rounded">Equipped</span>;
+                                                                    if (st === 'missing') return <span className="text-[7px] font-black uppercase text-muted-foreground/40 bg-muted/20 border border-border/30 px-1 rounded">Missing</span>;
+                                                                    if (st === 'available') return <span className="text-[7px] font-black uppercase text-green-500/70 bg-green-500/10 border border-green-500/20 px-1 rounded">Available</span>;
+                                                                    return null; // 'current' shown via blue dot
+                                                                })()
+                                                            }
                                                         </div>
                                                         {isCurrent && (
                                                             <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-blue-400" title="Current AoW" />
@@ -832,6 +879,8 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                             return <span className="text-amber-600/70">Apply one change type at a time. Reset either Ash of War or Infusion selection.</span>;
                         if (aowChanged && selectedAoW === 0)
                             return <span className="text-sky-400/70">Ash of War will be removed from this weapon.</span>;
+                        if (aowChanged && selectedAoW !== 0 && !selectedAoWIsCompatible)
+                            return <span className="text-red-500/70">This Ash of War is not compatible with this weapon type.</span>;
                         if (aowChanged && aowApplyMode === 'editor') {
                             if (selectedAoWStatus === 'missing')
                                 return <span className="text-amber-500/70">This Ash of War is missing from the save. Applying will create a new copy.</span>;

@@ -259,6 +259,20 @@ func IsAoWCompatibleWithWepType(aowItemID uint32, wepType uint16) (compatible bo
 	return (aow.AoWCompatBitmask>>bitPos)&1 == 1, true
 }
 
+// IsAshOfWarCompatibleWithWeapon checks whether a specific Ash of War can be mounted on a
+// specific weapon, combining the weapon-level GemMountType gate with the per-AoW bitmask check.
+// Returns (compatible, known). If known==false the data is insufficient; callers should fail open.
+func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (compatible bool, known bool) {
+	weaponData, _ := GetItemDataFuzzy(weaponItemID)
+	if weaponData.GemMountType != 2 {
+		return false, true // weapon doesn't support standard AoW (somber or no mount)
+	}
+	if weaponData.WepType == 0 {
+		return true, false // WepType unknown — fail open
+	}
+	return IsAoWCompatibleWithWepType(aowItemID, weaponData.WepType)
+}
+
 // enrichItemEntry populates Description, Weight, and stat fields from the Descriptions table,
 // falling back to ItemWeights for items not in descriptions.
 func enrichItemEntry(e *ItemEntry) {
@@ -369,7 +383,7 @@ func GetItemDataFuzzy(id uint32) (data.ItemData, uint32) {
 					continue
 				}
 				if id >= baseID && id-baseID <= maxCombinedOffset {
-					return item, baseID
+					return GetItemData(baseID), baseID
 				}
 			}
 		}
