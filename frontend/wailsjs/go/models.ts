@@ -769,6 +769,30 @@ export namespace main {
 
 export namespace vm {
 	
+	export class AoWAvailabilityEntry {
+	    itemId: number;
+	    totalCopies: number;
+	    availableCopies: number;
+	    usedCopies: number;
+	    usedByWeaponHandles: number[];
+	    isMissing: boolean;
+	    hasSharedHandleConflict: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AoWAvailabilityEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.itemId = source["itemId"];
+	        this.totalCopies = source["totalCopies"];
+	        this.availableCopies = source["availableCopies"];
+	        this.usedCopies = source["usedCopies"];
+	        this.usedByWeaponHandles = source["usedByWeaponHandles"];
+	        this.isMissing = source["isMissing"];
+	        this.hasSharedHandleConflict = source["hasSharedHandleConflict"];
+	    }
+	}
 	export class ApplyOptions {
 	    replaceStats: boolean;
 	    replaceInventory: boolean;

@@ -51,6 +51,19 @@ type ItemViewModel struct {
 	AoWCompatBitmask uint64   `json:"aowCompatBitmask"` // 36-bit canMountWep bitmask (non-zero for AoWs only)
 }
 
+// AoWAvailabilityEntry aggregates per-itemID availability for a single Ash of War.
+// Returned by App.GetAoWAvailability; one entry per distinct AoW itemID present in the slot.
+// AoW items absent from the slot have no entry — the frontend treats absence as IsMissing.
+type AoWAvailabilityEntry struct {
+	ItemID                  uint32   `json:"itemId"`
+	TotalCopies             int      `json:"totalCopies"`
+	AvailableCopies         int      `json:"availableCopies"`
+	UsedCopies              int      `json:"usedCopies"`
+	UsedByWeaponHandles     []uint32 `json:"usedByWeaponHandles"`
+	IsMissing               bool     `json:"isMissing"`
+	HasSharedHandleConflict bool     `json:"hasSharedHandleConflict"`
+}
+
 type CharacterViewModel struct {
 	Name                string                `json:"name"`
 	Level               uint32                `json:"level"`

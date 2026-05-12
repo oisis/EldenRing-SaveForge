@@ -50,6 +50,8 @@ export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSetting
 
 export function GetActiveSlots():Promise<Array<boolean>>;
 
+export function GetAoWAvailability(arg1:number):Promise<Array<vm.AoWAvailabilityEntry>>;
+
 export function GetAshOfWarFlags(arg1:number):Promise<Array<db.AshOfWarFlagEntry>>;
 
 export function GetBellBearings(arg1:number):Promise<Array<db.BellBearingEntry>>;

@@ -1160,7 +1160,58 @@ func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint
 	return core.PatchWeaponAoW(slot, weaponHandle, newAoWItemID)
 }
 
+// GetAoWAvailability scans GaItems for character charIdx and returns per-itemID
+// availability stats for every Ash of War present in the slot.
+// AoW items absent from the slot are not included — the frontend treats absence as missing.
+func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return nil, fmt.Errorf("invalid character index %d", charIdx)
+	}
+	slot := &a.save.Slots[charIdx]
+	rawCopies := core.ScanAoWAvailability(slot)
+
+	type aggregate struct {
+		total    int
+		used     int
+		handles  []uint32
+		conflict bool
+	}
+	agg := make(map[uint32]*aggregate)
+	for _, c := range rawCopies {
+		ag, ok := agg[c.ItemID]
+		if !ok {
+			ag = &aggregate{}
+			agg[c.ItemID] = ag
+		}
+		ag.total++
+		if c.UsedByWeaponHandle != 0 {
+			ag.used++
+			ag.handles = append(ag.handles, c.UsedByWeaponHandle)
+		}
+		if c.HasSharedHandleConflict {
+			ag.conflict = true
+		}
+	}
+
+	result := make([]vm.AoWAvailabilityEntry, 0, len(agg))
+	for itemID, ag := range agg {
+		result = append(result, vm.AoWAvailabilityEntry{
+			ItemID:                  itemID,
+			TotalCopies:             ag.total,
+			AvailableCopies:         ag.total - ag.used,
+			UsedCopies:              ag.used,
+			UsedByWeaponHandles:     ag.handles,
+			IsMissing:               false,
+			HasSharedHandleConflict: ag.conflict,
+		})
+	}
+	return result, nil
+}
+
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}
 }

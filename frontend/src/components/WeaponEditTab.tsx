@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { GetCharacter, GetItemList, ApplyWeaponInfusion, ApplyWeaponAoW } from '../../wailsjs/go/main/App';
+import { GetCharacter, GetItemList, ApplyWeaponInfusion, ApplyWeaponAoW, GetAoWAvailability } from '../../wailsjs/go/main/App';
 import { db } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 
@@ -38,6 +38,16 @@ interface OwnedWeapon {
     wepType: number;         // wepType integer from EquipParamWeapon (0 = unknown)
 }
 
+interface AoWAvailabilityEntry {
+    itemId: number;
+    totalCopies: number;
+    availableCopies: number;
+    usedCopies: number;
+    usedByWeaponHandles: number[];
+    isMissing: boolean;
+    hasSharedHandleConflict: boolean;
+}
+
 interface Props {
     charIndex: number;
     inventoryVersion: number;
@@ -64,6 +74,7 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
     const [selectedAoW, setSelectedAoW] = useState<number | null>(null);
     const [selectedInfusion, setSelectedInfusion] = useState<number | null>(null);
     const [applying, setApplying] = useState(false);
+    const [aowAvailability, setAowAvailability] = useState<Map<number, AoWAvailabilityEntry>>(new Map());
 
     // Load Ashes of War from game database once on mount — game data, not character-specific.
     useEffect(() => {
@@ -127,6 +138,16 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         }).catch(() => { setWeapons([]); setWeaponsLoading(false); });
     }, [charIndex, inventoryVersion, localVersion]);
 
+    // Fetch AoW availability from save data (character-specific, reload after each apply).
+    useEffect(() => {
+        if (charIndex < 0) { setAowAvailability(new Map()); return; }
+        GetAoWAvailability(charIndex).then(entries => {
+            const m = new Map<number, AoWAvailabilityEntry>();
+            (entries ?? []).forEach((e: any) => m.set(e.itemId as number, e as AoWAvailabilityEntry));
+            setAowAvailability(m);
+        }).catch(() => setAowAvailability(new Map()));
+    }, [charIndex, inventoryVersion, localVersion]);
+
     const filteredWeapons = useMemo(() => weapons.filter(w => {
         if (categoryFilter !== 'all' && w.category !== categoryFilter) return false;
         if (locationFilter === 'inventory' && w.location !== 'inventory') return false;
@@ -171,6 +192,30 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
         && selectedInfusion !== currentInfuseOffset;
     const aowChanged = canMountAoW === true && selectedAoW !== null && selectedAoW !== currentAoWId;
     const hasPendingChanges = selectedWeapon !== null && (aowChanged || infusionChanged);
+
+    // Returns availability status for one AoW itemID based on slot.GaItems scan.
+    // 'current'   — attached to the currently selected weapon.
+    // 'available' — at least one free (unattached) copy exists in the slot.
+    // 'equipped'  — all copies are attached to other weapons (no free copy).
+    // 'missing'   — no copies found in the slot.
+    // 'conflict'  — a shared-handle corruption is detected.
+    const getAoWStatus = (aowId: number): 'current' | 'available' | 'equipped' | 'missing' | 'conflict' => {
+        if (selectedWeapon && currentAoWId !== 0 && aowId === currentAoWId) return 'current';
+        const avail = aowAvailability.get(aowId);
+        if (!avail || avail.totalCopies === 0) return 'missing';
+        if (avail.hasSharedHandleConflict) return 'conflict';
+        if (avail.availableCopies > 0) return 'available';
+        return 'equipped';
+    };
+
+    // When aowChanged, warn if the target AoW has no free copy.
+    // Current ApplyWeaponAoW always allocates a fresh GaItem — it never consumes an existing copy.
+    // TODO(strict-mode): require availableCopies > 0; consume/attach an existing free handle instead of allocating fresh.
+    const selectedAoWStatus = selectedAoW !== null && selectedAoW !== 0
+        ? getAoWStatus(selectedAoW)
+        : null;
+    const showAoWCopyWarning = aowChanged
+        && (selectedAoWStatus === 'missing' || selectedAoWStatus === 'equipped');
 
     const canApply = selectedWeapon !== null
         && !applying
@@ -558,9 +603,19 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                                             }
                                                         </div>
                                                         <span className="truncate">{aow.name}</span>
-                                                        {aow.isDlc && (
-                                                            <span className="ml-auto shrink-0 text-[7px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 rounded">DLC</span>
-                                                        )}
+                                                        <div className="ml-auto flex items-center gap-1 shrink-0">
+                                                            {aow.isDlc && (
+                                                                <span className="text-[7px] font-black uppercase text-amber-500/70 bg-amber-500/10 border border-amber-500/20 px-1 rounded">DLC</span>
+                                                            )}
+                                                            {(() => {
+                                                                const st = getAoWStatus(aow.id);
+                                                                if (st === 'conflict') return <span className="text-[7px] font-black uppercase text-red-500/70 bg-red-500/10 border border-red-500/20 px-1 rounded">Conflict</span>;
+                                                                if (st === 'equipped') return <span className="text-[7px] font-black uppercase text-orange-400/70 bg-orange-500/10 border border-orange-500/20 px-1 rounded">Equipped</span>;
+                                                                if (st === 'missing') return <span className="text-[7px] font-black uppercase text-muted-foreground/40 bg-muted/20 border border-border/30 px-1 rounded">Missing</span>;
+                                                                if (st === 'available') return <span className="text-[7px] font-black uppercase text-green-500/70 bg-green-500/10 border border-green-500/20 px-1 rounded">Available</span>;
+                                                                return null; // 'current' shown via blue dot
+                                                            })()}
+                                                        </div>
                                                         {isCurrent && (
                                                             <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-blue-400" title="Current AoW" />
                                                         )}
@@ -570,6 +625,18 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                                             </>
                                         )}
                                     </div>
+
+                                    {/* AoW availability notice — shown when selected AoW has no free copy */}
+                                    {showAoWCopyWarning && (
+                                        <div className="flex flex-col gap-0.5 px-2.5 py-2 rounded-lg bg-amber-500/5 border border-amber-500/20">
+                                            <p className="text-[8px] font-bold text-amber-500/80">
+                                                This Ash of War is not currently available as a free copy.
+                                            </p>
+                                            <p className="text-[8px] text-sky-400/70">
+                                                Applying will create a new Ash of War copy in your save.
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
 
                                 {/* Infusion */}
@@ -704,9 +771,11 @@ export function WeaponEditTab({ charIndex, inventoryVersion, infuseTypes, platfo
                 <span className="ml-auto text-[9px] italic">
                     {aowChanged && infusionChanged
                         ? <span className="text-amber-600/70">Apply one change type at a time. Reset either Ash of War or Infusion selection.</span>
-                        : !hasPendingChanges
-                            ? <span className="text-muted-foreground/40">No pending changes.</span>
-                            : null
+                        : showAoWCopyWarning
+                            ? <span className="text-amber-500/70">Not a free copy — applying will create a new Ash of War copy.</span>
+                            : !hasPendingChanges
+                                ? <span className="text-muted-foreground/40">No pending changes.</span>
+                                : null
                     }
                 </span>
             </div>

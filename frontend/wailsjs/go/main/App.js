@@ -90,6 +90,10 @@ export function GetActiveSlots() {
   return window['go']['main']['App']['GetActiveSlots']();
 }
 
+export function GetAoWAvailability(arg1) {
+  return window['go']['main']['App']['GetAoWAvailability'](arg1);
+}
+
 export function GetAshOfWarFlags(arg1) {
   return window['go']['main']['App']['GetAshOfWarFlags'](arg1);
 }
