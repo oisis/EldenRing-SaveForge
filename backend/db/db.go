@@ -39,13 +39,14 @@ type ItemEntry struct {
 // weightedCategory lists item categories that have physical weight from regulation.bin weapon/armor params.
 // Spells, consumables, key items etc. share ID space with weapon/armor params — excluded to avoid false matches.
 var weightedCategory = map[string]bool{
-	"melee_armaments":     true,
+	"melee_armaments":      true,
 	"ranged_and_catalysts": true,
-	"shields":             true,
-	"head":                true,
-	"chest":               true,
-	"arms":                true,
-	"legs":                true,
+	"shields":              true,
+	"head":                 true,
+	"chest":                true,
+	"arms":                 true,
+	"legs":                 true,
+	"talismans":            true,
 }
 
 // InfuseType represents a weapon infusion type and its ID offset.
