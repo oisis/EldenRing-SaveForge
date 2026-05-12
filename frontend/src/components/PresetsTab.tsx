@@ -1,5 +1,5 @@
 import {useState, useEffect} from 'react';
-import {ListBuiltinCharacterPresets, GetBuiltinCharacterPreset, GetCharacter} from '../../wailsjs/go/main/App';
+import {ListBuiltinCharacterPresets, GetBuiltinCharacterPreset, GetCharacter, ValidateBuiltinCharacterPreset} from '../../wailsjs/go/main/App';
 import {main, vm} from '../../wailsjs/go/models';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -7,6 +7,7 @@ import {main, vm} from '../../wailsjs/go/models';
 interface PreviewData {
     preset: vm.CharacterPreset;
     char: vm.CharacterViewModel;
+    warnings: string[];
 }
 
 // ─── Stat field definitions ───────────────────────────────────────────────────
@@ -91,6 +92,21 @@ function StatPreviewPanel({data}: {data: PreviewData}) {
                     Preview only — no changes have been applied.
                 </p>
             </div>
+
+            {/* Validation warnings */}
+            {data.warnings.length > 0 && (
+                <div className="flex flex-col gap-1 px-3 py-2 rounded border border-yellow-500/30 bg-yellow-500/8">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400/80 mb-0.5">
+                        Validation warnings
+                    </p>
+                    {data.warnings.map((w, i) => (
+                        <div key={i} className="flex items-start gap-1.5">
+                            <span className="text-yellow-400/70 text-[10px] leading-none mt-px">⚠</span>
+                            <span className="text-[10px] text-yellow-200/70 leading-relaxed">{w}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
 
             {/* Class row */}
             <div className="flex items-center gap-2 pb-1.5 border-b border-border/20">
@@ -265,14 +281,15 @@ export function PresetsTab({charIdx}: PresetsTabProps) {
         setPreviewError(null);
         setPreviewLoading(true);
         try {
-            const [preset, char] = await Promise.all([
+            const [preset, char, warnings] = await Promise.all([
                 GetBuiltinCharacterPreset(id),
                 GetCharacter(charIdx),
+                ValidateBuiltinCharacterPreset(charIdx, id),
             ]);
             if (!char) {
                 setPreviewError('No character loaded. Open a save file and select a character first.');
             } else {
-                setPreviewData({preset, char});
+                setPreviewData({preset, char, warnings: warnings ?? []});
             }
         } catch (e) {
             setPreviewError(String(e));

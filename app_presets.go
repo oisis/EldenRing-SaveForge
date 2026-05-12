@@ -142,3 +142,21 @@ func (a *App) GetBuiltinCharacterPreset(id string) (*vm.CharacterPreset, error) 
 	}
 	return nil, fmt.Errorf("built-in preset not found: %s", id)
 }
+
+// ValidateBuiltinCharacterPreset runs read-only validation on a built-in preset.
+// Returns a list of warning strings (empty = no issues). Does not modify the save.
+func (a *App) ValidateBuiltinCharacterPreset(charIdx int, id string) ([]string, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return nil, fmt.Errorf("invalid slot index")
+	}
+	for _, p := range builtinCharacterPresets {
+		if p.info.ID == id {
+			preset := p.preset
+			return vm.ValidatePreset(&preset), nil
+		}
+	}
+	return nil, fmt.Errorf("built-in preset not found: %s", id)
+}

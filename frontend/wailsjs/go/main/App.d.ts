@@ -186,6 +186,8 @@ export function SetWhetbladeUnlocked(arg1:number,arg2:number,arg3:boolean):Promi
 
 export function TestSSHConnection(arg1:string):Promise<string>;
 
+export function ValidateBuiltinCharacterPreset(arg1:number,arg2:string):Promise<Array<string>>;
+
 export function ValidateCharacterPreset(arg1:vm.CharacterPreset):Promise<Array<string>>;
 
 export function WriteSave(arg1:string):Promise<void>;

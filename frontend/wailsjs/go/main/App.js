@@ -362,6 +362,10 @@ export function TestSSHConnection(arg1) {
   return window['go']['main']['App']['TestSSHConnection'](arg1);
 }
 
+export function ValidateBuiltinCharacterPreset(arg1, arg2) {
+  return window['go']['main']['App']['ValidateBuiltinCharacterPreset'](arg1, arg2);
+}
+
 export function ValidateCharacterPreset(arg1) {
   return window['go']['main']['App']['ValidateCharacterPreset'](arg1);
 }
