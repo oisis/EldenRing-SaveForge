@@ -1155,10 +1155,9 @@ func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint
 			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
 		}
 		compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID)
-		if !known {
-			return fmt.Errorf("Ash of War compatibility is unknown for this weapon")
-		}
-		if !compatible {
+		// known==false means no compatibility data (DLC/unmapped weapon type).
+		// CanWeaponMountAoW already confirmed GemMountType==2 above — allow the operation.
+		if known && !compatible {
 			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
 		}
 	}
@@ -1260,10 +1259,9 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
 		}
 		compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID)
-		if !known {
-			return fmt.Errorf("Ash of War compatibility is unknown for this weapon")
-		}
-		if !compatible {
+		// known==false means no compatibility data (DLC/unmapped weapon type).
+		// CanWeaponMountAoW already confirmed GemMountType==2 above — allow the operation.
+		if known && !compatible {
 			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
 		}
 
