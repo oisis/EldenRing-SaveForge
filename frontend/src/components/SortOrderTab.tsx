@@ -16,12 +16,15 @@ interface Props {
 export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [baseItems, setBaseItems] = useState<main.InventoryOrderItem[]>([]);
     const [previewItems, setPreviewItems] = useState<main.InventoryOrderItem[]>([]);
-    const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+    const [sortDir, setSortDir] = useState<'asc' | 'desc' | 'custom'>('asc');
     const [page, setPage] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [applying, setApplying] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
+    // DnD state — local indices within the current page
+    const [dragFrom, setDragFrom] = useState<number | null>(null);
+    const [dragOver, setDragOver] = useState<number | null>(null);
 
     useEffect(() => {
         setLoading(true);
@@ -83,6 +86,44 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
             .finally(() => setApplying(false));
     };
 
+    // ── DnD handlers ──────────────────────────────────────────────────────────
+
+    const pageStart = page * PAGE_SIZE;
+
+    const handleDragStart = (localIdx: number) => {
+        setDragFrom(localIdx);
+        setDragOver(null);
+    };
+
+    const handleDragOver = (e: React.DragEvent, localIdx: number) => {
+        e.preventDefault();
+        if (dragFrom !== null && dragFrom !== localIdx) {
+            setDragOver(localIdx);
+        }
+    };
+
+    const handleDrop = (localIdx: number) => {
+        if (dragFrom === null || dragFrom === localIdx) {
+            setDragFrom(null);
+            setDragOver(null);
+            return;
+        }
+        const globalFrom = pageStart + dragFrom;
+        const globalTo = pageStart + localIdx;
+        const next = [...previewItems];
+        const [moved] = next.splice(globalFrom, 1);
+        next.splice(globalTo, 0, moved);
+        setPreviewItems(next);
+        setSortDir('custom');
+        setDragFrom(null);
+        setDragOver(null);
+    };
+
+    const handleDragEnd = () => {
+        setDragFrom(null);
+        setDragOver(null);
+    };
+
     // ── Loading / error / empty ────────────────────────────────────────────────
 
     if (loading) {
@@ -118,7 +159,6 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     // ── Grid / pagination ─────────────────────────────────────────────────────
 
     const totalPages = Math.max(1, Math.ceil(previewItems.length / PAGE_SIZE));
-    const pageStart = page * PAGE_SIZE;
     const pageItems = previewItems.slice(pageStart, pageStart + PAGE_SIZE);
     const gridCells: (main.InventoryOrderItem | null)[] = [
         ...pageItems,
@@ -170,7 +210,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
             <div className="flex flex-col h-full min-h-0 gap-2">
                 {/* ── Controls row ──────────────────────────────────────────── */}
                 <div className="flex items-center justify-between shrink-0 gap-4">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">
                             Preview:
                         </span>
@@ -196,6 +236,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         >
                             Acquisition ↓
                         </button>
+                        {sortDir === 'custom' && (
+                            <span className="text-[9px] font-bold text-amber-400/80 uppercase tracking-widest whitespace-nowrap">
+                                Custom
+                            </span>
+                        )}
                         <button
                             disabled={busy}
                             onClick={resetPreview}
@@ -238,8 +283,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/10 border border-border/30 rounded-md">
                             <span className="text-muted-foreground/60 text-[11px]">ℹ</span>
                             <span className="text-[10px] text-muted-foreground/70">
-                                Sort Order changes how weapons appear under in-game Acquisition
-                                Order. Storage is not affected.
+                                Drag items to reorder. Sort Order changes how weapons appear under
+                                in-game Acquisition Order. Storage is not affected.
                             </span>
                         </div>
                     )}
@@ -255,11 +300,20 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                 <div className="flex-1 min-h-0 flex justify-center items-start overflow-hidden">
                     <div className="h-full" style={{ aspectRatio: '5 / 6' }}>
                         <div className="grid grid-cols-5 grid-rows-6 h-full gap-1">
-                            {gridCells.map((item, idx) =>
+                            {gridCells.map((item, localIdx) =>
                                 item != null ? (
-                                    <WeaponTile key={item.handle} item={item} />
+                                    <WeaponTile
+                                        key={item.handle}
+                                        item={item}
+                                        isDragging={dragFrom === localIdx}
+                                        isDragOver={dragOver === localIdx}
+                                        onDragStart={() => handleDragStart(localIdx)}
+                                        onDragOver={(e) => handleDragOver(e, localIdx)}
+                                        onDrop={() => handleDrop(localIdx)}
+                                        onDragEnd={handleDragEnd}
+                                    />
                                 ) : (
-                                    <EmptyCell key={`empty-${idx}`} />
+                                    <EmptyCell key={`empty-${localIdx}`} />
                                 ),
                             )}
                         </div>
@@ -295,7 +349,17 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-function WeaponTile({ item }: { item: main.InventoryOrderItem }) {
+interface TileProps {
+    item: main.InventoryOrderItem;
+    isDragging: boolean;
+    isDragOver: boolean;
+    onDragStart: () => void;
+    onDragOver: (e: React.DragEvent) => void;
+    onDrop: () => void;
+    onDragEnd: () => void;
+}
+
+function WeaponTile({ item, isDragging, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd }: TileProps) {
     const [imgError, setImgError] = useState(false);
 
     const upgradeLabel =
@@ -314,7 +378,18 @@ function WeaponTile({ item }: { item: main.InventoryOrderItem }) {
     return (
         <div
             title={tooltip}
-            className="relative bg-card border border-border/50 rounded-md overflow-hidden cursor-default group transition-all hover:border-primary/40 hover:bg-primary/[0.03]"
+            draggable
+            onDragStart={onDragStart}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            onDragEnd={onDragEnd}
+            className={`relative bg-card border rounded-md overflow-hidden transition-all cursor-grab active:cursor-grabbing ${
+                isDragging
+                    ? 'opacity-40 border-border/20'
+                    : isDragOver
+                      ? 'border-primary ring-1 ring-primary/50 bg-primary/[0.06]'
+                      : 'border-border/50 hover:border-primary/40 hover:bg-primary/[0.03]'
+            }`}
         >
             {/* absolute inset-0 so content never affects cell height */}
             <div className="absolute inset-0 flex flex-col items-center p-1 gap-0.5">
@@ -324,11 +399,12 @@ function WeaponTile({ item }: { item: main.InventoryOrderItem }) {
                         <img
                             src={item.iconPath}
                             alt=""
-                            className="max-w-full max-h-full object-contain drop-shadow-sm group-hover:scale-105 transition-transform duration-200"
+                            draggable={false}
+                            className="max-w-full max-h-full object-contain drop-shadow-sm"
                             onError={() => setImgError(true)}
                         />
                     ) : (
-                        <span className="text-xl font-black text-muted-foreground/35 select-none group-hover:text-muted-foreground/55 transition-colors leading-none">
+                        <span className="text-xl font-black text-muted-foreground/35 select-none leading-none">
                             {item.name.charAt(0).toUpperCase()}
                         </span>
                     )}
@@ -336,7 +412,7 @@ function WeaponTile({ item }: { item: main.InventoryOrderItem }) {
 
                 {/* Name + upgrade pinned to bottom, never expands tile */}
                 <div className="w-full shrink-0 overflow-hidden">
-                    <div className="text-[8px] font-bold text-foreground/60 truncate text-center leading-tight group-hover:text-primary/80 transition-colors">
+                    <div className="text-[8px] font-bold text-foreground/60 truncate text-center leading-tight">
                         {item.name}
                     </div>
                     {upgradeLabel && (
