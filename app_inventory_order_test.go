@@ -243,16 +243,16 @@ func TestReorderWeaponInventory_HappyPath(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Expected base: NextAcquisitionSortId was 2007 → base = 2007 (raw next index, > 432).
-	base := uint32(2007)
+	// NextAcquisitionSortId was 2007 (odd) → stride-2 base rounds up to 2008.
+	base := uint32(2008)
 	startOff := slot.MagicOffset + core.InvStartFromMagic
 
-	// Build expected: handle → expectedNewIndex (position in reversed slice + base)
+	// Build expected: handle → expectedNewIndex (stride-2: base + pos*2)
 	expectedIdx := map[uint32]uint32{
 		0x80800004: base,
-		0x80800003: base + 1,
-		0x80800002: base + 2,
-		0x80800001: base + 3,
+		0x80800003: base + 2,
+		0x80800002: base + 4,
+		0x80800001: base + 6,
 	}
 
 	// Verify slot.Data at each weapon's original position.
@@ -276,8 +276,8 @@ func TestReorderWeaponInventory_HappyPath(t *testing.T) {
 		}
 	}
 
-	// Verify NextAcquisitionSortId = topIdx + 1 = (base + 3) + 1 = 2011.
-	wantNextAcq := base + 3 + 1
+	// Verify NextAcquisitionSortId = expectedMax + 1 = (base + 6) + 1 = 2015.
+	wantNextAcq := base + 6 + 1
 	if slot.Inventory.NextAcquisitionSortId != wantNextAcq {
 		t.Errorf("NextAcquisitionSortId want %d got %d", wantNextAcq, slot.Inventory.NextAcquisitionSortId)
 	}
@@ -483,7 +483,8 @@ func TestReorderInventory_Talismans_HappyPath(t *testing.T) {
 	app := inventoryItemFixture(testTalismans)
 	slot := &app.save.Slots[0]
 
-	beforeBase := slot.Inventory.NextAcquisitionSortId
+	// nextAcq was 503 (odd) → stride-2 base rounds up to 504.
+	base := uint32(504)
 	reversed := []uint32{testTalismans[1].handle, testTalismans[0].handle}
 	if err := app.ReorderInventory(0, "talismans", reversed); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -491,8 +492,8 @@ func TestReorderInventory_Talismans_HappyPath(t *testing.T) {
 
 	startOff := slot.MagicOffset + core.InvStartFromMagic
 	expectedIdx := map[uint32]uint32{
-		testTalismans[1].handle: beforeBase,
-		testTalismans[0].handle: beforeBase + 1,
+		testTalismans[1].handle: base,
+		testTalismans[0].handle: base + 2,
 	}
 	for i, item := range testTalismans {
 		off := startOff + i*core.InvRecordLen
@@ -503,7 +504,7 @@ func TestReorderInventory_Talismans_HappyPath(t *testing.T) {
 		}
 	}
 
-	wantNextAcq := beforeBase + uint32(len(testTalismans))
+	wantNextAcq := base + 2 + 1 // expectedMax + 1 = 507
 	if slot.Inventory.NextAcquisitionSortId != wantNextAcq {
 		t.Errorf("NextAcquisitionSortId want %d got %d", wantNextAcq, slot.Inventory.NextAcquisitionSortId)
 	}
@@ -513,7 +514,8 @@ func TestReorderInventory_HeadOrChest_HappyPath(t *testing.T) {
 	app := inventoryItemFixture(testHelms)
 	slot := &app.save.Slots[0]
 
-	beforeBase := slot.Inventory.NextAcquisitionSortId
+	// nextAcq was 603 (odd) → stride-2 base rounds up to 604.
+	base := uint32(604)
 	reversed := []uint32{testHelms[1].handle, testHelms[0].handle}
 	if err := app.ReorderInventory(0, "head", reversed); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -521,8 +523,8 @@ func TestReorderInventory_HeadOrChest_HappyPath(t *testing.T) {
 
 	startOff := slot.MagicOffset + core.InvStartFromMagic
 	expectedIdx := map[uint32]uint32{
-		testHelms[1].handle: beforeBase,
-		testHelms[0].handle: beforeBase + 1,
+		testHelms[1].handle: base,
+		testHelms[0].handle: base + 2,
 	}
 	for i, item := range testHelms {
 		off := startOff + i*core.InvRecordLen
@@ -533,7 +535,7 @@ func TestReorderInventory_HeadOrChest_HappyPath(t *testing.T) {
 		}
 	}
 
-	wantNextAcq := beforeBase + uint32(len(testHelms))
+	wantNextAcq := base + 2 + 1 // expectedMax + 1 = 607
 	if slot.Inventory.NextAcquisitionSortId != wantNextAcq {
 		t.Errorf("NextAcquisitionSortId want %d got %d", wantNextAcq, slot.Inventory.NextAcquisitionSortId)
 	}

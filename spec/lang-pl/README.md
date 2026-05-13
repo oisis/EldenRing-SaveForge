@@ -110,6 +110,7 @@ Plik save składa się z następujących głównych bloków (w kolejności sekwe
 | 49 | [PS4 ZSTD Raw-Block Patch](49-ps4-zstd-rawblock-patch.md) | **Design doc** (✅ zaimplementowany) — naprawa crashu PS4: strategia zastępowania bloków Raw w strumieniu ZSTD, unikająca pełnej rekompresji odrzucanej przez PS4 |
 | 50 | [Item Companion Flags](50-item-companion-flags.md) | **Design doc** (✅ zaimplementowany v0.14.0) — Mechanizm ustawiania zależnych od przedmiotu EventFlag przy dodawaniu; obsługuje Spectral Steed Whistle (odblokowanie Torrenta + stan questa Meliny) |
 | 51 | [Advanced Save Editor](51-advanced-save-editor.md) | **Design doc** (🔲 planowany) — Zakładka "Advanced → Save Editor": znane EventFlags, regulation snapshot params (NetworkParam), makra aplikacji, ręczna flaga po ID, lista pending changes, edytor raw offsets (Faza 2+) |
+| 52 | [Sortowanie Acquisition: Stride-2](52-acquisition-sort-stride2.md) | **Design doc** (✅ zaimplementowany) — Dlaczego ReorderInventory używa stride-2; odkrycie klucza `acqIdx>>1` przez testy sentinel; algorytm, dowód, bezpieczny zakres |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Metody testowania, checklista weryfikacji, plan odkryć |
 
 ---

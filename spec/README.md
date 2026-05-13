@@ -110,6 +110,7 @@ The save file consists of the following main blocks (in sequential order):
 | 49 | [PS4 ZSTD Raw-Block Patch](49-ps4-zstd-rawblock-patch.md) | **Design doc** (✅ implemented) — PS4 crash fix: Raw-block replacement strategy for ZSTD stream patching, avoiding full recompression that PS4 rejects |
 | 50 | [Item Companion Flags](50-item-companion-flags.md) | **Design doc** (✅ implemented v0.14.0) — Mechanism for setting item-dependent EventFlags on add; covers Spectral Steed Whistle (Torrent unlock + Melina quest state) |
 | 51 | [Advanced Save Editor](51-advanced-save-editor.md) | **Design doc** (🔲 planned) — "Advanced → Save Editor" tab: known EventFlags, regulation snapshot params (NetworkParam), app macros, manual flag by ID, pending changes list, raw offset editor (Phase 2+) |
+| 52 | [Acquisition Sort: Stride-2](52-acquisition-sort-stride2.md) | **Design doc** (✅ implemented) — Why ReorderInventory uses stride-2 index assignment; in-game `acqIdx>>1` bucket key discovery via sentinel tests; algorithm, proof, safe range |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Testing methods, verification checklist, discovery plan |
 
 ---

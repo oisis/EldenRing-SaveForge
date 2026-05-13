@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"log"
 	"sort"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
@@ -37,7 +38,6 @@ var inventoryOrderTabs = map[string][]string{
 }
 
 // tabLabel maps a Sort Order tab to its singular human-readable label for error messages.
-// Weapons → "weapon", talismans → "talisman", etc.
 var tabLabel = map[string]string{
 	"weapons":   "weapon",
 	"talismans": "talisman",
@@ -143,13 +143,17 @@ func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, 
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].AcquisitionIndex < items[j].AcquisitionIndex
 	})
-
 	return items, nil
 }
 
 // ReorderInventory rewrites the acquisition indices of all items in slot charIdx's
 // CommonItems inventory for the given tab so that orderedHandles[0] sorts first
 // under "Kolejność zakupu / Rosnąco" in-game.
+//
+// Uses stride-2 indexing: each item at position pos receives index base + pos*2,
+// where base is the next available even number above NextAcquisitionSortId. This
+// ensures every item has a unique acqIdx>>1 bucket key, matching the game's
+// confirmed sort granularity (empirically verified — see spec/52).
 //
 // orderedHandles must be the COMPLETE list of items for the tab from GetInventoryOrder
 // — no omissions, no duplicates. Partial lists are rejected.
@@ -177,7 +181,7 @@ func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32)
 
 	label := tabLabel[tab]
 
-	// --- Guard: no duplicates in orderedHandles ---
+	// Guard: no duplicates in orderedHandles.
 	seen := make(map[uint32]int, len(orderedHandles))
 	for i, h := range orderedHandles {
 		if prev, dup := seen[h]; dup {
@@ -188,7 +192,7 @@ func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32)
 
 	startOff := slot.MagicOffset + core.InvStartFromMagic
 
-	// --- Locate requested handles in CommonItems; validate category and technical ---
+	// Locate requested handles in CommonItems; validate category and technical.
 	type invLoc struct{ off int }
 	located := make(map[uint32]invLoc, len(orderedHandles))
 
@@ -218,14 +222,14 @@ func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32)
 		located[h] = invLoc{off: off}
 	}
 
-	// --- All requested handles must be in inventory ---
+	// All requested handles must be in inventory.
 	for _, h := range orderedHandles {
 		if _, ok := located[h]; !ok {
 			return fmt.Errorf("handle 0x%08X not found in %s inventory (may be in storage, or not a %s)", h, label, label)
 		}
 	}
 
-	// --- Require complete list: count all eligible items for this tab ---
+	// Require complete list: count all eligible items for this tab.
 	totalItems := 0
 	for i := 0; i < core.CommonItemCount; i++ {
 		off := startOff + i*core.InvRecordLen
@@ -254,23 +258,39 @@ func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32)
 		)
 	}
 
-	// --- Compute base index ---
-	// NextAcquisitionSortId is the raw next InventoryItem.Index (writer.go assigns
-	// Index = NextAcquisitionSortId, then increments by 1). Reconciled on load to
-	// maxExistingIndex+1, so it is safe to use directly without multiplication.
-	// Must be strictly > InvEquipReservedMax (432): equipment slots occupy 0–432.
+	// Compute stride-2 base: NextAcquisitionSortId rounded up to nearest even number.
+	// Must be strictly > InvEquipReservedMax (432). Even base ensures consecutive
+	// positions produce distinct acqIdx>>1 keys: (base+2*i)>>1 = base/2+i.
 	base := slot.Inventory.NextAcquisitionSortId
 	if base <= uint32(core.InvEquipReservedMax) {
-		base = uint32(core.InvEquipReservedMax) + 1
+		base = uint32(core.InvEquipReservedMax) + 2 // 434 — minimum safe even value
 	}
-	topIdx := base + uint32(len(orderedHandles)-1)
+	if base%2 != 0 {
+		base++
+	}
+	expectedMax := base + uint32(len(orderedHandles)-1)*2
 
-	// --- Push undo before any mutation ---
+	log.Printf("REORDER STRIDE2 range tab=%s count=%d base=%d expectedMax=%d",
+		tab, len(orderedHandles), base, expectedMax)
+
+	// Defensive: shiftDuplicates must be 0. With stride-2 + even base,
+	// key = (base+2*i)>>1 = base/2+i is unique by construction. This guard
+	// detects regressions if the base/stride logic is ever changed.
+	shiftKeys := make(map[uint32]int, len(orderedHandles))
+	for pos := range orderedHandles {
+		key := (base + uint32(pos)*2) >> 1
+		if prevPos, dup := shiftKeys[key]; dup {
+			return fmt.Errorf("stride-2 reorder: bucket collision at key=%d positions %d and %d; refusing", key, prevPos, pos)
+		}
+		shiftKeys[key] = pos
+	}
+
+	// Push undo before any mutation.
 	a.pushUndo(charIdx)
 
-	// --- Apply new indices to slot.Data and in-memory CommonItems ---
-	for i, h := range orderedHandles {
-		newIdx := base + uint32(i)
+	// Apply stride-2 indices to slot.Data and in-memory CommonItems.
+	for pos, h := range orderedHandles {
+		newIdx := base + uint32(pos)*2
 		loc := located[h]
 		binary.LittleEndian.PutUint32(slot.Data[loc.off+8:], newIdx)
 		for j := range slot.Inventory.CommonItems {
@@ -281,19 +301,25 @@ func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32)
 		}
 	}
 
-	// --- Update NextAcquisitionSortId and NextEquipIndex in-memory ---
-	newNextAcq := topIdx + 1
-	slot.Inventory.NextAcquisitionSortId = newNextAcq
-	if slot.Inventory.NextEquipIndex < newNextAcq {
-		slot.Inventory.NextEquipIndex = newNextAcq
+	// Advance NextAcquisitionSortId and NextEquipIndex — never decrease.
+	// Since base ≥ NextAcquisitionSortId, newNextAcq is always strictly larger.
+	newNextAcq := expectedMax + 1
+	if newNextAcq > slot.Inventory.NextAcquisitionSortId {
+		slot.Inventory.NextAcquisitionSortId = newNextAcq
+		if slot.Inventory.NextEquipIndex < newNextAcq {
+			slot.Inventory.NextEquipIndex = newNextAcq
+		}
+		// Write to slot.Data immediately. Guard on equipIdxOff > 0: zero means the
+		// offset was never set (e.g. test fixture); WriteSave will pick up the
+		// in-memory value on next serialization.
+		if equipIdxOff := slot.Inventory.NextEquipIndexOff(); equipIdxOff > 0 {
+			binary.LittleEndian.PutUint32(slot.Data[equipIdxOff:], slot.Inventory.NextEquipIndex)
+			binary.LittleEndian.PutUint32(slot.Data[equipIdxOff+4:], slot.Inventory.NextAcquisitionSortId)
+		}
 	}
-	// Write to slot.Data immediately; nextAcqSortIdOff is always nextEquipIndexOff+4.
-	// Guard on equipIdxOff > 0: zero means the offset was never set (e.g. test fixture),
-	// in which case WriteSave will pick up the in-memory value on the next serialization.
-	if equipIdxOff := slot.Inventory.NextEquipIndexOff(); equipIdxOff > 0 {
-		binary.LittleEndian.PutUint32(slot.Data[equipIdxOff:], slot.Inventory.NextEquipIndex)
-		binary.LittleEndian.PutUint32(slot.Data[equipIdxOff+4:], slot.Inventory.NextAcquisitionSortId)
-	}
+
+	log.Printf("REORDER STRIDE2 SUMMARY tab=%s count=%d base=%d max=%d nextAcq=%d",
+		tab, len(orderedHandles), base, expectedMax, newNextAcq)
 
 	return nil
 }
