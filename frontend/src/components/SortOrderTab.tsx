@@ -35,6 +35,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [error, setError] = useState<string | null>(null);
     const [applying, setApplying] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
+    const [helpOpen, setHelpOpen] = useState(false);
     const [dragFrom, setDragFrom] = useState<number | null>(null);
     const [dragOver, setDragOver] = useState<number | null>(null);
     const [selectedHandles, setSelectedHandles] = useState<Set<number>>(new Set());
@@ -265,6 +266,45 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
 
     return (
         <>
+            {/* ── Help modal ────────────────────────────────────────────────── */}
+            {helpOpen && (
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                    onClick={() => setHelpOpen(false)}
+                >
+                    <div
+                        className="bg-background border border-border rounded-xl p-6 w-[480px] shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex items-center gap-2 mb-4">
+                            <div className="w-1 h-4 bg-primary rounded-full" />
+                            <h3 className="text-[10px] font-black uppercase tracking-widest">
+                                Sort Order — Help
+                            </h3>
+                        </div>
+                        <ul className="text-[11px] text-muted-foreground leading-relaxed mb-5 space-y-1.5 list-disc pl-4">
+                            <li>Drag items to change preview order.</li>
+                            <li>Weight/Type sorting is preview-only until applied.</li>
+                            <li>Apply Order saves the current order as Acquisition Order.</li>
+                            <li>Inventory and Storage will be handled as separate grids.</li>
+                            <li>
+                                Future transfer support must work both ways: Inventory → Storage and
+                                Storage → Inventory.
+                            </li>
+                            <li>Storage transfer/reorder is not implemented in this step.</li>
+                        </ul>
+                        <div className="flex justify-end">
+                            <button
+                                onClick={() => setHelpOpen(false)}
+                                className="px-4 py-1.5 text-[10px] font-black uppercase tracking-wider rounded bg-primary/15 text-primary border border-primary/30 hover:bg-primary/20 transition-all"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* ── Confirm modal ─────────────────────────────────────────────── */}
             {confirmOpen && (
                 <div
@@ -321,6 +361,15 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                             {label}
                         </button>
                     ))}
+                    <button
+                        type="button"
+                        onClick={() => setHelpOpen(true)}
+                        title="Sort Order help"
+                        aria-label="Sort Order help"
+                        className="ml-auto w-5 h-5 flex items-center justify-center rounded-full text-[10px] font-black text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-border/40 transition-all"
+                    >
+                        ?
+                    </button>
                 </div>
 
                 {/* ── Loading ───────────────────────────────────────────────── */}
@@ -460,25 +509,16 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         </div>
 
                         {/* ── Info banner ─────────────────────────────────── */}
-                        <div className="shrink-0">
-                            {hasChanges ? (
+                        {hasChanges && (
+                            <div className="shrink-0">
                                 <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md">
                                     <span className="text-amber-400 text-[11px]">⚠</span>
                                     <span className="text-[10px] text-amber-400">
                                         Preview order differs from saved order. Click Apply Order to persist it as in-game Acquisition Order.
                                     </span>
                                 </div>
-                            ) : (
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/10 border border-border/30 rounded-md">
-                                    <span className="text-muted-foreground/60 text-[11px]">ℹ</span>
-                                    <span className="text-[10px] text-muted-foreground/70">
-                                        {activeSortTab === 'weapons'
-                                            ? 'Drag or sort to reorder. Weight/Type sort preview only — Apply Order to save as Acquisition Order. Storage unaffected.'
-                                            : 'Drag or sort to reorder. Weight/Type sort preview only — Apply Order to save as Acquisition Order. Storage unaffected.'}
-                                    </span>
-                                </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
 
                         {/* ── 5×6 grid ────────────────────────────────────── */}
                         {/*
