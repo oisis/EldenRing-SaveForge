@@ -194,11 +194,22 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHa
 			// For Weapons, Armor, and AoW, we MUST use the GaMap to find the real ItemID.
 			itemID, ok = gaMap[item.GaItemHandle]
 		} else if category != "Unknown" {
-			// For stackable items (Talisman=0xA0, Goods=0xB0), handle encodes the item ID
-			// with handle prefix. Convert back to DB-compatible item ID prefix:
-			// 0xA0→0x20 (talisman), 0xB0→0x40 (goods).
-			itemID = db.HandleToItemID(item.GaItemHandle)
-			ok = true
+			// For Talisman (0xA0) and Goods (0xB0) the canonical handle is
+			// `(itemID & 0x0FFFFFFF) | prefix` — HandleToItemID works for
+			// those. However the Inventory ↔ Storage transfer can allocate a
+			// rehandled instance with a counter-encoded handle (NOT
+			// itemID-encoded); for those records HandleToItemID returns
+			// garbage. Always prefer GaMap (transfer registers the real
+			// itemID there); fall back to HandleToItemID only when the
+			// handle is not present in GaMap, which is the typical case for
+			// game-loaded handle-encoded records that lack a GaItem entry.
+			if id, mapped := gaMap[item.GaItemHandle]; mapped && id != 0 {
+				itemID = id
+				ok = true
+			} else {
+				itemID = db.HandleToItemID(item.GaItemHandle)
+				ok = true
+			}
 		}
 
 		if ok {

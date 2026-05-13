@@ -146,6 +146,95 @@ func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, 
 	return items, nil
 }
 
+// GetStorageOrder returns all items in slot charIdx's Storage CommonItems for
+// the given Sort Order tab, sorted by record Index (acquisition) ascending.
+// Mirrors GetInventoryOrder but operates on Storage. Read-only — there is no
+// ReorderStorage / Apply Order for the storage box.
+//
+// Index is the in-record Index field — for storage records this is assigned
+// monotonically by addToInventory/MoveItemsBetweenContainers as records are
+// created (NextEquipIndex, NextAcquisitionSortId). Transferred items naturally
+// receive the highest Index and therefore appear at the end of Acquisition ↑.
+func (a *App) GetStorageOrder(charIdx int, tab string) ([]InventoryOrderItem, error) {
+	categories, err := tabCategorySet(tab)
+	if err != nil {
+		return nil, err
+	}
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= len(a.save.Slots) {
+		return nil, fmt.Errorf("invalid character index %d", charIdx)
+	}
+	slot := &a.save.Slots[charIdx]
+	if slot.Version == 0 {
+		return nil, fmt.Errorf("slot %d is empty", charIdx)
+	}
+	if slot.StorageBoxOffset <= 0 {
+		return []InventoryOrderItem{}, nil
+	}
+
+	startOff := slot.StorageBoxOffset + core.StorageHeaderSkip
+	items := []InventoryOrderItem{}
+
+	for i := 0; i < core.StorageCommonCount; i++ {
+		off := startOff + i*core.InvRecordLen
+		if off+core.InvRecordLen > len(slot.Data) {
+			break
+		}
+		h := binary.LittleEndian.Uint32(slot.Data[off:])
+		if h == core.GaHandleEmpty || h == core.GaHandleInvalid {
+			continue
+		}
+		// Resolve itemID: prefer GaMap (set by allocateGaItem for weapons/armor/
+		// AoW and for rehandled instances). Fall back to HandleToItemID for
+		// vanilla handle-encoded talisman/goods records whose GaMap entry was
+		// dropped on parseFromData re-scan.
+		itemID, ok := slot.GaMap[h]
+		if !ok {
+			itemID = db.HandleToItemID(h)
+		}
+		itemData, baseID := db.GetItemDataFuzzy(itemID)
+		if itemData.Name == "" {
+			continue
+		}
+		if !categories[itemData.Category] {
+			continue
+		}
+		if tab == "weapons" && isWeaponOrderTechnical(itemData.Name, baseID) {
+			continue
+		}
+
+		acqIdx := binary.LittleEndian.Uint32(slot.Data[off+8:])
+
+		var upgradeLevel int
+		var infusionName string
+		if tab == "weapons" {
+			upgradeLevel, infusionName = decodeWeaponUpgradeInfusion(itemID, baseID)
+		}
+
+		sk := data.ItemSortKeys[baseID]
+		items = append(items, InventoryOrderItem{
+			Handle:           h,
+			ItemID:           itemID,
+			Name:             itemData.Name,
+			Category:         itemData.Category,
+			AcquisitionIndex: acqIdx,
+			Weight:           data.ItemWeights[baseID],
+			SortId:           sk.SortId,
+			SortGroupId:      sk.SortGroupId,
+			CurrentUpgrade:   upgradeLevel,
+			InfusionName:     infusionName,
+			IconPath:         itemData.IconPath,
+		})
+	}
+
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].AcquisitionIndex < items[j].AcquisitionIndex
+	})
+	return items, nil
+}
+
 // ReorderInventory rewrites the acquisition indices of all items in slot charIdx's
 // CommonItems inventory for the given tab so that orderedHandles[0] sorts first
 // under "Kolejność zakupu / Rosnąco" in-game.

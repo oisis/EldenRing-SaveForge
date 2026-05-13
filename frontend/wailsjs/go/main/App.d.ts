@@ -114,6 +114,8 @@ export function GetStartingClasses():Promise<Array<db.ClassStats>>;
 
 export function GetSteamIDString():Promise<string>;
 
+export function GetStorageOrder(arg1:number,arg2:string):Promise<Array<main.InventoryOrderItem>>;
+
 export function GetSummoningPools(arg1:number):Promise<Array<db.SummoningPoolEntry>>;
 
 export function GetUndoDepth(arg1:number):Promise<number>;
@@ -135,6 +137,8 @@ export function ListBuiltinCharacterPresets():Promise<Array<main.BuiltinCharacte
 export function LoadCharacterPresetFromFile():Promise<vm.CharacterPreset>;
 
 export function LoadCharacterPresetFromURL(arg1:string):Promise<vm.CharacterPreset>;
+
+export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
 
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
 

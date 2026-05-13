@@ -1,7 +1,15 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { GetCharacter, GetInventoryOrder, ReorderInventory } from '../../wailsjs/go/main/App';
-import { main, vm } from '../../wailsjs/go/models';
+import {
+    GetInventoryOrder,
+    GetStorageOrder,
+    MoveItemsBetweenInventoryAndStorage,
+    ReorderInventory,
+} from '../../wailsjs/go/main/App';
+import { main } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
+
+type DragSource = 'inventory' | 'storage' | null;
+type FrameDropTarget = 'inventory' | 'storage' | null;
 
 const GRID_COLS = 5;
 const GRID_MIN_ROWS = 6;
@@ -19,17 +27,6 @@ const GRID_TEMPLATE_COLUMNS = `repeat(${GRID_COLS}, ${CELL_PX}px)`;
 
 type SortOrderTabKey = 'weapons' | 'talismans' | 'head' | 'chest' | 'arms' | 'legs';
 
-// Maps each Sort Order tab to the granular item categories used by the backend
-// (matches inventoryOrderTabs in app_inventory_order.go). Used to filter
-// CharacterViewModel.storage (ItemViewModel[]) by ItemViewModel.subCategory.
-const STORAGE_TAB_CATEGORIES: Record<SortOrderTabKey, string[]> = {
-    weapons: ['melee_armaments', 'ranged_and_catalysts', 'shields'],
-    talismans: ['talismans'],
-    head: ['head'],
-    chest: ['chest'],
-    arms: ['arms'],
-    legs: ['legs'],
-};
 type SortMode = 'acquisition-asc' | 'acquisition-desc' | 'weight-asc' | 'weight-desc' | 'type-asc' | 'type-desc' | 'custom';
 type SortOption = Exclude<SortMode, 'custom'>;
 
@@ -61,7 +58,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [activeSortTab, setActiveSortTab] = useState<SortOrderTabKey>('weapons');
     const [baseItems, setBaseItems] = useState<main.InventoryOrderItem[]>([]);
     const [previewItems, setPreviewItems] = useState<main.InventoryOrderItem[]>([]);
-    const [storageItems, setStorageItems] = useState<vm.ItemViewModel[]>([]);
+    const [storageItems, setStorageItems] = useState<main.InventoryOrderItem[]>([]);
     const [storageSort, setStorageSort] = useState<SortOption>('acquisition-asc');
     const [sortMode, setSortMode] = useState<SortMode>('acquisition-asc');
     const [loading, setLoading] = useState(false);
@@ -77,6 +74,37 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const didDragRef = useRef(false);
     const dragAnchorHandleRef = useRef<number | null>(null);
     const prevHasChangesRef = useRef(false);
+    // Cross-grid transfer state. dragSourceRef tells us whether the in-flight
+    // drag originated in Inventory (handled by tile-level reorder + cross-grid
+    // frame drop) or Storage (handled only by cross-grid frame drop).
+    // draggedStorageHandleRef carries the handle for storage drags because
+    // Storage records do not share the Inventory tile drag refs.
+    const dragSourceRef = useRef<DragSource>(null);
+    const draggedStorageHandleRef = useRef<number | null>(null);
+    const [frameDropTarget, setFrameDropTarget] = useState<FrameDropTarget>(null);
+    const [transferring, setTransferring] = useState(false);
+
+    // reloadTabData fetches fresh Inventory + Storage data for the active tab
+    // and applies it to local state. Used both by the on-mount/version useEffect
+    // and explicitly after a successful Inventory ↔ Storage transfer, where
+    // relying on the parent's `inventoryVersion` bump alone leaves the grids
+    // stale (the parent may not bump it, or React may batch the bump on a
+    // later tick).
+    const reloadTabData = (_resetSort: boolean): Promise<void> => {
+        return Promise.all([
+            GetInventoryOrder(charIndex, activeSortTab),
+            GetStorageOrder(charIndex, activeSortTab),
+        ])
+            .then(([invData, storageData]) => {
+                const sortedInv = sortByMode(invData, 'acquisition-asc');
+                setBaseItems(sortedInv);
+                setPreviewItems(sortedInv);
+                // Storage is read-only preview — store the backend's
+                // acquisition-ascending baseline; the dropdown sort is applied
+                // downstream via the same sortByMode reused for Inventory.
+                setStorageItems(sortByMode(storageData, 'acquisition-asc'));
+            });
+    };
 
     useEffect(() => {
         setLoading(true);
@@ -90,23 +118,14 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         setIsBlockDragging(false);
         didDragRef.current = false;
         dragAnchorHandleRef.current = null;
+        dragSourceRef.current = null;
+        draggedStorageHandleRef.current = null;
+        setFrameDropTarget(null);
         prevHasChangesRef.current = false;
-        Promise.all([
-            GetInventoryOrder(charIndex, activeSortTab),
-            GetCharacter(charIndex),
-        ])
-            .then(([invData, char]) => {
-                const sorted = sortByMode(invData, 'acquisition-asc');
-                setBaseItems(sorted);
-                setPreviewItems(sorted);
-                const cats = STORAGE_TAB_CATEGORIES[activeSortTab];
-                const filtered = (char.storage || []).filter((it) =>
-                    cats.includes(it.subCategory),
-                );
-                setStorageItems(filtered);
-            })
+        reloadTabData(true)
             .catch((err: unknown) => setError(String(err)))
             .finally(() => setLoading(false));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [charIndex, inventoryVersion, activeSortTab]);
 
     const hasChanges = useMemo(() => {
@@ -197,6 +216,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const handleDragStart = (localIdx: number, item: main.InventoryOrderItem) => {
         didDragRef.current = true;
         dragAnchorHandleRef.current = item.handle;
+        dragSourceRef.current = 'inventory';
         const isInSelection = selectedHandles.has(item.handle);
         if (!isInSelection) {
             setSelectedHandles(new Set([item.handle]));
@@ -207,6 +227,13 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         }
         setDragFrom(localIdx);
         setDragOver(null);
+    };
+
+    const handleStorageDragStart = (item: main.InventoryOrderItem) => {
+        didDragRef.current = true;
+        dragSourceRef.current = 'storage';
+        draggedStorageHandleRef.current = item.handle;
+        setFrameDropTarget(null);
     };
 
     const handleDragOver = (e: React.DragEvent, localIdx: number) => {
@@ -295,12 +322,92 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         setDragOver(null);
         setIsBlockDragging(false);
         dragAnchorHandleRef.current = null;
+        dragSourceRef.current = null;
+        draggedStorageHandleRef.current = null;
+        setFrameDropTarget(null);
         setTimeout(() => {
             didDragRef.current = false;
         }, 0);
     };
 
-    const busy = applying;
+    // Cross-grid transfer (single item). Guarded against pending preview
+    // changes — user must apply or reset Inventory order before transferring.
+    const reasonToMessage = (reason: string, destLabel: string): string => {
+        switch (reason) {
+            case 'equipped':
+                return 'Cannot transfer: item is equipped. Un-equip first.';
+            case 'dest_full':
+                return `${destLabel} is full.`;
+            case 'dest_at_cap':
+                return `${destLabel} already at max for this item.`;
+            case 'missing_cap':
+                return 'Item capacity unknown — transfer blocked.';
+            case 'not_found':
+                return 'Item not found.';
+            case 'invalid_handle':
+                return 'Invalid item handle.';
+            default:
+                return `Transfer skipped: ${reason}.`;
+        }
+    };
+
+    const handleCrossTransfer = (
+        direction: 'to-storage' | 'to-inventory',
+        handle: number,
+    ) => {
+        if (hasChanges) {
+            toast('Apply or reset the current Inventory order before transferring items.');
+            return;
+        }
+        if (transferring) return;
+        const destLabel = direction === 'to-storage' ? 'Storage' : 'Inventory';
+        setTransferring(true);
+        MoveItemsBetweenInventoryAndStorage(charIndex, [handle], direction)
+            .then(async (res) => {
+                const skipped = res.skipped ?? [];
+                if (res.moved > 0 && skipped.length === 0) {
+                    toast.success(`Moved item to ${destLabel}.`);
+                } else if (res.moved > 0 && skipped.length > 0) {
+                    const skip = skipped[0];
+                    if (skip.reason === 'dest_at_cap' && skip.movedQty) {
+                        toast(
+                            `Moved ${skip.movedQty} to ${destLabel}; ${skip.remainingQty ?? 0} stayed due to cap.`,
+                        );
+                    } else {
+                        toast(`Moved partially (${skip.reason}).`);
+                    }
+                } else {
+                    const reason = skipped[0]?.reason ?? 'unknown';
+                    toast.error(reasonToMessage(reason, destLabel));
+                }
+                if (res.moved > 0) {
+                    // Explicit local reload — onMutate is fire-and-forget and
+                    // does not guarantee the parent bumps inventoryVersion in
+                    // time to refresh both grids. Pull fresh data and apply
+                    // before clearing drag state so the new counts/tiles are
+                    // visible immediately.
+                    try {
+                        await reloadTabData(false);
+                    } catch (err) {
+                        toast.error(`Refresh failed: ${String(err)}`);
+                    }
+                    setSelectedHandles(new Set());
+                    setAnchorHandle(null);
+                    onMutate?.();
+                }
+            })
+            .catch((err: unknown) => {
+                toast.error(`Transfer failed: ${String(err)}`);
+            })
+            .finally(() => {
+                dragSourceRef.current = null;
+                draggedStorageHandleRef.current = null;
+                setFrameDropTarget(null);
+                setTransferring(false);
+            });
+    };
+
+    const busy = applying || transferring;
     const activeLabel = SORT_TABS.find((t) => t.key === activeSortTab)!.label;
 
     // ── Grid data ─────────────────────────────────────────────────────────────
@@ -313,10 +420,10 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         ...Array<null>(Math.max(0, GRID_MIN_CELLS - previewItems.length)).fill(null),
     ];
     const sortedStorageItems = useMemo(
-        () => sortStorageItems(storageItems, storageSort),
+        () => sortByMode(storageItems, storageSort),
         [storageItems, storageSort],
     );
-    const storageGridCells: (vm.ItemViewModel | null)[] = [
+    const storageGridCells: (main.InventoryOrderItem | null)[] = [
         ...sortedStorageItems,
         ...Array<null>(Math.max(0, GRID_MIN_CELLS - sortedStorageItems.length)).fill(null),
     ];
@@ -496,27 +603,52 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                 {/* ── Main content: two-column layout ──────────────────────── */}
                 {!loading && !error && (
                     <div className="flex-1 min-h-0 flex gap-3">
-                        {/* ── Storage column (left, read-only) ─────────────── */}
+                        {/* ── Storage column (left, drop target) ─────────────── */}
                         <section className="flex-1 min-w-0 flex flex-col min-h-0 gap-2">
                             <div className="flex items-center justify-between shrink-0 gap-2 min-h-7">
                                 <div className="flex items-baseline gap-2">
                                     <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                                         Storage
                                     </h4>
-                                    <span className="text-[9px] font-bold text-muted-foreground/60 tabular-nums">
+                                    <span className="text-xs font-bold text-blue-700 tabular-nums whitespace-nowrap">
                                         {storageItems.length} item{storageItems.length === 1 ? '' : 's'}
                                     </span>
                                 </div>
-                                <span className="text-[9px] font-bold text-muted-foreground/50 uppercase tracking-widest whitespace-nowrap">
-                                    Read-only
-                                </span>
                             </div>
                             <div
-                                className="relative shrink-0 mx-auto rounded-xl border border-border/50 bg-background/40 overflow-y-auto"
+                                className={`relative shrink-0 mx-auto rounded-xl border bg-background/40 overflow-y-auto transition-colors ${
+                                    frameDropTarget === 'storage'
+                                        ? 'border-amber-400/70 ring-2 ring-amber-400/40'
+                                        : 'border-border/50'
+                                }`}
                                 style={{
                                     width: FRAME_WIDTH_PX,
                                     height: FRAME_HEIGHT_PX,
                                     padding: PAD_PX,
+                                }}
+                                onDragOver={(e) => {
+                                    if (dragSourceRef.current === 'inventory') {
+                                        e.preventDefault();
+                                        if (frameDropTarget !== 'storage') setFrameDropTarget('storage');
+                                    }
+                                }}
+                                onDragLeave={(e) => {
+                                    // Only clear when leaving the frame itself, not when crossing
+                                    // child boundaries inside the frame.
+                                    const related = e.relatedTarget as Node | null;
+                                    if (!related || !e.currentTarget.contains(related)) {
+                                        if (frameDropTarget === 'storage') setFrameDropTarget(null);
+                                    }
+                                }}
+                                onDrop={(e) => {
+                                    if (dragSourceRef.current !== 'inventory') return;
+                                    e.preventDefault();
+                                    const draggedItem =
+                                        dragFrom !== null ? previewItems[dragFrom] : null;
+                                    if (draggedItem) {
+                                        handleCrossTransfer('to-storage', draggedItem.handle);
+                                    }
+                                    setFrameDropTarget(null);
                                 }}
                             >
                                 <div
@@ -531,6 +663,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                             <StorageTile
                                                 key={`s-${item.handle}-${idx}`}
                                                 item={item}
+                                                onDragStart={() => handleStorageDragStart(item)}
+                                                onDragEnd={handleDragEnd}
                                             />
                                         ) : (
                                             <EmptyCell key={`s-empty-${idx}`} />
@@ -550,7 +684,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                     <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
                                         Inventory
                                     </h4>
-                                    <span className="text-[9px] font-bold text-muted-foreground/60 tabular-nums">
+                                    <span className="text-xs font-bold text-blue-700 tabular-nums whitespace-nowrap">
                                         {previewItems.length} item{previewItems.length === 1 ? '' : 's'}
                                     </span>
                                     {sortMode === 'custom' && (
@@ -597,11 +731,39 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                             </div>
 
                             <div
-                                className="relative shrink-0 mx-auto rounded-xl border border-border/50 bg-background/40 overflow-y-auto"
+                                className={`relative shrink-0 mx-auto rounded-xl border bg-background/40 overflow-y-auto transition-colors ${
+                                    frameDropTarget === 'inventory'
+                                        ? 'border-amber-400/70 ring-2 ring-amber-400/40'
+                                        : 'border-border/50'
+                                }`}
                                 style={{
                                     width: FRAME_WIDTH_PX,
                                     height: FRAME_HEIGHT_PX,
                                     padding: PAD_PX,
+                                }}
+                                onDragOver={(e) => {
+                                    if (dragSourceRef.current === 'storage') {
+                                        e.preventDefault();
+                                        if (frameDropTarget !== 'inventory') setFrameDropTarget('inventory');
+                                    }
+                                }}
+                                onDragLeave={(e) => {
+                                    const related = e.relatedTarget as Node | null;
+                                    if (!related || !e.currentTarget.contains(related)) {
+                                        if (frameDropTarget === 'inventory') setFrameDropTarget(null);
+                                    }
+                                }}
+                                onDrop={(e) => {
+                                    // Only handle Storage→Inventory transfer here.
+                                    // Inventory→Inventory reorder is handled by tile-level
+                                    // onDrop handlers earlier in the bubble chain.
+                                    if (dragSourceRef.current !== 'storage') return;
+                                    e.preventDefault();
+                                    const handle = draggedStorageHandleRef.current;
+                                    if (handle != null) {
+                                        handleCrossTransfer('to-inventory', handle);
+                                    }
+                                    setFrameDropTarget(null);
                                 }}
                             >
                                 {isBlockDragging && selectedHandles.size > 1 && (
@@ -767,18 +929,38 @@ function EmptyCell() {
     );
 }
 
-function StorageTile({ item }: { item: vm.ItemViewModel }) {
+interface StorageTileProps {
+    item: main.InventoryOrderItem;
+    onDragStart: () => void;
+    onDragEnd: () => void;
+}
+
+function StorageTile({ item, onDragStart, onDragEnd }: StorageTileProps) {
     const [imgError, setImgError] = useState(false);
     const upgradeLabel =
-        item.currentUpgrade && item.currentUpgrade > 0 ? `+${item.currentUpgrade}` : null;
-    const qtyLabel = item.quantity > 1 ? `×${item.quantity}` : null;
-    const tooltip = [item.name, upgradeLabel, qtyLabel].filter(Boolean).join(' · ');
+        item.currentUpgrade && item.currentUpgrade > 0
+            ? item.infusionName
+                ? `${item.infusionName} +${item.currentUpgrade}`
+                : `+${item.currentUpgrade}`
+            : item.infusionName || null;
+    const weightLabel = item.weight && item.weight > 0 ? `${item.weight.toFixed(1)}` : null;
+    const tooltip = [
+        item.name,
+        upgradeLabel,
+        weightLabel ? `${weightLabel} kg` : null,
+        `#${item.acquisitionIndex}`,
+    ]
+        .filter(Boolean)
+        .join(' · ');
     const showIcon = !!item.iconPath && !imgError;
 
     return (
         <div
             title={tooltip}
-            className="relative aspect-square bg-card/60 border border-border/40 rounded-md overflow-hidden"
+            draggable
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+            className="relative aspect-square bg-card/60 border border-border/40 rounded-md overflow-hidden cursor-grab active:cursor-grabbing"
         >
             <div className="absolute inset-0 flex flex-col items-center p-1 gap-0.5">
                 <div className="flex-1 min-h-0 flex items-center justify-center w-full overflow-hidden">
@@ -807,9 +989,9 @@ function StorageTile({ item }: { item: vm.ItemViewModel }) {
                     )}
                 </div>
             </div>
-            {qtyLabel && (
-                <div className="absolute top-0.5 right-0.5 px-0.5 rounded text-[6px] font-mono font-bold text-foreground/55 leading-tight pointer-events-none">
-                    {qtyLabel}
+            {weightLabel && (
+                <div className="absolute top-0.5 right-0.5 px-0.5 rounded text-[6px] font-mono font-bold text-blue-300/70 leading-tight pointer-events-none">
+                    {weightLabel}
                 </div>
             )}
         </div>
@@ -874,42 +1056,3 @@ function cmpName(a: main.InventoryOrderItem, b: main.InventoryOrderItem): number
     return a.name.localeCompare(b.name);
 }
 
-// sortStorageItems orders read-only storage tiles for preview only.
-// ItemViewModel lacks weight/sortId fields, so weight sort falls back to name
-// (alphabetical) and type sort uses subCategory + subGroup + name. Acquisition
-// sort uses the natural order returned by GetCharacter().storage.
-function sortStorageItems(items: vm.ItemViewModel[], mode: SortOption): vm.ItemViewModel[] {
-    const arr = [...items];
-    switch (mode) {
-        case 'acquisition-asc':
-            return arr;
-        case 'acquisition-desc':
-            return arr.reverse();
-        case 'weight-asc':
-            arr.sort((a, b) => a.name.localeCompare(b.name));
-            return arr;
-        case 'weight-desc':
-            arr.sort((a, b) => b.name.localeCompare(a.name));
-            return arr;
-        case 'type-asc':
-            return arr.sort((a, b) => {
-                const ca = a.subCategory || '';
-                const cb = b.subCategory || '';
-                if (ca !== cb) return ca.localeCompare(cb);
-                const ga = a.subGroup || '';
-                const gb = b.subGroup || '';
-                if (ga !== gb) return ga.localeCompare(gb);
-                return a.name.localeCompare(b.name);
-            });
-        case 'type-desc':
-            return arr.sort((a, b) => {
-                const ca = a.subCategory || '';
-                const cb = b.subCategory || '';
-                if (ca !== cb) return cb.localeCompare(ca);
-                const ga = a.subGroup || '';
-                const gb = b.subGroup || '';
-                if (ga !== gb) return gb.localeCompare(ga);
-                return b.name.localeCompare(a.name);
-            });
-    }
-}

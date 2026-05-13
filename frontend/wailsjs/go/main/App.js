@@ -218,6 +218,10 @@ export function GetSteamIDString() {
   return window['go']['main']['App']['GetSteamIDString']();
 }
 
+export function GetStorageOrder(arg1, arg2) {
+  return window['go']['main']['App']['GetStorageOrder'](arg1, arg2);
+}
+
 export function GetSummoningPools(arg1) {
   return window['go']['main']['App']['GetSummoningPools'](arg1);
 }
@@ -260,6 +264,10 @@ export function LoadCharacterPresetFromFile() {
 
 export function LoadCharacterPresetFromURL(arg1) {
   return window['go']['main']['App']['LoadCharacterPresetFromURL'](arg1);
+}
+
+export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
 }
 
 export function RemoveFavoritePreset(arg1) {

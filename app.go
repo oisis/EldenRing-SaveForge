@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"sort"
@@ -693,6 +694,111 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 	return nil
 }
 
+// MoveItemsBetweenInventoryAndStorage relocates inventory records between
+// CommonItems Inventory and Storage for the given character slot. The direction
+// string must be "to-storage" (Inventory → Storage) or "to-inventory"
+// (Storage → Inventory). Returns per-handle outcome; invalid handles are
+// reported in Skipped, not raised as errors.
+//
+// Equipped items (handles referenced by ChrAsmEquipment) are skipped with
+// reason "equipped" only for the to-storage direction. Other skip reasons:
+// "not_found", "dest_full", "invalid_handle".
+//
+// Undo snapshot is pushed only when at least one handle was actually moved.
+func (a *App) MoveItemsBetweenInventoryAndStorage(charIdx int, handles []uint32, direction string) (core.TransferResult, error) {
+	empty := core.TransferResult{}
+	if a.save == nil {
+		return empty, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= len(a.save.Slots) {
+		return empty, fmt.Errorf("invalid character index %d", charIdx)
+	}
+	var dir core.TransferDirection
+	switch direction {
+	case "to-storage":
+		dir = core.TransferToStorage
+	case "to-inventory":
+		dir = core.TransferToInventory
+	default:
+		return empty, fmt.Errorf("invalid direction %q (expected \"to-storage\" or \"to-inventory\")", direction)
+	}
+
+	slot := &a.save.Slots[charIdx]
+	if slot.Version == 0 {
+		return empty, fmt.Errorf("slot %d is empty", charIdx)
+	}
+
+	// Snapshot for undo. pushUndo only if we will actually mutate state — peek
+	// first by running a dry-check on whether at least one handle resolves to a
+	// real source record. We push undo before the real call so a partially-
+	// failed batch is still recoverable.
+	willMutate := false
+	for _, h := range handles {
+		if h == core.GaHandleEmpty || h == core.GaHandleInvalid {
+			continue
+		}
+		var srcStart, slots int
+		if dir == core.TransferToStorage {
+			srcStart = slot.MagicOffset + core.InvStartFromMagic
+			slots = core.CommonItemCount
+		} else {
+			srcStart = slot.StorageBoxOffset + core.StorageHeaderSkip
+			slots = core.StorageCommonCount
+		}
+		if srcStart <= 0 {
+			continue
+		}
+		for i := 0; i < slots; i++ {
+			off := srcStart + i*core.InvRecordLen
+			if off+core.InvRecordLen > len(slot.Data) {
+				break
+			}
+			if binary.LittleEndian.Uint32(slot.Data[off:]) == h {
+				willMutate = true
+				break
+			}
+		}
+		if willMutate {
+			break
+		}
+	}
+	if willMutate {
+		a.pushUndo(charIdx)
+	}
+
+	// Resolve per-handle destination caps for quantity-merge items only
+	// (goods 0xB0). Instance-move handles (weapons 0x80, armor 0x90,
+	// talismans 0xA0, AoW 0xC0) use physical relocation and never consult
+	// the cap; including their MaxInventory=1 in the map would be harmless
+	// but is omitted to keep the contract explicit — for those handles, the
+	// caps map is intentionally empty.
+	caps := make(map[uint32]uint32, len(handles))
+	for _, h := range handles {
+		if h == core.GaHandleEmpty || h == core.GaHandleInvalid {
+			continue
+		}
+		if h&core.GaHandleTypeMask != core.ItemTypeItem {
+			continue
+		}
+		itemID, ok := slot.GaMap[h]
+		if !ok {
+			// Goods use handle = itemID|prefix; recover the DB-compatible
+			// item ID when GaMap is missing the entry.
+			itemID = db.HandleToItemID(h)
+		}
+		itemData, _ := db.GetItemDataFuzzy(itemID)
+		var cap uint32
+		if dir == core.TransferToStorage {
+			cap = itemData.MaxStorage
+		} else {
+			cap = itemData.MaxInventory
+		}
+		caps[h] = cap
+	}
+
+	return core.MoveItemsBetweenContainers(slot, handles, dir, &core.TransferOptions{DestCaps: caps})
+}
+
 // resolveQty converts a qty directive into an actual quantity.
 // qty=0 → 0 (skip); qty=-1 → max; qty>0 → min(qty, max).
 func resolveQty(qty, max int) int {
@@ -1297,6 +1403,6 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 }
 
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}
 }
