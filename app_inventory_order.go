@@ -18,6 +18,8 @@ type InventoryOrderItem struct {
 	Category         string  `json:"category"`
 	AcquisitionIndex uint32  `json:"acquisitionIndex"`
 	Weight           float64 `json:"weight,omitempty"`
+	SortId           uint32  `json:"sortId,omitempty"`
+	SortGroupId      uint8   `json:"sortGroupId,omitempty"`
 	CurrentUpgrade   int     `json:"currentUpgrade,omitempty"`
 	InfusionName     string  `json:"infusionName,omitempty"`
 	IconPath         string  `json:"iconPath,omitempty"`
@@ -122,6 +124,7 @@ func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, 
 			upgradeLevel, infusionName = decodeWeaponUpgradeInfusion(itemID, baseID)
 		}
 
+		sk := data.ItemSortKeys[baseID]
 		items = append(items, InventoryOrderItem{
 			Handle:           h,
 			ItemID:           itemID,
@@ -129,6 +132,8 @@ func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, 
 			Category:         itemData.Category,
 			AcquisitionIndex: acqIdx,
 			Weight:           data.ItemWeights[baseID],
+			SortId:           sk.SortId,
+			SortGroupId:      sk.SortGroupId,
 			CurrentUpgrade:   upgradeLevel,
 			InfusionName:     infusionName,
 			IconPath:         itemData.IconPath,

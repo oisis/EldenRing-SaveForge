@@ -8,7 +8,7 @@ const PAGE_ROWS = 6;
 const PAGE_SIZE = PAGE_COLS * PAGE_ROWS; // 30
 
 type SortOrderTabKey = 'weapons' | 'talismans' | 'head' | 'chest' | 'arms' | 'legs';
-type SortMode = 'acquisition-asc' | 'acquisition-desc' | 'weight-asc' | 'weight-desc' | 'custom';
+type SortMode = 'acquisition-asc' | 'acquisition-desc' | 'weight-asc' | 'weight-desc' | 'type-asc' | 'type-desc' | 'custom';
 
 const SORT_TABS: { key: SortOrderTabKey; label: string }[] = [
     { key: 'weapons', label: 'Weapons' },
@@ -287,6 +287,28 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 >
                                     Weight ↓
                                 </button>
+                                <button
+                                    disabled={busy}
+                                    onClick={() => applySort('type-asc')}
+                                    className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                                        sortMode === 'type-asc'
+                                            ? 'bg-violet-700/80 text-white shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                                    }`}
+                                >
+                                    Type ↑
+                                </button>
+                                <button
+                                    disabled={busy}
+                                    onClick={() => applySort('type-desc')}
+                                    className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                                        sortMode === 'type-desc'
+                                            ? 'bg-violet-700/80 text-white shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                                    }`}
+                                >
+                                    Type ↓
+                                </button>
                                 {sortMode === 'custom' && (
                                     <span className="text-[9px] font-bold text-amber-400/80 uppercase tracking-widest whitespace-nowrap">
                                         Custom
@@ -327,9 +349,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md">
                                     <span className="text-amber-400 text-[11px]">⚠</span>
                                     <span className="text-[10px] text-amber-400">
-                                        Preview order differs from saved order. Click Apply Order to save.
-                                        {(sortMode === 'weight-asc' || sortMode === 'weight-desc') &&
-                                            ' Weight sort is a preview — Apply Order to persist it.'}
+                                        Preview order differs from saved order. Click Apply Order to persist it as in-game Acquisition Order.
                                     </span>
                                 </div>
                             ) : (
@@ -337,8 +357,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                     <span className="text-muted-foreground/60 text-[11px]">ℹ</span>
                                     <span className="text-[10px] text-muted-foreground/70">
                                         {activeSortTab === 'weapons'
-                                            ? 'Drag items to reorder. Sort Order changes how weapons appear under in-game Acquisition Order. Storage is not affected.'
-                                            : 'Drag items to reorder. Reorder items within this equipment tab. Storage is not affected.'}
+                                            ? 'Drag or sort to reorder. Weight/Type sort preview only — Apply Order to save as Acquisition Order. Storage unaffected.'
+                                            : 'Drag or sort to reorder. Weight/Type sort preview only — Apply Order to save as Acquisition Order. Storage unaffected.'}
                                     </span>
                                 </div>
                             )}
@@ -426,11 +446,13 @@ function ItemTile({ item, isDragging, isDragOver, onDragStart, onDragOver, onDro
             : item.infusionName || null;
 
     const weightLabel = item.weight && item.weight > 0 ? `${item.weight.toFixed(1)}` : null;
+    const typeLabel = item.sortId && item.sortId > 0 ? `T${item.sortGroupId}` : null;
 
     const tooltip = [
         item.name,
         upgradeLabel,
         weightLabel ? `${weightLabel} kg` : null,
+        typeLabel,
         `#${item.acquisitionIndex}`,
     ]
         .filter(Boolean)
@@ -528,6 +550,28 @@ function sortByMode(items: main.InventoryOrderItem[], mode: SortMode): main.Inve
                 if (wa === 0) return 1;
                 if (wb === 0) return -1;
                 return wb - wa || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+            });
+        case 'type-asc':
+            return arr.sort((a, b) => {
+                const sa = a.sortId ?? 0;
+                const sb = b.sortId ?? 0;
+                if (sa === 0 && sb === 0) return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+                if (sa === 0) return 1;
+                if (sb === 0) return -1;
+                const ga = a.sortGroupId ?? 0;
+                const gb = b.sortGroupId ?? 0;
+                return ga - gb || sa - sb || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+            });
+        case 'type-desc':
+            return arr.sort((a, b) => {
+                const sa = a.sortId ?? 0;
+                const sb = b.sortId ?? 0;
+                if (sa === 0 && sb === 0) return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+                if (sa === 0) return 1;
+                if (sb === 0) return -1;
+                const ga = a.sortGroupId ?? 0;
+                const gb = b.sortGroupId ?? 0;
+                return gb - ga || sb - sa || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
             });
         default:
             return arr;

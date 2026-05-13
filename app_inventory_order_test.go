@@ -653,6 +653,64 @@ func TestGetInventoryOrder_HeadArmorWeight(t *testing.T) {
 	}
 }
 
+// ─── SortId / SortGroupId fields ──────────────────────────────────────────────
+
+func TestGetInventoryOrder_WeaponSortKey(t *testing.T) {
+	// Dagger 0x000F4240 → data.ItemSortKeys[0x000F4240] = {SortId: 1000000, SortGroupId: 10}
+	weapons := []testInvWeapon{{0x80800001, 0x000F4240, 2000}}
+	app := inventoryOrderFixture(weapons)
+	items, err := app.GetInventoryOrder(0, "weapons")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(items))
+	}
+	if items[0].SortId != 1000000 {
+		t.Errorf("Dagger SortId: want 1000000, got %d", items[0].SortId)
+	}
+	if items[0].SortGroupId != 10 {
+		t.Errorf("Dagger SortGroupId: want 10, got %d", items[0].SortGroupId)
+	}
+}
+
+func TestGetInventoryOrder_TalismanSortKey(t *testing.T) {
+	// Crimson Amber Medallion: GaItem 0xA00003E8, DB key 0x200003E8
+	// data.ItemSortKeys[0x200003E8] = {SortId: 400000, SortGroupId: 10}
+	app := inventoryItemFixture([]testInvItem{{0xA00003E8, 0xA00003E8, 500}})
+	items, err := app.GetInventoryOrder(0, "talismans")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(items))
+	}
+	if items[0].SortId != 400000 {
+		t.Errorf("Crimson Amber Medallion SortId: want 400000, got %d", items[0].SortId)
+	}
+	if items[0].SortGroupId != 10 {
+		t.Errorf("Crimson Amber Medallion SortGroupId: want 10, got %d", items[0].SortGroupId)
+	}
+}
+
+func TestGetInventoryOrder_HeadArmorSortKey(t *testing.T) {
+	// Iron Kasa DB key 0x100249F0 → data.ItemSortKeys[0x100249F0] = {SortId: 506110, SortGroupId: 70}
+	app := inventoryItemFixture([]testInvItem{{0x900249F0, 0x100249F0, 600}})
+	items, err := app.GetInventoryOrder(0, "head")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(items))
+	}
+	if items[0].SortId != 506110 {
+		t.Errorf("Iron Kasa SortId: want 506110, got %d", items[0].SortId)
+	}
+	if items[0].SortGroupId != 70 {
+		t.Errorf("Iron Kasa SortGroupId: want 70, got %d", items[0].SortGroupId)
+	}
+}
+
 // TestReorderWeaponInventory_NextItemSortsAfter verifies that after reordering,
 // NextAcquisitionSortId (the raw index writer.go assigns to the next new item) is
 // strictly greater than every index written by the reorder. This guarantees a newly
