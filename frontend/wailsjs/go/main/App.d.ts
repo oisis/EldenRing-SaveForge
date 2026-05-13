@@ -148,6 +148,8 @@ export function RemoveItemsFromCharacter(arg1:number,arg2:Array<number>,arg3:boo
 
 export function ReorderInventory(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
 
+export function ReorderStorage(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
+
 export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<void>;
 
 export function ResetMapExploration(arg1:number):Promise<void>;

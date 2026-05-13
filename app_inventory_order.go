@@ -413,6 +413,192 @@ func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32)
 	return nil
 }
 
+// ReorderStorage rewrites the acquisition indices of all items in slot charIdx's
+// Storage CommonItems for the given tab so that orderedHandles[0] sorts first
+// under "Acquisition Order ↑" when the storage box is browsed in-game.
+//
+// Mirrors ReorderInventory but operates on slot.Storage instead of slot.Inventory:
+//   - reads/writes Storage.CommonItems and slot.Data[StorageBoxOffset + StorageHeaderSkip..]
+//   - advances slot.Storage.NextEquipIndex / NextAcquisitionSortId monotonically
+//   - calls ReconcileStorageHeader defensively at the end
+//
+// Uses the same stride-2 indexing (`base + pos*2`) as Inventory. The game sorts
+// "Acquisition Order" by `acqIdx >> 1` for both Inventory and Storage browsers,
+// so without stride-2 adjacent items can swap when the bucket collides
+// (see spec/52 for the discovery).
+//
+// orderedHandles must be the COMPLETE list of storage items for the tab as
+// returned by GetStorageOrder — no omissions, no duplicates. Partial lists,
+// duplicates, or handles outside Storage are rejected with no mutation.
+//
+// Only InventoryItem.Index values are changed. GaItems, handles, quantities,
+// equipped slots, AoW handles, KeyItems, and inventory items are untouched.
+func (a *App) ReorderStorage(charIdx int, tab string, orderedHandles []uint32) error {
+	categories, err := tabCategorySet(tab)
+	if err != nil {
+		return err
+	}
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= len(a.save.Slots) {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+	slot := &a.save.Slots[charIdx]
+	if slot.Version == 0 {
+		return fmt.Errorf("slot %d is empty", charIdx)
+	}
+	if slot.StorageBoxOffset <= 0 {
+		return fmt.Errorf("slot %d has no storage box", charIdx)
+	}
+	if len(orderedHandles) == 0 {
+		return fmt.Errorf("orderedHandles must not be empty")
+	}
+
+	label := tabLabel[tab]
+
+	// Guard: no duplicates in orderedHandles.
+	seen := make(map[uint32]int, len(orderedHandles))
+	for i, h := range orderedHandles {
+		if prev, dup := seen[h]; dup {
+			return fmt.Errorf("duplicate handle 0x%08X at positions %d and %d", h, prev, i)
+		}
+		seen[h] = i
+	}
+
+	startOff := slot.StorageBoxOffset + core.StorageHeaderSkip
+
+	// Locate requested handles in Storage.CommonItems; validate category & technical.
+	type stoLoc struct{ off int }
+	located := make(map[uint32]stoLoc, len(orderedHandles))
+
+	for i := 0; i < core.StorageCommonCount; i++ {
+		off := startOff + i*core.InvRecordLen
+		if off+core.InvRecordLen > len(slot.Data) {
+			break
+		}
+		h := binary.LittleEndian.Uint32(slot.Data[off:])
+		if h == core.GaHandleEmpty || h == core.GaHandleInvalid {
+			continue
+		}
+		if _, want := seen[h]; !want {
+			continue
+		}
+		itemID, ok := slot.GaMap[h]
+		if !ok {
+			itemID = db.HandleToItemID(h)
+		}
+		itemData, baseID := db.GetItemDataFuzzy(itemID)
+		if !categories[itemData.Category] {
+			return fmt.Errorf("handle 0x%08X (category %q) does not belong to sort order tab %q", h, itemData.Category, tab)
+		}
+		if tab == "weapons" && isWeaponOrderTechnical(itemData.Name, baseID) {
+			return fmt.Errorf("handle 0x%08X is a technical placeholder (%s) and cannot be used in sort order", h, itemData.Name)
+		}
+		located[h] = stoLoc{off: off}
+	}
+
+	for _, h := range orderedHandles {
+		if _, ok := located[h]; !ok {
+			return fmt.Errorf("handle 0x%08X not found in %s storage (may be in inventory, or not a %s)", h, label, label)
+		}
+	}
+
+	// Require complete list: count all eligible storage items for this tab.
+	totalItems := 0
+	for i := 0; i < core.StorageCommonCount; i++ {
+		off := startOff + i*core.InvRecordLen
+		if off+core.InvRecordLen > len(slot.Data) {
+			break
+		}
+		h := binary.LittleEndian.Uint32(slot.Data[off:])
+		if h == core.GaHandleEmpty || h == core.GaHandleInvalid {
+			continue
+		}
+		itemID, ok := slot.GaMap[h]
+		if !ok {
+			itemID = db.HandleToItemID(h)
+		}
+		itemData, baseID := db.GetItemDataFuzzy(itemID)
+		if itemData.Name == "" {
+			continue
+		}
+		if categories[itemData.Category] {
+			if tab != "weapons" || !isWeaponOrderTechnical(itemData.Name, baseID) {
+				totalItems++
+			}
+		}
+	}
+	if len(orderedHandles) != totalItems {
+		return fmt.Errorf(
+			"orderedHandles has %d %ss but storage has %d; provide the full list from GetStorageOrder",
+			len(orderedHandles), label, totalItems,
+		)
+	}
+
+	// Stride-2 base: start at NextAcquisitionSortId rounded up to nearest even.
+	// Strictly > InvEquipReservedMax to stay clear of reserved equipment slots.
+	base := slot.Storage.NextAcquisitionSortId
+	if base <= uint32(core.InvEquipReservedMax) {
+		base = uint32(core.InvEquipReservedMax) + 2
+	}
+	if base%2 != 0 {
+		base++
+	}
+	expectedMax := base + uint32(len(orderedHandles)-1)*2
+
+	log.Printf("REORDER STORAGE STRIDE2 range tab=%s count=%d base=%d expectedMax=%d",
+		tab, len(orderedHandles), base, expectedMax)
+
+	// Defensive bucket-collision guard (unreachable with even base + stride-2,
+	// but catches regressions if the base/stride logic changes).
+	shiftKeys := make(map[uint32]int, len(orderedHandles))
+	for pos := range orderedHandles {
+		key := (base + uint32(pos)*2) >> 1
+		if prevPos, dup := shiftKeys[key]; dup {
+			return fmt.Errorf("stride-2 storage reorder: bucket collision at key=%d positions %d and %d; refusing", key, prevPos, pos)
+		}
+		shiftKeys[key] = pos
+	}
+
+	// Push undo before any mutation.
+	a.pushUndo(charIdx)
+
+	// Apply stride-2 indices to slot.Data and in-memory Storage.CommonItems.
+	for pos, h := range orderedHandles {
+		newIdx := base + uint32(pos)*2
+		loc := located[h]
+		binary.LittleEndian.PutUint32(slot.Data[loc.off+8:], newIdx)
+		for j := range slot.Storage.CommonItems {
+			if slot.Storage.CommonItems[j].GaItemHandle == h {
+				slot.Storage.CommonItems[j].Index = newIdx
+				break
+			}
+		}
+	}
+
+	// Advance counters — monotonic, never decrease.
+	newNextAcq := expectedMax + 1
+	if newNextAcq > slot.Storage.NextAcquisitionSortId {
+		slot.Storage.NextAcquisitionSortId = newNextAcq
+		if slot.Storage.NextEquipIndex < newNextAcq {
+			slot.Storage.NextEquipIndex = newNextAcq
+		}
+		if equipIdxOff := slot.Storage.NextEquipIndexOff(); equipIdxOff > 0 {
+			binary.LittleEndian.PutUint32(slot.Data[equipIdxOff:], slot.Storage.NextEquipIndex)
+			binary.LittleEndian.PutUint32(slot.Data[equipIdxOff+4:], slot.Storage.NextAcquisitionSortId)
+		}
+	}
+
+	// Defensive header reconcile (counts unchanged, but mirrors transfer.go).
+	core.ReconcileStorageHeader(slot)
+
+	log.Printf("REORDER STORAGE STRIDE2 SUMMARY tab=%s count=%d base=%d max=%d nextAcq=%d",
+		tab, len(orderedHandles), base, expectedMax, newNextAcq)
+
+	return nil
+}
+
 // GetWeaponInventoryOrder returns all weapons in slot charIdx's CommonItems inventory,
 // sorted by AcquisitionIndex ascending. Delegates to GetInventoryOrder("weapons").
 func (a *App) GetWeaponInventoryOrder(charIdx int) ([]InventoryOrderItem, error) {
