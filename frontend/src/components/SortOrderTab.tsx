@@ -8,6 +8,7 @@ const PAGE_ROWS = 6;
 const PAGE_SIZE = PAGE_COLS * PAGE_ROWS; // 30
 
 type SortOrderTabKey = 'weapons' | 'talismans' | 'head' | 'chest' | 'arms' | 'legs';
+type SortMode = 'acquisition-asc' | 'acquisition-desc' | 'weight-asc' | 'weight-desc' | 'custom';
 
 const SORT_TABS: { key: SortOrderTabKey; label: string }[] = [
     { key: 'weapons', label: 'Weapons' },
@@ -28,7 +29,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [activeSortTab, setActiveSortTab] = useState<SortOrderTabKey>('weapons');
     const [baseItems, setBaseItems] = useState<main.InventoryOrderItem[]>([]);
     const [previewItems, setPreviewItems] = useState<main.InventoryOrderItem[]>([]);
-    const [sortDir, setSortDir] = useState<'asc' | 'desc' | 'custom'>('asc');
+    const [sortMode, setSortMode] = useState<SortMode>('acquisition-asc');
     const [page, setPage] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -41,12 +42,12 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         setLoading(true);
         setError(null);
         setPage(0);
-        setSortDir('asc');
+        setSortMode('acquisition-asc');
         setDragFrom(null);
         setDragOver(null);
         GetInventoryOrder(charIndex, activeSortTab)
             .then((data) => {
-                const sorted = asc(data);
+                const sorted = sortByMode(data, 'acquisition-asc');
                 setBaseItems(sorted);
                 setPreviewItems(sorted);
             })
@@ -59,19 +60,15 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         return previewItems.some((item, i) => item.handle !== baseItems[i].handle);
     }, [previewItems, baseItems]);
 
-    const applySort = (dir: 'asc' | 'desc') => {
-        const sorted =
-            dir === 'asc'
-                ? [...previewItems].sort((a, b) => a.acquisitionIndex - b.acquisitionIndex)
-                : [...previewItems].sort((a, b) => b.acquisitionIndex - a.acquisitionIndex);
-        setPreviewItems(sorted);
-        setSortDir(dir);
+    const applySort = (mode: SortMode) => {
+        setPreviewItems(sortByMode(previewItems, mode));
+        setSortMode(mode);
         setPage(0);
     };
 
     const resetPreview = () => {
-        setPreviewItems(asc(baseItems));
-        setSortDir('asc');
+        setPreviewItems(sortByMode(baseItems, 'acquisition-asc'));
+        setSortMode('acquisition-asc');
         setPage(0);
     };
 
@@ -88,10 +85,10 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                 return GetInventoryOrder(charIndex, tab);
             })
             .then((data) => {
-                const sorted = asc(data);
+                const sorted = sortByMode(data, 'acquisition-asc');
                 setBaseItems(sorted);
                 setPreviewItems(sorted);
-                setSortDir('asc');
+                setSortMode('acquisition-asc');
                 setPage(0);
             })
             .catch((err: unknown) => {
@@ -128,7 +125,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         const [moved] = next.splice(globalFrom, 1);
         next.splice(globalTo, 0, moved);
         setPreviewItems(next);
-        setSortDir('custom');
+        setSortMode('custom');
         setDragFrom(null);
         setDragOver(null);
     };
@@ -248,9 +245,9 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 </span>
                                 <button
                                     disabled={busy}
-                                    onClick={() => applySort('asc')}
+                                    onClick={() => applySort('acquisition-asc')}
                                     className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                                        sortDir === 'asc'
+                                        sortMode === 'acquisition-asc'
                                             ? 'bg-green-700/80 text-white shadow-sm'
                                             : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
                                     }`}
@@ -259,16 +256,38 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 </button>
                                 <button
                                     disabled={busy}
-                                    onClick={() => applySort('desc')}
+                                    onClick={() => applySort('acquisition-desc')}
                                     className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                                        sortDir === 'desc'
+                                        sortMode === 'acquisition-desc'
                                             ? 'bg-green-700/80 text-white shadow-sm'
                                             : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
                                     }`}
                                 >
                                     Acquisition ↓
                                 </button>
-                                {sortDir === 'custom' && (
+                                <button
+                                    disabled={busy}
+                                    onClick={() => applySort('weight-asc')}
+                                    className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                                        sortMode === 'weight-asc'
+                                            ? 'bg-blue-700/80 text-white shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                                    }`}
+                                >
+                                    Weight ↑
+                                </button>
+                                <button
+                                    disabled={busy}
+                                    onClick={() => applySort('weight-desc')}
+                                    className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                                        sortMode === 'weight-desc'
+                                            ? 'bg-blue-700/80 text-white shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                                    }`}
+                                >
+                                    Weight ↓
+                                </button>
+                                {sortMode === 'custom' && (
                                     <span className="text-[9px] font-bold text-amber-400/80 uppercase tracking-widest whitespace-nowrap">
                                         Custom
                                     </span>
@@ -309,6 +328,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                     <span className="text-amber-400 text-[11px]">⚠</span>
                                     <span className="text-[10px] text-amber-400">
                                         Preview order differs from saved order. Click Apply Order to save.
+                                        {(sortMode === 'weight-asc' || sortMode === 'weight-desc') &&
+                                            ' Weight sort is a preview — Apply Order to persist it.'}
                                     </span>
                                 </div>
                             ) : (
@@ -404,7 +425,14 @@ function ItemTile({ item, isDragging, isDragOver, onDragStart, onDragOver, onDro
                 : `+${item.currentUpgrade}`
             : item.infusionName || null;
 
-    const tooltip = [item.name, upgradeLabel, `#${item.acquisitionIndex}`]
+    const weightLabel = item.weight && item.weight > 0 ? `${item.weight.toFixed(1)}` : null;
+
+    const tooltip = [
+        item.name,
+        upgradeLabel,
+        weightLabel ? `${weightLabel} kg` : null,
+        `#${item.acquisitionIndex}`,
+    ]
         .filter(Boolean)
         .join(' · ');
 
@@ -457,6 +485,13 @@ function ItemTile({ item, isDragging, isDragOver, onDragStart, onDragOver, onDro
                     )}
                 </div>
             </div>
+
+            {/* Weight badge — top-right corner, hidden when weight is 0 */}
+            {weightLabel && (
+                <div className="absolute top-0.5 right-0.5 px-0.5 rounded text-[6px] font-mono font-bold text-blue-300/70 leading-tight pointer-events-none">
+                    {weightLabel}
+                </div>
+            )}
         </div>
     );
 }
@@ -469,6 +504,36 @@ function EmptyCell() {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function asc(items: main.InventoryOrderItem[]): main.InventoryOrderItem[] {
-    return [...items].sort((a, b) => a.acquisitionIndex - b.acquisitionIndex);
+function sortByMode(items: main.InventoryOrderItem[], mode: SortMode): main.InventoryOrderItem[] {
+    const arr = [...items];
+    switch (mode) {
+        case 'acquisition-asc':
+            return arr.sort((a, b) => a.acquisitionIndex - b.acquisitionIndex);
+        case 'acquisition-desc':
+            return arr.sort((a, b) => b.acquisitionIndex - a.acquisitionIndex);
+        case 'weight-asc':
+            return arr.sort((a, b) => {
+                const wa = a.weight ?? 0;
+                const wb = b.weight ?? 0;
+                if (wa === 0 && wb === 0) return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+                if (wa === 0) return 1;
+                if (wb === 0) return -1;
+                return wa - wb || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+            });
+        case 'weight-desc':
+            return arr.sort((a, b) => {
+                const wa = a.weight ?? 0;
+                const wb = b.weight ?? 0;
+                if (wa === 0 && wb === 0) return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+                if (wa === 0) return 1;
+                if (wb === 0) return -1;
+                return wb - wa || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+            });
+        default:
+            return arr;
+    }
+}
+
+function cmpName(a: main.InventoryOrderItem, b: main.InventoryOrderItem): number {
+    return a.name.localeCompare(b.name);
 }

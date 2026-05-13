@@ -605,6 +605,54 @@ func TestReorderWeaponInventory_WrapperWorks(t *testing.T) {
 	}
 }
 
+// ─── Weight field ─────────────────────────────────────────────────────────────
+
+func TestGetInventoryOrder_WeaponWeight(t *testing.T) {
+	// Dagger 0x000F4240 → data.ItemWeights[0x000F4240] ≈ 1.5
+	weapons := []testInvWeapon{{0x80800001, 0x000F4240, 2000}}
+	app := inventoryOrderFixture(weapons)
+	items, err := app.GetInventoryOrder(0, "weapons")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(items))
+	}
+	if items[0].Weight <= 0 {
+		t.Errorf("Dagger: want Weight > 0, got %g", items[0].Weight)
+	}
+}
+
+func TestGetInventoryOrder_TalismanWeight(t *testing.T) {
+	// Crimson Amber Medallion: GaItem 0xA00003E8, DB key 0x200003E8, weight ≈ 0.3
+	app := inventoryItemFixture([]testInvItem{{0xA00003E8, 0xA00003E8, 500}})
+	items, err := app.GetInventoryOrder(0, "talismans")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(items))
+	}
+	if items[0].Weight <= 0 {
+		t.Errorf("Crimson Amber Medallion: want Weight > 0, got %g", items[0].Weight)
+	}
+}
+
+func TestGetInventoryOrder_HeadArmorWeight(t *testing.T) {
+	// Iron Kasa: DB key 0x100249F0
+	app := inventoryItemFixture([]testInvItem{{0x900249F0, 0x100249F0, 600}})
+	items, err := app.GetInventoryOrder(0, "head")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("want 1 item, got %d", len(items))
+	}
+	if items[0].Weight <= 0 {
+		t.Errorf("Iron Kasa: want Weight > 0, got %g", items[0].Weight)
+	}
+}
+
 // TestReorderWeaponInventory_NextItemSortsAfter verifies that after reordering,
 // NextAcquisitionSortId (the raw index writer.go assigns to the next new item) is
 // strictly greater than every index written by the reorder. This guarantees a newly

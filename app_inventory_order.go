@@ -7,19 +7,21 @@ import (
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // InventoryOrderItem is the DTO for a single item in the Sort Order view.
 type InventoryOrderItem struct {
-	Handle           uint32 `json:"handle"`
-	ItemID           uint32 `json:"itemId"`
-	Name             string `json:"name"`
-	Category         string `json:"category"`
-	AcquisitionIndex uint32 `json:"acquisitionIndex"`
-	CurrentUpgrade   int    `json:"currentUpgrade,omitempty"`
-	InfusionName     string `json:"infusionName,omitempty"`
-	IconPath         string `json:"iconPath,omitempty"`
-	IsTechnical      bool   `json:"isTechnical,omitempty"`
+	Handle           uint32  `json:"handle"`
+	ItemID           uint32  `json:"itemId"`
+	Name             string  `json:"name"`
+	Category         string  `json:"category"`
+	AcquisitionIndex uint32  `json:"acquisitionIndex"`
+	Weight           float64 `json:"weight,omitempty"`
+	CurrentUpgrade   int     `json:"currentUpgrade,omitempty"`
+	InfusionName     string  `json:"infusionName,omitempty"`
+	IconPath         string  `json:"iconPath,omitempty"`
+	IsTechnical      bool    `json:"isTechnical,omitempty"`
 }
 
 // inventoryOrderTabs maps Sort Order tab names to their item categories.
@@ -126,6 +128,7 @@ func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, 
 			Name:             itemData.Name,
 			Category:         itemData.Category,
 			AcquisitionIndex: acqIdx,
+			Weight:           data.ItemWeights[baseID],
 			CurrentUpgrade:   upgradeLevel,
 			InfusionName:     infusionName,
 			IconPath:         itemData.IconPath,

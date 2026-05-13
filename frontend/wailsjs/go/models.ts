@@ -721,6 +721,7 @@ export namespace main {
 	    name: string;
 	    category: string;
 	    acquisitionIndex: number;
+	    weight?: number;
 	    currentUpgrade?: number;
 	    infusionName?: string;
 	    iconPath?: string;
@@ -737,6 +738,7 @@ export namespace main {
 	        this.name = source["name"];
 	        this.category = source["category"];
 	        this.acquisitionIndex = source["acquisitionIndex"];
+	        this.weight = source["weight"];
 	        this.currentUpgrade = source["currentUpgrade"];
 	        this.infusionName = source["infusionName"];
 	        this.iconPath = source["iconPath"];
