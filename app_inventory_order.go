@@ -140,7 +140,7 @@ func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, 
 		})
 	}
 
-	sort.Slice(items, func(i, j int) bool {
+	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].AcquisitionIndex < items[j].AcquisitionIndex
 	})
 
