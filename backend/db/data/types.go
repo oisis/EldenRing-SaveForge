@@ -79,6 +79,19 @@ type SpellStats struct {
 	ReqArc uint32
 }
 
+// SortKey holds the in-game sort identifiers for an item.
+//
+//   - SortId      determines position within a group (higher = later in list).
+//                 Values come from sortId columns of EquipParamWeapon/Protector/Accessory.
+//                 Sentinel 9999999 = item has no defined sort order (sorts to end).
+//   - SortGroupId determines the type group the item belongs to (e.g. 10 = dagger,
+//                 20 = straight sword; grouping mirrors in-game "Type" filter).
+//                 Max observed value: 255 — fits in uint8.
+type SortKey struct {
+	SortId      uint32
+	SortGroupId uint8
+}
+
 // ItemDescription holds an item's in-game description text and optional stats.
 type ItemDescription struct {
 	Description string
