@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { GetInventoryOrder, ReorderInventory } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
@@ -37,6 +37,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [dragFrom, setDragFrom] = useState<number | null>(null);
     const [dragOver, setDragOver] = useState<number | null>(null);
+    const [selectedHandles, setSelectedHandles] = useState<Set<number>>(new Set());
+    const [anchorHandle, setAnchorHandle] = useState<number | null>(null);
+    const [isBlockDragging, setIsBlockDragging] = useState(false);
+    const didDragRef = useRef(false);
+    const dragAnchorHandleRef = useRef<number | null>(null);
 
     useEffect(() => {
         setLoading(true);
@@ -45,6 +50,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         setSortMode('acquisition-asc');
         setDragFrom(null);
         setDragOver(null);
+        setSelectedHandles(new Set());
+        setAnchorHandle(null);
+        setIsBlockDragging(false);
+        didDragRef.current = false;
+        dragAnchorHandleRef.current = null;
         GetInventoryOrder(charIndex, activeSortTab)
             .then((data) => {
                 const sorted = sortByMode(data, 'acquisition-asc');
@@ -70,6 +80,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         setPreviewItems(sortByMode(baseItems, 'acquisition-asc'));
         setSortMode('acquisition-asc');
         setPage(0);
+        setSelectedHandles(new Set());
+        setAnchorHandle(null);
     };
 
     const handleApplyConfirm = () => {
@@ -90,6 +102,9 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                 setPreviewItems(sorted);
                 setSortMode('acquisition-asc');
                 setPage(0);
+                setSelectedHandles(new Set());
+                setAnchorHandle(null);
+                setIsBlockDragging(false);
             })
             .catch((err: unknown) => {
                 toast.error(`Failed to apply ${displayName} order: ` + String(err));
@@ -97,11 +112,50 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
             .finally(() => setApplying(false));
     };
 
-    // ── DnD handlers ──────────────────────────────────────────────────────────
+    // ── Selection / DnD handlers ──────────────────────────────────────────────
 
     const pageStart = page * PAGE_SIZE;
 
-    const handleDragStart = (localIdx: number) => {
+    const handleTileClick = (item: main.InventoryOrderItem, e: React.MouseEvent) => {
+        if (didDragRef.current) {
+            didDragRef.current = false;
+            return;
+        }
+        if (e.shiftKey && anchorHandle !== null) {
+            const idxA = previewItems.findIndex((it) => it.handle === anchorHandle);
+            const idxB = previewItems.findIndex((it) => it.handle === item.handle);
+            if (idxA >= 0 && idxB >= 0) {
+                const [lo, hi] = idxA < idxB ? [idxA, idxB] : [idxB, idxA];
+                const range = new Set(previewItems.slice(lo, hi + 1).map((it) => it.handle));
+                setSelectedHandles(range);
+            }
+            return;
+        }
+        if (e.ctrlKey || e.metaKey) {
+            setSelectedHandles((prev) => {
+                const next = new Set(prev);
+                if (next.has(item.handle)) next.delete(item.handle);
+                else next.add(item.handle);
+                return next;
+            });
+            setAnchorHandle(item.handle);
+            return;
+        }
+        setSelectedHandles(new Set([item.handle]));
+        setAnchorHandle(item.handle);
+    };
+
+    const handleDragStart = (localIdx: number, item: main.InventoryOrderItem) => {
+        didDragRef.current = true;
+        dragAnchorHandleRef.current = item.handle;
+        const isInSelection = selectedHandles.has(item.handle);
+        if (!isInSelection) {
+            setSelectedHandles(new Set([item.handle]));
+            setAnchorHandle(item.handle);
+            setIsBlockDragging(false);
+        } else {
+            setIsBlockDragging(selectedHandles.size > 1);
+        }
         setDragFrom(localIdx);
         setDragOver(null);
     };
@@ -114,16 +168,73 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     };
 
     const handleDrop = (localIdx: number) => {
-        if (dragFrom === null || dragFrom === localIdx) {
-            setDragFrom(null);
+        if (dragFrom === null) {
             setDragOver(null);
             return;
         }
         const globalFrom = pageStart + dragFrom;
         const globalTo = pageStart + localIdx;
-        const next = [...previewItems];
-        const [moved] = next.splice(globalFrom, 1);
-        next.splice(globalTo, 0, moved);
+        if (globalFrom === globalTo) {
+            setDragFrom(null);
+            setDragOver(null);
+            return;
+        }
+        const draggedItem = previewItems[globalFrom];
+        if (!draggedItem) {
+            setDragFrom(null);
+            setDragOver(null);
+            return;
+        }
+        const blockMove = selectedHandles.has(draggedItem.handle) && selectedHandles.size > 1;
+        if (!blockMove) {
+            const next = [...previewItems];
+            const [moved] = next.splice(globalFrom, 1);
+            next.splice(globalTo, 0, moved);
+            setPreviewItems(next);
+            setSortMode('custom');
+            setDragFrom(null);
+            setDragOver(null);
+            return;
+        }
+        // Block move: anchor-aware insertion.
+        // Final anchor index targets globalTo (the slot under cursor). Block
+        // wraps around the anchor preserving selected order. Insertion index
+        // in `rest` = globalTo - anchorIndexInSelected, clamped to [0, rest.length].
+        const targetItem = previewItems[globalTo];
+        if (targetItem && selectedHandles.has(targetItem.handle)) {
+            // No-op only when drop falls inside the contiguous selected segment
+            // surrounding the anchor — moving within own block has no useful effect.
+            let segStart = globalFrom;
+            while (segStart > 0 && selectedHandles.has(previewItems[segStart - 1].handle)) {
+                segStart--;
+            }
+            let segEnd = globalFrom;
+            while (
+                segEnd < previewItems.length - 1 &&
+                selectedHandles.has(previewItems[segEnd + 1].handle)
+            ) {
+                segEnd++;
+            }
+            if (globalTo >= segStart && globalTo <= segEnd) {
+                setDragFrom(null);
+                setDragOver(null);
+                return;
+            }
+        }
+        const selectedInOrder = previewItems.filter((it) => selectedHandles.has(it.handle));
+        const rest = previewItems.filter((it) => !selectedHandles.has(it.handle));
+        const anchorIndexInSelected = selectedInOrder.findIndex(
+            (it) => it.handle === draggedItem.handle,
+        );
+        if (anchorIndexInSelected < 0) {
+            setDragFrom(null);
+            setDragOver(null);
+            return;
+        }
+        let insertIdx = globalTo - anchorIndexInSelected;
+        if (insertIdx < 0) insertIdx = 0;
+        if (insertIdx > rest.length) insertIdx = rest.length;
+        const next = [...rest.slice(0, insertIdx), ...selectedInOrder, ...rest.slice(insertIdx)];
         setPreviewItems(next);
         setSortMode('custom');
         setDragFrom(null);
@@ -133,6 +244,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const handleDragEnd = () => {
         setDragFrom(null);
         setDragOver(null);
+        setIsBlockDragging(false);
+        dragAnchorHandleRef.current = null;
+        setTimeout(() => {
+            didDragRef.current = false;
+        }, 0);
     };
 
     const busy = applying;
@@ -371,7 +487,12 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                             cells is exactly square: cell_w = height*(5/6)/5 = height/6 = cell_h.
                             No overflow-y — all 30 slots always visible.
                         */}
-                        <div className="flex-1 min-h-0 flex justify-center items-start overflow-hidden">
+                        <div className="flex-1 min-h-0 flex justify-center items-start overflow-hidden relative">
+                            {isBlockDragging && selectedHandles.size > 1 && (
+                                <div className="absolute top-2 left-1/2 -translate-x-1/2 z-20 pointer-events-none px-3 py-1 rounded-full bg-amber-500/95 text-white text-[10px] font-black uppercase tracking-wider shadow-lg shadow-black/40 ring-1 ring-amber-300/40">
+                                    Dragging {selectedHandles.size} items
+                                </div>
+                            )}
                             <div className="h-full" style={{ aspectRatio: '5 / 6' }}>
                                 <div className="grid grid-cols-5 grid-rows-6 h-full gap-1">
                                     {gridCells.map((item, localIdx) =>
@@ -381,7 +502,10 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                 item={item}
                                                 isDragging={dragFrom === localIdx}
                                                 isDragOver={dragOver === localIdx}
-                                                onDragStart={() => handleDragStart(localIdx)}
+                                                isSelected={selectedHandles.has(item.handle)}
+                                                isBlockDragging={isBlockDragging}
+                                                onClick={(e) => handleTileClick(item, e)}
+                                                onDragStart={() => handleDragStart(localIdx, item)}
                                                 onDragOver={(e) => handleDragOver(e, localIdx)}
                                                 onDrop={() => handleDrop(localIdx)}
                                                 onDragEnd={handleDragEnd}
@@ -429,13 +553,27 @@ interface TileProps {
     item: main.InventoryOrderItem;
     isDragging: boolean;
     isDragOver: boolean;
+    isSelected: boolean;
+    isBlockDragging: boolean;
+    onClick: (e: React.MouseEvent) => void;
     onDragStart: () => void;
     onDragOver: (e: React.DragEvent) => void;
     onDrop: () => void;
     onDragEnd: () => void;
 }
 
-function ItemTile({ item, isDragging, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd }: TileProps) {
+function ItemTile({
+    item,
+    isDragging,
+    isDragOver,
+    isSelected,
+    isBlockDragging,
+    onClick,
+    onDragStart,
+    onDragOver,
+    onDrop,
+    onDragEnd,
+}: TileProps) {
     const [imgError, setImgError] = useState(false);
 
     const upgradeLabel =
@@ -464,16 +602,23 @@ function ItemTile({ item, isDragging, isDragOver, onDragStart, onDragOver, onDro
         <div
             title={tooltip}
             draggable
+            onClick={onClick}
             onDragStart={onDragStart}
             onDragOver={onDragOver}
             onDrop={onDrop}
             onDragEnd={onDragEnd}
             className={`relative bg-card border rounded-md overflow-hidden transition-all cursor-grab active:cursor-grabbing ${
                 isDragging
-                    ? 'opacity-40 border-border/20'
+                    ? isBlockDragging
+                        ? 'opacity-50 border-amber-400/60 ring-2 ring-amber-400/40 bg-amber-400/[0.06]'
+                        : 'opacity-40 border-border/20'
                     : isDragOver
                       ? 'border-primary ring-1 ring-primary/50 bg-primary/[0.06]'
-                      : 'border-border/50 hover:border-primary/40 hover:bg-primary/[0.03]'
+                      : isBlockDragging && isSelected
+                        ? 'border-amber-500/80 ring-2 ring-amber-500/70 bg-amber-500/[0.15]'
+                        : isSelected
+                          ? 'border-amber-400/70 ring-2 ring-amber-400/50 bg-amber-400/[0.08]'
+                          : 'border-border/50 hover:border-primary/40 hover:bg-primary/[0.03]'
             }`}
         >
             {/* absolute inset-0 so content never affects cell height */}
