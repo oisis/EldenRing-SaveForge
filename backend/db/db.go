@@ -32,19 +32,21 @@ type ItemEntry struct {
 	Weight       float64           `json:"weight,omitempty"`
 	Weapon       *data.WeaponStats `json:"weapon,omitempty"`
 	Armor        *data.ArmorStats  `json:"armor,omitempty"`
-	Spell        *data.SpellStats  `json:"spell,omitempty"`
+	Spell            *data.SpellStats  `json:"spell,omitempty"`
+	AoWCompatBitmask uint64            `json:"aowCompatBitmask,omitempty"`
 }
 
 // weightedCategory lists item categories that have physical weight from regulation.bin weapon/armor params.
 // Spells, consumables, key items etc. share ID space with weapon/armor params — excluded to avoid false matches.
 var weightedCategory = map[string]bool{
-	"melee_armaments":     true,
+	"melee_armaments":      true,
 	"ranged_and_catalysts": true,
-	"shields":             true,
-	"head":                true,
-	"chest":               true,
-	"arms":                true,
-	"legs":                true,
+	"shields":              true,
+	"head":                 true,
+	"chest":                true,
+	"arms":                 true,
+	"legs":                 true,
+	"talismans":            true,
 }
 
 // InfuseType represents a weapon infusion type and its ID offset.
@@ -209,6 +211,23 @@ func init() {
 			globalItemIndex[id] = entry
 		}
 	}
+	// Merge weapon AoW mount data (gemMountType, wepType) from generated lookup maps.
+	// WeaponGemMounts keys include base variants (upgrade 0) and infusion variants (+100, +200, ...).
+	// We only update entries already in the index (i.e. base weapons in our DB).
+	for id, mount := range data.WeaponGemMounts {
+		if entry, ok := globalItemIndex[id]; ok {
+			entry.GemMountType = mount.GemMountType
+			entry.WepType = mount.WepType
+			globalItemIndex[id] = entry
+		}
+	}
+	// Merge AoW weapon compatibility bitmasks.
+	for id, bitmask := range data.AoWCompatMasks {
+		if entry, ok := globalItemIndex[id]; ok {
+			entry.AoWCompatBitmask = bitmask
+			globalItemIndex[id] = entry
+		}
+	}
 }
 
 // GetItemData returns the full metadata of an item by its ID via the global index.
@@ -217,6 +236,43 @@ func GetItemData(id uint32) data.ItemData {
 		return item
 	}
 	return data.ItemData{}
+}
+
+// CanWeaponMountAoW returns true if the weapon (by base item ID) supports standard AoW mounting
+// (gemMountType == 2). Returns false for unique/somber weapons (gemMountType == 1) and
+// weapons that cannot mount AoW at all (gemMountType == 0 or not found in data).
+func CanWeaponMountAoW(baseItemID uint32) bool {
+	item := GetItemData(baseItemID)
+	return item.GemMountType == 2
+}
+
+// IsAoWCompatibleWithWepType returns (compatible, known).
+// known=false means data is insufficient — the caller must block the operation, not assume compatibility.
+// Reasons for known=false: AoW not in compat table (bitmask=0), or wepType not in WepTypeToCanMountBit.
+func IsAoWCompatibleWithWepType(aowItemID uint32, wepType uint16) (compatible bool, known bool) {
+	aow := GetItemData(aowItemID)
+	if aow.AoWCompatBitmask == 0 {
+		return false, false // AoW compatibility data missing
+	}
+	bitPos, ok := data.WepTypeToCanMountBit[wepType]
+	if !ok {
+		return false, false // weapon type not in bit map
+	}
+	return (aow.AoWCompatBitmask>>bitPos)&1 == 1, true
+}
+
+// IsAshOfWarCompatibleWithWeapon checks whether a specific Ash of War can be mounted on a
+// specific weapon, combining the weapon-level GemMountType gate with the per-AoW bitmask check.
+// Returns (compatible, known). known=false means data is insufficient; callers must block, not assume.
+func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (compatible bool, known bool) {
+	weaponData, _ := GetItemDataFuzzy(weaponItemID)
+	if weaponData.GemMountType != 2 {
+		return false, true // weapon doesn't support standard AoW (somber or no mount)
+	}
+	if weaponData.WepType == 0 {
+		return false, false // weapon type unknown — data insufficient
+	}
+	return IsAoWCompatibleWithWepType(aowItemID, weaponData.WepType)
 }
 
 // enrichItemEntry populates Description, Weight, and stat fields from the Descriptions table,
@@ -329,7 +385,7 @@ func GetItemDataFuzzy(id uint32) (data.ItemData, uint32) {
 					continue
 				}
 				if id >= baseID && id-baseID <= maxCombinedOffset {
-					return item, baseID
+					return GetItemData(baseID), baseID
 				}
 			}
 		}
@@ -497,6 +553,11 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 		processMap(data.Talismans, "talismans")
 	case "ashes_of_war":
 		processMap(data.Aows, "ashes_of_war")
+		for i := range items {
+			if enriched, ok := globalItemIndex[items[i].ID]; ok {
+				items[i].AoWCompatBitmask = enriched.AoWCompatBitmask
+			}
+		}
 	case "ashes":
 		// StandardAshes stores each upgrade level as a separate entry.
 		// Only return base (+0) entries — filter out " +N" variants.

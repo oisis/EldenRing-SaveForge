@@ -4,6 +4,94 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(sort-order): dual-grid Inventory + Storage with bidirectional transfer
+
+Sort Order tab is now a dual-grid editor: Storage on the left, Inventory on the right,
+per-category tabs (weapons, talismans, head, chest, arms, legs). Both sides drag/drop,
+sort, and apply order independently.
+
+Backend:
+- `App.MoveItemsBetweenInventoryAndStorage(charIdx, handles, direction)` — App-level
+  wrapper around `core.MoveItemsBetweenContainers`; resolves `MaxInventory` / `MaxStorage`
+  caps from the DB, pushes undo, returns `core.TransferResult{Moved, Skipped[]}`.
+- `core.MoveItemsBetweenContainers` — instance-move for weapon/armor/accessory/AoW
+  (handles preserved, new monotonic Index on the destination); quantity-merge for goods
+  (cap-aware partial moves with `movedQty` / `remainingQty`); duplicate-instance rehandle:
+  if the destination already has the same handle for an instance item, a new globally
+  unique handle + new GaItem entry + GaMap mapping are allocated so the same talisman /
+  weapon / armor can live in both Storage and Inventory; equipped-item guard rejects
+  Inventory → Storage moves with `SkipReasonEquipped`; defensive header reconcile and
+  rebuild of `slot.Storage.CommonItems` after the batch.
+- `App.GetStorageOrder(charIdx, tab)` — reads `slot.Data[StorageBoxOffset + StorageHeaderSkip…]`
+  and sorts by the in-record `Index` ascending (the true storage acquisition order, not
+  binary position).
+- `App.ReorderStorage(charIdx, tab, orderedHandles)` in `app_inventory_order.go` — mirrors
+  `ReorderInventory` on `slot.Storage.CommonItems`: complete-list / no-duplicate /
+  category / technical-placeholder validation, stride-2 index assignment with an even
+  base above `InvEquipReservedMax` (same `acqIdx >> 1` bucketing applies in storage),
+  monotonic counter advance, defensive `ReconcileStorageHeader`. Inventory bytes and
+  counters are untouched.
+- VM fix: rehandled destination instances are visible in `mapItems` because itemID is
+  resolved via `GaMap` first with `HandleToItemID` fallback.
+
+Frontend (`SortOrderTab.tsx`):
+- Per-side preview / base / `hasChanges` state; per-side `Reset Preview` + `Apply Order`
+  buttons; per-side sort dropdown (Acquisition ↑/↓, Weight ↑/↓, Type ↑/↓) that flips
+  to `Custom` on manual drag.
+- Drag/drop transfer: drag a selected item moves the whole source-side selection batch
+  to the opposite frame; drag an unselected item moves only that item. Source-side
+  selection is cleared after a successful transfer.
+- Guards prevent loss of an unsaved preview:
+  - Cross-transfer blocked when either side `hasChanges` →
+    `"Apply or reset the current order before transferring items."`
+  - Inventory Apply blocked when Storage has unsaved changes →
+    `"Apply or reset Storage order before applying Inventory order."`
+  - Storage Apply blocked when Inventory has unsaved changes →
+    `"Apply or reset Inventory order before applying Storage order."`
+- "Dragging N items" banner moves to whichever frame is the source of the active
+  multi-drag.
+
+Tests:
+- `tests/transfer_test.go` covers instance-move, quantity-merge + partial caps,
+  equipped guard, duplicate-handle rehandle (talisman / weapon / armor), goods merge,
+  VM visibility of rehandled instances, `TestStorageOrderUsesRecordIndex`, write+reload
+  round-trip.
+- `app_storage_order_test.go` (new) covers `ReorderStorage` rejection paths
+  (missing/duplicate/incomplete handle, handle from inventory), persistence of the new
+  order, no mutation of inventory bytes / counters, re-scan after reorder, and the
+  reverse invariant — `ReorderInventory` does not touch any storage byte.
+
+Specs:
+- `spec/53-inventory-storage-transfer.md` (EN + PL) — design doc covering the dual-grid
+  layout, handle-prefix data model, transfer semantics + rehandle path, frontend guards,
+  ordering rules, test coverage, and known limitations.
+- `spec/README.md` + `spec/lang-pl/README.md` — spec/53 entry added.
+- `docs/ROADMAP.md` — sort order moved from Planned to Done (v0.8.x section), Planned
+  list reduced to remaining in-game verification work.
+
+### feat(weapon-edit): apply weapon infusion / affinity in-place
+
+Weapon Edit tab can now save infusion (affinity) changes for infusable weapons (maxUpgrade == 25).
+
+Backend:
+- `PatchWeaponItemID` in `backend/core/writer.go` — in-place patch of a single GaItem's
+  ItemID in `slot.Data` (4 bytes, no RebuildSlotFull needed — weapon record size stays 21 B).
+  Updates `slot.GaItems[i].ItemID`, `slot.GaMap[handle]`, calls `upsertGaItemData(newItemID)`.
+  Old GaItemData entry is intentionally left (game tolerates extra entries, same as item removal).
+- `ApplyWeaponInfusion(charIdx, handle, expectedCurrentItemID, newItemID)` in `app.go` —
+  backend-side validation: weapon IDs, same base/upgrade, valid infusion offset, maxUpgrade==25,
+  categorySupportsInfusion, stale-data guard via expectedCurrentItemID.
+
+Frontend (`WeaponEditTab.tsx`):
+- `OwnedWeapon` now has `handle: number` and `location: 'inventory' | 'storage'` instead of
+  `inInventory/inStorage`. Merge key changed from `baseId` to `handle` — each weapon instance
+  (one GaItem) is a separate list entry, preventing accidental multi-copy edits.
+- `locationFilter` and location badges updated to use `location` field.
+- Apply Changes enabled only for infusion-only changes (`canApply` guard).
+- `handleApply()` calls `ApplyWeaponInfusion`, shows toast, triggers re-fetch via `localVersion`.
+- Apply button has loading spinner, dynamic tooltip, green active state.
+- Bottom bar shows contextual status message for each pending-change scenario.
+
 ### fix(items): sync spectral steed whistle companion flags on add and remove
 
 When adding `Spectral Steed Whistle` (`0x40000082`) the editor sets companion EventFlags

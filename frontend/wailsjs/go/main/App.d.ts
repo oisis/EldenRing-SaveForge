@@ -8,6 +8,10 @@ import {core} from '../models';
 
 export function AddItemsToCharacter(arg1:number,arg2:Array<number>,arg3:number,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<main.AddResult>;
 
+export function ApplyBuiltinCharacterPresetInventory(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
+
+export function ApplyBuiltinCharacterPresetStats(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
+
 export function ApplyCharacterPreset(arg1:number,arg2:vm.CharacterPreset,arg3:vm.ApplyOptions):Promise<vm.PresetApplyResult>;
 
 export function ApplyMirrorFavoriteToCharacter(arg1:number,arg2:number):Promise<void>;
@@ -15,6 +19,12 @@ export function ApplyMirrorFavoriteToCharacter(arg1:number,arg2:number):Promise<
 export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
 
 export function ApplyPvPPreparation(arg1:number,arg2:main.PvPPreparationOptions):Promise<Array<string>>;
+
+export function ApplyWeaponAoW(arg1:number,arg2:number,arg3:number):Promise<void>;
+
+export function ApplyWeaponAoWStrict(arg1:number,arg2:number,arg3:number):Promise<void>;
+
+export function ApplyWeaponInfusion(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
 
 export function BulkSetAshOfWarFlags(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
 
@@ -46,11 +56,15 @@ export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSetting
 
 export function GetActiveSlots():Promise<Array<boolean>>;
 
+export function GetAoWAvailability(arg1:number):Promise<Array<vm.AoWAvailabilityEntry>>;
+
 export function GetAshOfWarFlags(arg1:number):Promise<Array<db.AshOfWarFlagEntry>>;
 
 export function GetBellBearings(arg1:number):Promise<Array<db.BellBearingEntry>>;
 
 export function GetBosses(arg1:number):Promise<Array<db.BossEntry>>;
+
+export function GetBuiltinCharacterPreset(arg1:string):Promise<vm.CharacterPreset>;
 
 export function GetCharacter(arg1:number):Promise<vm.CharacterViewModel>;
 
@@ -69,6 +83,8 @@ export function GetGestures(arg1:number):Promise<Array<db.GestureEntry>>;
 export function GetGraces(arg1:number):Promise<Array<db.GraceEntry>>;
 
 export function GetInfuseTypes():Promise<Array<db.InfuseType>>;
+
+export function GetInventoryOrder(arg1:number,arg2:string):Promise<Array<main.InventoryOrderItem>>;
 
 export function GetItemDetail(arg1:number):Promise<db.ItemEntry>;
 
@@ -98,11 +114,15 @@ export function GetStartingClasses():Promise<Array<db.ClassStats>>;
 
 export function GetSteamIDString():Promise<string>;
 
+export function GetStorageOrder(arg1:number,arg2:string):Promise<Array<main.InventoryOrderItem>>;
+
 export function GetSummoningPools(arg1:number):Promise<Array<db.SummoningPoolEntry>>;
 
 export function GetUndoDepth(arg1:number):Promise<number>;
 
 export function GetUnlockedRegions(arg1:number):Promise<Array<db.RegionEntry>>;
+
+export function GetWeaponInventoryOrder(arg1:number):Promise<Array<main.InventoryOrderItem>>;
 
 export function GetWhetblades(arg1:number):Promise<Array<db.WhetbladeEntry>>;
 
@@ -112,15 +132,25 @@ export function LaunchRemoteGame(arg1:string):Promise<string>;
 
 export function ListAppearancePresets():Promise<Array<main.PresetInfo>>;
 
+export function ListBuiltinCharacterPresets():Promise<Array<main.BuiltinCharacterPresetInfo>>;
+
 export function LoadCharacterPresetFromFile():Promise<vm.CharacterPreset>;
 
 export function LoadCharacterPresetFromURL(arg1:string):Promise<vm.CharacterPreset>;
+
+export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
 
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
 
 export function RemoveFogOfWar(arg1:number):Promise<void>;
 
 export function RemoveItemsFromCharacter(arg1:number,arg2:Array<number>,arg3:boolean,arg4:boolean):Promise<void>;
+
+export function ReorderInventory(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
+
+export function ReorderStorage(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
+
+export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<void>;
 
 export function ResetMapExploration(arg1:number):Promise<void>;
 
@@ -173,6 +203,8 @@ export function SetSummoningPoolActivated(arg1:number,arg2:number,arg3:boolean):
 export function SetWhetbladeUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
 export function TestSSHConnection(arg1:string):Promise<string>;
+
+export function ValidateBuiltinCharacterPreset(arg1:number,arg2:string):Promise<Array<string>>;
 
 export function ValidateCharacterPreset(arg1:vm.CharacterPreset):Promise<Array<string>>;
 

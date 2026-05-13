@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"sort"
@@ -693,6 +694,111 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 	return nil
 }
 
+// MoveItemsBetweenInventoryAndStorage relocates inventory records between
+// CommonItems Inventory and Storage for the given character slot. The direction
+// string must be "to-storage" (Inventory → Storage) or "to-inventory"
+// (Storage → Inventory). Returns per-handle outcome; invalid handles are
+// reported in Skipped, not raised as errors.
+//
+// Equipped items (handles referenced by ChrAsmEquipment) are skipped with
+// reason "equipped" only for the to-storage direction. Other skip reasons:
+// "not_found", "dest_full", "invalid_handle".
+//
+// Undo snapshot is pushed only when at least one handle was actually moved.
+func (a *App) MoveItemsBetweenInventoryAndStorage(charIdx int, handles []uint32, direction string) (core.TransferResult, error) {
+	empty := core.TransferResult{}
+	if a.save == nil {
+		return empty, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= len(a.save.Slots) {
+		return empty, fmt.Errorf("invalid character index %d", charIdx)
+	}
+	var dir core.TransferDirection
+	switch direction {
+	case "to-storage":
+		dir = core.TransferToStorage
+	case "to-inventory":
+		dir = core.TransferToInventory
+	default:
+		return empty, fmt.Errorf("invalid direction %q (expected \"to-storage\" or \"to-inventory\")", direction)
+	}
+
+	slot := &a.save.Slots[charIdx]
+	if slot.Version == 0 {
+		return empty, fmt.Errorf("slot %d is empty", charIdx)
+	}
+
+	// Snapshot for undo. pushUndo only if we will actually mutate state — peek
+	// first by running a dry-check on whether at least one handle resolves to a
+	// real source record. We push undo before the real call so a partially-
+	// failed batch is still recoverable.
+	willMutate := false
+	for _, h := range handles {
+		if h == core.GaHandleEmpty || h == core.GaHandleInvalid {
+			continue
+		}
+		var srcStart, slots int
+		if dir == core.TransferToStorage {
+			srcStart = slot.MagicOffset + core.InvStartFromMagic
+			slots = core.CommonItemCount
+		} else {
+			srcStart = slot.StorageBoxOffset + core.StorageHeaderSkip
+			slots = core.StorageCommonCount
+		}
+		if srcStart <= 0 {
+			continue
+		}
+		for i := 0; i < slots; i++ {
+			off := srcStart + i*core.InvRecordLen
+			if off+core.InvRecordLen > len(slot.Data) {
+				break
+			}
+			if binary.LittleEndian.Uint32(slot.Data[off:]) == h {
+				willMutate = true
+				break
+			}
+		}
+		if willMutate {
+			break
+		}
+	}
+	if willMutate {
+		a.pushUndo(charIdx)
+	}
+
+	// Resolve per-handle destination caps for quantity-merge items only
+	// (goods 0xB0). Instance-move handles (weapons 0x80, armor 0x90,
+	// talismans 0xA0, AoW 0xC0) use physical relocation and never consult
+	// the cap; including their MaxInventory=1 in the map would be harmless
+	// but is omitted to keep the contract explicit — for those handles, the
+	// caps map is intentionally empty.
+	caps := make(map[uint32]uint32, len(handles))
+	for _, h := range handles {
+		if h == core.GaHandleEmpty || h == core.GaHandleInvalid {
+			continue
+		}
+		if h&core.GaHandleTypeMask != core.ItemTypeItem {
+			continue
+		}
+		itemID, ok := slot.GaMap[h]
+		if !ok {
+			// Goods use handle = itemID|prefix; recover the DB-compatible
+			// item ID when GaMap is missing the entry.
+			itemID = db.HandleToItemID(h)
+		}
+		itemData, _ := db.GetItemDataFuzzy(itemID)
+		var cap uint32
+		if dir == core.TransferToStorage {
+			cap = itemData.MaxStorage
+		} else {
+			cap = itemData.MaxInventory
+		}
+		caps[h] = cap
+	}
+
+	return core.MoveItemsBetweenContainers(slot, handles, dir, &core.TransferOptions{DestCaps: caps})
+}
+
 // resolveQty converts a qty directive into an actual quantity.
 // qty=0 → 0 (skip); qty=-1 → max; qty>0 → min(qty, max).
 func resolveQty(qty, max int) int {
@@ -1048,7 +1154,255 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 }
 
 
+// ApplyWeaponInfusion changes the infusion (affinity) of a specific weapon instance
+// identified by its GaItemHandle. Only the weapon's ItemID is patched — upgrade level,
+// AoW gem, quantity, and location are preserved.
+//
+// expectedCurrentItemID is a stale-data guard: the request is rejected if the weapon's
+// ItemID has already changed since the frontend loaded the character data.
+// newItemID must encode the same base weapon and the same upgrade level; only the
+// infusion offset portion may differ.
+func (a *App) ApplyWeaponInfusion(charIdx int, handle uint32, expectedCurrentItemID, newItemID uint32) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+
+	// Both IDs must be in the weapon range (upper nibble 0x0).
+	if expectedCurrentItemID>>28 != 0 {
+		return fmt.Errorf("expectedCurrentItemID 0x%08X is not a weapon ID", expectedCurrentItemID)
+	}
+	if newItemID>>28 != 0 {
+		return fmt.Errorf("newItemID 0x%08X is not a weapon ID", newItemID)
+	}
+
+	// Resolve base weapon from expectedCurrentItemID. DB lookup is authoritative —
+	// do not trust the frontend's baseId / maxUpgrade values.
+	baseData, baseID := db.GetItemDataFuzzy(expectedCurrentItemID)
+	if baseData.Name == "" {
+		return fmt.Errorf("unknown weapon 0x%08X", expectedCurrentItemID)
+	}
+	if baseData.MaxUpgrade != 25 {
+		return fmt.Errorf("weapon %q (0x%08X) is not infusable (maxUpgrade=%d)", baseData.Name, baseID, baseData.MaxUpgrade)
+	}
+	if !weaponCategorySupportsInfusion(baseData.Category) {
+		return fmt.Errorf("weapon category %q does not support infusion", baseData.Category)
+	}
+
+	expectedDiff := expectedCurrentItemID - baseID
+	expectedUpgrade := expectedDiff % 100
+
+	// Validate newItemID resolves to the same base weapon and same upgrade level.
+	_, newBaseID := db.GetItemDataFuzzy(newItemID)
+	if newBaseID != baseID {
+		return fmt.Errorf("newItemID 0x%08X resolves to a different base weapon (got 0x%08X, expected 0x%08X)",
+			newItemID, newBaseID, baseID)
+	}
+	newDiff := newItemID - baseID
+	newUpgrade := newDiff % 100
+	if newUpgrade != expectedUpgrade {
+		return fmt.Errorf("newItemID 0x%08X changes the upgrade level (%d→%d); only the infusion offset may change",
+			newItemID, expectedUpgrade, newUpgrade)
+	}
+
+	// Validate the resulting infusion offset is one of the known types.
+	newInfuseOffset := int(newDiff - newUpgrade)
+	validOffset := false
+	for _, t := range db.InfuseTypes {
+		if t.Offset == newInfuseOffset {
+			validOffset = true
+			break
+		}
+	}
+	if !validOffset {
+		return fmt.Errorf("infusion offset %d is not a recognised infusion type", newInfuseOffset)
+	}
+
+	a.pushUndo(charIdx)
+	slot := &a.save.Slots[charIdx]
+	return core.PatchWeaponItemID(slot, handle, expectedCurrentItemID, newItemID)
+}
+
+// ApplyWeaponAoW sets or removes the Ash of War on a specific weapon instance.
+// newAoWItemID == 0 removes the AoW; any other value sets it.
+func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+
+	slot := &a.save.Slots[charIdx]
+	currentItemID, ok := slot.GaMap[weaponHandle]
+	if !ok {
+		return fmt.Errorf("weapon handle 0x%08X not found in save", weaponHandle)
+	}
+	if currentItemID>>28 != 0 {
+		return fmt.Errorf("handle 0x%08X (itemID 0x%08X) is not a weapon", weaponHandle, currentItemID)
+	}
+
+	baseData, baseID := db.GetItemDataFuzzy(currentItemID)
+	if baseData.Name == "" {
+		return fmt.Errorf("unknown weapon 0x%08X", currentItemID)
+	}
+	if !db.CanWeaponMountAoW(baseID) {
+		return fmt.Errorf("weapon %q does not support Ash of War (gemMountType=%d)", baseData.Name, baseData.GemMountType)
+	}
+
+	if newAoWItemID != 0 {
+		if newAoWItemID>>28 != 8 {
+			return fmt.Errorf("newAoWItemID 0x%08X is not an Ash of War item ID", newAoWItemID)
+		}
+		aowData, _ := db.GetItemDataFuzzy(newAoWItemID)
+		if aowData.Name == "" {
+			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
+		}
+		compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID)
+		// known==false means no compatibility data (DLC/unmapped weapon type).
+		// CanWeaponMountAoW already confirmed GemMountType==2 above — allow the operation.
+		if known && !compatible {
+			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
+		}
+	}
+
+	a.pushUndo(charIdx)
+	return core.PatchWeaponAoW(slot, weaponHandle, newAoWItemID)
+}
+
+// GetAoWAvailability scans GaItems for character charIdx and returns per-itemID
+// availability stats for every Ash of War present in the slot.
+// AoW items absent from the slot are not included — the frontend treats absence as missing.
+func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error) {
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return nil, fmt.Errorf("invalid character index %d", charIdx)
+	}
+	slot := &a.save.Slots[charIdx]
+	rawCopies := core.ScanAoWAvailability(slot)
+
+	type aggregate struct {
+		total    int
+		used     int
+		handles  []uint32
+		conflict bool
+	}
+	agg := make(map[uint32]*aggregate)
+	for _, c := range rawCopies {
+		ag, ok := agg[c.ItemID]
+		if !ok {
+			ag = &aggregate{}
+			agg[c.ItemID] = ag
+		}
+		ag.total++
+		if c.UsedByWeaponHandle != 0 {
+			ag.used++
+			ag.handles = append(ag.handles, c.UsedByWeaponHandle)
+		}
+		if c.HasSharedHandleConflict {
+			ag.conflict = true
+		}
+	}
+
+	result := make([]vm.AoWAvailabilityEntry, 0, len(agg))
+	for itemID, ag := range agg {
+		result = append(result, vm.AoWAvailabilityEntry{
+			ItemID:                  itemID,
+			TotalCopies:             ag.total,
+			AvailableCopies:         ag.total - ag.used,
+			UsedCopies:              ag.used,
+			UsedByWeaponHandles:     ag.handles,
+			IsMissing:               false,
+			HasSharedHandleConflict: ag.conflict,
+		})
+	}
+	return result, nil
+}
+
+// ApplyWeaponAoWStrict sets or removes the AoW on a weapon using only pre-existing free copies.
+// newAoWItemID == 0: removes the AoW (patches AoWGaItemHandle to 0xFFFFFFFF in-place).
+// newAoWItemID != 0: finds the first free copy of that AoW in the slot and attaches it.
+//   Returns an error if no free copy exists, if a shared-handle conflict is detected,
+//   or if any standard validation fails. Unlike ApplyWeaponAoW, never allocates new GaItem records.
+func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+
+	slot := &a.save.Slots[charIdx]
+	currentItemID, ok := slot.GaMap[weaponHandle]
+	if !ok {
+		return fmt.Errorf("weapon handle 0x%08X not found in save", weaponHandle)
+	}
+	if currentItemID>>28 != 0 {
+		return fmt.Errorf("handle 0x%08X (itemID 0x%08X) is not a weapon", weaponHandle, currentItemID)
+	}
+
+	baseData, baseID := db.GetItemDataFuzzy(currentItemID)
+	if baseData.Name == "" {
+		return fmt.Errorf("unknown weapon 0x%08X", currentItemID)
+	}
+	if !db.CanWeaponMountAoW(baseID) {
+		return fmt.Errorf("weapon %q does not support Ash of War changes", baseData.Name)
+	}
+
+	var newAoWHandle uint32
+	if newAoWItemID == 0 {
+		newAoWHandle = 0xFFFFFFFF
+	} else {
+		if newAoWItemID>>28 != 8 {
+			return fmt.Errorf("newAoWItemID 0x%08X is not an Ash of War item ID", newAoWItemID)
+		}
+		aowData, _ := db.GetItemDataFuzzy(newAoWItemID)
+		if aowData.Name == "" {
+			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
+		}
+		compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID)
+		// known==false means no compatibility data (DLC/unmapped weapon type).
+		// CanWeaponMountAoW already confirmed GemMountType==2 above — allow the operation.
+		if known && !compatible {
+			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
+		}
+
+		rawCopies := core.ScanAoWAvailability(slot)
+		hasConflict := false
+		hasCopies := false
+		newAoWHandle = 0
+		for _, c := range rawCopies {
+			if c.ItemID != newAoWItemID {
+				continue
+			}
+			hasCopies = true
+			if c.HasSharedHandleConflict {
+				hasConflict = true
+			}
+			if c.UsedByWeaponHandle == 0 && newAoWHandle == 0 {
+				newAoWHandle = c.Handle
+			}
+		}
+		if hasConflict {
+			return fmt.Errorf("Ash of War handle conflict detected — cannot safely apply in strict mode")
+		}
+		if !hasCopies {
+			return fmt.Errorf("selected Ash of War is not present in save")
+		}
+		if newAoWHandle == 0 {
+			return fmt.Errorf("no free copy of selected Ash of War is available")
+		}
+	}
+
+	a.pushUndo(charIdx)
+	return core.PatchWeaponAoWHandle(slot, weaponHandle, newAoWHandle)
+}
+
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}
 }

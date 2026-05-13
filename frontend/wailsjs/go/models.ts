@@ -52,6 +52,56 @@ export namespace core {
 	        this.visitorDownloadSpan = source["visitorDownloadSpan"];
 	    }
 	}
+	export class TransferSkip {
+	    handle: number;
+	    reason: string;
+	    movedQty?: number;
+	    remainingQty?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferSkip(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.handle = source["handle"];
+	        this.reason = source["reason"];
+	        this.movedQty = source["movedQty"];
+	        this.remainingQty = source["remainingQty"];
+	    }
+	}
+	export class TransferResult {
+	    moved: number;
+	    skipped: TransferSkip[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TransferResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.moved = source["moved"];
+	        this.skipped = this.convertValues(source["skipped"], TransferSkip);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 
@@ -356,6 +406,7 @@ export namespace db {
 	    weapon?: data.WeaponStats;
 	    armor?: data.ArmorStats;
 	    spell?: data.SpellStats;
+	    aowCompatBitmask?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ItemEntry(source);
@@ -378,6 +429,7 @@ export namespace db {
 	        this.weapon = this.convertValues(source["weapon"], data.WeaponStats);
 	        this.armor = this.convertValues(source["armor"], data.ArmorStats);
 	        this.spell = this.convertValues(source["spell"], data.SpellStats);
+	        this.aowCompatBitmask = source["aowCompatBitmask"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -651,6 +703,30 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class BuiltinCharacterPresetInfo {
+	    id: string;
+	    name: string;
+	    description: string;
+	    tags: string[];
+	    modules: string[];
+	    level: number;
+	    className: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuiltinCharacterPresetInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.tags = source["tags"];
+	        this.modules = source["modules"];
+	        this.level = source["level"];
+	        this.className = source["className"];
+	    }
+	}
 	export class DiffEntry {
 	    category: string;
 	    action: string;
@@ -687,6 +763,40 @@ export namespace main {
 	        this.active = source["active"];
 	        this.safe = source["safe"];
 	        this.name = source["name"];
+	    }
+	}
+	export class InventoryOrderItem {
+	    handle: number;
+	    itemId: number;
+	    name: string;
+	    category: string;
+	    acquisitionIndex: number;
+	    weight?: number;
+	    sortId?: number;
+	    sortGroupId?: number;
+	    currentUpgrade?: number;
+	    infusionName?: string;
+	    iconPath?: string;
+	    isTechnical?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new InventoryOrderItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.handle = source["handle"];
+	        this.itemId = source["itemId"];
+	        this.name = source["name"];
+	        this.category = source["category"];
+	        this.acquisitionIndex = source["acquisitionIndex"];
+	        this.weight = source["weight"];
+	        this.sortId = source["sortId"];
+	        this.sortGroupId = source["sortGroupId"];
+	        this.currentUpgrade = source["currentUpgrade"];
+	        this.infusionName = source["infusionName"];
+	        this.iconPath = source["iconPath"];
+	        this.isTechnical = source["isTechnical"];
 	    }
 	}
 	export class PresetInfo {
@@ -769,6 +879,30 @@ export namespace main {
 
 export namespace vm {
 	
+	export class AoWAvailabilityEntry {
+	    itemId: number;
+	    totalCopies: number;
+	    availableCopies: number;
+	    usedCopies: number;
+	    usedByWeaponHandles: number[];
+	    isMissing: boolean;
+	    hasSharedHandleConflict: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new AoWAvailabilityEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.itemId = source["itemId"];
+	        this.totalCopies = source["totalCopies"];
+	        this.availableCopies = source["availableCopies"];
+	        this.usedCopies = source["usedCopies"];
+	        this.usedByWeaponHandles = source["usedByWeaponHandles"];
+	        this.isMissing = source["isMissing"];
+	        this.hasSharedHandleConflict = source["hasSharedHandleConflict"];
+	    }
+	}
 	export class ApplyOptions {
 	    replaceStats: boolean;
 	    replaceInventory: boolean;
@@ -982,6 +1116,10 @@ export namespace vm {
 	    iconPath: string;
 	    flags: string[];
 	    readOnly: boolean;
+	    aowId: number;
+	    canMountAoW: boolean;
+	    wepType: number;
+	    aowCompatBitmask: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ItemViewModel(source);
@@ -1004,6 +1142,10 @@ export namespace vm {
 	        this.iconPath = source["iconPath"];
 	        this.flags = source["flags"];
 	        this.readOnly = source["readOnly"];
+	        this.aowId = source["aowId"];
+	        this.canMountAoW = source["canMountAoW"];
+	        this.wepType = source["wepType"];
+	        this.aowCompatBitmask = source["aowCompatBitmask"];
 	    }
 	}
 	export class CharacterViewModel {

@@ -6,6 +6,14 @@ export function AddItemsToCharacter(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
   return window['go']['main']['App']['AddItemsToCharacter'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function ApplyBuiltinCharacterPresetInventory(arg1, arg2) {
+  return window['go']['main']['App']['ApplyBuiltinCharacterPresetInventory'](arg1, arg2);
+}
+
+export function ApplyBuiltinCharacterPresetStats(arg1, arg2) {
+  return window['go']['main']['App']['ApplyBuiltinCharacterPresetStats'](arg1, arg2);
+}
+
 export function ApplyCharacterPreset(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyCharacterPreset'](arg1, arg2, arg3);
 }
@@ -20,6 +28,18 @@ export function ApplyPresetToCharacter(arg1, arg2) {
 
 export function ApplyPvPPreparation(arg1, arg2) {
   return window['go']['main']['App']['ApplyPvPPreparation'](arg1, arg2);
+}
+
+export function ApplyWeaponAoW(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyWeaponAoW'](arg1, arg2, arg3);
+}
+
+export function ApplyWeaponAoWStrict(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyWeaponAoWStrict'](arg1, arg2, arg3);
+}
+
+export function ApplyWeaponInfusion(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ApplyWeaponInfusion'](arg1, arg2, arg3, arg4);
 }
 
 export function BulkSetAshOfWarFlags(arg1, arg2, arg3) {
@@ -82,6 +102,10 @@ export function GetActiveSlots() {
   return window['go']['main']['App']['GetActiveSlots']();
 }
 
+export function GetAoWAvailability(arg1) {
+  return window['go']['main']['App']['GetAoWAvailability'](arg1);
+}
+
 export function GetAshOfWarFlags(arg1) {
   return window['go']['main']['App']['GetAshOfWarFlags'](arg1);
 }
@@ -92,6 +116,10 @@ export function GetBellBearings(arg1) {
 
 export function GetBosses(arg1) {
   return window['go']['main']['App']['GetBosses'](arg1);
+}
+
+export function GetBuiltinCharacterPreset(arg1) {
+  return window['go']['main']['App']['GetBuiltinCharacterPreset'](arg1);
 }
 
 export function GetCharacter(arg1) {
@@ -128,6 +156,10 @@ export function GetGraces(arg1) {
 
 export function GetInfuseTypes() {
   return window['go']['main']['App']['GetInfuseTypes']();
+}
+
+export function GetInventoryOrder(arg1, arg2) {
+  return window['go']['main']['App']['GetInventoryOrder'](arg1, arg2);
 }
 
 export function GetItemDetail(arg1) {
@@ -186,6 +218,10 @@ export function GetSteamIDString() {
   return window['go']['main']['App']['GetSteamIDString']();
 }
 
+export function GetStorageOrder(arg1, arg2) {
+  return window['go']['main']['App']['GetStorageOrder'](arg1, arg2);
+}
+
 export function GetSummoningPools(arg1) {
   return window['go']['main']['App']['GetSummoningPools'](arg1);
 }
@@ -196,6 +232,10 @@ export function GetUndoDepth(arg1) {
 
 export function GetUnlockedRegions(arg1) {
   return window['go']['main']['App']['GetUnlockedRegions'](arg1);
+}
+
+export function GetWeaponInventoryOrder(arg1) {
+  return window['go']['main']['App']['GetWeaponInventoryOrder'](arg1);
 }
 
 export function GetWhetblades(arg1) {
@@ -214,12 +254,20 @@ export function ListAppearancePresets() {
   return window['go']['main']['App']['ListAppearancePresets']();
 }
 
+export function ListBuiltinCharacterPresets() {
+  return window['go']['main']['App']['ListBuiltinCharacterPresets']();
+}
+
 export function LoadCharacterPresetFromFile() {
   return window['go']['main']['App']['LoadCharacterPresetFromFile']();
 }
 
 export function LoadCharacterPresetFromURL(arg1) {
   return window['go']['main']['App']['LoadCharacterPresetFromURL'](arg1);
+}
+
+export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
 }
 
 export function RemoveFavoritePreset(arg1) {
@@ -232,6 +280,18 @@ export function RemoveFogOfWar(arg1) {
 
 export function RemoveItemsFromCharacter(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RemoveItemsFromCharacter'](arg1, arg2, arg3, arg4);
+}
+
+export function ReorderInventory(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReorderInventory'](arg1, arg2, arg3);
+}
+
+export function ReorderStorage(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReorderStorage'](arg1, arg2, arg3);
+}
+
+export function ReorderWeaponInventory(arg1, arg2) {
+  return window['go']['main']['App']['ReorderWeaponInventory'](arg1, arg2);
 }
 
 export function ResetMapExploration(arg1) {
@@ -336,6 +396,10 @@ export function SetWhetbladeUnlocked(arg1, arg2, arg3) {
 
 export function TestSSHConnection(arg1) {
   return window['go']['main']['App']['TestSSHConnection'](arg1);
+}
+
+export function ValidateBuiltinCharacterPreset(arg1, arg2) {
+  return window['go']['main']['App']['ValidateBuiltinCharacterPreset'](arg1, arg2);
 }
 
 export function ValidateCharacterPreset(arg1) {

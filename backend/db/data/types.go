@@ -22,6 +22,15 @@ type ItemData struct {
 	MaxUpgrade   uint32
 	IconPath     string
 	Flags        []string
+	// Weapon AoW compatibility (populated from EquipParamWeapon via weapon_gem_mount.go):
+	//   0 = cannot mount AoW, 1 = special/unique AoW (somber), 2 = standard infusable
+	GemMountType uint8
+	// Weapon type category integer from EquipParamWeapon.wepType (populated for weapons).
+	WepType uint16
+	// AoW → weapon compatibility bitmask from EquipParamGem.canMountWep_* (populated for AoWs).
+	// Bit N = 1 means this AoW can be mounted on weapons whose wepType maps to bit N.
+	// Bit ordering: 0=Dagger, 1=StraightSword, 2=Greatsword, ... see data.CanMountWepNames.
+	AoWCompatBitmask uint64
 }
 
 // WeaponStats holds base stats for a weapon (before upgrades/infusions).
@@ -68,6 +77,19 @@ type SpellStats struct {
 	ReqInt uint32
 	ReqFai uint32
 	ReqArc uint32
+}
+
+// SortKey holds the in-game sort identifiers for an item.
+//
+//   - SortId      determines position within a group (higher = later in list).
+//                 Values come from sortId columns of EquipParamWeapon/Protector/Accessory.
+//                 Sentinel 9999999 = item has no defined sort order (sorts to end).
+//   - SortGroupId determines the type group the item belongs to (e.g. 10 = dagger,
+//                 20 = straight sword; grouping mirrors in-game "Type" filter).
+//                 Max observed value: 255 — fits in uint8.
+type SortKey struct {
+	SortId      uint32
+	SortGroupId uint8
 }
 
 // ItemDescription holds an item's in-game description text and optional stats.

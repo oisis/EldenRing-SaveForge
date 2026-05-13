@@ -2,7 +2,7 @@
 
 > **Type**: Design doc
 > **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
-> **Status**: 🔲 Planned — blocked on Phase 0 in-game verification
+> **Status**: ✅ Implemented — stride-2 acquisition index reorder (see spec/52)
 
 ---
 
