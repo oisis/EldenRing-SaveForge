@@ -65,6 +65,15 @@
 - **Orphaned GaItem cleanup** — `RemoveItemFromSlot` clears GaItem binary record; `RepairOrphanedGaItems()` purges stale entries from pre-corruption saves
 - **Round-trip tests** — `recalculatedRegions()` excludes intentionally-corrected bytes; `TestAcquisitionSortIdIncrementFix` rewrit to assert visibility invariant
 
+### Sort Order — dual-grid Inventory + Storage with bidirectional transfer
+- **Dual-grid Sort Order tab** — Storage on the left, Inventory on the right; identical 5×6 frames; per-category tabs (weapons, talismans, head, chest, arms, legs) → spec/53
+- **Bidirectional drag/drop transfer** — single and multi-item; Ctrl/Cmd toggle + Shift range selection per side; dragging a selected item moves the whole source-side batch; unsaved-preview guards on both sides
+- **Duplicate-instance rehandle** — talisman / weapon / armor with the same handle on both sides triggers a rehandle path: new globally-unique handle + new GaItem entry + GaMap mapping → the same item can live in Storage and Inventory simultaneously
+- **Inventory Apply Order** — `ReorderInventory` with stride-2 acquisition index (see spec/52); inventory-only mutation, monotonic counter advance
+- **Storage Apply Order** — `ReorderStorage` mirrors the inventory path on `slot.Storage` (also stride-2 — same `acqIdx >> 1` bucketing applies in-storage); storage-only mutation, no touch to inventory bytes or counters
+- **Storage Acquisition Ordering** — `GetStorageOrder` reads the real per-record `Index`; freshly transferred items receive monotonic indices and appear at the end of Acquisition ↑ on the destination side
+- **VM visibility fix** — `mapItems` resolves itemIDs via `GaMap` first (`HandleToItemID` fallback) so rehandled instances are visible in inventory/storage view models immediately after transfer
+
 ---
 
 ## Planned
@@ -190,10 +199,9 @@ Export/import stats + inventory + storage + appearance to portable `.preset.json
 Replaces disabled `App.ImportCharacter`. Community build sharing.
 **Design:** [spec/37](spec/37-character-presets.md) | **Effort:** 10-14h (Phase 1+2 MVP)
 
-### 🟡 Inventory Custom Order — drag & drop grid reorder
-Manipulate `acquisition_index` to set custom weapon/armor order visible in-game (Acquisition sort mode).
-Unique feature — no existing editor offers this.
-**Design:** [spec/39](spec/39-inventory-reorder.md) | **Effort:** 12-19h | **Blocker:** Phase 0 in-game verification
+### 🟢 Sort Order — in-game verification on real saves
+Sort Order dual-grid (Storage + Inventory) with bidirectional transfer and per-side Apply is implemented; backend + frontend coverage is green. Remaining work is **manual in-game verification** of each Sort Order tab (talismans / weapons / armor pieces) on a real save deployed to Steam Deck/console — confirm the rendered in-game grid order matches the editor preview for Inventory Apply and Storage Apply.
+**Design:** [spec/53](spec/53-inventory-storage-transfer.md), [spec/52](spec/52-acquisition-sort-stride2.md), [spec/39](spec/39-inventory-reorder.md)
 
 ### 🟡 Boss Kill — multi-flag rework
 Current single-flag approach grants runes but boss remains alive. Needs arena state + quest progression + grace activation flags per boss.
