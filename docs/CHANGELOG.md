@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(aow-compat): Fist weapons use the Knuckle compatibility bit
+
+Fixed Ash of War compatibility for Fist weapons such as Star Fist. The
+Fist/Knuckle weapon type now maps to the correct `canMountWep_Knuckle` bit, so
+compatible Ashes of War such as Lifesteal Fist, Cragblade, Endure, Quickstep,
+and Bloodhound's Step are shown and accepted by the backend.
+
+### fix(add-items): detect and repair duplicate inventory acquisition indices
+
+Add Items now detects pre-existing duplicate acquisition indices before
+mutating a save and blocks the operation with a clear repair prompt instead of
+failing after rollback. Added a repair flow that renumbers only duplicate
+acquisition/sort indices, preserves item IDs, handles, quantities, and
+containers, supports undo, and retries the original Add Items operation after
+user confirmation.
+
+- Added read-only duplicate index scanning for Inventory CommonItems/KeyItems.
+- Added `RepairDuplicateInventoryIndices` core helper and App/Wails endpoint.
+- Added Database tab "Repair & Retry" prompt for duplicate acquisition index errors.
+- Repair is opt-in only: no auto-repair on load, save, upload, or background operations.
+
 ### feat(sort-order): per-tile weapon edit modal
 
 Sort Order → Weapons now supports editing a weapon directly from its grid tile through a red edit icon in the top-left corner. The modal works for both Inventory and Storage weapons and preserves selection, drag/drop behavior, pending preview order, and Apply Order state.
