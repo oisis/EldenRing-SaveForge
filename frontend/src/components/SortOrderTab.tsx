@@ -101,7 +101,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         source: 'inventory' | 'storage';
     } | null>(null);
 
-    const handleWeaponDoubleClick = (
+    const openWeaponEditor = (
         item: main.InventoryOrderItem,
         source: 'inventory' | 'storage',
     ) => {
@@ -1009,9 +1009,13 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                 isSelected={storageSelectedHandles.has(item.handle)}
                                                 isBlockDragging={storageBlockDragging}
                                                 onClick={(e) => handleStorageTileClick(item, e)}
-                                                onDoubleClick={
+                                                onEditClick={
                                                     activeSortTab === 'weapons'
-                                                        ? () => handleWeaponDoubleClick(item, 'storage')
+                                                        ? (e) => {
+                                                              e.stopPropagation();
+                                                              e.preventDefault();
+                                                              openWeaponEditor(item, 'storage');
+                                                          }
                                                         : undefined
                                                 }
                                                 onDragStart={() =>
@@ -1155,9 +1159,13 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                 isSelected={selectedHandles.has(item.handle)}
                                                 isBlockDragging={isBlockDragging}
                                                 onClick={(e) => handleTileClick(item, e)}
-                                                onDoubleClick={
+                                                onEditClick={
                                                     activeSortTab === 'weapons'
-                                                        ? () => handleWeaponDoubleClick(item, 'inventory')
+                                                        ? (e) => {
+                                                              e.stopPropagation();
+                                                              e.preventDefault();
+                                                              openWeaponEditor(item, 'inventory');
+                                                          }
                                                         : undefined
                                                 }
                                                 onDragStart={() => handleDragStart(localIdx, item)}
@@ -1188,7 +1196,7 @@ interface TileProps {
     isSelected: boolean;
     isBlockDragging: boolean;
     onClick: (e: React.MouseEvent) => void;
-    onDoubleClick?: (e: React.MouseEvent) => void;
+    onEditClick?: (e: React.MouseEvent) => void;
     onDragStart: () => void;
     onDragOver: (e: React.DragEvent) => void;
     onDrop: () => void;
@@ -1202,7 +1210,7 @@ function ItemTile({
     isSelected,
     isBlockDragging,
     onClick,
-    onDoubleClick,
+    onEditClick,
     onDragStart,
     onDragOver,
     onDrop,
@@ -1237,7 +1245,6 @@ function ItemTile({
             title={tooltip}
             draggable
             onClick={onClick}
-            onDoubleClick={onDoubleClick}
             onDragStart={onDragStart}
             onDragOver={onDragOver}
             onDrop={onDrop}
@@ -1293,6 +1300,40 @@ function ItemTile({
                 <div className="absolute top-0.5 right-0.5 px-0.5 rounded text-[6px] font-mono font-bold text-blue-300/70 leading-tight pointer-events-none">
                     {weightLabel}
                 </div>
+            )}
+
+            {/* Edit-weapon button — top-left, only rendered when onEditClick is provided
+                (i.e. weapons tab). Stops propagation so it never triggers selection or DnD. */}
+            {onEditClick && (
+                <button
+                    type="button"
+                    draggable={false}
+                    onClick={onEditClick}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onDragStart={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }}
+                    title="Edit weapon"
+                    aria-label="Edit weapon"
+                    className="absolute top-0.5 left-0.5 z-10 w-4 h-4 flex items-center justify-center rounded bg-red-700/85 hover:bg-red-600 text-white shadow ring-1 ring-red-900/40 transition-colors cursor-pointer"
+                >
+                    <svg
+                        className="w-2.5 h-2.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M14.7 6.3l3 3M4 20l3.5-1 9.8-9.8a2.1 2.1 0 0 0 0-3l-.5-.5a2.1 2.1 0 0 0-3 0L4 16.5 4 20z"
+                        />
+                    </svg>
+                </button>
             )}
         </div>
     );
