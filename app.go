@@ -316,6 +316,19 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 	slot := &a.save.Slots[charIdx]
 
+	// PRE-FLIGHT: refuse to mutate a save that already has duplicate inventory
+	// acquisition indices. Without this guard the batch mutates the slot, then the
+	// post-mutation validator catches the pre-existing duplicate and rolls back —
+	// surfacing a misleading "post-mutation validation failed" error to the user.
+	// No mutation, no snapshot needed; the slot is untouched on error.
+	if dups := core.ScanDuplicateInventoryIndices(slot); len(dups) > 0 {
+		d := dups[0]
+		return result, fmt.Errorf(
+			"save inventory has %d duplicate acquisition index issue(s) before adding items: duplicate Index %d in %s (handle 0x%08X, also at row %d handle 0x%08X). Run inventory index repair before adding items",
+			len(dups), d.Index, d.Scope, d.DuplicateHandle, d.FirstRow, d.FirstHandle,
+		)
+	}
+
 	// Build maps from current inventory/storage state:
 	// - existingItemQty: per-item stack qty in inventory (used to compute SET delta)
 	// - existingByContainer: total pot/aromatic units per container
