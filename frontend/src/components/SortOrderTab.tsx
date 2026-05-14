@@ -8,6 +8,7 @@ import {
 } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
+import { WeaponEditModal } from './WeaponEditModal';
 
 type DragSource = 'inventory' | 'storage' | null;
 type FrameDropTarget = 'inventory' | 'storage' | null;
@@ -94,6 +95,19 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const prevStorageHasChangesRef = useRef(false);
     const [frameDropTarget, setFrameDropTarget] = useState<FrameDropTarget>(null);
     const [transferring, setTransferring] = useState(false);
+    // Weapon edit modal state — populated only on weapons tab via double-click.
+    const [weaponEditor, setWeaponEditor] = useState<{
+        item: main.InventoryOrderItem;
+        source: 'inventory' | 'storage';
+    } | null>(null);
+
+    const handleWeaponDoubleClick = (
+        item: main.InventoryOrderItem,
+        source: 'inventory' | 'storage',
+    ) => {
+        if (activeSortTab !== 'weapons') return;
+        setWeaponEditor({ item, source });
+    };
 
     // reloadTabData fetches fresh Inventory + Storage data for the active tab
     // and applies it to local state. Used both by the on-mount/version useEffect
@@ -765,6 +779,15 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                 </div>
             )}
 
+            {weaponEditor && (
+                <WeaponEditModal
+                    charIndex={charIndex}
+                    item={weaponEditor.item}
+                    source={weaponEditor.source}
+                    onClose={() => setWeaponEditor(null)}
+                />
+            )}
+
             <div className="flex flex-col h-full min-h-0 gap-2">
                 {/* ── Category tab selector + sort dropdowns ───────────────── */}
                 <div className="flex items-center gap-1 shrink-0 border-b border-border/30 pb-2">
@@ -986,6 +1009,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                 isSelected={storageSelectedHandles.has(item.handle)}
                                                 isBlockDragging={storageBlockDragging}
                                                 onClick={(e) => handleStorageTileClick(item, e)}
+                                                onDoubleClick={
+                                                    activeSortTab === 'weapons'
+                                                        ? () => handleWeaponDoubleClick(item, 'storage')
+                                                        : undefined
+                                                }
                                                 onDragStart={() =>
                                                     handleStorageDragStart(localIdx, item)
                                                 }
@@ -1127,6 +1155,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                 isSelected={selectedHandles.has(item.handle)}
                                                 isBlockDragging={isBlockDragging}
                                                 onClick={(e) => handleTileClick(item, e)}
+                                                onDoubleClick={
+                                                    activeSortTab === 'weapons'
+                                                        ? () => handleWeaponDoubleClick(item, 'inventory')
+                                                        : undefined
+                                                }
                                                 onDragStart={() => handleDragStart(localIdx, item)}
                                                 onDragOver={(e) => handleDragOver(e, localIdx)}
                                                 onDrop={() => handleDrop(localIdx)}
@@ -1155,6 +1188,7 @@ interface TileProps {
     isSelected: boolean;
     isBlockDragging: boolean;
     onClick: (e: React.MouseEvent) => void;
+    onDoubleClick?: (e: React.MouseEvent) => void;
     onDragStart: () => void;
     onDragOver: (e: React.DragEvent) => void;
     onDrop: () => void;
@@ -1168,6 +1202,7 @@ function ItemTile({
     isSelected,
     isBlockDragging,
     onClick,
+    onDoubleClick,
     onDragStart,
     onDragOver,
     onDrop,
@@ -1202,6 +1237,7 @@ function ItemTile({
             title={tooltip}
             draggable
             onClick={onClick}
+            onDoubleClick={onDoubleClick}
             onDragStart={onDragStart}
             onDragOver={onDragOver}
             onDrop={onDrop}
