@@ -62,6 +62,10 @@ export function BulkSetUnlockedRegions(arg1, arg2) {
   return window['go']['main']['App']['BulkSetUnlockedRegions'](arg1, arg2);
 }
 
+export function CheckWeaponAoWBatch(arg1, arg2) {
+  return window['go']['main']['App']['CheckWeaponAoWBatch'](arg1, arg2);
+}
+
 export function CloneSlot(arg1, arg2) {
   return window['go']['main']['App']['CloneSlot'](arg1, arg2);
 }

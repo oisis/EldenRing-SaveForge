@@ -1232,6 +1232,43 @@ func (a *App) ApplyWeaponInfusion(charIdx int, handle uint32, expectedCurrentIte
 	return core.PatchWeaponItemID(slot, handle, expectedCurrentItemID, newItemID)
 }
 
+// AoWCompatibilityResult is the per-(AoW, weapon) verdict returned by
+// CheckWeaponAoWBatch. ReasonCode is the stable enum-style identifier (e.g.
+// "ash_not_applicable_to_weapon_category") for programmatic UI handling; Reason
+// is the human-readable string for tooltips/toasts.
+type AoWCompatibilityResult struct {
+	AoWItemID  uint32 `json:"aowItemID"`
+	Compatible bool   `json:"compatible"`
+	ReasonCode string `json:"reasonCode"`
+	Reason     string `json:"reason"`
+}
+
+// CheckWeaponAoWBatch evaluates AoW ↔ weapon compatibility for many AoWs against
+// a single weapon item ID in one round trip. Frontend uses this after the user
+// picks a weapon: pass every AoW ID currently in the list and filter the grid
+// by the per-row Compatible flag.
+//
+// Implementation: delegates to db.CheckAoWCompatibility with the same UX remap
+// applied in ApplyWeaponAoW (AoWUnknownWeapon → AoWWeaponNotInfusable when the
+// weapon name resolves, e.g. Moonveil with gemMountType=0).
+func (a *App) CheckWeaponAoWBatch(weaponItemID uint32, aowItemIDs []uint32) []AoWCompatibilityResult {
+	weaponData, _ := db.GetItemDataFuzzy(weaponItemID)
+	out := make([]AoWCompatibilityResult, 0, len(aowItemIDs))
+	for _, aowID := range aowItemIDs {
+		ok, reason := db.CheckAoWCompatibility(aowID, weaponItemID)
+		if !ok && reason == db.AoWUnknownWeapon && weaponData.Name != "" {
+			reason = db.AoWWeaponNotInfusable
+		}
+		out = append(out, AoWCompatibilityResult{
+			AoWItemID:  aowID,
+			Compatible: ok,
+			ReasonCode: reason.String(),
+			Reason:     formatAoWRejectReason(reason, weaponData.Name),
+		})
+	}
+	return out
+}
+
 // formatAoWRejectReason converts a db.AoWRejectReason into a UI-grade error string.
 // Used by ApplyWeaponAoW / ApplyWeaponAoWStrict to surface the precise compatibility
 // failure (so the frontend can show an actionable toast instead of a generic refusal).
@@ -1453,6 +1490,6 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 }
 
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, AoWCompatibilityResult) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, AoWCompatibilityResult{}
 }
