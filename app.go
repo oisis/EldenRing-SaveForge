@@ -1225,6 +1225,71 @@ func (a *App) ApplyWeaponInfusion(charIdx int, handle uint32, expectedCurrentIte
 	return core.PatchWeaponItemID(slot, handle, expectedCurrentItemID, newItemID)
 }
 
+// ApplyWeaponUpgradeLevel changes the upgrade (smithing-stone reinforcement) level
+// of a specific weapon instance identified by its GaItemHandle. Only the level
+// portion of the ItemID is patched — base weapon, infusion offset, AoW gem,
+// quantity, and location are preserved.
+//
+// expectedCurrentItemID is a stale-data guard: the request is rejected if the
+// weapon's ItemID has already changed since the frontend loaded the character data.
+// newItemID must encode the same base weapon and the same infusion offset; only
+// the upgrade level portion may differ. The new level must be in [0, MaxUpgrade].
+// Weapons with MaxUpgrade==0 (e.g. Unarmed) cannot be upgraded.
+func (a *App) ApplyWeaponUpgradeLevel(charIdx int, handle uint32, expectedCurrentItemID, newItemID uint32) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+
+	// Both IDs must be in the weapon range (upper nibble 0x0).
+	if expectedCurrentItemID>>28 != 0 {
+		return fmt.Errorf("expectedCurrentItemID 0x%08X is not a weapon ID", expectedCurrentItemID)
+	}
+	if newItemID>>28 != 0 {
+		return fmt.Errorf("newItemID 0x%08X is not a weapon ID", newItemID)
+	}
+
+	// Resolve base weapon from expectedCurrentItemID. DB lookup is authoritative.
+	baseData, baseID := db.GetItemDataFuzzy(expectedCurrentItemID)
+	if baseData.Name == "" {
+		return fmt.Errorf("unknown weapon 0x%08X", expectedCurrentItemID)
+	}
+	if baseData.MaxUpgrade == 0 {
+		return fmt.Errorf("weapon %q (0x%08X) cannot be upgraded (maxUpgrade=0)", baseData.Name, baseID)
+	}
+
+	expectedDiff := expectedCurrentItemID - baseID
+	expectedInfuse := expectedDiff - (expectedDiff % 100)
+
+	// Validate newItemID resolves to the same base weapon.
+	_, newBaseID := db.GetItemDataFuzzy(newItemID)
+	if newBaseID != baseID {
+		return fmt.Errorf("cannot change weapon base ID with upgrade endpoint (newItemID 0x%08X resolves to base 0x%08X, expected 0x%08X)",
+			newItemID, newBaseID, baseID)
+	}
+	newDiff := newItemID - baseID
+	newLevel := newDiff % 100
+	newInfuse := newDiff - newLevel
+
+	// Infusion offset must be unchanged.
+	if newInfuse != expectedInfuse {
+		return fmt.Errorf("cannot change infusion with upgrade endpoint (infuseOffset %d→%d); use ApplyWeaponInfusion instead",
+			expectedInfuse, newInfuse)
+	}
+
+	// Level must be within [0, MaxUpgrade]. newLevel is unsigned so >=0 is automatic.
+	if newLevel > uint32(baseData.MaxUpgrade) {
+		return fmt.Errorf("upgrade level %d out of range (max %d) for weapon %q (0x%08X)",
+			newLevel, baseData.MaxUpgrade, baseData.Name, baseID)
+	}
+
+	a.pushUndo(charIdx)
+	slot := &a.save.Slots[charIdx]
+	return core.PatchWeaponItemID(slot, handle, expectedCurrentItemID, newItemID)
+}
+
 // ApplyWeaponAoW sets or removes the Ash of War on a specific weapon instance.
 // newAoWItemID == 0 removes the AoW; any other value sets it.
 func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
