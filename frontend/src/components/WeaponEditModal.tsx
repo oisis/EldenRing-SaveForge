@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ApplyWeaponUpgradeLevel } from '../../wailsjs/go/main/App';
-import { main } from '../../wailsjs/go/models';
+import {
+    ApplyWeaponInfusion,
+    ApplyWeaponUpgradeLevel,
+    GetInfuseTypes,
+} from '../../wailsjs/go/main/App';
+import { db, main } from '../../wailsjs/go/models';
 
 interface Props {
     charIndex: number;
@@ -24,15 +28,35 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
     const [imgError, setImgError] = useState(false);
 
     // Live working state — starts from props but tracks Apply results so the
-    // modal can show the new level / itemId without being closed.
+    // modal can show the new level / itemId / infusion without being closed.
     const [currentItemId, setCurrentItemId] = useState<number>(item.itemId);
     const [currentLevel, setCurrentLevel] = useState<number>(item.currentUpgrade ?? 0);
+    const [currentInfusionName, setCurrentInfusionName] = useState<string>(item.infusionName ?? '');
     const maxUpgrade = item.maxUpgrade ?? 0;
 
     const [selectedLevel, setSelectedLevel] = useState<number>(item.currentUpgrade ?? 0);
     const [applying, setApplying] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
+
+    // Infusion options loaded from backend (small static list, 13 entries).
+    const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
+    const currentInfuseOffset = useMemo(() => {
+        const name = currentInfusionName || 'Standard';
+        return infuseTypes.find(t => t.name === name)?.offset ?? 0;
+    }, [infuseTypes, currentInfusionName]);
+    const [selectedInfuseOffset, setSelectedInfuseOffset] = useState<number>(0);
+
+    useEffect(() => {
+        GetInfuseTypes().then(types => {
+            setInfuseTypes(types ?? []);
+        }).catch(() => setInfuseTypes([]));
+    }, []);
+
+    // Keep selected infusion in sync when infuseTypes load or current changes (e.g. after Apply).
+    useEffect(() => {
+        setSelectedInfuseOffset(currentInfuseOffset);
+    }, [currentInfuseOffset]);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -54,17 +78,24 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
     const levelInRange = selectedLevel >= 0 && selectedLevel <= maxUpgrade;
     const canApplyLevel = canEditLevel && levelChanged && levelInRange && !applying;
 
+    // Backend ApplyWeaponInfusion requires baseData.MaxUpgrade == 25.
+    // Mirror that gate so the dropdown is disabled for somber/unique weapons.
+    const canEditInfusion = maxUpgrade === 25;
+    const infusionChanged = selectedInfuseOffset !== currentInfuseOffset;
+    const canApplyInfusion =
+        canEditInfusion && infusionChanged && infuseTypes.length > 0 && !applying;
+
     const showIcon = !!item.iconPath && !imgError;
     const itemIdHex = `0x${currentItemId.toString(16).toUpperCase().padStart(8, '0')}`;
     const handleHex = `0x${item.handle.toString(16).toUpperCase().padStart(8, '0')}`;
     const upgradeLabel =
         currentLevel > 0
-            ? item.infusionName
-                ? `${item.infusionName} +${currentLevel}`
+            ? currentInfusionName
+                ? `${currentInfusionName} +${currentLevel}`
                 : `+${currentLevel}`
-            : item.infusionName || '+0';
+            : currentInfusionName || '+0';
 
-    const onApply = () => {
+    const onApplyLevel = () => {
         if (!canApplyLevel) return;
         setApplying(true);
         setError(null);
@@ -82,12 +113,44 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                     handle: item.handle,
                     itemId: newItemId,
                     currentUpgrade: selectedLevel,
-                    infusionName: item.infusionName,
+                    infusionName: currentInfusionName,
                 });
             })
             .catch((e: unknown) => {
                 const msg = e instanceof Error ? e.message : String(e);
                 setError(msg || 'Failed to apply level change');
+            })
+            .finally(() => setApplying(false));
+    };
+
+    const onApplyInfusion = () => {
+        if (!canApplyInfusion) return;
+        setApplying(true);
+        setError(null);
+        setSuccess(null);
+        // newItemID = itemId - currentInfuseOffset + selectedInfuseOffset
+        // Preserves baseID and upgrade level. Backend re-validates that only
+        // the infusion offset changed (same baseID, same level).
+        const newItemId = currentItemId - currentInfuseOffset + selectedInfuseOffset;
+        const expectedCurrentItemId = currentItemId;
+        const newName = infuseTypes.find(t => t.offset === selectedInfuseOffset)?.name ?? 'Standard';
+        ApplyWeaponInfusion(charIndex, item.handle, expectedCurrentItemId, newItemId)
+            .then(() => {
+                setCurrentItemId(newItemId);
+                // Backend / inventory_order convention: empty string for Standard.
+                const storedName = newName === 'Standard' ? '' : newName;
+                setCurrentInfusionName(storedName);
+                setSuccess(`Infusion updated to ${newName}`);
+                onApplied?.({
+                    handle: item.handle,
+                    itemId: newItemId,
+                    currentUpgrade: currentLevel,
+                    infusionName: storedName,
+                });
+            })
+            .catch((e: unknown) => {
+                const msg = e instanceof Error ? e.message : String(e);
+                setError(msg || 'Failed to apply infusion change');
             })
             .finally(() => setApplying(false));
     };
@@ -183,7 +246,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                                     ))}
                                 </select>
                                 <button
-                                    onClick={onApply}
+                                    onClick={onApplyLevel}
                                     disabled={!canApplyLevel}
                                     className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
                                         canApplyLevel
@@ -205,17 +268,73 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                             </div>
                         )}
 
-                        {error && (
-                            <p className="text-[10px] font-mono text-red-400/90 leading-snug break-words">
-                                {error}
+                    </section>
+
+                    {/* Infusion edit section */}
+                    <section className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
+                                Infusion
+                            </span>
+                            {canEditInfusion && (
+                                <span className="text-[9px] font-mono text-muted-foreground/70">
+                                    {currentInfusionName || 'Standard'}
+                                </span>
+                            )}
+                        </div>
+
+                        {!canEditInfusion ? (
+                            <p className="text-[10px] text-muted-foreground/70 italic">
+                                This weapon does not support infusion changes.
                             </p>
-                        )}
-                        {success && !error && (
-                            <p className="text-[10px] font-bold text-green-400/90">
-                                {success}
-                            </p>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={selectedInfuseOffset}
+                                    onChange={(e) => setSelectedInfuseOffset(Number(e.target.value))}
+                                    disabled={applying || infuseTypes.length === 0}
+                                    className="flex-1 bg-background/60 border border-border/50 rounded-md px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {infuseTypes.map(t => (
+                                        <option key={t.offset} value={t.offset}>
+                                            {t.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={onApplyInfusion}
+                                    disabled={!canApplyInfusion}
+                                    className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                                        canApplyInfusion
+                                            ? 'bg-green-700/80 text-white hover:bg-green-700 shadow-sm'
+                                            : 'opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground'
+                                    }`}
+                                    title={
+                                        !canEditInfusion
+                                            ? 'Weapon does not support infusion'
+                                            : !infusionChanged
+                                              ? 'No infusion change'
+                                              : applying
+                                                ? 'Applying…'
+                                                : 'Apply new infusion'
+                                    }
+                                >
+                                    {applying ? 'Applying…' : 'Apply Infusion'}
+                                </button>
+                            </div>
                         )}
                     </section>
+
+                    {error && (
+                        <p className="text-[10px] font-mono text-red-400/90 leading-snug break-words">
+                            {error}
+                        </p>
+                    )}
+                    {success && !error && (
+                        <p className="text-[10px] font-bold text-green-400/90">
+                            {success}
+                        </p>
+                    )}
 
                     {/* Metadata */}
                     <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 gap-x-3 text-[10px]">
@@ -230,7 +349,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
 
                         <dt className="font-black uppercase tracking-wider text-muted-foreground">Infusion</dt>
                         <dd className="font-mono text-foreground/80">
-                            {item.infusionName || 'Standard'}
+                            {currentInfusionName || 'Standard'}
                         </dd>
                     </dl>
 
@@ -240,7 +359,6 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                             Coming next
                         </p>
                         <ul className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground/70 list-disc list-inside">
-                            <li>Infusion / Affinity dropdown</li>
                             <li>Ash of War picker with search and compatibility</li>
                         </ul>
                     </div>
