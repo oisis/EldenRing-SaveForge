@@ -659,24 +659,6 @@ export namespace main {
 	        this.cutQty = source["cutQty"];
 	    }
 	}
-	export class AoWCompatibilityResult {
-	    aowItemID: number;
-	    compatible: boolean;
-	    reasonCode: string;
-	    reason: string;
-
-	    static createFrom(source: any = {}) {
-	        return new AoWCompatibilityResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.aowItemID = source["aowItemID"];
-	        this.compatible = source["compatible"];
-	        this.reasonCode = source["reasonCode"];
-	        this.reason = source["reason"];
-	    }
-	}
 	export class AddResult {
 	    added: number;
 	    requested: number;
@@ -720,6 +702,24 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class AoWCompatibilityResult {
+	    aowItemID: number;
+	    compatible: boolean;
+	    reasonCode: string;
+	    reason: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AoWCompatibilityResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.aowItemID = source["aowItemID"];
+	        this.compatible = source["compatible"];
+	        this.reasonCode = source["reasonCode"];
+	        this.reason = source["reason"];
+	    }
 	}
 	export class BuiltinCharacterPresetInfo {
 	    id: string;
