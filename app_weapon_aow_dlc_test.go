@@ -83,22 +83,29 @@ func buildDLCEditorSlot(wepHandle, wepItemID, aowHandle, aowItemID uint32) *App 
 	)
 }
 
-// TestApplyWeaponAoW_DLCUnmappedWepType_Allows verifies that a weapon with an unmapped
-// DLC wepType (wepType=69, Dragon Towershield, no entry in WepTypeToCanMountBit) and
-// GemMountType=2 can have an Ash of War applied even though
-// IsAshOfWarCompatibleWithWeapon returns known=false.
-func TestApplyWeaponAoW_DLCUnmappedWepType_Allows(t *testing.T) {
+// TestApplyWeaponAoW_DLCWepType69_BlocksSwordDance verifies that after Phase 2A,
+// wepType=69 (Greatshield-like DLC, mapped to reserved bit 38) correctly rejects
+// Sword Dance (whose bitmask covers daggers/swords but not bit 38 / shields).
+//
+// Pre-Phase 2A: wepType 69 was absent from WepTypeToCanMountBit, IsAshOfWarCompatibleWithWeapon
+// returned known=false, ApplyWeaponAoW treated unknown as passthrough → allowed.
+// That allowed gameplay-incorrect combinations (Sword Dance × Greatshield).
+//
+// Phase 2A: wepType 69 maps to bit 38 (reserved bit 2 — DLC shield-like) per
+// empirical evidence from Phase 1.6 (Shield Bash SAP rsv=4). Sword Dance has
+// bit 38 unset → known=true, compatible=false → correctly blocked.
+func TestApplyWeaponAoW_DLCWepType69_BlocksSwordDance(t *testing.T) {
 	const (
 		wepHandle = uint32(0x80800001)
 		wepItemID = uint32(0x01E84800) // Dragon Towershield +0 — wepType=69, GemMountType=2
 		aowHandle = uint32(0xC0800001)
-		aowItemID = uint32(0x80003070) // Sword Dance
+		aowItemID = uint32(0x80003070) // Sword Dance — bitmask lacks bit 38
 	)
 
 	app := buildDLCEditorSlot(wepHandle, wepItemID, aowHandle, aowItemID)
 	err := app.ApplyWeaponAoW(0, wepHandle, aowItemID)
-	if err != nil {
-		t.Fatalf("ApplyWeaponAoW with DLC wepType=69: unexpected error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not compatible") {
+		t.Fatalf("want 'not compatible' error for Sword Dance × Dragon Towershield (wt=69), got %v", err)
 	}
 }
 
@@ -120,9 +127,9 @@ func TestApplyWeaponAoW_DLCGreatKatana_Allows(t *testing.T) {
 
 // ─── DLC unknown-compat passthrough — ApplyWeaponAoWStrict ──────────────────────
 
-// TestApplyWeaponAoWStrict_DLCUnmappedWepType_Allows verifies that strict mode also allows
-// the operation when known=false for a DLC weapon — the free copy is linked in-place.
-func TestApplyWeaponAoWStrict_DLCUnmappedWepType_Allows(t *testing.T) {
+// TestApplyWeaponAoWStrict_DLCWepType69_BlocksSwordDance — strict-mode counterpart
+// to TestApplyWeaponAoW_DLCWepType69_BlocksSwordDance. Same Phase 2A rationale.
+func TestApplyWeaponAoWStrict_DLCWepType69_BlocksSwordDance(t *testing.T) {
 	const (
 		wepHandle = uint32(0x80800001)
 		aowItemID = uint32(0x80003070)
@@ -130,8 +137,8 @@ func TestApplyWeaponAoWStrict_DLCUnmappedWepType_Allows(t *testing.T) {
 
 	app := weaponAoWDLCFixture()
 	err := app.ApplyWeaponAoWStrict(0, wepHandle, aowItemID)
-	if err != nil {
-		t.Fatalf("ApplyWeaponAoWStrict with DLC wepType=69: unexpected error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not compatible") {
+		t.Fatalf("want 'not compatible' error for Sword Dance × wepType=69 (strict), got %v", err)
 	}
 }
 
