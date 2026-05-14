@@ -1,7 +1,7 @@
 import {useEffect, useState, useMemo, useRef, useDeferredValue} from 'react';
 import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, GetCharacter} from '../../wailsjs/go/main/App';
+import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, GetCharacter, RepairDuplicateInventoryIndices} from '../../wailsjs/go/main/App';
 import {db, vm} from '../../wailsjs/go/models';
 import type {AddSettings} from '../App';
 import {CategorySelect, CATEGORY_VALUES} from './CategorySelect';
@@ -9,6 +9,14 @@ import {RiskBadge} from './RiskBadge';
 import {isLowerTierTalisman} from '../lib/talismanFamilies';
 import {useFavorites} from '../state/favorites';
 import {ItemDetailPanel} from './ItemDetailPanel';
+
+// Pre-flight guard in AddItemsToCharacter rejects mutations on saves that
+// already have duplicate inventory acquisition indices. Match the marker phrase
+// the backend uses so the UI can offer a one-click repair instead of a
+// confusing "post-mutation validation failed" rollback message.
+function isDuplicateInventoryIndexError(msg: string): boolean {
+    return msg.includes('duplicate acquisition index') || msg.includes('Run inventory index repair');
+}
 
 // Categories whose tab has sub-groupings — drives the Sub-Category column visibility.
 const CATEGORIES_WITH_SUBGROUPS = new Set([
@@ -85,6 +93,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const [isSaving, setIsSaving] = useState(false);
     const [brokenIcons, setBrokenIcons] = useState<Set<string>>(new Set());
     const [errorModal, setErrorModal] = useState<{title: string; message: string; items?: string[]} | null>(null);
+    // Repair prompt: open when AddItemsToCharacter aborts due to pre-existing
+    // duplicate inventory indices. Keeps confirmModal intact so Repair & Retry
+    // can re-run handleAdd with the same selection / qty inputs.
+    const [repairPrompt, setRepairPrompt] = useState<{ retrying: boolean } | null>(null);
 
     // Quantity state for modal
     const [addToInv, setAddToInv] = useState(true);
@@ -372,14 +384,53 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             setSelectedDbItems(new Set());
             onItemsAdded?.();
         } catch (err) {
+            const msg = String(err);
+            // Duplicate-index pre-flight: keep confirmModal so Repair & Retry
+            // can rerun handleAdd with the same state. Cancel will close both.
+            if (isDuplicateInventoryIndexError(msg)) {
+                setRepairPrompt({ retrying: false });
+                return;
+            }
             setConfirmModal(null);
             setErrorModal({
                 title: 'Add Failed',
-                message: String(err),
+                message: msg,
             });
         } finally {
             setIsSaving(false);
         }
+    };
+
+    // Handler for the repair prompt's "Repair & Retry" button. Invokes the
+    // backend repair endpoint (which pushes its own undo entry only when it
+    // actually rewrites indices) and then re-runs handleAdd against the
+    // preserved confirmModal selection. Manual user action only — never
+    // triggered automatically.
+    const handleRepairAndRetry = async () => {
+        if (!repairPrompt || repairPrompt.retrying) return;
+        setRepairPrompt({ retrying: true });
+        try {
+            const report = await RepairDuplicateInventoryIndices(charIndex);
+            if (report.changed > 0) {
+                toast.success(`Repaired ${report.changed} duplicate inventory index entries.`);
+            } else {
+                toast('No duplicate inventory indices found.');
+            }
+            setRepairPrompt(null);
+            await handleAdd();
+        } catch (err) {
+            setRepairPrompt(null);
+            setConfirmModal(null);
+            setErrorModal({
+                title: 'Repair Failed',
+                message: String(err),
+            });
+        }
+    };
+
+    const handleRepairCancel = () => {
+        setRepairPrompt(null);
+        setConfirmModal(null);
     };
 
     const openModal = (items: db.ItemEntry[]) => {
@@ -557,6 +608,44 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         >
                             OK
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* Repair Prompt — duplicate inventory index pre-flight blocked the add */}
+            {repairPrompt && (
+                <div className="fixed inset-0 z-[140] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-300">
+                    <div className="bg-card p-8 rounded-2xl border-2 border-amber-500/40 flex flex-col space-y-5 max-w-md w-full mx-4 shadow-2xl shadow-amber-500/20 animate-in zoom-in-95 duration-300">
+                        <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
+                                <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v3m0 3h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
+                                </svg>
+                            </div>
+                            <h3 className="text-sm font-black uppercase tracking-[0.15em] text-amber-500">Inventory index repair required</h3>
+                        </div>
+                        <p className="text-[11px] text-foreground leading-relaxed">
+                            This save has duplicate acquisition indices before adding items. The editor blocked the add operation to avoid writing an inconsistent save.
+                        </p>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">
+                            Repair will only renumber duplicate acquisition/sort indices. No items will be removed and no quantities will change. The fix is undoable from this character slot.
+                        </p>
+                        <div className="flex flex-col space-y-2">
+                            <button
+                                onClick={handleRepairAndRetry}
+                                disabled={repairPrompt.retrying}
+                                className="w-full px-4 py-2.5 bg-amber-500 text-white rounded-md text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {repairPrompt.retrying ? 'Repairing…' : 'Repair & Retry'}
+                            </button>
+                            <button
+                                onClick={handleRepairCancel}
+                                disabled={repairPrompt.retrying}
+                                className="w-full px-4 py-2.5 bg-muted text-foreground rounded-md text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
