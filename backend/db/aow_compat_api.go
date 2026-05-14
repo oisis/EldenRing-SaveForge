@@ -101,10 +101,31 @@ func CheckAoWCompatibility(aowID, weaponID uint32) (bool, AoWRejectReason) {
 		}
 	}
 
-	if !bitMapped && !hasFallback {
-		return false, AoWUnknownWeaponWepType
+	// Final dispositioning: distinguish "weapon wepType is globally unknown" (data
+	// gap → AoWUnknownWeaponWepType) from "wepType is known by SOME AoW but not this
+	// one" (correct rejection → AoWNotApplicableToWeaponCategory). A wepType is
+	// globally known if it appears in WepTypeToCanMountBit OR in any MwtidGroups list.
+	if isWepTypeGloballyKnown(weaponData.WepType) {
+		return false, AoWNotApplicableToWeaponCategory
 	}
-	return false, AoWNotApplicableToWeaponCategory
+	return false, AoWUnknownWeaponWepType
+}
+
+// isWepTypeGloballyKnown returns true if the given wepType is referenced by at
+// least one compatibility mechanism in the local data (vanilla bit map OR a
+// Layer 3 mwtid group). Used to give precise reject reasons.
+func isWepTypeGloballyKnown(wt uint16) bool {
+	if _, ok := data.WepTypeToCanMountBit[wt]; ok {
+		return true
+	}
+	for _, wepTypes := range data.AoWMwtidGroups {
+		for _, w := range wepTypes {
+			if w == wt {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // IsAffinityAllowedForAoW reports whether the given affinity ID (0..23) is in

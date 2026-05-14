@@ -57,6 +57,7 @@ const (
 	weaponBeastClaw       = 0x04153A20 // 68500000
 	weaponHandToHand      = 0x039B2820 // 60500000
 	weaponThrowingBlade   = 0x03C8EEE0 // 63500000
+	weaponPerfumeBottle   = 0x03AA6A60 // 61500000 — Phase 2B; covers Wall/Rolling Sparks
 
 	aowSwordDance        = 0x80003070
 	aowStormStomp        = 0x8000C418
@@ -88,6 +89,7 @@ func init() {
 	dlcWeapons := []uint32{
 		weaponBackhandBlade, weaponGreatKatana, weaponLightGreatsword,
 		weaponBeastClaw, weaponHandToHand, weaponThrowingBlade,
+		weaponPerfumeBottle,
 	}
 	for _, id := range dlcWeapons {
 		if _, ok := globalItemIndex[id]; ok {
@@ -340,27 +342,31 @@ func TestCheckAoWCompat_PalmBlastOnShortbow_Blocked(t *testing.T) {
 // Known current gap: Perfume Bottles (Wall of Sparks / Rolling Sparks)
 // ---------------------------------------------------------------------------
 
-func TestCheckAoWCompat_WallOfSparksGap_FailClosed(t *testing.T) {
-	// Wall of Sparks (mwtid 63052) is intended for Perfume Bottles, which are
-	// absent from the current regulation dump. Compatibility against any known
-	// weapon class MUST fail-closed.
-	//
-	// TODO: refresh regulation dump (tmp/regulation-bin-dump/csv/) to include
-	// Perfume Bottle weapons; this test should remain valid but the AoW will
-	// then have a fallback wepType list and we can add a positive test.
-	for _, wid := range []uint32{weaponLongsword, weaponDagger, weaponBackhandBlade, weaponBeastClaw} {
-		ok, _ := CheckAoWCompatibility(aowWallOfSparks, wid)
-		if ok {
-			t.Errorf("Wall of Sparks × 0x%08X should fail-closed (Perfume Bottles missing in dump); got ok=true", wid)
-		}
+// Phase 2B: Wall/Rolling Sparks were misdiagnosed as "Perfume Bottles missing in
+// regulation dump" in Phase 1.6. Phase 2B audit found that wepType 89 (local DB:
+// Firespark/Chilling/Frenzyflame Perfume Bottle) is the Perfume Bottle class.
+// Mapping wt 89 → reserved bit 37 closes the gap.
+
+func TestCheckAoWCompat_WallOfSparksOnPerfumeBottle(t *testing.T) {
+	ok, reason := CheckAoWCompatibility(aowWallOfSparks, weaponPerfumeBottle)
+	if !ok || reason != AoWOK {
+		t.Errorf("Wall of Sparks × Perfume Bottle should be OK (Phase 2B); got ok=%v reason=%v", ok, reason)
 	}
 }
 
-func TestCheckAoWCompat_RollingSparksGap_FailClosed(t *testing.T) {
-	for _, wid := range []uint32{weaponLongsword, weaponDagger, weaponBackhandBlade} {
-		ok, _ := CheckAoWCompatibility(aowRollingSparks, wid)
+func TestCheckAoWCompat_RollingSparksOnPerfumeBottle(t *testing.T) {
+	ok, reason := CheckAoWCompatibility(aowRollingSparks, weaponPerfumeBottle)
+	if !ok || reason != AoWOK {
+		t.Errorf("Rolling Sparks × Perfume Bottle should be OK (Phase 2B); got ok=%v reason=%v", ok, reason)
+	}
+}
+
+func TestCheckAoWCompat_WallOfSparksOnNonPerfumeBottle_Blocked(t *testing.T) {
+	// Wall of Sparks must NOT be mountable on weapons outside Perfume Bottle class.
+	for _, wid := range []uint32{weaponLongsword, weaponDagger, weaponBackhandBlade, weaponBeastClaw} {
+		ok, _ := CheckAoWCompatibility(aowWallOfSparks, wid)
 		if ok {
-			t.Errorf("Rolling Sparks × 0x%08X should fail-closed; got ok=true", wid)
+			t.Errorf("Wall of Sparks × 0x%08X should be blocked; got ok=true", wid)
 		}
 	}
 }
@@ -446,21 +452,31 @@ func TestDataIntegrity_AshesHaveCompatOrFallback(t *testing.T) {
 	}
 }
 
-func TestDataIntegrity_NoDLCWepTypesMappedToBowBits(t *testing.T) {
-	// Phase 1.6: removed incorrect mappings 87..93 → bits 24..28 (bow bits).
-	// Only 88 (bit 36), 69/90 (bit 38), 91 (bit 39) should remain among 87..95.
-	allowed := map[uint16]uint8{88: 36, 69: 38, 90: 38, 91: 39}
+func TestDataIntegrity_DLCWepTypesUseCorrectBits(t *testing.T) {
+	// Phase 1.6 + 2B: 87..95 mappings must not collide with bow bits (24..28).
+	// Phase 2B added 87→35 (Torch, vanilla bit) and 89→37 (Perfume Bottles, DLC reserved bit).
+	allowed := map[uint16]uint8{
+		87: 35, // Torch (vanilla)
+		88: 36, // DLC Hand-to-Hand
+		89: 37, // DLC Perfume Bottles
+		69: 38, // DLC shield-like
+		90: 38, // DLC shield-like
+		91: 39, // DLC Throwing Blades
+	}
 	for wt, bit := range data.WepTypeToCanMountBit {
-		if wt < 87 || wt > 95 {
+		if wt < 69 || wt > 95 {
 			continue
 		}
 		want, ok := allowed[wt]
 		if !ok {
-			t.Errorf("DLC wepType %d MUST NOT be in WepTypeToCanMountBit (Phase 1.6 invariant)", wt)
+			t.Errorf("DLC-range wepType %d MUST NOT be in WepTypeToCanMountBit (Phase 2B invariant)", wt)
 			continue
 		}
 		if bit != want {
-			t.Errorf("DLC wepType %d maps to bit %d, want %d", wt, bit, want)
+			t.Errorf("DLC-range wepType %d maps to bit %d, want %d", wt, bit, want)
+		}
+		if bit >= 24 && bit <= 28 {
+			t.Errorf("DLC wepType %d MUST NOT map to bow bit %d", wt, bit)
 		}
 	}
 }

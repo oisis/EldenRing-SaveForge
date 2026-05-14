@@ -20,14 +20,17 @@ func TestIsAoWCompatibleWithWepType_CompatibleDagger(t *testing.T) {
 	}
 }
 
-func TestIsAoWCompatibleWithWepType_IncompatibleSpearHeavy(t *testing.T) {
-	// AoW 0x80003070 (Sword Dance) has bit 17 (SpearHeavy/wepType=32) = 0.
-	compatible, known := IsAoWCompatibleWithWepType(0x80003070, 32)
+func TestIsAoWCompatibleWithWepType_IncompatibleHammer(t *testing.T) {
+	// Phase 2B: wepType=32 (SpearHeavy mapping in pre-2B script) is no longer in
+	// WepTypeToCanMountBit — it had no base weapons in regulation. Use wepType=21
+	// (Hammer → bit 12) instead: Sword Dance bitmask has bit 12 = 0, so it's
+	// correctly incompatible.
+	compatible, known := IsAoWCompatibleWithWepType(0x80003070, 21)
 	if !known {
-		t.Fatal("expected known=true")
+		t.Fatal("expected known=true (wepType=21 is mapped after Phase 2B)")
 	}
 	if compatible {
-		t.Error("expected compatible=false for SpearHeavy wepType + AoW 0x80003070")
+		t.Error("expected compatible=false for Hammer wepType + AoW 0x80003070 (Sword Dance)")
 	}
 }
 

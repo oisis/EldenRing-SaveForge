@@ -75,56 +75,90 @@ RESERVED_BIT_TO_WEPTYPES: Dict[int, List[int]] = {
 # they are either covered by Layer 3 (92, 93, 94, 95 via mwtid+SAP) or fail-closed
 # (87, 89) until manual in-game verification.
 WEP_TYPE_TO_BIT: Dict[int, int] = {
-    1:  0,   # Dagger
-    3:  1,   # Straight Sword
-    5:  2,   # Greatsword
-    7:  3,   # Colossal Sword
-    9:  8,   # Thrusting Sword
-    11: 9,   # Heavy Thrusting Sword
-    13: 6,   # Katana
-    14: 5,   # Curved Greatsword
-    15: 4,   # Curved Sword
-    16: 7,   # Twinblade
-    17: 7,   # Twinblade alt
-    19: 11,  # Greataxe
-    21: 13,  # Great Hammer
-    23: 10,  # Axe
-    24: 10,  # Axe alt
-    25: 12,  # Hammer
-    28: 14,  # Flail
-    29: 14,  # Flail alt
-    31: 15,  # Spear
-    32: 17,  # Great Spear (heavy)
-    33: 18,  # Halberd
-    35: 16,  # Great Spear
-    37: 19,  # Reaper / Scythe
-    39: 20,  # Fist
-    41: 21,  # Claw
-    43: 22,  # Whip
-    # Bow / crossbow / ballista — verified against local DB names (Phase 2A correction):
-    50: 24,  # Light Bow (Shortbow, Misbegotten Shortbow, Composite Bow, Bone Bow, ...)
-    51: 25,  # Bow (Longbow, Black Bow, Horn Bow, Pulley Bow, Ansbach's Longbow, ...)
-    53: 26,  # Greatbow (Lion Greatbow, Erdtree Greatbow, Igon's Greatbow, ...)
-    55: 27,  # Crossbow (Soldier's Crossbow, Light/Heavy Crossbow, Repeating, ...)
-    56: 28,  # Ballista (Hand Ballista)
+    # Phase 2B audit (every active wepType cross-referenced with the named weapons
+    # in backend/db/data/melee_armaments.go, shields.go, ranged_and_catalysts.go).
+    # The canonical bit name (canMountWep_*) matches the English class name of the
+    # weapons living in that wepType bucket.
+
+    # Straight / curved / piercing swords
+    1:  0,   # Dagger              (Dagger, Misericorde, Parrying Dagger, ...)
+    3:  1,   # Straight Sword      (Longsword, Short Sword, ...)
+    5:  2,   # Greatsword          (Bastard Sword, Lizard Greatsword, ...)
+    7:  3,   # Colossal Sword      (Watchdog's Greatsword, Maliketh's Black Blade, ...)
+    9:  4,   # Curved Sword        (Falchion, Scimitar, Shotel, ...)               — was 8 ❌
+    11: 5,   # Curved Greatsword   (Dismounter, Omen Cleaver, ...)                 — was 9 ❌
+    13: 6,   # Katana              (Uchigatana, Nagakiba — verified by Unsheathe single-bit AoW)
+    14: 7,   # Twinblade           (Twinblade, Godskin Peeler, ...)                — was 5 ❌
+    15: 8,   # Thrusting Sword     (Estoc, Rapier, Cleanrot Knight's Sword, ...)   — was 4 ❌
+    16: 9,   # Heavy Thrusting Sword (Sword Lance, Godskin Stitcher, ...)          — was 7 ❌
+
+    # Axes / hammers / flails
+    17: 10,  # Axe                 (Battle Axe, Hand Axe, ...)                    — was 7 ❌
+    19: 11,  # Greataxe            (Greataxe, Great Omenkiller Cleaver, ...)
+    21: 12,  # Hammer              (Mace, Club, ...)                              — was 13 ❌
+    23: 13,  # Great Hammer        (Large Club, Greathorn Hammer, Battle Hammer, ...) — was 10 ❌
+    24: 14,  # Flail               (Nightrider Flail, Family Heads, ...)          — was 10 ❌
+
+    # Spears / halberds / reapers
+    25: 15,  # Spear               (Spear, Short Spear, Bolt of Gransax, ...)     — was 12 ❌
+    28: 16,  # Great Spear         (Lance, Bloody Lance, Serpent-Hunter, ...)     — was 14 ❌
+    29: 18,  # Halberd             (Halberd, Lucerne, Pest's Glaive, ...)         — was 14 ❌
+    31: 19,  # Reaper / Sickle     (Scythe, Halo Scythe, Grave Scythe, ...)       — was 15 ❌
+
+    # Fists / claws / whips / colossal weapons
+    35: 20,  # Fist                (Caestus, Iron Ball, Cipher Pata, Grafted Dragon, ...) — was 16 ❌
+    37: 21,  # Claw                (Hookclaws, Venomous Fang, Bloodhound Claws, ...) — was 19 ❌
+    39: 22,  # Whip                (Whip, Thorned Whip, Hoslow's Petal Whip, ...) — was 20 ❌
+    41: 23,  # Colossal Weapon     (Bloodfiend's Arm, Anvil Hammer, Putrescence Cleaver, ...) — was 21 ❌
+            #   bit name in regulation is canMountWep_AxhammerLarge (= Colossal Weapon class).
+
+    # Bows / crossbows / ballista (Phase 2A — kept)
+    50: 24,  # Light Bow           (Shortbow, Composite Bow, ...)
+    51: 25,  # Bow                 (Longbow, Black Bow, Ansbach's Longbow, ...)
+    53: 26,  # Greatbow            (Lion Greatbow, Erdtree Greatbow, Igon's Greatbow, ...)
+    55: 27,  # Crossbow            (Light/Heavy/Repeating Crossbow, Pulley Crossbow, ...)
+    56: 28,  # Ballista            (Hand Ballista)
+
+    # Catalysts
     57: 29,  # Glintstone Staff
-    61: 30,  # Sacred Seal
-    65: 32,  # Small Shield
+    61: 30,  # Sacred Seal         (canonical bit name: canMountWep_Sorcery)
+
+    # Shields
+    65: 32,  # Small Shield        (Buckler, Perfumer's Shield, Rickety Shield, ...)
     66: 33,  # Medium Shield
-    67: 34,  # Greatshield
-    68: 35,  # Torch
-    # DLC reserved bits (Phase 1.6 empirical verification):
-    88: 36,  # Hand-to-Hand Arts / Dryleaf Arts (reserved bit 0)
-    69: 38,  # DLC shield-like #1 (reserved bit 2)
-    90: 38,  # DLC shield-like #2 (reserved bit 2)
-    91: 39,  # Throwing Blades (reserved bit 3)
-    # NOT MAPPED: 87, 89, 92, 93, 94, 95
-    #   87 — only 1 active weapon, vanilla SAP, insufficient evidence
-    #   89 — 4 active weapons with vanilla Kick SAP, insufficient evidence
-    #   92 (Backhand Blades) — covered via Layer 3 mwtid+SAP (mwtid 63055)
-    #   93 (Great Katanas)   — covered via Layer 3 (mwtid 63056)
-    #   94 (Light Greatswords) — covered via Layer 3 (mwtid 63057)
-    #   95 (Beast Claws)     — covered via Layer 3 (mwtid 63058)
+    67: 34,  # Greatshield         (Kite Shield, Beastman's Jar-Shield, Dragon Towershield variants, ...)
+
+    # Torch
+    87: 35,  # Torch               (Torch, Steel-Wire Torch, Beast-Repellent Torch, ...) — Phase 2B fix
+            #   Pre-Phase 2B mapped wt 68 here, but wt 68 has 0 base weapons in regulation.
+            #   wt 87 is the actual Torch wepType (verified via local DB cross-ref).
+
+    # DLC reserved-bit categories (40-bit mask, bits 36..39 = reserved_canMountWep)
+    88: 36,  # DLC Hand-to-Hand / Dryleaf Arts (reserved bit 0)
+    89: 37,  # DLC Perfume Bottles (reserved bit 1)                                 — Phase 2B fix
+            #   Local DB: Firespark/Chilling/Frenzyflame Perfume Bottle.
+            #   Wall of Sparks (gem 404000, rsv=2) and Rolling Sparks (405000, rsv=2)
+            #   have bit 37 set → now correctly mount on Perfume Bottles.
+            #   Closes the "Wall/Rolling Sparks gap" reported in Phase 1.6.
+    69: 38,  # DLC shield-like #1 (reserved bit 2 — e.g. Black Steel Greatshield)
+    90: 38,  # DLC shield-like #2 (reserved bit 2 — Dueling Shield class)
+    91: 39,  # DLC Throwing Blades (reserved bit 3 — Smithscript Dagger, ...)
+
+    # Intentionally NOT mapped — Layer 3 mwtid+SAP fallback covers these:
+    #   92 — Backhand Blades   (mwtid 63055)
+    #   93 — Great Katanas     (mwtid 63056)
+    #   94 — Light Greatswords (mwtid 63057)
+    #   95 — Beast Claws       (mwtid 63058)
+    #
+    # Intentionally NOT mapped — fail-closed:
+    #   0  — placeholder / empty wepType
+    #   33 — Unarmed (single "no weapon" pseudo-item, no AoW)
+    #   43 — dead in pre-Phase-2B (no base weapon in regulation)
+    #   68 — dead in pre-Phase-2B (Torch is wt 87)
+    #
+    # Edge case: wt 33 had 91 disableParam_NT=1 rows (gm=2) in regulation but every one
+    # has the same SAP and looks like a duplicate-Longsword cut-content placeholder set.
+    # No active weapon for the player exists at this wepType.
 }
 
 CANMOUNT_NAMES_36: List[str] = [
@@ -139,10 +173,10 @@ CANMOUNT_NAMES_36: List[str] = [
     "ShieldSmall", "ShieldNormal", "ShieldLarge", "Torch",
 ]
 CANMOUNT_NAMES_40 = CANMOUNT_NAMES_36 + [
-    "DLC_HandToHand",   # bit 36 — reserved bit 0
-    "DLC_PerfumeBottle",# bit 37 — reserved bit 1 (no weapon yet)
-    "DLC_ShieldLike",   # bit 38 — reserved bit 2
-    "DLC_ThrowingBlade",# bit 39 — reserved bit 3
+    "DLC_HandToHand",   # bit 36 — reserved bit 0 (wepType 88)
+    "DLC_PerfumeBottle",# bit 37 — reserved bit 1 (wepType 89; Phase 2B)
+    "DLC_ShieldLike",   # bit 38 — reserved bit 2 (wepTypes 69, 90)
+    "DLC_ThrowingBlade",# bit 39 — reserved bit 3 (wepType 91)
 ]
 
 

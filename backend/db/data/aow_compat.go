@@ -261,28 +261,25 @@ var WepTypeToCanMountBit = map[uint16]uint8{
 	3: 1, // canMountWep_SwordNormal
 	5: 2, // canMountWep_SwordLarge
 	7: 3, // canMountWep_SwordGigantic
-	9: 8, // canMountWep_SwordPierce
-	11: 9, // canMountWep_RapierHeavy
+	9: 4, // canMountWep_SaberNormal
+	11: 5, // canMountWep_SaberLarge
 	13: 6, // canMountWep_katana
-	14: 5, // canMountWep_SaberLarge
-	15: 4, // canMountWep_SaberNormal
-	16: 7, // canMountWep_SwordDoubleEdge
-	17: 7, // canMountWep_SwordDoubleEdge
+	14: 7, // canMountWep_SwordDoubleEdge
+	15: 8, // canMountWep_SwordPierce
+	16: 9, // canMountWep_RapierHeavy
+	17: 10, // canMountWep_AxeNormal
 	19: 11, // canMountWep_AxeLarge
-	21: 13, // canMountWep_HammerLarge
-	23: 10, // canMountWep_AxeNormal
-	24: 10, // canMountWep_AxeNormal
-	25: 12, // canMountWep_HammerNormal
-	28: 14, // canMountWep_Flail
-	29: 14, // canMountWep_Flail
-	31: 15, // canMountWep_SpearNormal
-	32: 17, // canMountWep_SpearHeavy
-	33: 18, // canMountWep_SpearAxe
-	35: 16, // canMountWep_SpearLarge
-	37: 19, // canMountWep_Sickle
-	39: 20, // canMountWep_Knuckle
-	41: 21, // canMountWep_Claw
-	43: 22, // canMountWep_Whip
+	21: 12, // canMountWep_HammerNormal
+	23: 13, // canMountWep_HammerLarge
+	24: 14, // canMountWep_Flail
+	25: 15, // canMountWep_SpearNormal
+	28: 16, // canMountWep_SpearLarge
+	29: 18, // canMountWep_SpearAxe
+	31: 19, // canMountWep_Sickle
+	35: 20, // canMountWep_Knuckle
+	37: 21, // canMountWep_Claw
+	39: 22, // canMountWep_Whip
+	41: 23, // canMountWep_AxhammerLarge
 	50: 24, // canMountWep_BowSmall
 	51: 25, // canMountWep_BowNormal
 	53: 26, // canMountWep_BowLarge
@@ -293,9 +290,10 @@ var WepTypeToCanMountBit = map[uint16]uint8{
 	65: 32, // canMountWep_ShieldSmall
 	66: 33, // canMountWep_ShieldNormal
 	67: 34, // canMountWep_ShieldLarge
-	68: 35, // canMountWep_Torch
 	69: 38, // canMountWep_DLC_ShieldLike
+	87: 35, // canMountWep_Torch
 	88: 36, // canMountWep_DLC_HandToHand
+	89: 37, // canMountWep_DLC_PerfumeBottle
 	90: 38, // canMountWep_DLC_ShieldLike
 	91: 39, // canMountWep_DLC_ThrowingBlade
 }
