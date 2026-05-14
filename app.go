@@ -1480,7 +1480,42 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 	return core.PatchWeaponAoWHandle(slot, weaponHandle, newAoWHandle)
 }
 
+// RepairDuplicateInventoryIndices rewrites every duplicate acquisition Index in
+// Inventory.CommonItems + KeyItems on the given character slot. The first
+// occurrence of each Index is preserved; later occurrences receive fresh
+// Indices greater than every existing value, plus the matching counter
+// (NextAcquisitionSortId / NextEquipIndex) advances accordingly.
+//
+// Pushes an undo snapshot only when at least one duplicate is detected, so a
+// clean slot is a true no-op (no undo entry, no slot mutation). Never writes
+// the save to disk — the caller decides when to persist via the regular
+// save/upload flow.
+func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexRepairReport, error) {
+	var empty core.InventoryIndexRepairReport
+	if a.save == nil {
+		return empty, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return empty, fmt.Errorf("invalid character index")
+	}
+	slot := &a.save.Slots[charIdx]
+
+	if pre := core.ScanDuplicateInventoryIndices(slot); len(pre) == 0 {
+		return empty, nil
+	}
+
+	a.pushUndo(charIdx)
+	report, err := core.RepairDuplicateInventoryIndices(slot)
+	if err != nil {
+		return empty, err
+	}
+	if post := core.ScanDuplicateInventoryIndices(slot); len(post) > 0 {
+		return report, fmt.Errorf("RepairDuplicateInventoryIndices: %d duplicate(s) remain after repair", len(post))
+	}
+	return report, nil
+}
+
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, core.InventoryIndexRepairReport, core.InventoryIndexRepairChange) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, core.InventoryIndexRepairReport{}, core.InventoryIndexRepairChange{}
 }

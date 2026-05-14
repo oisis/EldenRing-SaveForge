@@ -298,6 +298,10 @@ export function ReorderWeaponInventory(arg1, arg2) {
   return window['go']['main']['App']['ReorderWeaponInventory'](arg1, arg2);
 }
 
+export function RepairDuplicateInventoryIndices(arg1) {
+  return window['go']['main']['App']['RepairDuplicateInventoryIndices'](arg1);
+}
+
 export function ResetMapExploration(arg1) {
   return window['go']['main']['App']['ResetMapExploration'](arg1);
 }
