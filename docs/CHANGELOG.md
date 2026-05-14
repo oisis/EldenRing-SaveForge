@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(sort-order): per-tile weapon edit modal
+
+Sort Order → Weapons now supports editing a weapon directly from its grid tile through a red edit icon in the top-left corner. The modal works for both Inventory and Storage weapons and preserves selection, drag/drop behavior, pending preview order, and Apply Order state.
+
+- Added upgrade level editing with a new `App.ApplyWeaponUpgradeLevel` backend endpoint. The endpoint validates that only the upgrade level changes: same base weapon, same infusion offset, and level within `MaxUpgrade`.
+- Added infusion / affinity editing through the existing `ApplyWeaponInfusion` flow. Level is preserved across infusion changes.
+- Added strict Ash of War editing through `ApplyWeaponAoWStrict`, including search, availability badges, compatibility status, and Remove AoW support.
+- AoW editing is strict-only: the modal requires a free AoW copy in the save and does not auto-create new AoW copies.
+- AoW compatibility is fail-closed for unknown data in this modal. Unknown / unmapped DLC compatibility is shown only when unavailable/incompatible items are visible and cannot be applied until the full AoW compatibility API lands.
+- `InventoryOrderItem` now exposes `MaxUpgrade`, allowing the modal to render `+0..+N` from authoritative DB data.
+- Added backend unit coverage for weapon upgrade level changes and validated the full modal flow with frontend typecheck/build and manual in-game testing.
+
+Known limitations:
+- `WEP_TYPE_TO_BIT` is still duplicated between `WeaponEditTab.tsx` and `WeaponEditModal.tsx`; future refactor should move it to a shared frontend helper.
+- The modal currently uses strict AoW assignment only; auto-allocate AoW can be added later as a separate confirmation flow.
+- Full DLC AoW compatibility depends on integrating the `research/aow-weapon-compatibility` branch.
+
 ### feat(sort-order): dual-grid Inventory + Storage with bidirectional transfer
 
 Sort Order tab is now a dual-grid editor: Storage on the left, Inventory on the right,
