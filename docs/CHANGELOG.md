@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(profile): sync talisman pouch key item
+
+Apply on Character → Profile now keeps the Key Items inventory and the
+"Obtained Talisman Pouch N" event flags in lockstep with the
+additional-pouch count from `slot.Player.TalismanSlots` (0..3, clamped).
+
+- `count == 0` → no inventory entry, flags 60500/60510/60520 cleared
+- `count == N` → single stackable entry `Talisman Pouch ×N`, flags
+  60500..60500+(N-1)*10 set
+- Idempotent — repeated Apply with the same value does not duplicate
+- Base talisman slot is implicit and never touched; helper targets only
+  handle 0xB0002738
+- Flags 60530+ intentionally not synced (unused by vanilla)
+
+Implementation: `core.SyncTalismanPouchCount` (new file
+`backend/core/talisman_pouch.go`), wired into `App.SaveCharacter` after
+`SyncPlayerToData`. Coverage: 8 backend tests in
+`tests/talisman_pouch_sync_test.go` (count 0/1/2/3, idempotency, downsync
+3→1, no-touch-other-key-items, over-cap clamp).
+
 ### feat(sort-order): dual-grid Inventory + Storage with bidirectional transfer
 
 Sort Order tab is now a dual-grid editor: Storage on the left, Inventory on the right,

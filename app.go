@@ -181,6 +181,13 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 	// see the correct stats instead of the pre-edit binary values.
 	slot.SyncPlayerToData()
 
+	// Talisman Pouch sync: keep Key Items inventory + obtained-pouch event
+	// flags (60500/60510/60520) in lockstep with the additional-pouch count
+	// from the profile. Base talisman slot is implicit and not touched.
+	if err := core.SyncTalismanPouchCount(slot, int(slot.Player.TalismanSlots)); err != nil {
+		return fmt.Errorf("sync talisman pouch: %w", err)
+	}
+
 	// 2. Sync NG+ event flags (50-57) with ClearCount
 	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
 		flags := slot.Data[slot.EventFlagsOffset:]
