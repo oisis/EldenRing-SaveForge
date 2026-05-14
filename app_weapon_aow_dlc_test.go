@@ -60,6 +60,84 @@ func weaponAoWDLCFixture() *App {
 	return app
 }
 
+// ─── Phase 4 — backend write guard via db.CheckAoWCompatibility ─────────────────
+
+// TestApplyWeaponAoW_Phase4_StormStompOnLongsword_OK verifies the canonical happy
+// path through the new 3-layer compatibility check.
+// Longsword (wt=3 → bit 1); Storm Stomp mask has bit 1 set → compatible.
+func TestApplyWeaponAoW_Phase4_StormStompOnLongsword_OK(t *testing.T) {
+	const (
+		wepHandle = uint32(0x80800001)
+		wepItemID = uint32(0x001E8480) // Longsword, wepType=3, GemMountType=2
+		aowHandle = uint32(0xC0800001)
+		aowItemID = uint32(0x8000C418) // Storm Stomp
+	)
+
+	app := buildDLCEditorSlot(wepHandle, wepItemID, aowHandle, aowItemID)
+	if err := app.ApplyWeaponAoW(0, wepHandle, aowItemID); err != nil {
+		t.Fatalf("Storm Stomp × Longsword should be allowed; got %v", err)
+	}
+}
+
+// TestApplyWeaponAoW_Phase4_MightyShotOnLongsword_Blocked verifies the new write
+// guard rejects bow-only AoW on melee weapons via AoWNotApplicableToWeaponCategory.
+func TestApplyWeaponAoW_Phase4_MightyShotOnLongsword_Blocked(t *testing.T) {
+	const (
+		wepHandle = uint32(0x80800001)
+		wepItemID = uint32(0x001E8480) // Longsword
+		aowHandle = uint32(0xC0800001)
+		aowItemID = uint32(0x80009CA4) // Mighty Shot — bit 24 (BowSmall) only
+	)
+
+	app := buildDLCEditorSlot(wepHandle, wepItemID, aowHandle, aowItemID)
+	err := app.ApplyWeaponAoW(0, wepHandle, aowItemID)
+	if err == nil || !strings.Contains(err.Error(), "not compatible") {
+		t.Fatalf("want 'not compatible' for Mighty Shot × Longsword, got %v", err)
+	}
+}
+
+// TestApplyWeaponAoW_Phase4_CarianRetaliationOnLongsword_Blocked — shield-only AoW
+// on a straight sword. Carian Retaliation (row 30500, bit 32-only) is incompatible.
+func TestApplyWeaponAoW_Phase4_CarianRetaliationOnLongsword_Blocked(t *testing.T) {
+	const (
+		wepHandle = uint32(0x80800001)
+		wepItemID = uint32(0x001E8480)
+		aowHandle = uint32(0xC0800001)
+		aowItemID = uint32(0x80007724) // Carian Retaliation — shield only
+	)
+
+	app := buildDLCEditorSlot(wepHandle, wepItemID, aowHandle, aowItemID)
+	err := app.ApplyWeaponAoW(0, wepHandle, aowItemID)
+	if err == nil || !strings.Contains(err.Error(), "not compatible") {
+		t.Fatalf("want 'not compatible' for Carian Retaliation × Longsword, got %v", err)
+	}
+}
+
+// TestApplyWeaponAoWStrict_Phase4_CarianRetaliationOnLongsword_Blocked — strict
+// path mirrors the editor path through the same db.CheckAoWCompatibility gate.
+func TestApplyWeaponAoWStrict_Phase4_CarianRetaliationOnLongsword_Blocked(t *testing.T) {
+	const (
+		wepHandle = uint32(0x80800001)
+		wepItemID = uint32(0x001E8480)
+		aowHandle = uint32(0xC0800001)
+		aowItemID = uint32(0x80007724)
+	)
+
+	// Reuse strict fixture (small synthetic slot); uses weaponAoWDLCFixture
+	// patterned init, but with our Longsword + Carian Retaliation values.
+	app := weaponAoWDLCFixture()
+	slot := &app.save.Slots[0]
+	// Rewrite the GaMap + GaItems entries for our test IDs.
+	slot.GaItems[0].ItemID = aowItemID
+	slot.GaItems[1].ItemID = wepItemID
+	slot.GaMap = map[uint32]uint32{aowHandle: aowItemID, wepHandle: wepItemID}
+
+	err := app.ApplyWeaponAoWStrict(0, wepHandle, aowItemID)
+	if err == nil || !strings.Contains(err.Error(), "not compatible") {
+		t.Fatalf("want 'not compatible' for Carian Retaliation × Longsword (strict), got %v", err)
+	}
+}
+
 // ─── DLC unknown-compat passthrough — ApplyWeaponAoW (editor) ───────────────────
 
 // buildDLCEditorSlot creates a full-size editor slot for a DLC weapon + free AoW copy.
@@ -109,19 +187,23 @@ func TestApplyWeaponAoW_DLCWepType69_BlocksSwordDance(t *testing.T) {
 	}
 }
 
-// TestApplyWeaponAoW_DLCGreatKatana_Allows tests wepType=94 (Great Katana, DLC).
-func TestApplyWeaponAoW_DLCGreatKatana_Allows(t *testing.T) {
+// TestApplyWeaponAoW_DLCGreatKatana_BlocksSwordDance verifies that after
+// Phase 2B + Phase 4, Sword Dance is correctly rejected for Great Katanas (wt 94).
+// Pre-Phase-2B: wt 94 was unmapped, passthrough fallback allowed any AoW.
+// Phase 2B: wt 94 is covered by Layer 3 mwtid+SAP fallback (mwtid 63057 → Overhead
+// Stance only). Sword Dance has a different mwtid → AoWNotApplicableToWeaponCategory.
+func TestApplyWeaponAoW_DLCGreatKatana_BlocksSwordDance(t *testing.T) {
 	const (
 		wepHandle = uint32(0x80800001)
-		wepItemID = uint32(0x03F6B5A0) // Great Katana +0 — wepType=94, GemMountType=2
+		wepItemID = uint32(0x03F6B5A0) // Great Katana base — wepType=94 (Layer 3 fallback)
 		aowHandle = uint32(0xC0800001)
-		aowItemID = uint32(0x80003070) // Sword Dance
+		aowItemID = uint32(0x80003070) // Sword Dance — has neither bit map entry nor Layer 3 wt 94
 	)
 
 	app := buildDLCEditorSlot(wepHandle, wepItemID, aowHandle, aowItemID)
 	err := app.ApplyWeaponAoW(0, wepHandle, aowItemID)
-	if err != nil {
-		t.Fatalf("ApplyWeaponAoW with DLC wepType=94: unexpected error: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "not compatible") {
+		t.Fatalf("want 'not compatible' error for Sword Dance × Great Katana (wt=94), got %v", err)
 	}
 }
 
@@ -228,8 +310,10 @@ func TestApplyWeaponAoW_NonMountableWeapon_Blocks(t *testing.T) {
 	slot.GaItemDataOffset = 0
 
 	err := app.ApplyWeaponAoW(0, wepHandle, aowItemID)
-	if err == nil || !strings.Contains(err.Error(), "does not support Ash of War") {
-		t.Fatalf("want 'does not support Ash of War', got %v", err)
+	// Phase 4: error wording changed from "does not support Ash of War" to
+	// "does not accept Ashes of War" (formatAoWRejectReason). Same intent.
+	if err == nil || !strings.Contains(err.Error(), "does not accept Ashes of War") {
+		t.Fatalf("want 'does not accept Ashes of War', got %v", err)
 	}
 }
 

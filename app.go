@@ -1232,6 +1232,34 @@ func (a *App) ApplyWeaponInfusion(charIdx int, handle uint32, expectedCurrentIte
 	return core.PatchWeaponItemID(slot, handle, expectedCurrentItemID, newItemID)
 }
 
+// formatAoWRejectReason converts a db.AoWRejectReason into a UI-grade error string.
+// Used by ApplyWeaponAoW / ApplyWeaponAoWStrict to surface the precise compatibility
+// failure (so the frontend can show an actionable toast instead of a generic refusal).
+// weaponName may be empty when GetItemDataFuzzy did not resolve a named entry — the
+// caller already validates that path; here we only personalize the GemMountType case.
+func formatAoWRejectReason(reason db.AoWRejectReason, weaponName string) string {
+	switch reason {
+	case db.AoWOK:
+		return ""
+	case db.AoWWeaponNotInfusable:
+		if weaponName != "" {
+			return fmt.Sprintf("weapon %q does not accept Ashes of War", weaponName)
+		}
+		return "weapon does not accept Ashes of War"
+	case db.AoWNotApplicableToWeaponCategory:
+		return "selected Ash of War is not compatible with this weapon category"
+	case db.AoWUnknownWeapon:
+		return "unknown weapon data — cannot validate Ash of War compatibility"
+	case db.AoWUnknownAoW:
+		return "unknown Ash of War data"
+	case db.AoWUnknownWeaponWepType:
+		return "unknown weapon type — cannot determine Ash of War compatibility"
+	case db.AoWMissingParamData:
+		return "missing Ash of War compatibility data"
+	}
+	return "Ash of War compatibility check failed"
+}
+
 // ApplyWeaponAoW sets or removes the Ash of War on a specific weapon instance.
 // newAoWItemID == 0 removes the AoW; any other value sets it.
 func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
@@ -1251,12 +1279,9 @@ func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint
 		return fmt.Errorf("handle 0x%08X (itemID 0x%08X) is not a weapon", weaponHandle, currentItemID)
 	}
 
-	baseData, baseID := db.GetItemDataFuzzy(currentItemID)
+	baseData, _ := db.GetItemDataFuzzy(currentItemID)
 	if baseData.Name == "" {
 		return fmt.Errorf("unknown weapon 0x%08X", currentItemID)
-	}
-	if !db.CanWeaponMountAoW(baseID) {
-		return fmt.Errorf("weapon %q does not support Ash of War (gemMountType=%d)", baseData.Name, baseData.GemMountType)
 	}
 
 	if newAoWItemID != 0 {
@@ -1267,12 +1292,23 @@ func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint
 		if aowData.Name == "" {
 			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
 		}
-		compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID)
-		// known==false means no compatibility data (DLC/unmapped weapon type).
-		// CanWeaponMountAoW already confirmed GemMountType==2 above — allow the operation.
-		if known && !compatible {
-			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
+	}
+
+	// Phase 4 write guard: canonical 3-layer compatibility check (vanilla canMountWep
+	// bits + DLC reserved bits + Layer 3 mwtid+SAP fallback). Remove (newAoWItemID==0)
+	// is allowed by CheckAoWCompatibility unconditionally. Replaces legacy
+	// CanWeaponMountAoW + IsAshOfWarCompatibleWithWeapon pair (kept available for
+	// other call sites until cleanup pass).
+	if compatible, reason := db.CheckAoWCompatibility(newAoWItemID, currentItemID); !compatible {
+		// Phase 4 UX fix: weapons that exist in the named item DB but lack a
+		// WeaponGemMounts entry (i.e. gemMountType=0 in regulation, e.g. Moonveil)
+		// surface inside CheckAoWCompatibility as AoWUnknownWeapon. From the user's
+		// perspective those are "fixed-skill" weapons; remap to AoWWeaponNotInfusable
+		// so the toast says "does not accept Ashes of War" instead of "unknown".
+		if reason == db.AoWUnknownWeapon && baseData.Name != "" {
+			reason = db.AoWWeaponNotInfusable
 		}
+		return fmt.Errorf("%s", formatAoWRejectReason(reason, baseData.Name))
 	}
 
 	a.pushUndo(charIdx)
@@ -1352,12 +1388,9 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 		return fmt.Errorf("handle 0x%08X (itemID 0x%08X) is not a weapon", weaponHandle, currentItemID)
 	}
 
-	baseData, baseID := db.GetItemDataFuzzy(currentItemID)
+	baseData, _ := db.GetItemDataFuzzy(currentItemID)
 	if baseData.Name == "" {
 		return fmt.Errorf("unknown weapon 0x%08X", currentItemID)
-	}
-	if !db.CanWeaponMountAoW(baseID) {
-		return fmt.Errorf("weapon %q does not support Ash of War changes", baseData.Name)
 	}
 
 	var newAoWHandle uint32
@@ -1371,13 +1404,23 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 		if aowData.Name == "" {
 			return fmt.Errorf("unknown Ash of War item 0x%08X", newAoWItemID)
 		}
-		compatible, known := db.IsAshOfWarCompatibleWithWeapon(newAoWItemID, currentItemID)
-		// known==false means no compatibility data (DLC/unmapped weapon type).
-		// CanWeaponMountAoW already confirmed GemMountType==2 above — allow the operation.
-		if known && !compatible {
-			return fmt.Errorf("selected Ash of War is not compatible with this weapon")
-		}
+	}
 
+	// Phase 4 write guard (strict path): same canonical 3-layer compatibility check
+	// as ApplyWeaponAoW. Replaces legacy CanWeaponMountAoW + IsAshOfWarCompatibleWithWeapon.
+	if compatible, reason := db.CheckAoWCompatibility(newAoWItemID, currentItemID); !compatible {
+		// Phase 4 UX fix: weapons that exist in the named item DB but lack a
+		// WeaponGemMounts entry (i.e. gemMountType=0 in regulation, e.g. Moonveil)
+		// surface inside CheckAoWCompatibility as AoWUnknownWeapon. From the user's
+		// perspective those are "fixed-skill" weapons; remap to AoWWeaponNotInfusable
+		// so the toast says "does not accept Ashes of War" instead of "unknown".
+		if reason == db.AoWUnknownWeapon && baseData.Name != "" {
+			reason = db.AoWWeaponNotInfusable
+		}
+		return fmt.Errorf("%s", formatAoWRejectReason(reason, baseData.Name))
+	}
+
+	if newAoWItemID != 0 {
 		rawCopies := core.ScanAoWAvailability(slot)
 		hasConflict := false
 		hasCopies := false
