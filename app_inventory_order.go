@@ -22,6 +22,7 @@ type InventoryOrderItem struct {
 	SortId           uint32  `json:"sortId,omitempty"`
 	SortGroupId      uint8   `json:"sortGroupId,omitempty"`
 	CurrentUpgrade   int     `json:"currentUpgrade,omitempty"`
+	MaxUpgrade       uint32  `json:"maxUpgrade,omitempty"`
 	InfusionName     string  `json:"infusionName,omitempty"`
 	IconPath         string  `json:"iconPath,omitempty"`
 	IsTechnical      bool    `json:"isTechnical,omitempty"`
@@ -135,6 +136,7 @@ func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, 
 			SortId:           sk.SortId,
 			SortGroupId:      sk.SortGroupId,
 			CurrentUpgrade:   upgradeLevel,
+			MaxUpgrade:       itemData.MaxUpgrade,
 			InfusionName:     infusionName,
 			IconPath:         itemData.IconPath,
 		})
@@ -224,6 +226,7 @@ func (a *App) GetStorageOrder(charIdx int, tab string) ([]InventoryOrderItem, er
 			SortId:           sk.SortId,
 			SortGroupId:      sk.SortGroupId,
 			CurrentUpgrade:   upgradeLevel,
+			MaxUpgrade:       itemData.MaxUpgrade,
 			InfusionName:     infusionName,
 			IconPath:         itemData.IconPath,
 		})

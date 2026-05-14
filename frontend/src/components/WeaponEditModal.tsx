@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ApplyWeaponUpgradeLevel } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 
 interface Props {
@@ -6,14 +7,32 @@ interface Props {
     item: main.InventoryOrderItem;
     source: 'inventory' | 'storage';
     onClose: () => void;
-    onApplied?: () => void;
+    onApplied?: (patch: WeaponPatch) => void;
 }
 
-// WeaponEditModal — Phase C shell.
-// Read-only display of weapon metadata. Level / Infusion / Ash of War editors
-// will be wired in subsequent phases.
-export function WeaponEditModal({ charIndex, item, source, onClose }: Props) {
+// WeaponPatch — fields that may change after an Apply.
+// SortOrderTab uses this to patch its local previewItems / baseItems by handle
+// without refetching (preserves any pending preview reorder).
+export interface WeaponPatch {
+    handle: number;
+    itemId: number;
+    currentUpgrade: number;
+    infusionName?: string;
+}
+
+export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }: Props) {
     const [imgError, setImgError] = useState(false);
+
+    // Live working state — starts from props but tracks Apply results so the
+    // modal can show the new level / itemId without being closed.
+    const [currentItemId, setCurrentItemId] = useState<number>(item.itemId);
+    const [currentLevel, setCurrentLevel] = useState<number>(item.currentUpgrade ?? 0);
+    const maxUpgrade = item.maxUpgrade ?? 0;
+
+    const [selectedLevel, setSelectedLevel] = useState<number>(item.currentUpgrade ?? 0);
+    const [applying, setApplying] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [success, setSuccess] = useState<string | null>(null);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -23,15 +42,55 @@ export function WeaponEditModal({ charIndex, item, source, onClose }: Props) {
         return () => window.removeEventListener('keydown', onKey);
     }, [onClose]);
 
+    const levelOptions = useMemo(() => {
+        if (maxUpgrade === 0) return [];
+        const arr: number[] = [];
+        for (let i = 0; i <= maxUpgrade; i++) arr.push(i);
+        return arr;
+    }, [maxUpgrade]);
+
+    const canEditLevel = maxUpgrade > 0;
+    const levelChanged = selectedLevel !== currentLevel;
+    const levelInRange = selectedLevel >= 0 && selectedLevel <= maxUpgrade;
+    const canApplyLevel = canEditLevel && levelChanged && levelInRange && !applying;
+
     const showIcon = !!item.iconPath && !imgError;
-    const itemIdHex = `0x${item.itemId.toString(16).toUpperCase().padStart(8, '0')}`;
+    const itemIdHex = `0x${currentItemId.toString(16).toUpperCase().padStart(8, '0')}`;
     const handleHex = `0x${item.handle.toString(16).toUpperCase().padStart(8, '0')}`;
     const upgradeLabel =
-        item.currentUpgrade && item.currentUpgrade > 0
+        currentLevel > 0
             ? item.infusionName
-                ? `${item.infusionName} +${item.currentUpgrade}`
-                : `+${item.currentUpgrade}`
+                ? `${item.infusionName} +${currentLevel}`
+                : `+${currentLevel}`
             : item.infusionName || '+0';
+
+    const onApply = () => {
+        if (!canApplyLevel) return;
+        setApplying(true);
+        setError(null);
+        setSuccess(null);
+        // newItemID = itemId - currentLevel + selectedLevel keeps baseID and
+        // infusionOffset intact; backend re-validates this invariant.
+        const newItemId = currentItemId - currentLevel + selectedLevel;
+        const expectedCurrentItemId = currentItemId;
+        ApplyWeaponUpgradeLevel(charIndex, item.handle, expectedCurrentItemId, newItemId)
+            .then(() => {
+                setCurrentItemId(newItemId);
+                setCurrentLevel(selectedLevel);
+                setSuccess(`Level updated to +${selectedLevel}`);
+                onApplied?.({
+                    handle: item.handle,
+                    itemId: newItemId,
+                    currentUpgrade: selectedLevel,
+                    infusionName: item.infusionName,
+                });
+            })
+            .catch((e: unknown) => {
+                const msg = e instanceof Error ? e.message : String(e);
+                setError(msg || 'Failed to apply level change');
+            })
+            .finally(() => setApplying(false));
+    };
 
     return (
         <div
@@ -90,8 +149,75 @@ export function WeaponEditModal({ charIndex, item, source, onClose }: Props) {
                     </button>
                 </div>
 
-                {/* Metadata */}
-                <div className="p-4 space-y-3">
+                {/* Body */}
+                <div className="p-4 space-y-4">
+                    {/* Level edit section */}
+                    <section className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
+                                Upgrade Level
+                            </span>
+                            {canEditLevel ? (
+                                <span className="text-[9px] font-mono text-muted-foreground/70">
+                                    +{currentLevel} / +{maxUpgrade}
+                                </span>
+                            ) : null}
+                        </div>
+
+                        {!canEditLevel ? (
+                            <p className="text-[10px] text-muted-foreground/70 italic">
+                                This weapon cannot be upgraded.
+                            </p>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={selectedLevel}
+                                    onChange={(e) => setSelectedLevel(Number(e.target.value))}
+                                    disabled={applying}
+                                    className="flex-1 bg-background/60 border border-border/50 rounded-md px-2 py-1.5 text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {levelOptions.map(lvl => (
+                                        <option key={lvl} value={lvl}>
+                                            +{lvl}
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={onApply}
+                                    disabled={!canApplyLevel}
+                                    className={`px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                                        canApplyLevel
+                                            ? 'bg-green-700/80 text-white hover:bg-green-700 shadow-sm'
+                                            : 'opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground'
+                                    }`}
+                                    title={
+                                        !canEditLevel
+                                            ? 'Weapon cannot be upgraded'
+                                            : !levelChanged
+                                              ? 'No level change'
+                                              : applying
+                                                ? 'Applying…'
+                                                : 'Apply new upgrade level'
+                                    }
+                                >
+                                    {applying ? 'Applying…' : 'Apply Level'}
+                                </button>
+                            </div>
+                        )}
+
+                        {error && (
+                            <p className="text-[10px] font-mono text-red-400/90 leading-snug break-words">
+                                {error}
+                            </p>
+                        )}
+                        {success && !error && (
+                            <p className="text-[10px] font-bold text-green-400/90">
+                                {success}
+                            </p>
+                        )}
+                    </section>
+
+                    {/* Metadata */}
                     <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 gap-x-3 text-[10px]">
                         <dt className="font-black uppercase tracking-wider text-muted-foreground">Character</dt>
                         <dd className="font-mono text-foreground/80">Slot {charIndex}</dd>
@@ -101,11 +227,6 @@ export function WeaponEditModal({ charIndex, item, source, onClose }: Props) {
 
                         <dt className="font-black uppercase tracking-wider text-muted-foreground">Item ID</dt>
                         <dd className="font-mono text-foreground/80">{itemIdHex}</dd>
-
-                        <dt className="font-black uppercase tracking-wider text-muted-foreground">Upgrade</dt>
-                        <dd className="font-mono text-foreground/80">
-                            +{item.currentUpgrade ?? 0}
-                        </dd>
 
                         <dt className="font-black uppercase tracking-wider text-muted-foreground">Infusion</dt>
                         <dd className="font-mono text-foreground/80">
@@ -119,7 +240,6 @@ export function WeaponEditModal({ charIndex, item, source, onClose }: Props) {
                             Coming next
                         </p>
                         <ul className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground/70 list-disc list-inside">
-                            <li>Upgrade level selector</li>
                             <li>Infusion / Affinity dropdown</li>
                             <li>Ash of War picker with search and compatibility</li>
                         </ul>

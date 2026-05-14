@@ -775,6 +775,7 @@ export namespace main {
 	    sortId?: number;
 	    sortGroupId?: number;
 	    currentUpgrade?: number;
+	    maxUpgrade?: number;
 	    infusionName?: string;
 	    iconPath?: string;
 	    isTechnical?: boolean;
@@ -794,6 +795,7 @@ export namespace main {
 	        this.sortId = source["sortId"];
 	        this.sortGroupId = source["sortGroupId"];
 	        this.currentUpgrade = source["currentUpgrade"];
+	        this.maxUpgrade = source["maxUpgrade"];
 	        this.infusionName = source["infusionName"];
 	        this.iconPath = source["iconPath"];
 	        this.isTechnical = source["isTechnical"];

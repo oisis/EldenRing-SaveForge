@@ -8,7 +8,7 @@ import {
 } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
-import { WeaponEditModal } from './WeaponEditModal';
+import { WeaponEditModal, WeaponPatch } from './WeaponEditModal';
 
 type DragSource = 'inventory' | 'storage' | null;
 type FrameDropTarget = 'inventory' | 'storage' | null;
@@ -107,6 +107,24 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     ) => {
         if (activeSortTab !== 'weapons') return;
         setWeaponEditor({ item, source });
+    };
+
+    // Local-merge patch by handle into all 4 lists so the tile re-renders the
+    // new level/itemId without losing the user's pending preview reorder.
+    // Save-mutating change → also signal parent via onMutate.
+    const applyWeaponPatch = (patch: WeaponPatch) => {
+        const merge = (list: main.InventoryOrderItem[]) =>
+            list.map(it =>
+                it.handle === patch.handle
+                    ? { ...it, itemId: patch.itemId, currentUpgrade: patch.currentUpgrade, infusionName: patch.infusionName ?? it.infusionName }
+                    : it,
+            );
+        setBaseItems(merge);
+        setPreviewItems(merge);
+        setBaseStorageItems(merge);
+        setPreviewStorageItems(merge);
+        setWeaponEditor(prev => (prev ? { ...prev, item: { ...prev.item, itemId: patch.itemId, currentUpgrade: patch.currentUpgrade, infusionName: patch.infusionName ?? prev.item.infusionName } } : prev));
+        onMutate?.();
     };
 
     // reloadTabData fetches fresh Inventory + Storage data for the active tab
@@ -785,6 +803,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                     item={weaponEditor.item}
                     source={weaponEditor.source}
                     onClose={() => setWeaponEditor(null)}
+                    onApplied={applyWeaponPatch}
                 />
             )}
 
