@@ -1264,7 +1264,14 @@ function ItemTile({
 
 function EmptyCell() {
     return (
-        <div className="relative aspect-square bg-card/20 border border-border/15 rounded-md opacity-25" />
+        <div
+            aria-hidden="true"
+            className="relative aspect-square rounded-md border border-dashed border-border/60 bg-card/40 opacity-75 pointer-events-none shadow-inner"
+            style={{
+                backgroundImage:
+                    'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.018) 45%, rgba(0,0,0,0.10) 100%), radial-gradient(circle at 50% 42%, rgba(255,255,255,0.08), transparent 45%)',
+            }}
+        />
     );
 }
 
