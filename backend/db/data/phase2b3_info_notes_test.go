@@ -17,6 +17,13 @@ import "testing"
 //   - 0x401EA3DF Note: Sealed Spiritsprings (shipped canonical SOTE variant)
 //     replaces the broken Set-B-equivalent 0x401EA443. Verified by
 //     TestPhase2B3SealedSpiritspringsCanonicalReplacement below.
+//
+// Follow-up commit (Volcano Manor letter disambiguation):
+//   - 0x40001FBF Letter from Volcano Manor (Istvan) added; 0x40001FC4 renamed
+//     to Letter from Volcano Manor (Rileigh). FMG ships identical canonical
+//     names for both shipped quest-letter IDs; app uses target-NPC suffixes
+//     so Add Items can tell them apart. Verified by
+//     TestPhase2B3VolcanoManorLettersDisambiguated below.
 var phase2b3Batch1Additions = []struct {
 	ID       uint32
 	Name     string
@@ -207,5 +214,74 @@ func TestPhase2B3SealedSpiritspringsCanonicalReplacement(t *testing.T) {
 	if _, ok := Information[0x401EA443]; ok {
 		t.Errorf("Information[0x401EA443] present — broken Set-B Sealed " +
 			"Spiritsprings duplicate must remain absent after canonical replacement")
+	}
+}
+
+// TestPhase2B3VolcanoManorLettersDisambiguated verifies that the two shipped
+// "Letter from Volcano Manor" IDs carry distinct display names so the Add Items
+// UI can tell them apart. The third quest letter in the Recusant sequence
+// (0x40001FC5 "Red Letter", Juno Hoslow) keeps its FMG-canonical name because
+// FMG itself already discriminates it.
+func TestPhase2B3VolcanoManorLettersDisambiguated(t *testing.T) {
+	istvan, ok := Information[0x40001FBF]
+	if !ok {
+		t.Fatalf("Information[0x40001FBF] missing — shipped Volcano Manor letter " +
+			"(Istvan hunt) must be present")
+	}
+	if istvan.Name != "Letter from Volcano Manor (Istvan)" {
+		t.Errorf("Information[0x40001FBF] name = %q, want %q",
+			istvan.Name, "Letter from Volcano Manor (Istvan)")
+	}
+	if istvan.Category != "info" {
+		t.Errorf("Information[0x40001FBF] category = %q, want %q",
+			istvan.Category, "info")
+	}
+	if istvan.MaxInventory != 1 {
+		t.Errorf("Information[0x40001FBF] MaxInventory = %d, want 1", istvan.MaxInventory)
+	}
+	if istvan.MaxStorage != 0 {
+		t.Errorf("Information[0x40001FBF] MaxStorage = %d, want 0", istvan.MaxStorage)
+	}
+	if istvan.MaxUpgrade != 0 {
+		t.Errorf("Information[0x40001FBF] MaxUpgrade = %d, want 0", istvan.MaxUpgrade)
+	}
+	for _, f := range istvan.Flags {
+		if f == "dlc" {
+			t.Errorf("Information[0x40001FBF] must NOT carry dlc flag — base-game item")
+		}
+	}
+
+	rileigh, ok := Information[0x40001FC4]
+	if !ok {
+		t.Fatalf("Information[0x40001FC4] missing — Volcano Manor letter " +
+			"(Rileigh hunt) must remain present")
+	}
+	if rileigh.Name != "Letter from Volcano Manor (Rileigh)" {
+		t.Errorf("Information[0x40001FC4] name = %q, want %q",
+			rileigh.Name, "Letter from Volcano Manor (Rileigh)")
+	}
+
+	red, ok := Information[0x40001FC5]
+	if !ok {
+		t.Fatalf("Information[0x40001FC5] missing — Red Letter (Juno Hoslow) " +
+			"must remain present")
+	}
+	if red.Name != "Red Letter" {
+		t.Errorf("Information[0x40001FC5] name = %q, want %q", red.Name, "Red Letter")
+	}
+
+	// No two Information entries may share the suffix-stripped display name —
+	// guard against future regressions that reintroduce "Letter from Volcano
+	// Manor" without a discriminator.
+	count := 0
+	for _, item := range Information {
+		if item.Name == "Letter from Volcano Manor" {
+			count++
+		}
+	}
+	if count != 0 {
+		t.Errorf("found %d Information entries named exactly %q — both shipped IDs "+
+			"must carry a target-NPC suffix",
+			count, "Letter from Volcano Manor")
 	}
 }

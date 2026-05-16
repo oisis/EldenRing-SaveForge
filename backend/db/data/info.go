@@ -81,8 +81,14 @@ var Information = map[uint32]ItemData{
 	// ─── Letters (base) ─────────────────────────────────────────────────
 	// User verified all of these appear in the Information tab in-game,
 	// even though er-save-manager classifies them under KeyItems.txt.
+	// FMG uses the same "Letter from Volcano Manor" name for the Istvan
+	// (0x40001FBF) and Rileigh (0x40001FC4) hunt letters. App display
+	// names carry a target-NPC suffix so Add Items can disambiguate them;
+	// the third hunt letter (Juno Hoslow) is already discriminated in FMG
+	// itself as "Red Letter" (0x40001FC5).
+	0x40001FBF: {Name: "Letter from Volcano Manor (Istvan)", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_from_volcano_manor.png"},
 	0x40001FC3: {Name: "Irina's Letter", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/irinas_letter.png"},
-	0x40001FC4: {Name: "Letter from Volcano Manor", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_from_volcano_manor.png"},
+	0x40001FC4: {Name: "Letter from Volcano Manor (Rileigh)", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_from_volcano_manor.png"},
 	0x40001FC5: {Name: "Red Letter", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/red_letter.png"},
 	0x40001FE7: {Name: "Letter to Patches", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_to_patches.png"},
 	0x40001FED: {Name: "Letter to Bernahl", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_to_bernahl.png"},

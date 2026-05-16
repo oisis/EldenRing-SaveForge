@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): add missing Volcano Manor letter and disambiguate quest letters
+
+Adds the previously-missing shipped `0x40001FBF` Letter from Volcano
+Manor entry to `backend/db/data/info.go` and renames its sibling
+`0x40001FC4` so the Add Items UI can distinguish the two. Both IDs
+ship with identical FMG canonical name "Letter from Volcano Manor",
+identical `iconId=3055`, and consecutive `sortId` (451010, 451020) —
+they are two real quest letters from Tanith during the Recusant
+questline, discriminated only by their description target NPC.
+
+| App ID         | Display name (after)                     | Quest target           | regulation row |
+|----------------|------------------------------------------|------------------------|----------------|
+| `0x40001FBF`   | Letter from Volcano Manor (Istvan)       | Old Knight Istvan      | 8127 (new in app) |
+| `0x40001FC4`   | Letter from Volcano Manor (Rileigh)      | Rileigh the Idle       | 8132 (renamed)    |
+| `0x40001FC5`   | Red Letter (unchanged)                   | Juno Hoslow            | 8133 (already discriminated in FMG) |
+
+The orphan description entry for `0x40001FBF` in
+`backend/db/data/descriptions.go` is now naturally picked up by
+`enrichItemEntry`. Disambiguating the display names is an
+app-only UI/database concern — save behavior, item IDs and FMG
+canonical names are unchanged. New unit test
+`TestPhase2B3VolcanoManorLettersDisambiguated` guards the rename
+plus a regression check ensuring no `Information` entry uses the
+bare FMG name without a target-NPC suffix.
+
 ### fix(db): replace cut Sealed Spiritsprings note with shipped ID
 
 Replaces the broken Set-B-equivalent `0x401EA443` Note: Sealed
