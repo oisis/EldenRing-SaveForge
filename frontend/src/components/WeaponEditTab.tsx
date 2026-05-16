@@ -1,3 +1,7 @@
+// @deprecated Inventory → Weapon Edit UI entry is hidden in App.tsx. This component is kept
+// temporarily and should be removed in a future cleanup. Backend endpoints used here that are
+// ALSO consumed by WeaponEditModal (Sort Order) must NOT be removed: ApplyWeaponInfusion,
+// ApplyWeaponAoWStrict, GetAoWAvailability.
 import { useState, useEffect, useMemo } from 'react';
 import { GetCharacter, GetItemList, ApplyWeaponInfusion, ApplyWeaponAoW, ApplyWeaponAoWStrict, GetAoWAvailability, RevertSlot } from '../../wailsjs/go/main/App';
 import { db } from '../../wailsjs/go/models';

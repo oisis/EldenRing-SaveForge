@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(inventory): hide deprecated Weapon Edit tab and rename Sort Order to Weapons & Sort Order
+
+The Inventory → Weapon Edit pill is removed from the tab list in
+`frontend/src/App.tsx`. The `WeaponEditTab` component, its import, the
+`'weapon_edit'` variant in the `invView` type union, and the corresponding
+render branch are intentionally left in place as a legacy/unreachable path so
+that the change is fully reversible. Soft `TODO(deprecated)` comments mark
+the removed pill location and the unreachable render branch.
+
+Backend endpoints remain untouched. `App.ApplyWeaponInfusion`,
+`App.ApplyWeaponAoWStrict`, `App.GetAoWAvailability`, and
+`core.PatchWeaponAoWHandle` continue to power the weapon editor modal used
+by Sort Order (`WeaponEditModal.tsx`), which is unaffected by this change.
+
+`App.ApplyWeaponAoW` (non-strict) and `core.PatchWeaponAoW` are now reached
+only from the hidden tab; both gained a soft `NOTE` comment but are not
+marked `Deprecated:` and their Go tests
+(`app_weapon_aow_editor_test.go`, `app_weapon_aow_dlc_test.go`,
+`backend/core/...`) remain green.
+
+The remaining Sort Order pill is renamed in the UI to
+"Weapons & Sort Order" to better reflect that the per-tile weapon editor
+modal is reachable from this view. The pill `id` (`sort_order`) and the
+component (`SortOrderTab`) are unchanged.
+
 ### fix(db): mark somber greatshields as max upgrade 10
 
 Nine somber greatshields (reinforceTypeId=8300, gemMountType=0 in

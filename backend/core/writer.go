@@ -1194,6 +1194,10 @@ func PatchWeaponAoWHandle(slot *SaveSlot, weaponHandle uint32, newAoWHandle uint
 // weapon's AoWGaItemHandle field after the rebuild settles offsets.
 //
 // Old AoW GaItems are intentionally left in place — the game tolerates orphaned entries.
+//
+// NOTE: currently invoked only via App.ApplyWeaponAoW, which itself is reachable only from
+// the hidden legacy Weapon Edit tab. Do not remove without updating tests and the cleanup plan.
+// Sort Order's modal uses the strict path (PatchWeaponAoWHandle) instead.
 func PatchWeaponAoW(slot *SaveSlot, weaponHandle, newAoWItemID uint32) error {
 	if slot == nil {
 		return fmt.Errorf("PatchWeaponAoW: slot is nil")

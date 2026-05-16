@@ -1305,6 +1305,10 @@ func (a *App) ApplyWeaponUpgradeLevel(charIdx int, handle uint32, expectedCurren
 
 // ApplyWeaponAoW sets or removes the Ash of War on a specific weapon instance.
 // newAoWItemID == 0 removes the AoW; any other value sets it.
+//
+// NOTE: currently invoked only by the hidden legacy Weapon Edit tab; do not remove without
+// updating tests (app_weapon_aow_editor_test.go, app_weapon_aow_dlc_test.go) and the cleanup plan.
+// Sort Order's weapon editor modal uses ApplyWeaponAoWStrict instead.
 func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
