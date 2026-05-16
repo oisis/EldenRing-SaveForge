@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): add missing base and SOTE weapons and correct Beast Claw item ID
+
+Phase 2B.1 of the item database audit (`tmp/item-audit/phase2_classification_*`)
+addresses two issues:
+
+1. **Beast Claw ID collision (paired fix).** `backend/db/data/incantations.go`
+   carried an erroneous entry at `0x04153A20` named "Beast Claw" — but that ID
+   belongs to the SOTE Beast Claw **weapon** (`EquipParamWeapon` row
+   68500000, wepType=95). The real Beast Claw incantation lives at Goods row
+   6820 = `0x40001AA4` and is untouched. The bogus incantation entry was
+   removed; the weapon entry was added to `melee_armaments.go`.
+
+2. **Five missing weapons.** Items present in regulation but absent from the
+   DB were added to `backend/db/data/melee_armaments.go`:
+
+   | ID (hex)     | ID (dec)  | Name                       | Subcat                | MaxUpgrade | DLC |
+   |--------------|-----------|----------------------------|-----------------------|-----------:|:---:|
+   | 0x002F4D60   | 3100000   | Sacred Relic Sword         | Greatswords           | 10 (somber)| —   |
+   | 0x005BDBA0   | 6020000   | Great Épée                 | Heavy Thrusting Swords| 25         | —   |
+   | 0x01038D50   | 17010000  | Mohgwyn's Sacred Spear     | Great Spears          | 10 (somber)| —   |
+   | 0x00170A70   | 1510000   | Fire Knight's Shortsword   | Daggers               | 25         | dlc |
+   | 0x0044F840   | 4520000   | Fire Knight's Greatsword   | Colossal Swords       | 25         | dlc |
+   | 0x04153A20   | 68500000  | Beast Claw (SOTE weapon)   | Beast Claws           | 25         | dlc |
+
+   Each entry sets `SubCategory` explicitly because `classifyMelee` in
+   `melee_subcat.go` strips infusion prefixes ("Sacred ", "Fire ") destructively,
+   which would otherwise mis-classify these names. Data was verified against
+   `tmp/regulation-bin-dump/csv/EquipParamWeapon.csv` (wepType, reinforceTypeId)
+   and `tmp/regulation-bin-dump/msg/name_mapping.csv` (FMG names).
+
+   Regression test: `backend/db/data/phase2b1_weapons_test.go` asserts the six
+   entries exist in `Weapons` with the expected Name/Category/SubCategory/
+   MaxUpgrade/DLC flag, and that `0x04153A20` is absent from `Incantations`
+   while `0x40001AA4` (the real incantation) is present.
+
 ### fix(db): mark 45 somber weapons, catalysts, bows and shields as max upgrade 10
 
 Audit (`tmp/item-audit/`) cross-referenced every entry in
