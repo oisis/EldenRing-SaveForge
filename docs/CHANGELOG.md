@@ -4,6 +4,104 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(inventory): hide deprecated Weapon Edit tab and rename Sort Order to Weapons & Sort Order
+
+The Inventory → Weapon Edit pill is removed from the tab list in
+`frontend/src/App.tsx`. The `WeaponEditTab` component, its import, the
+`'weapon_edit'` variant in the `invView` type union, and the corresponding
+render branch are intentionally left in place as a legacy/unreachable path so
+that the change is fully reversible. Soft `TODO(deprecated)` comments mark
+the removed pill location and the unreachable render branch.
+
+Backend endpoints remain untouched. `App.ApplyWeaponInfusion`,
+`App.ApplyWeaponAoWStrict`, `App.GetAoWAvailability`, and
+`core.PatchWeaponAoWHandle` continue to power the weapon editor modal used
+by Sort Order (`WeaponEditModal.tsx`), which is unaffected by this change.
+
+`App.ApplyWeaponAoW` (non-strict) and `core.PatchWeaponAoW` are now reached
+only from the hidden tab; both gained a soft `NOTE` comment but are not
+marked `Deprecated:` and their Go tests
+(`app_weapon_aow_editor_test.go`, `app_weapon_aow_dlc_test.go`,
+`backend/core/...`) remain green.
+
+The remaining Sort Order pill is renamed in the UI to
+"Weapons & Sort Order" to better reflect that the per-tile weapon editor
+modal is reachable from this view. The pill `id` (`sort_order`) and the
+component (`SortOrderTab`) are unchanged.
+
+### fix(db): mark somber greatshields as max upgrade 10
+
+Nine somber greatshields (reinforceTypeId=8300, gemMountType=0 in
+regulation.bin → EquipParamWeapon) had MaxUpgrade=25 in
+`backend/db/data/shields.go`, which let `AddItemsToCharacter` route them
+through the standard infusable branch — applying the infuseOffset selector or
+an upgrade level above +10 produced ItemIDs absent from EquipParamWeapon, so
+the items vanished after the save was loaded in-game.
+
+Affected items (hex / decimal):
+
+- Crucible Hornshield     0x01E8BD30 / 32030000
+- Dragonclaw Shield       0x01E8E440 / 32040000
+- Erdtree Greatshield     0x01E98080 / 32080000
+- Jellyfish Shield        0x01EA1CC0 / 32120000
+- Icon Shield             0x01EA6AE0 / 32140000
+- One-Eyed Shield         0x01EA91F0 / 32150000
+- Visage Shield           0x01EAB900 / 32160000
+- Ant's Skull Plate       0x01EBA360 / 32220000
+- Verdigris Greatshield   0x01F03740 / 32520000 (DLC)
+
+After the fix the frontend renders the +0..+10 slider, hides the infusion
+selector (`item.maxUpgrade === 25` gate), and the backend's MaxUpgrade==10
+branch ignores infuseOffset entirely.
+
+Tests:
+- `backend/db/data/shields_somber_test.go` — DB guard for the nine somber
+  greatshields plus regressions for Fingerprint Stone Shield and Dragon
+  Towershield as standard-shield controls (both must keep MaxUpgrade=25).
+- `app_somber_greatshields_test.go` — integration through
+  `AddItemsToCharacter` (loads `tmp/save/ER0000.sl2`, skips otherwise):
+  Icon Shield default writes the base ID, infuseOffset=100 is ignored,
+  upgrade10=10 writes baseID+10, plus table-driven coverage across all nine
+  shields for both invariants.
+
+### fix(aow-compat): Fist weapons use the Knuckle compatibility bit
+
+Fixed Ash of War compatibility for Fist weapons such as Star Fist. The
+Fist/Knuckle weapon type now maps to the correct `canMountWep_Knuckle` bit, so
+compatible Ashes of War such as Lifesteal Fist, Cragblade, Endure, Quickstep,
+and Bloodhound's Step are shown and accepted by the backend.
+
+### fix(add-items): detect and repair duplicate inventory acquisition indices
+
+Add Items now detects pre-existing duplicate acquisition indices before
+mutating a save and blocks the operation with a clear repair prompt instead of
+failing after rollback. Added a repair flow that renumbers only duplicate
+acquisition/sort indices, preserves item IDs, handles, quantities, and
+containers, supports undo, and retries the original Add Items operation after
+user confirmation.
+
+- Added read-only duplicate index scanning for Inventory CommonItems/KeyItems.
+- Added `RepairDuplicateInventoryIndices` core helper and App/Wails endpoint.
+- Added Database tab "Repair & Retry" prompt for duplicate acquisition index errors.
+- Repair is opt-in only: no auto-repair on load, save, upload, or background operations.
+
+### feat(sort-order): per-tile weapon edit modal
+
+Sort Order → Weapons now supports editing a weapon directly from its grid tile through a red edit icon in the top-left corner. The modal works for both Inventory and Storage weapons and preserves selection, drag/drop behavior, pending preview order, and Apply Order state.
+
+- Added upgrade level editing with a new `App.ApplyWeaponUpgradeLevel` backend endpoint. The endpoint validates that only the upgrade level changes: same base weapon, same infusion offset, and level within `MaxUpgrade`.
+- Added infusion / affinity editing through the existing `ApplyWeaponInfusion` flow. Level is preserved across infusion changes.
+- Added strict Ash of War editing through `ApplyWeaponAoWStrict`, including search, availability badges, compatibility status, and Remove AoW support.
+- AoW editing is strict-only: the modal requires a free AoW copy in the save and does not auto-create new AoW copies.
+- AoW compatibility is fail-closed for unknown data in this modal. Unknown / unmapped DLC compatibility is shown only when unavailable/incompatible items are visible and cannot be applied until the full AoW compatibility API lands.
+- `InventoryOrderItem` now exposes `MaxUpgrade`, allowing the modal to render `+0..+N` from authoritative DB data.
+- Added backend unit coverage for weapon upgrade level changes and validated the full modal flow with frontend typecheck/build and manual in-game testing.
+
+Known limitations:
+- `WEP_TYPE_TO_BIT` is still duplicated between `WeaponEditTab.tsx` and `WeaponEditModal.tsx`; future refactor should move it to a shared frontend helper.
+- The modal currently uses strict AoW assignment only; auto-allocate AoW can be added later as a separate confirmation flow.
+- Full DLC AoW compatibility depends on integrating the `research/aow-weapon-compatibility` branch.
+
 ### feat(sort-order): dual-grid Inventory + Storage with bidirectional transfer
 
 Sort Order tab is now a dual-grid editor: Storage on the left, Inventory on the right,

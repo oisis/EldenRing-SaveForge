@@ -42,6 +42,10 @@ export function ApplyWeaponInfusion(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ApplyWeaponInfusion'](arg1, arg2, arg3, arg4);
 }
 
+export function ApplyWeaponUpgradeLevel(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['ApplyWeaponUpgradeLevel'](arg1, arg2, arg3, arg4);
+}
+
 export function BulkSetAshOfWarFlags(arg1, arg2, arg3) {
   return window['go']['main']['App']['BulkSetAshOfWarFlags'](arg1, arg2, arg3);
 }
@@ -292,6 +296,10 @@ export function ReorderStorage(arg1, arg2, arg3) {
 
 export function ReorderWeaponInventory(arg1, arg2) {
   return window['go']['main']['App']['ReorderWeaponInventory'](arg1, arg2);
+}
+
+export function RepairDuplicateInventoryIndices(arg1) {
+  return window['go']['main']['App']['RepairDuplicateInventoryIndices'](arg1);
 }
 
 export function ResetMapExploration(arg1) {

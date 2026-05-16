@@ -316,6 +316,19 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 	slot := &a.save.Slots[charIdx]
 
+	// PRE-FLIGHT: refuse to mutate a save that already has duplicate inventory
+	// acquisition indices. Without this guard the batch mutates the slot, then the
+	// post-mutation validator catches the pre-existing duplicate and rolls back —
+	// surfacing a misleading "post-mutation validation failed" error to the user.
+	// No mutation, no snapshot needed; the slot is untouched on error.
+	if dups := core.ScanDuplicateInventoryIndices(slot); len(dups) > 0 {
+		d := dups[0]
+		return result, fmt.Errorf(
+			"save inventory has %d duplicate acquisition index issue(s) before adding items: duplicate Index %d in %s (handle 0x%08X, also at row %d handle 0x%08X). Run inventory index repair before adding items",
+			len(dups), d.Index, d.Scope, d.DuplicateHandle, d.FirstRow, d.FirstHandle,
+		)
+	}
+
 	// Build maps from current inventory/storage state:
 	// - existingItemQty: per-item stack qty in inventory (used to compute SET delta)
 	// - existingByContainer: total pot/aromatic units per container
@@ -1225,8 +1238,77 @@ func (a *App) ApplyWeaponInfusion(charIdx int, handle uint32, expectedCurrentIte
 	return core.PatchWeaponItemID(slot, handle, expectedCurrentItemID, newItemID)
 }
 
+// ApplyWeaponUpgradeLevel changes the upgrade (smithing-stone reinforcement) level
+// of a specific weapon instance identified by its GaItemHandle. Only the level
+// portion of the ItemID is patched — base weapon, infusion offset, AoW gem,
+// quantity, and location are preserved.
+//
+// expectedCurrentItemID is a stale-data guard: the request is rejected if the
+// weapon's ItemID has already changed since the frontend loaded the character data.
+// newItemID must encode the same base weapon and the same infusion offset; only
+// the upgrade level portion may differ. The new level must be in [0, MaxUpgrade].
+// Weapons with MaxUpgrade==0 (e.g. Unarmed) cannot be upgraded.
+func (a *App) ApplyWeaponUpgradeLevel(charIdx int, handle uint32, expectedCurrentItemID, newItemID uint32) error {
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+
+	// Both IDs must be in the weapon range (upper nibble 0x0).
+	if expectedCurrentItemID>>28 != 0 {
+		return fmt.Errorf("expectedCurrentItemID 0x%08X is not a weapon ID", expectedCurrentItemID)
+	}
+	if newItemID>>28 != 0 {
+		return fmt.Errorf("newItemID 0x%08X is not a weapon ID", newItemID)
+	}
+
+	// Resolve base weapon from expectedCurrentItemID. DB lookup is authoritative.
+	baseData, baseID := db.GetItemDataFuzzy(expectedCurrentItemID)
+	if baseData.Name == "" {
+		return fmt.Errorf("unknown weapon 0x%08X", expectedCurrentItemID)
+	}
+	if baseData.MaxUpgrade == 0 {
+		return fmt.Errorf("weapon %q (0x%08X) cannot be upgraded (maxUpgrade=0)", baseData.Name, baseID)
+	}
+
+	expectedDiff := expectedCurrentItemID - baseID
+	expectedInfuse := expectedDiff - (expectedDiff % 100)
+
+	// Validate newItemID resolves to the same base weapon.
+	_, newBaseID := db.GetItemDataFuzzy(newItemID)
+	if newBaseID != baseID {
+		return fmt.Errorf("cannot change weapon base ID with upgrade endpoint (newItemID 0x%08X resolves to base 0x%08X, expected 0x%08X)",
+			newItemID, newBaseID, baseID)
+	}
+	newDiff := newItemID - baseID
+	newLevel := newDiff % 100
+	newInfuse := newDiff - newLevel
+
+	// Infusion offset must be unchanged.
+	if newInfuse != expectedInfuse {
+		return fmt.Errorf("cannot change infusion with upgrade endpoint (infuseOffset %d→%d); use ApplyWeaponInfusion instead",
+			expectedInfuse, newInfuse)
+	}
+
+	// Level must be within [0, MaxUpgrade]. newLevel is unsigned so >=0 is automatic.
+	if newLevel > uint32(baseData.MaxUpgrade) {
+		return fmt.Errorf("upgrade level %d out of range (max %d) for weapon %q (0x%08X)",
+			newLevel, baseData.MaxUpgrade, baseData.Name, baseID)
+	}
+
+	a.pushUndo(charIdx)
+	slot := &a.save.Slots[charIdx]
+	return core.PatchWeaponItemID(slot, handle, expectedCurrentItemID, newItemID)
+}
+
 // ApplyWeaponAoW sets or removes the Ash of War on a specific weapon instance.
 // newAoWItemID == 0 removes the AoW; any other value sets it.
+//
+// NOTE: currently invoked only by the hidden legacy Weapon Edit tab; do not remove without
+// updating tests (app_weapon_aow_editor_test.go, app_weapon_aow_dlc_test.go) and the cleanup plan.
+// Sort Order's weapon editor modal uses ApplyWeaponAoWStrict instead.
 func (a *App) ApplyWeaponAoW(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
@@ -1402,7 +1484,42 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 	return core.PatchWeaponAoWHandle(slot, weaponHandle, newAoWHandle)
 }
 
+// RepairDuplicateInventoryIndices rewrites every duplicate acquisition Index in
+// Inventory.CommonItems + KeyItems on the given character slot. The first
+// occurrence of each Index is preserved; later occurrences receive fresh
+// Indices greater than every existing value, plus the matching counter
+// (NextAcquisitionSortId / NextEquipIndex) advances accordingly.
+//
+// Pushes an undo snapshot only when at least one duplicate is detected, so a
+// clean slot is a true no-op (no undo entry, no slot mutation). Never writes
+// the save to disk — the caller decides when to persist via the regular
+// save/upload flow.
+func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexRepairReport, error) {
+	var empty core.InventoryIndexRepairReport
+	if a.save == nil {
+		return empty, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= 10 {
+		return empty, fmt.Errorf("invalid character index")
+	}
+	slot := &a.save.Slots[charIdx]
+
+	if pre := core.ScanDuplicateInventoryIndices(slot); len(pre) == 0 {
+		return empty, nil
+	}
+
+	a.pushUndo(charIdx)
+	report, err := core.RepairDuplicateInventoryIndices(slot)
+	if err != nil {
+		return empty, err
+	}
+	if post := core.ScanDuplicateInventoryIndices(slot); len(post) > 0 {
+		return report, fmt.Errorf("RepairDuplicateInventoryIndices: %d duplicate(s) remain after repair", len(post))
+	}
+	return report, nil
+}
+
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, db.AshOfWarFlagEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, core.InventoryIndexRepairReport, core.InventoryIndexRepairChange) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, db.AshOfWarFlagEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, core.InventoryIndexRepairReport{}, core.InventoryIndexRepairChange{}
 }

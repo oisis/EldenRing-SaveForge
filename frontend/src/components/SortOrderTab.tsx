@@ -8,6 +8,7 @@ import {
 } from '../../wailsjs/go/main/App';
 import { main } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
+import { WeaponEditModal, WeaponPatch } from './WeaponEditModal';
 
 type DragSource = 'inventory' | 'storage' | null;
 type FrameDropTarget = 'inventory' | 'storage' | null;
@@ -94,6 +95,37 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const prevStorageHasChangesRef = useRef(false);
     const [frameDropTarget, setFrameDropTarget] = useState<FrameDropTarget>(null);
     const [transferring, setTransferring] = useState(false);
+    // Weapon edit modal state — populated only on weapons tab via double-click.
+    const [weaponEditor, setWeaponEditor] = useState<{
+        item: main.InventoryOrderItem;
+        source: 'inventory' | 'storage';
+    } | null>(null);
+
+    const openWeaponEditor = (
+        item: main.InventoryOrderItem,
+        source: 'inventory' | 'storage',
+    ) => {
+        if (activeSortTab !== 'weapons') return;
+        setWeaponEditor({ item, source });
+    };
+
+    // Local-merge patch by handle into all 4 lists so the tile re-renders the
+    // new level/itemId without losing the user's pending preview reorder.
+    // Save-mutating change → also signal parent via onMutate.
+    const applyWeaponPatch = (patch: WeaponPatch) => {
+        const merge = (list: main.InventoryOrderItem[]) =>
+            list.map(it =>
+                it.handle === patch.handle
+                    ? { ...it, itemId: patch.itemId, currentUpgrade: patch.currentUpgrade, infusionName: patch.infusionName ?? it.infusionName }
+                    : it,
+            );
+        setBaseItems(merge);
+        setPreviewItems(merge);
+        setBaseStorageItems(merge);
+        setPreviewStorageItems(merge);
+        setWeaponEditor(prev => (prev ? { ...prev, item: { ...prev.item, itemId: patch.itemId, currentUpgrade: patch.currentUpgrade, infusionName: patch.infusionName ?? prev.item.infusionName } } : prev));
+        onMutate?.();
+    };
 
     // reloadTabData fetches fresh Inventory + Storage data for the active tab
     // and applies it to local state. Used both by the on-mount/version useEffect
@@ -765,6 +797,16 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                 </div>
             )}
 
+            {weaponEditor && (
+                <WeaponEditModal
+                    charIndex={charIndex}
+                    item={weaponEditor.item}
+                    source={weaponEditor.source}
+                    onClose={() => setWeaponEditor(null)}
+                    onApplied={applyWeaponPatch}
+                />
+            )}
+
             <div className="flex flex-col h-full min-h-0 gap-2">
                 {/* ── Category tab selector + sort dropdowns ───────────────── */}
                 <div className="flex items-center gap-1 shrink-0 border-b border-border/30 pb-2">
@@ -986,6 +1028,15 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                 isSelected={storageSelectedHandles.has(item.handle)}
                                                 isBlockDragging={storageBlockDragging}
                                                 onClick={(e) => handleStorageTileClick(item, e)}
+                                                onEditClick={
+                                                    activeSortTab === 'weapons'
+                                                        ? (e) => {
+                                                              e.stopPropagation();
+                                                              e.preventDefault();
+                                                              openWeaponEditor(item, 'storage');
+                                                          }
+                                                        : undefined
+                                                }
                                                 onDragStart={() =>
                                                     handleStorageDragStart(localIdx, item)
                                                 }
@@ -1127,6 +1178,15 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                 isSelected={selectedHandles.has(item.handle)}
                                                 isBlockDragging={isBlockDragging}
                                                 onClick={(e) => handleTileClick(item, e)}
+                                                onEditClick={
+                                                    activeSortTab === 'weapons'
+                                                        ? (e) => {
+                                                              e.stopPropagation();
+                                                              e.preventDefault();
+                                                              openWeaponEditor(item, 'inventory');
+                                                          }
+                                                        : undefined
+                                                }
                                                 onDragStart={() => handleDragStart(localIdx, item)}
                                                 onDragOver={(e) => handleDragOver(e, localIdx)}
                                                 onDrop={() => handleDrop(localIdx)}
@@ -1155,6 +1215,7 @@ interface TileProps {
     isSelected: boolean;
     isBlockDragging: boolean;
     onClick: (e: React.MouseEvent) => void;
+    onEditClick?: (e: React.MouseEvent) => void;
     onDragStart: () => void;
     onDragOver: (e: React.DragEvent) => void;
     onDrop: () => void;
@@ -1168,6 +1229,7 @@ function ItemTile({
     isSelected,
     isBlockDragging,
     onClick,
+    onEditClick,
     onDragStart,
     onDragOver,
     onDrop,
@@ -1258,13 +1320,54 @@ function ItemTile({
                     {weightLabel}
                 </div>
             )}
+
+            {/* Edit-weapon button — top-left, only rendered when onEditClick is provided
+                (i.e. weapons tab). Stops propagation so it never triggers selection or DnD. */}
+            {onEditClick && (
+                <button
+                    type="button"
+                    draggable={false}
+                    onClick={onEditClick}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onDragStart={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }}
+                    title="Edit weapon"
+                    aria-label="Edit weapon"
+                    className="absolute top-0.5 left-0.5 z-10 w-4 h-4 flex items-center justify-center rounded bg-red-700/85 hover:bg-red-600 text-white shadow ring-1 ring-red-900/40 transition-colors cursor-pointer"
+                >
+                    <svg
+                        className="w-2.5 h-2.5"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        viewBox="0 0 24 24"
+                        aria-hidden="true"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M14.7 6.3l3 3M4 20l3.5-1 9.8-9.8a2.1 2.1 0 0 0 0-3l-.5-.5a2.1 2.1 0 0 0-3 0L4 16.5 4 20z"
+                        />
+                    </svg>
+                </button>
+            )}
         </div>
     );
 }
 
 function EmptyCell() {
     return (
-        <div className="relative aspect-square bg-card/20 border border-border/15 rounded-md opacity-25" />
+        <div
+            aria-hidden="true"
+            className="relative aspect-square rounded-md border border-dashed border-border/60 bg-card/40 opacity-75 pointer-events-none shadow-inner"
+            style={{
+                backgroundImage:
+                    'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.018) 45%, rgba(0,0,0,0.10) 100%), radial-gradient(circle at 50% 42%, rgba(255,255,255,0.08), transparent 45%)',
+            }}
+        />
     );
 }
 

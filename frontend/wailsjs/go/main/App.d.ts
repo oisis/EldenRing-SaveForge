@@ -26,6 +26,8 @@ export function ApplyWeaponAoWStrict(arg1:number,arg2:number,arg3:number):Promis
 
 export function ApplyWeaponInfusion(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
 
+export function ApplyWeaponUpgradeLevel(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
+
 export function BulkSetAshOfWarFlags(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
 
 export function BulkSetBellBearings(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
@@ -151,6 +153,8 @@ export function ReorderInventory(arg1:number,arg2:string,arg3:Array<number>):Pro
 export function ReorderStorage(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
 
 export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<void>;
+
+export function RepairDuplicateInventoryIndices(arg1:number):Promise<core.InventoryIndexRepairReport>;
 
 export function ResetMapExploration(arg1:number):Promise<void>;
 

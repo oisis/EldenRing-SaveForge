@@ -292,6 +292,74 @@ func (e IntegrityError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Check, e.Message)
 }
 
+// DuplicateInventoryIndexIssue describes a single Index collision discovered by
+// ScanDuplicateInventoryIndices. Used by pre-flight guards to abort mutations on
+// already-corrupt saves with a precise diagnostic instead of a misleading
+// post-mutation rollback.
+type DuplicateInventoryIndexIssue struct {
+	Index           uint32 `json:"index"`
+	Scope           string `json:"scope"` // "inventory_common" | "inventory_key"
+	FirstRow        int    `json:"firstRow"`
+	FirstHandle     uint32 `json:"firstHandle"`
+	DuplicateRow    int    `json:"duplicateRow"`
+	DuplicateHandle uint32 `json:"duplicateHandle"`
+}
+
+// ScanDuplicateInventoryIndices walks Inventory.CommonItems and Inventory.KeyItems
+// and reports every Index value that appears more than once across the combined
+// inventory list. Empty / invalid handles are ignored. Storage is not scanned —
+// duplicate post-mutation validation only covers inventory.
+//
+// Read-only: never modifies slot. Safe to call before snapshot/mutation as a
+// pre-flight guard.
+func ScanDuplicateInventoryIndices(slot *SaveSlot) []DuplicateInventoryIndexIssue {
+	if slot == nil {
+		return nil
+	}
+	type seenEntry struct {
+		row    int
+		handle uint32
+	}
+	seen := make(map[uint32]seenEntry)
+	var issues []DuplicateInventoryIndexIssue
+
+	for i, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
+			continue
+		}
+		if prev, ok := seen[item.Index]; ok {
+			issues = append(issues, DuplicateInventoryIndexIssue{
+				Index:           item.Index,
+				Scope:           "inventory_common",
+				FirstRow:        prev.row,
+				FirstHandle:     prev.handle,
+				DuplicateRow:    i,
+				DuplicateHandle: item.GaItemHandle,
+			})
+			continue
+		}
+		seen[item.Index] = seenEntry{row: i, handle: item.GaItemHandle}
+	}
+	for i, item := range slot.Inventory.KeyItems {
+		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
+			continue
+		}
+		if prev, ok := seen[item.Index]; ok {
+			issues = append(issues, DuplicateInventoryIndexIssue{
+				Index:           item.Index,
+				Scope:           "inventory_key",
+				FirstRow:        prev.row,
+				FirstHandle:     prev.handle,
+				DuplicateRow:    i,
+				DuplicateHandle: item.GaItemHandle,
+			})
+			continue
+		}
+		seen[item.Index] = seenEntry{row: i, handle: item.GaItemHandle}
+	}
+	return issues
+}
+
 // ValidatePostMutation performs fast invariant checks after a slot mutation.
 // Only checks crash-causing conditions — not full diagnostic scan.
 // Returns nil if all checks pass, or a slice of violations.

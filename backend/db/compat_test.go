@@ -122,3 +122,41 @@ func TestIsAshOfWarCompatibleWithWeapon_RemoveAlwaysAllowed(t *testing.T) {
 		t.Error("expected compatible=false for non-standard-infusable weapon")
 	}
 }
+
+// Star Fist (0x0141A7C0) is a Fist weapon with wepType=35, GemMountType=2.
+// wepType 35 must map to bit 20 (canMountWep_Knuckle). Regression guard against the
+// historical 35→16 (SpearLarge) mapping that hid every Fist-compatible AoW from the modal.
+func TestIsAshOfWarCompatibleWithWeapon_StarFist_Fist_AoWs(t *testing.T) {
+	const starFist = uint32(0x0141A7C0)
+	cases := []struct {
+		name string
+		aow  uint32
+	}{
+		{"Lifesteal Fist", 0x80005014},
+		{"Cragblade", 0x8000ED1C},
+		{"Endure", 0x80011170},
+		{"Quickstep", 0x80013880},
+		{"Bloodhound's Step", 0x800138E4},
+	}
+	for _, c := range cases {
+		compatible, known := IsAshOfWarCompatibleWithWeapon(c.aow, starFist)
+		if !known {
+			t.Errorf("%s: expected known=true", c.name)
+			continue
+		}
+		if !compatible {
+			t.Errorf("%s (0x%08X): expected compatible=true on Star Fist (wepType=35)", c.name, c.aow)
+		}
+	}
+}
+
+func TestIsAshOfWarCompatibleWithWeapon_StarFist_ShieldOnlyAoW_Incompatible(t *testing.T) {
+	// Shield-only AoW 0x80007530 (bits 32-34 only) → not compatible with Star Fist (wepType=35, bit 20).
+	compatible, known := IsAshOfWarCompatibleWithWeapon(0x80007530, 0x0141A7C0)
+	if !known {
+		t.Fatal("expected known=true")
+	}
+	if compatible {
+		t.Error("expected compatible=false for shield-only AoW on Star Fist")
+	}
+}

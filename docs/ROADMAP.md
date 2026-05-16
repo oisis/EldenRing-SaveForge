@@ -74,6 +74,13 @@
 - **Storage Acquisition Ordering** — `GetStorageOrder` reads the real per-record `Index`; freshly transferred items receive monotonic indices and appear at the end of Acquisition ↑ on the destination side
 - **VM visibility fix** — `mapItems` resolves itemIDs via `GaMap` first (`HandleToItemID` fallback) so rehandled instances are visible in inventory/storage view models immediately after transfer
 
+### Sort Order — per-tile Weapon Edit Modal
+- **Weapon edit icon on weapon tiles** — red top-left icon in Sort Order → Weapons grid for Inventory and Storage; opens a per-weapon modal without leaving the tab
+- **Upgrade level edit** — new `App.ApplyWeaponUpgradeLevel` endpoint over `core.PatchWeaponItemID`; validates base weapon, infusion offset, and `MaxUpgrade`
+- **Infusion edit** — reuses `ApplyWeaponInfusion`; preserves level across affinity changes
+- **Ash of War edit** — strict-only assignment via `ApplyWeaponAoWStrict`, search, availability/status badges, Remove AoW, and fail-closed handling for unknown compatibility
+- **Sort Order safe refresh** — modal patches metadata by handle, preserving pending preview order and drag/drop state
+
 ---
 
 ## Planned
@@ -198,10 +205,6 @@ Not in MVP: raw offset editor, full regulation browser, ShopLineupParam/ItemLotP
 Export/import stats + inventory + storage + appearance to portable `.preset.json`.
 Replaces disabled `App.ImportCharacter`. Community build sharing.
 **Design:** [spec/37](spec/37-character-presets.md) | **Effort:** 10-14h (Phase 1+2 MVP)
-
-### 🟢 Sort Order — in-game verification on real saves
-Sort Order dual-grid (Storage + Inventory) with bidirectional transfer and per-side Apply is implemented; backend + frontend coverage is green. Remaining work is **manual in-game verification** of each Sort Order tab (talismans / weapons / armor pieces) on a real save deployed to Steam Deck/console — confirm the rendered in-game grid order matches the editor preview for Inventory Apply and Storage Apply.
-**Design:** [spec/53](spec/53-inventory-storage-transfer.md), [spec/52](spec/52-acquisition-sort-stride2.md), [spec/39](spec/39-inventory-reorder.md)
 
 ### 🟡 Boss Kill — multi-flag rework
 Current single-flag approach grants runes but boss remains alive. Needs arena state + quest progression + grace activation flags per boss.

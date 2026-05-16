@@ -264,7 +264,7 @@ var WepTypeToCanMountBit = map[uint16]uint8{
 	31: 15, // canMountWep_SpearNormal
 	32: 17, // canMountWep_SpearHeavy
 	33: 18, // canMountWep_SpearAxe
-	35: 16, // canMountWep_SpearLarge
+	35: 20, // canMountWep_Knuckle (Fists, e.g. Star Fist)
 	37: 19, // canMountWep_Sickle
 	39: 20, // canMountWep_Knuckle
 	41: 21, // canMountWep_Claw
