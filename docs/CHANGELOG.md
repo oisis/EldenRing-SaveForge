@@ -4,6 +4,68 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): mark 45 somber weapons, catalysts, bows and shields as max upgrade 10
+
+Audit (`tmp/item-audit/`) cross-referenced every entry in
+`backend/db/data/{melee_armaments,ranged_and_catalysts,shields}.go` against
+`tmp/regulation-bin-dump/csv/EquipParamWeapon.csv` joined with
+`tmp/regulation-bin-dump/csv/ReinforceParamWeapon.csv` and surfaced 45 items
+flagged as Icon-Shield-bug analogues: the DB carried MaxUpgrade=25 while
+regulation derives a somber +10 path (reinforceTypeId ∈ {2200, 2400, 3200,
+3300, 8300, 8500}, gemMountType=0). `AddItemsToCharacter` was routing them
+through the standard infusable branch, so the editor could fabricate ItemIDs
+for affinity variants (`base+100..+1200`) or upgrade levels above +10 — none
+of which exist in EquipParamWeapon, so the items vanished after the save
+was loaded in-game (same failure mode as Icon Shield in v0.7).
+
+Each entry's MaxUpgrade was changed from 25 → 10. Name, Category, ID and
+all other fields are untouched.
+
+Shields (5, `backend/db/data/shields.go`):
+
+- Shield of Night            0x0148D3B0 / 21550000 (SOTE, reinforceTypeId=8500)
+- Coil Shield                0x01CCD0C0 / 30200000 (reinforceTypeId=8500)
+- Silver Mirrorshield        0x01D9F020 / 31060000 (reinforceTypeId=8300)
+- Golden Lion Shield         0x01E11C10 / 31530000 (SOTE, reinforceTypeId=8300)
+- Lamenting Visage           0x0175FE30 / 24510000 (SOTE, reinforceTypeId=2200)
+
+Ranged / catalysts (24, `backend/db/data/ranged_and_catalysts.go`):
+
+- Bows / Greatbows: Harp Bow, Erdtree Bow, Serpent Bow, Pulley Bow,
+  Black Bow, Ansbach's Longbow (SOTE), Lion Greatbow, Golem Greatbow,
+  Erdtree Greatbow (all reinforceTypeId=2200).
+- Crossbows / Hand Ballista: Pulley Crossbow (rId=3300), Full Moon Crossbow,
+  Repeating Crossbow (SOTE), Crepus's Black-Key Crossbow, Jar Cannon
+  (rId=3200).
+- Glintstone staves: Rotten Staff (rId=2200), Crystal Staff,
+  Carian Regal Scepter, Azur's Glintstone Staff, Lusat's Glintstone Staff,
+  Rotten Crystal Staff, Staff of the Great Beyond (SOTE) (rId=2400).
+- Sacred Seals: Golden Order Seal, Erdtree Seal, Dragon Communion Seal
+  (rId=2400).
+
+Melee armaments (16, `backend/db/data/melee_armaments.go`):
+
+- Stone-Sheathed Sword (SOTE), Spirit Sword (SOTE), Varr's Bouquet,
+  Serpent Flail (SOTE), Stormhawk Axe, Bonny Butchering Knife (SOTE),
+  Spirit Glaive (SOTE), Tooth Whip (SOTE), Poisoned Hand (SOTE),
+  Madding Hand (SOTE), Deadly Poison Perfume Bottle (SOTE),
+  Barbed Staff-Spear (SOTE), Scepter of the All-Knowing,
+  Devourer's Scepter, Watchdog's Staff, Staff of the Avatar
+  (all reinforceTypeId=2200).
+
+After the fix, the frontend renders the +0..+10 slider and hides the
+infusion selector (`item.maxUpgrade === 25` gate) for these items, and the
+backend's `MaxUpgrade==10` branch ignores `infuseOffset` entirely.
+
+Tests:
+- `backend/db/data/weapons_somber_max_upgrade_test.go` — table-driven DB
+  guard for all 45 items (asserts presence, name, category and
+  MaxUpgrade=10) plus `TestStandardControls_StayAt25` regression for six
+  controls (Longsword, Composite Bow, Longbow, Light Crossbow,
+  Academy Glintstone Staff, Finger Seal) that must keep MaxUpgrade=25.
+- The existing `backend/db/data/shields_somber_test.go` and
+  `app_somber_greatshields_test.go` (nine v0.7 greatshields) remain green.
+
 ### chore(inventory): hide deprecated Weapon Edit tab and rename Sort Order to Weapons & Sort Order
 
 The Inventory → Weapon Edit pill is removed from the tab list in
