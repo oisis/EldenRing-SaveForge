@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): add missing information notes
+
+Phase 2B.3 batch 1 of the item database audit adds 13 entries to
+`backend/db/data/info.go`. Each entry was verified to have
+`goodsType=12`, real `iconId` and finite `sortId` in
+`tmp/regulation-bin-dump/csv/EquipParamGoods.csv`, no collision with an
+existing prefixed ID in `info.go`, and an FMG name confirmed by
+`tmp/regulation-bin-dump/msg/name_mapping.csv`.
+
+| ID (hex)   | ID (dec) | Name                                          | Group         | DLC |
+|------------|----------|-----------------------------------------------|---------------|-----|
+| 0x40002020 |  8224    | Note: The Preceptor's Secret                  | unique note   | no  |
+| 0x40002021 |  8225    | Weathered Map                                 | unique note   | no  |
+| 0x40002312 |  8978    | Sellia's Secret                               | unique note   | no  |
+| 0x4000238D |  9101    | About Sorceries and Incantations              | About * base  | no  |
+| 0x4000239B |  9115    | About Flask of Wondrous Physick               | About * base  | no  |
+| 0x400023A0 |  9120    | About Teardrop Scarabs                        | About * base  | no  |
+| 0x400023B5 |  9141    | About Great Runes                             | About * base  | no  |
+| 0x400023B6 |  9142    | About the Cave of Knowledge                   | About * base  | no  |
+| 0x400023BE |  9150    | About Duels                                   | About * base  | no  |
+| 0x400023BF |  9151    | About United Combat and Combat Ordeals        | About * base  | no  |
+| 0x400023C0 |  9152    | About Combat with Spirit Ashes                | About * base  | no  |
+| 0x400023C1 |  9153    | About Marika's Effigy at the Roundtable       | About * base  | no  |
+| 0x401EA849 |  2009161 | About the Revered Spirit Ash Blessing         | About * SOTE  | yes |
+
+Sub-category is assigned automatically by `classifyInfoItem` in
+`info_subcat.go`: `"About *"` and `"Note: *"` entries land in
+`Mechanics / Locations Info`; the remaining two (`Weathered Map`,
+`Sellia's Secret`) fall to `Letters / Maps / Paintings`.
+
+Explicitly NOT added in this commit (verified by the new tests):
+
+- 15 Set B duplicate Notes in `0x4000222E–0x4000223F`. They duplicate
+  Set A names already in `info.go` and have unfinished regulation
+  params (`goodsType=0`, `iconId=0`, `sortId=999999`); the omission
+  was already documented in `info.go`.
+- The real shipped `Note: Sealed Spiritsprings` (`0x401EA3DF`). The
+  current `info.go` entry `0x401EA443` is the broken Set-B-equivalent
+  flagged `cut_content/ban_risk`; replacing it is deferred to a
+  separate canonical-correction commit.
+
+See `tmp/item-audit/phase2b3_info_reclassification.csv` and
+`tmp/item-audit/phase2b3_info_reclassification_summary.md` for the
+reclassification trail (15 entries demoted from `real_missing_add` to
+`duplicate_variant_ignore`, 1 SOTE flagged `needs_manual_decision`).
+
 ### fix(db): add missing arrows and bolts
 
 Phase 2B.2 of the item database audit adds four base-game elemental
