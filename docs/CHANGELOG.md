@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): add missing SOTE Black Syrup key item
+
+Adds the previously-missing shipped Shadow of the Erdtree key item
+`0x401EA3D3` "Black Syrup" to `backend/db/data/key_items.go`.
+Regulation row 2008019 (EquipParamGoods, `dlc01` FMG) ships with
+`goodsType=1`, `iconId=801`, `sortId=204363`, `maxNum=1`, `refCategory=0` —
+the canonical SOTE-questline key item that had been absent from the app
+inventory database. The sub-category auto-classifier in
+`key_items_subcat.go` routes it to the "Inactive Great Runes + Keys +
+Medallions" catch-all (no curated rule matches).
+
+Scope is intentionally narrow per Phase 2B.4 review: the 7 other items
+flagged by the audit as missing real shipped Goods entries remain
+deferred:
+
+- **Scorpion Stew / Gourmet Scorpion Stew** (Set A `0x401E8930/31`) — Set B
+  variants `0x401E8932/33` are already in `tools.go` and both Sets ship
+  with full regulation params; canonical A/B choice requires drop-table
+  research before any replace/coexist decision.
+- **5 Miquella questline phrases** (`0x401EA7A8`–`0x401EA7AC`: Ring of
+  Miquella, May the Best Win, The Two Fingers, Let Us Go Together,
+  O Mother) — already exposed via `gestures.go` under the same canonical
+  IDs. The "missing" classification is an audit-tooling gap
+  (Gesture↔EquipParamGoods cross-source matching is not yet wired into
+  `tmp/item-audit/scripts/build_comparison.py`) deferred to a tooling
+  cleanup commit.
+
+New regression tests in `phase2b4_black_syrup_test.go`:
+
+- `TestPhase2B4BlackSyrupPresent` — verifies the entry's name, category,
+  caps, icon path and `dlc` flag.
+- `TestPhase2B4BlackSyrupNoDuplicateAcrossMaps` — guards against
+  accidentally adding the same ID or display name to `Tools`, `Gestures`,
+  `Information`, `StandardAshes`, `ArrowsAndBolts`, `BolsteringMaterials`,
+  `CraftingMaterials`, `Incantations`, `Sorceries`.
+- `TestPhase2B4ScorpionStewUntouched` — pins the Set A/B status quo so
+  the deferred decision isn't silently subverted.
+- `TestPhase2B4MiquellaPhrasesStayInGestures` — pins the 5 phrase IDs in
+  `Gestures` and asserts no duplicate entry in `KeyItems`/`Tools`.
+
 ### fix(db): add missing Volcano Manor letter and disambiguate quest letters
 
 Adds the previously-missing shipped `0x40001FBF` Letter from Volcano
