@@ -18,20 +18,20 @@ var (
 
 // ItemEntry represents a single item from the game database.
 type ItemEntry struct {
-	ID           uint32            `json:"id"`
-	Name         string            `json:"name"`
-	Category     string            `json:"category"`
-	SubCategory  string            `json:"subCategory,omitempty"`
-	MaxInventory uint32            `json:"maxInventory"`
-	MaxStorage   uint32            `json:"maxStorage"`
-	MaxUpgrade   uint32            `json:"maxUpgrade"`
-	IconPath     string            `json:"iconPath"`
-	Flags        []string          `json:"flags"`
-	Description  string            `json:"description,omitempty"`
-	Location     string            `json:"location,omitempty"`
-	Weight       float64           `json:"weight,omitempty"`
-	Weapon       *data.WeaponStats `json:"weapon,omitempty"`
-	Armor        *data.ArmorStats  `json:"armor,omitempty"`
+	ID               uint32            `json:"id"`
+	Name             string            `json:"name"`
+	Category         string            `json:"category"`
+	SubCategory      string            `json:"subCategory,omitempty"`
+	MaxInventory     uint32            `json:"maxInventory"`
+	MaxStorage       uint32            `json:"maxStorage"`
+	MaxUpgrade       uint32            `json:"maxUpgrade"`
+	IconPath         string            `json:"iconPath"`
+	Flags            []string          `json:"flags"`
+	Description      string            `json:"description,omitempty"`
+	Location         string            `json:"location,omitempty"`
+	Weight           float64           `json:"weight,omitempty"`
+	Weapon           *data.WeaponStats `json:"weapon,omitempty"`
+	Armor            *data.ArmorStats  `json:"armor,omitempty"`
 	Spell            *data.SpellStats  `json:"spell,omitempty"`
 	AoWCompatBitmask uint64            `json:"aowCompatBitmask,omitempty"`
 }
@@ -275,8 +275,24 @@ func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (comp
 	return IsAoWCompatibleWithWepType(aowItemID, weaponData.WepType)
 }
 
-// enrichItemEntry populates Description, Weight, and stat fields from the Descriptions table,
-// falling back to ItemWeights for items not in descriptions.
+// enrichItemEntry populates Description, Location, Weight, and stat fields
+// on an ItemEntry from the curated data tables.
+//
+// Resolution order for text:
+//  1. Legacy data.Descriptions seeds Description / Location / Weight and
+//     the legacy stat pointers (Weapon / Armor / Spell). This preserves
+//     fallback coverage for IDs that pre-date the Phase 3B.1 ItemTexts
+//     generator (e.g. descriptions.go orphan rows not present in any
+//     app category map).
+//  2. data.ItemTexts (Phase 3B.1) then overrides Description / Location
+//     when the new generated entry has non-empty values. ItemTexts is
+//     sourced from FMG with curated descriptions.go fallback for
+//     Description, and curated descriptions.go is the sole source for
+//     Location. Empty fields on ItemTexts leave the legacy value intact.
+//
+// Stats and Weight are unaffected by ItemTexts in Phase 3B.2; they remain
+// owned by data.Descriptions / data.ItemWeights until Phase 3C ships
+// dedicated stats tables.
 func enrichItemEntry(e *ItemEntry) {
 	if data.Descriptions != nil {
 		if desc, ok := data.Descriptions[e.ID]; ok {
@@ -286,6 +302,18 @@ func enrichItemEntry(e *ItemEntry) {
 			e.Weapon = desc.Weapon
 			e.Armor = desc.Armor
 			e.Spell = desc.Spell
+		}
+	}
+	// Prefer the Phase 3B.1 ItemTexts entry for Description / Location
+	// when populated. Empty strings leave the legacy fallback intact.
+	if data.ItemTexts != nil {
+		if t, ok := data.ItemTexts[e.ID]; ok {
+			if t.Description != "" {
+				e.Description = t.Description
+			}
+			if t.Location != "" {
+				e.Location = t.Location
+			}
 		}
 	}
 	// Only physical items carry weight — spells, consumables, key items etc. share ID space with weapon/armor params.

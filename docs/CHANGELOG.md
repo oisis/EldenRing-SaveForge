@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(db): enrich item descriptions from generated text data
+
+Wires the Phase 3B.1 `ItemTexts` generated table into runtime enrichment:
+`enrichItemEntry` now prefers `data.ItemTexts[id].Description` and
+`Location` over the legacy `data.Descriptions[id]` values when populated,
+falling back to the legacy map for IDs not covered by the new table.
+
+The change is text-only and additive — the `ItemEntry` JSON payload
+shape is unchanged, no new fields are exposed yet (Phase 3B.3 will add
+`Text *ItemTextData`), and the Wails bindings do not need regeneration.
+Legacy `Weight`, `Weapon`, `Armor`, and `Spell` pointers continue to
+flow from `data.Descriptions` exactly as before — Phase 3C will replace
+them with dedicated generated stats tables.
+
+This unlocks higher-fidelity FMG-sourced descriptions (76.8 % FMG Info
+coverage from Phase 3A audit) plus the curated Fextralife-sourced
+Location data (94.8 % coverage) without touching frontend code.
+
+New tests in `backend/db/enrich_text_test.go`:
+
+- `TestEnrichItemEntryUsesItemTextsDescription` — Black Syrup
+  (`0x401EA3D3`) renders the FMG description supplied by ItemTexts.
+- `TestEnrichItemEntryUsesItemTextsLocation` — Lance (`0x010450A0`)
+  renders the curated Location surfaced via ItemTexts.
+- `TestEnrichItemEntryFallsBackToDescriptions` — orphan IDs present in
+  `descriptions.go` but absent from `ItemTexts` keep their legacy text.
+- `TestEnrichItemEntryPreservesLegacyStats` — Lance still carries its
+  `WeaponStats` pointer after the wiring change.
+- `TestEnrichItemEntryNoPanicMissingText` — unknown IDs enrich safely.
+
 ### fix(db): add missing SOTE Black Syrup key item
 
 Adds the previously-missing shipped Shadow of the Erdtree key item
