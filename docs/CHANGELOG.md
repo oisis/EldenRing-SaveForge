@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): add missing arrows and bolts
+
+Phase 2B.2 of the item database audit adds four base-game elemental
+projectiles that were absent from `backend/db/data/arrows_and_bolts.go`,
+all classified as `real_missing_add` in
+`tmp/item-audit/phase2_classification_missing.csv`.
+
+| ID (hex)   | ID (dec) | Name                | Sub-category | wepType |
+|------------|----------|---------------------|--------------|--------:|
+| 0x02FB1790 | 50010000 | Fire Arrow          | Arrows       | 81      |
+| 0x030AA7F0 | 51030000 | Golem's Magic Arrow | Greatarrows  | 83      |
+| 0x03199C10 | 52010000 | Lightning Bolt      | Bolts        | 85      |
+| 0x0328DE50 | 53010000 | Lightning Greatbolt | Greatbolts   | 86      |
+
+All four are base-game (non-DLC), `MaxUpgrade=0`, `Flags=["stackable"]`.
+Stack caps follow the existing sub-category convention:
+
+- Arrows / Bolts: `MaxInventory=99`, `MaxStorage=600`
+- Greatarrows: `MaxInventory=30`, `MaxStorage=600`
+- Greatbolts (Ballista Bolt class, wepType=86): `MaxInventory=20`,
+  `MaxStorage=600` (matching `Ballista Bolt` and `Bone Ballista Bolt`)
+
+Names and IDs verified against `tmp/regulation-bin-dump/csv/EquipParamWeapon.csv`
+and `tmp/regulation-bin-dump/msg/name_mapping.csv` (FMG=`WeaponName.fmg`).
+
+Regression test: `backend/db/data/phase2b2_arrows_bolts_test.go` asserts each
+entry's Name/Category/SubCategory/MaxInventory/MaxStorage/MaxUpgrade/flags
+and verifies that stack sizes match the canonical sibling in the same
+sub-category.
+
 ### fix(db): add missing base and SOTE weapons and correct Beast Claw item ID
 
 Phase 2B.1 of the item database audit (`tmp/item-audit/phase2_classification_*`)
