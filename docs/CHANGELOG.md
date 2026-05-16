@@ -4,6 +4,43 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): replace cut Sealed Spiritsprings note with shipped ID
+
+Replaces the broken Set-B-equivalent `0x401EA443` Note: Sealed
+Spiritsprings entry in `backend/db/data/info.go` with the shipped
+canonical variant `0x401EA3DF`. The cut variant had
+`goodsType=0 / iconId=0 / sortId=999999` in
+`tmp/regulation-bin-dump/csv/EquipParamGoods.csv` (row 2008131) and
+rendered as an `"ICON"` placeholder under the Tools tab; the shipped
+variant (row 2008031) has `goodsType=12`, `iconId=3861`,
+`sortId=453100`, full FMG name/description/caption metadata, and slots
+naturally next to `0x401EA3D9` Furnace Keeper's Note.
+
+| Field           | Before (`0x401EA443`)                       | After (`0x401EA3DF`)       |
+|-----------------|---------------------------------------------|----------------------------|
+| In Information map | yes                                       | yes                        |
+| Name            | Note: Sealed Spiritsprings                  | Note: Sealed Spiritsprings |
+| Category        | info                                        | info                       |
+| Flags           | `["dlc", "cut_content", "ban_risk"]`        | `["dlc"]`                  |
+| Param goodsType | 0                                           | 12                         |
+| Param iconId    | 0                                           | 3861                       |
+| Param sortId    | 999999                                      | 453100                     |
+
+Also removed the orphaned `0x401EA443: {Location: "Location unknown
+or not yet indexed."}` stub from `backend/db/data/descriptions.go`.
+Sibling SOTE Notes (`0x401EA3DB`–`0x401EA3DE`) carry no descriptions
+either, so adding one for `0x401EA3DF` is deferred to a separate
+descriptions pass.
+
+Tests: `TestPhase2B3SealedSpiritspringsRealVariantAbsent` was flipped
+to `TestPhase2B3SealedSpiritspringsCanonicalReplacement`, asserting
+the canonical entry is present with `dlc`-only flags and Mechanics /
+Locations sub-category, and that the broken `0x401EA443` is absent.
+
+See `tmp/item-audit/sealed_spiritsprings_investigation.md` for the
+side-by-side comparison, evidence trail, and the three strategies
+considered (A: replace — adopted; B: coexist; C: hold).
+
 ### fix(db): add missing information notes
 
 Phase 2B.3 batch 1 of the item database audit adds 13 entries to

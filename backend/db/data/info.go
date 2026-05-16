@@ -152,11 +152,11 @@ var Information = map[uint32]ItemData{
 
 	// ─── Notes (DLC) ────────────────────────────────────────────────────
 	0x401EA3D9: {Name: "Furnace Keeper's Note", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/furnace_keepers_note.png", Flags: []string{"dlc"}},
-	// 0x401EA443: Note: Sealed Spiritsprings — DLC entry exists but params
-	// are unfinished (no iconId, no goodsType=12). Spawning produces broken
-	// in-game state: appears as "ICON" placeholder in Tools tab instead of
-	// Info tab. Verified against regulation.bin post-DLC build via param dump.
-	0x401EA443: {Name: "Note: Sealed Spiritsprings", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/note_sealed_spiritsprings.png", Flags: []string{"dlc", "cut_content", "ban_risk"}},
+	// Set A / Set B for SOTE Sealed Spiritsprings: 0x401EA3DF is the shipped
+	// canonical entry (goodsType=12, iconId=3861, sortId=453100); the duplicate
+	// 0x401EA443 (goodsType=0, iconId=0, sortId=999999) is cut/broken and is
+	// intentionally NOT exposed — same precedent as the base-game Set B Notes.
+	0x401EA3DF: {Name: "Note: Sealed Spiritsprings", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/note_sealed_spiritsprings.png", Flags: []string{"dlc"}},
 }
 
 // Note: Region/World Maps (Map: Limgrave West, Map: Caelid, etc.) — relocated

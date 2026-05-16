@@ -6475,7 +6475,6 @@ func init() {
 		0x401EA3E2: {Location: "Location unknown or not yet indexed."},
 		0x401EA3E4: {Description: "Iron key with an engraved crest. Opens the door to the prayer room in the house of worship found in the church district of the shadow keep.", Location: "Dropped by Fire Knight Queelign at the Church of the Crusade (DLC)."},
 		0x401EA3E5: {Location: "Location unknown or not yet indexed."},
-		0x401EA443: {Location: "Location unknown or not yet indexed."},
 		0x401EA488: {Location: "Location unknown or not yet indexed."},
 		0x401EA489: {Location: "Location unknown or not yet indexed."},
 		0x401EA48A: {Location: "Location unknown or not yet indexed."},

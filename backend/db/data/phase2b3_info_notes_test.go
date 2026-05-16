@@ -12,10 +12,11 @@ import "testing"
 //     unfinished regulation params (goodsType=0, iconId=0, sortId=999999).
 //     The omission is documented in info.go and verified by
 //     TestPhase2B3SetBDuplicatesAbsent below.
-//   - 0x401EA3DF Note: Sealed Spiritsprings (real shipped SOTE variant) —
-//     deferred to a follow-up commit because the broken Set-B-equivalent
-//     0x401EA443 currently occupies the canonical FMG name. Verified absent
-//     by TestPhase2B3SealedSpiritspringsRealVariantAbsent.
+//
+// Follow-up commit (Sealed Spiritsprings canonical replacement):
+//   - 0x401EA3DF Note: Sealed Spiritsprings (shipped canonical SOTE variant)
+//     replaces the broken Set-B-equivalent 0x401EA443. Verified by
+//     TestPhase2B3SealedSpiritspringsCanonicalReplacement below.
 var phase2b3Batch1Additions = []struct {
 	ID       uint32
 	Name     string
@@ -145,36 +146,66 @@ func TestPhase2B3SetBDuplicatesAbsent(t *testing.T) {
 	}
 }
 
-// TestPhase2B3SealedSpiritspringsRealVariantAbsent ensures the canonical
-// shipped Note: Sealed Spiritsprings (0x401EA3DF) was NOT added in this
-// commit. The broken Set-B-equivalent (0x401EA443) keeps its existing
-// cut_content/ban_risk entry untouched; replacing it is a follow-up commit.
-func TestPhase2B3SealedSpiritspringsRealVariantAbsent(t *testing.T) {
-	if _, ok := Information[0x401EA3DF]; ok {
-		t.Errorf("Information[0x401EA3DF] present — real Sealed Spiritsprings " +
-			"variant is reserved for a separate replace/canonical-correction commit")
-	}
-	broken, ok := Information[0x401EA443]
+// TestPhase2B3SealedSpiritspringsCanonicalReplacement verifies the canonical
+// shipped Note: Sealed Spiritsprings (0x401EA3DF) is present and the broken
+// Set-B-equivalent (0x401EA443) is no longer exposed. The cut variant had
+// goodsType=0 / iconId=0 / sortId=999999 in EquipParamGoods and rendered as
+// an "ICON" placeholder under Tools tab; the shipped variant has goodsType=12,
+// iconId=3861, sortId=453100 and slots naturally next to 0x401EA3D9.
+func TestPhase2B3SealedSpiritspringsCanonicalReplacement(t *testing.T) {
+	canonical, ok := Information[0x401EA3DF]
 	if !ok {
-		t.Fatalf("Information[0x401EA443] (broken Set-B Sealed Spiritsprings) missing — " +
-			"must remain untouched in this commit")
+		t.Fatalf("Information[0x401EA3DF] missing — shipped canonical Sealed " +
+			"Spiritsprings note must be present")
 	}
-	if broken.Name != "Note: Sealed Spiritsprings" {
-		t.Errorf("Information[0x401EA443] name = %q, want %q",
-			broken.Name, "Note: Sealed Spiritsprings")
+	if canonical.Name != "Note: Sealed Spiritsprings" {
+		t.Errorf("Information[0x401EA3DF] name = %q, want %q",
+			canonical.Name, "Note: Sealed Spiritsprings")
 	}
-	hasCut := false
-	hasBan := false
-	for _, f := range broken.Flags {
+	if canonical.Category != "info" {
+		t.Errorf("Information[0x401EA3DF] category = %q, want %q",
+			canonical.Category, "info")
+	}
+	if canonical.MaxInventory != 1 {
+		t.Errorf("Information[0x401EA3DF] MaxInventory = %d, want 1",
+			canonical.MaxInventory)
+	}
+	if canonical.MaxStorage != 0 {
+		t.Errorf("Information[0x401EA3DF] MaxStorage = %d, want 0",
+			canonical.MaxStorage)
+	}
+	if canonical.MaxUpgrade != 0 {
+		t.Errorf("Information[0x401EA3DF] MaxUpgrade = %d, want 0",
+			canonical.MaxUpgrade)
+	}
+	if canonical.IconPath != "items/tools/note_sealed_spiritsprings.png" {
+		t.Errorf("Information[0x401EA3DF] IconPath = %q, want %q",
+			canonical.IconPath, "items/tools/note_sealed_spiritsprings.png")
+	}
+	hasDLC := false
+	for _, f := range canonical.Flags {
+		if f == "dlc" {
+			hasDLC = true
+		}
 		if f == "cut_content" {
-			hasCut = true
+			t.Errorf("Information[0x401EA3DF] must NOT carry cut_content flag — " +
+				"this is the shipped canonical entry")
 		}
 		if f == "ban_risk" {
-			hasBan = true
+			t.Errorf("Information[0x401EA3DF] must NOT carry ban_risk flag — " +
+				"this is the shipped canonical entry")
 		}
 	}
-	if !hasCut || !hasBan {
-		t.Errorf("Information[0x401EA443] flags = %v, must retain cut_content+ban_risk",
-			broken.Flags)
+	if !hasDLC {
+		t.Errorf("Information[0x401EA3DF] missing dlc flag, got %v", canonical.Flags)
+	}
+	if canonical.SubCategory != SubcatInfoMechanicsLocations {
+		t.Errorf("Information[0x401EA3DF] SubCategory = %q, want %q (Note: prefix → Mechanics)",
+			canonical.SubCategory, SubcatInfoMechanicsLocations)
+	}
+
+	if _, ok := Information[0x401EA443]; ok {
+		t.Errorf("Information[0x401EA443] present — broken Set-B Sealed " +
+			"Spiritsprings duplicate must remain absent after canonical replacement")
 	}
 }
