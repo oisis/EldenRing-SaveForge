@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): mark somber greatshields as max upgrade 10
+
+Nine somber greatshields (reinforceTypeId=8300, gemMountType=0 in
+regulation.bin → EquipParamWeapon) had MaxUpgrade=25 in
+`backend/db/data/shields.go`, which let `AddItemsToCharacter` route them
+through the standard infusable branch — applying the infuseOffset selector or
+an upgrade level above +10 produced ItemIDs absent from EquipParamWeapon, so
+the items vanished after the save was loaded in-game.
+
+Affected items (hex / decimal):
+
+- Crucible Hornshield     0x01E8BD30 / 32030000
+- Dragonclaw Shield       0x01E8E440 / 32040000
+- Erdtree Greatshield     0x01E98080 / 32080000
+- Jellyfish Shield        0x01EA1CC0 / 32120000
+- Icon Shield             0x01EA6AE0 / 32140000
+- One-Eyed Shield         0x01EA91F0 / 32150000
+- Visage Shield           0x01EAB900 / 32160000
+- Ant's Skull Plate       0x01EBA360 / 32220000
+- Verdigris Greatshield   0x01F03740 / 32520000 (DLC)
+
+After the fix the frontend renders the +0..+10 slider, hides the infusion
+selector (`item.maxUpgrade === 25` gate), and the backend's MaxUpgrade==10
+branch ignores infuseOffset entirely.
+
+Tests:
+- `backend/db/data/shields_somber_test.go` — DB guard for the nine somber
+  greatshields plus regressions for Fingerprint Stone Shield and Dragon
+  Towershield as standard-shield controls (both must keep MaxUpgrade=25).
+- `app_somber_greatshields_test.go` — integration through
+  `AddItemsToCharacter` (loads `tmp/save/ER0000.sl2`, skips otherwise):
+  Icon Shield default writes the base ID, infuseOffset=100 is ignored,
+  upgrade10=10 writes baseID+10, plus table-driven coverage across all nine
+  shields for both invariants.
+
 ### fix(aow-compat): Fist weapons use the Knuckle compatibility bit
 
 Fixed Ash of War compatibility for Fist weapons such as Star Fist. The
