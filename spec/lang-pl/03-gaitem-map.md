@@ -38,8 +38,25 @@ Mapa jest krytyczna — inwentarz, ekwipunek i storage odwołują się do przedm
 | 0x04 | u32 | Item ID |
 | 0x08 | u32 | Unknown 2 |
 | 0x0C | u32 | Unknown 3 |
-| 0x10 | u32 | Ash of War GaItem Handle |
+| 0x10 | u32 | Ash of War GaItem Handle (semantyka sentineli poniżej) |
 | 0x14 | u8 | Unknown 5 |
+
+#### Semantyka pola Weapon AoWGaItemHandle
+
+4 bajty na offsecie `0x10` referują przypięty custom Ash of War gem **po handle**, nie po ItemID. Możliwe wartości:
+
+| Wartość | Znaczenie |
+|---|---|
+| `0x00000000` | Brak custom AoW — **canonical vanilla sentinel** (gra zapisuje tę wartość). Broń używa wbudowanej umiejętności z `EquipParamWeapon.swordArtsParamId` w `regulation.bin`; domyślna umiejętność **nie jest** przechowywana w save. |
+| `0xFFFFFFFF` | Brak custom AoW — **legacy SaveForge sentinel** (emitowany przez buildy sprzed commita `4e800b9`). Readery akceptują dla kompatybilności; writer już nie emituje. |
+| `0xC0xxxxxx` | Valid custom AoW handle. Musi pasować do rekordu AoW GaItem `0xC0...` obecnego w tym samym slocie. |
+| dowolne inne | Invalid / corrupted. |
+
+Usunięcie custom Ash of War czyści tylko to 4-bajtowe pole do `0x00000000`; `Weapon.ItemID` pozostaje nietknięty, a wbudowana umiejętność broni wraca przy następnym loadzie gry przez fallback do `regulation.bin`. Poprzednio przypięty rekord AoW GaItem jest celowo zostawiony jako wolna kopia.
+
+**Invariant unikalności handle**: żadne dwa rekordy broni w tym samym slocie nie mogą referować tego samego non-sentinel AoW handle — współdzielenie powoduje `EXCEPTION_ACCESS_VIOLATION` przy load. Ten sam ItemID AoW może legalnie występować wielokrotnie, ale każda broń musi wskazywać **odrębny** handle AoW GaItem.
+
+Pełny design doc obejmujący rozwiązywanie umiejętności, reguły ścieżek zapisu, stany dostępności i forensic notes — patrz [54-ash-of-war](54-ash-of-war.md).
 
 ### Format rekordu — Zbroja (16 bytes)
 

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
@@ -37,6 +38,17 @@ func countEmpty(slot *core.SaveSlot) int {
 		}
 	}
 	return n
+}
+
+// armamentCapacity returns the number of non-stackable GaItem records that can
+// still be allocated in the slot's armament zone. The save format places new
+// weapon/armor/AoW entries at slot.NextArmamentIndex and advances it monotonically;
+// empty slots BELOW NextArmamentIndex are historical "holes" left by in-game
+// deletions and are NOT reusable (handle counters must keep increasing and
+// stay segregated by type). Callers must size bulk inputs against this value,
+// not against countEmpty(slot).
+func armamentCapacity(slot *core.SaveSlot) int {
+	return len(slot.GaItems) - slot.NextArmamentIndex
 }
 
 // collectIDs gathers up to `limit` item IDs from a given category.
@@ -148,8 +160,11 @@ func TestBulkAddItems(t *testing.T) {
 	t.Logf("SUCCESS: %d items added and verified", len(allIDs))
 }
 
-// TestMassiveAddAllCategories adds 100+ items from EVERY non-stackable category
-// to stress-test the GaItems re-serialization. Total: ~1000+ items.
+// TestMassiveAddAllCategories adds items from EVERY non-stackable category up
+// to the armament-zone capacity (NOT the total empty-slot count) to stress-test
+// GaItems re-serialization. The shared fixture `tmp/save/ER0000.sl2` ships
+// with NextArmamentIndex deep in the array — capacity is `len(GaItems) -
+// NextArmamentIndex`, not countEmpty(slot). See armamentCapacity() docstring.
 func TestMassiveAddAllCategories(t *testing.T) {
 	save, slotIdx := loadBulkTestSave(t)
 	slot := &save.Slots[slotIdx]
@@ -158,31 +173,49 @@ func TestMassiveAddAllCategories(t *testing.T) {
 	emptyBefore := countEmpty(slot)
 	gaMapBefore := len(slot.GaMap)
 	magicBefore := slot.MagicOffset
-	t.Logf("Slot %d: GaItems=%d, GaMap=%d, empty=%d, MagicOffset=0x%X",
-		slotIdx, len(slot.GaItems), gaMapBefore, emptyBefore, magicBefore)
+	capacity := armamentCapacity(slot)
+	t.Logf("Slot %d: GaItems=%d, GaMap=%d, empty=%d, armamentCapacity=%d, MagicOffset=0x%X",
+		slotIdx, len(slot.GaItems), gaMapBefore, emptyBefore, capacity, magicBefore)
+
+	if capacity < 30 {
+		t.Skipf("test save has insufficient armament-zone capacity (free=%d)", capacity)
+	}
 
 	// Non-stackable categories: weapons (0x80 handle), armor (0x90), AoW (0xC0).
 	// Stackable categories (talismans 0xA0, goods 0xB0) don't use GaItems slots.
+	// Per-category limits are RAW DB caps; we trim them below to fit capacity.
 	type catBatch struct {
 		category string
 		limit    int
 	}
 	nonStackable := []catBatch{
 		{"melee_armaments", 200},
-		{"ranged_and_catalysts", 69}, // all available
-		{"shields", 165},             // all available
+		{"ranged_and_catalysts", 69},
+		{"shields", 165},
 		{"head", 200},
 		{"chest", 200},
-		{"arms", 121},  // all available
-		{"legs", 138},  // all available
-		{"ashes_of_war", 116}, // all available
+		{"arms", 121},
+		{"legs", 138},
+		{"ashes_of_war", 116},
+	}
+
+	// Distribute capacity evenly across categories. Each non-stackable insert
+	// (incl. AoW) consumes one armament-zone slot — AoW pushes NextArmamentIndex
+	// right via `slot.NextArmamentIndex++` in allocateGaItem.
+	perCat := capacity / len(nonStackable)
+	if perCat < 1 {
+		perCat = 1
 	}
 
 	var allIDs []uint32
 	var totalWeapons, totalArmors, totalAoW int
 
 	for _, cb := range nonStackable {
-		ids := collectIDs(cb.category, platform, cb.limit)
+		take := cb.limit
+		if take > perCat {
+			take = perCat
+		}
+		ids := collectIDs(cb.category, platform, take)
 		for _, id := range ids {
 			prefix := db.ItemIDToHandlePrefix(id)
 			switch prefix {
@@ -195,6 +228,22 @@ func TestMassiveAddAllCategories(t *testing.T) {
 			}
 		}
 		allIDs = append(allIDs, ids...)
+	}
+
+	// Final safety trim: never exceed capacity even if rounding overshoots.
+	if len(allIDs) > capacity {
+		allIDs = allIDs[:capacity]
+		totalWeapons, totalArmors, totalAoW = 0, 0, 0
+		for _, id := range allIDs {
+			switch db.ItemIDToHandlePrefix(id) {
+			case core.ItemTypeWeapon:
+				totalWeapons++
+			case core.ItemTypeArmor:
+				totalArmors++
+			case core.ItemTypeAow:
+				totalAoW++
+			}
+		}
 	}
 
 	// Also add stackable categories to verify they don't consume GaItem slots.
@@ -220,10 +269,9 @@ func TestMassiveAddAllCategories(t *testing.T) {
 		t.Skip("no items found in DB")
 	}
 
-	// Check we have enough empty slots.
 	nonStackableCount := totalWeapons + totalArmors + totalAoW
-	if nonStackableCount > emptyBefore {
-		t.Skipf("not enough empty GaItem slots: need %d, have %d", nonStackableCount, emptyBefore)
+	if nonStackableCount > capacity {
+		t.Fatalf("internal: nonStackableCount %d exceeds capacity %d after trim", nonStackableCount, capacity)
 	}
 
 	// Add non-stackable items first.
@@ -270,37 +318,46 @@ func TestMassiveAddAllCategories(t *testing.T) {
 		totalAdded, len(allIDs), len(stackableIDs), len(slot.GaMap))
 }
 
-// TestMaxCapacityFill fills ALL empty GaItem slots to verify behavior at capacity limits.
+// TestMaxCapacityFill fills the armament-zone (slots at and above
+// NextArmamentIndex) to verify allocator behavior near the capacity limit.
+// Pre-NextArmamentIndex empty slots are intentionally NOT touched — the save
+// format expects them to remain unused (see armamentCapacity() docstring).
 func TestMaxCapacityFill(t *testing.T) {
 	save, slotIdx := loadBulkTestSave(t)
 	slot := &save.Slots[slotIdx]
 	platform := string(save.Platform)
 
 	emptyBefore := countEmpty(slot)
-	t.Logf("Slot %d: empty GaItem slots = %d / %d", slotIdx, emptyBefore, len(slot.GaItems))
+	capacity := armamentCapacity(slot)
+	t.Logf("Slot %d: empty GaItem slots = %d / %d, armamentCapacity = %d",
+		slotIdx, emptyBefore, len(slot.GaItems), capacity)
 
-	// Generate unique weapon IDs to fill as many empty slots as we can.
-	// Weapon base IDs: use different infuse offsets to create unique IDs.
-	// Format: baseID + infuseOffset (0, 100, 200, ..., 1200) + upgradeLevel (0-25)
+	if capacity < 20 {
+		t.Skipf("test save has insufficient armament-zone capacity (free=%d)", capacity)
+	}
+
+	// Generate unique weapon IDs to fill as many capacity slots as we can.
 	weaponBases := collectIDs("melee_armaments", platform, 200)
 	if len(weaponBases) == 0 {
 		t.Skip("no weapon IDs in DB")
 	}
 
-	// We'll add AoW items (8 bytes each — no shift needed) to fill a large number of slots.
-	// This tests the pure slot-reuse path without data shifting.
+	// We'll add AoW items (8 bytes each — no shift needed) to fill a portion
+	// of the armament zone, then weapons to fill the rest. Both consume from
+	// the SAME capacity pool because allocateGaItem advances NextArmamentIndex
+	// on every insert (AoW included).
 	aowBases := collectIDs("ashes_of_war", platform, 116)
 
-	// Fill with AoW first (8B records — no shift, fast).
-	var aowIDs []uint32
-	maxAoW := emptyBefore - 100 // leave room for weapons below
+	// Reserve ~half capacity for weapons below to exercise the 21B shift path.
+	reserveForWeapons := capacity / 2
+	maxAoW := capacity - reserveForWeapons
 	if maxAoW > len(aowBases) {
 		maxAoW = len(aowBases)
 	}
 	if maxAoW < 0 {
 		maxAoW = 0
 	}
-	aowIDs = append(aowIDs, aowBases[:maxAoW]...)
+	aowIDs := append([]uint32(nil), aowBases[:maxAoW]...)
 
 	t.Logf("Adding %d AoW items (8B each, no shift expected)", len(aowIDs))
 
@@ -319,9 +376,11 @@ func TestMaxCapacityFill(t *testing.T) {
 			magicBefore, slot.MagicOffset)
 	}
 
-	// Now add weapons (21B each — max shift stress).
-	emptyBeforeWeapons := countEmpty(slot)
-	maxWeapons := emptyBeforeWeapons
+	// Now add weapons (21B each — max shift stress). Remaining capacity must
+	// be computed from armamentCapacity post-AoW, not countEmpty (the pre-Next
+	// holes remain unused on purpose).
+	capacityAfterAoW := armamentCapacity(slot)
+	maxWeapons := capacityAfterAoW
 	if maxWeapons > len(weaponBases) {
 		maxWeapons = len(weaponBases)
 	}
@@ -530,7 +589,10 @@ func TestAddWithInventoryAndStorage(t *testing.T) {
 	t.Logf("SUCCESS: %d items added to both inventory and storage", len(allIDs))
 }
 
-// TestBulkAddPerCategory adds 100+ items per non-stackable category and verifies each.
+// TestBulkAddPerCategory adds items per non-stackable category in turn, sized
+// to the armament-zone capacity remaining after each batch. The cap comes from
+// armamentCapacity(slot), NOT from countEmpty — see armamentCapacity() docstring
+// for why pre-NextArmamentIndex holes are not reusable.
 func TestBulkAddPerCategory(t *testing.T) {
 	save, slotIdx := loadBulkTestSave(t)
 	slot := &save.Slots[slotIdx]
@@ -551,8 +613,16 @@ func TestBulkAddPerCategory(t *testing.T) {
 	}
 
 	emptyBefore := countEmpty(slot)
+	capacityBefore := armamentCapacity(slot)
 	totalAdded := 0
 	var allIDs []uint32
+
+	// Allocate at most ~per-category share of remaining capacity so every
+	// category gets to add at least a handful of items even on a near-full save.
+	perCategoryShare := capacityBefore / len(categories)
+	if perCategoryShare < 1 {
+		t.Skipf("armament-zone capacity %d too small to split across %d categories", capacityBefore, len(categories))
+	}
 
 	for _, cat := range categories {
 		ids := collectIDs(cat.name, platform, cat.limit)
@@ -561,16 +631,19 @@ func TestBulkAddPerCategory(t *testing.T) {
 			continue
 		}
 
-		emptyNow := countEmpty(slot)
-		if emptyNow < len(ids) {
-			t.Logf("  [%s] only %d empty slots, adding %d instead of %d", cat.name, emptyNow, emptyNow, len(ids))
-			ids = ids[:emptyNow]
+		// Cap to both the per-category share and the LIVE remaining capacity.
+		take := perCategoryShare
+		if remaining := armamentCapacity(slot); take > remaining {
+			take = remaining
 		}
-
-		if len(ids) == 0 {
-			t.Logf("  [%s] no empty slots remaining, stopping", cat.name)
+		if take > len(ids) {
+			take = len(ids)
+		}
+		if take <= 0 {
+			t.Logf("  [%s] armament zone full, stopping at %d total", cat.name, totalAdded)
 			break
 		}
+		ids = ids[:take]
 
 		err := core.AddItemsToSlot(slot, ids, 1, 0, false)
 		if err != nil {
@@ -579,15 +652,53 @@ func TestBulkAddPerCategory(t *testing.T) {
 
 		totalAdded += len(ids)
 		allIDs = append(allIDs, ids...)
-		t.Logf("  [%s] added %d items (total=%d, empty=%d)", cat.name, len(ids), totalAdded, countEmpty(slot))
+		t.Logf("  [%s] added %d items (total=%d, empty=%d, remainingCapacity=%d)",
+			cat.name, len(ids), totalAdded, countEmpty(slot), armamentCapacity(slot))
 	}
 
 	emptyAfter := countEmpty(slot)
-	t.Logf("Total: added %d items, empty slots %d → %d, MagicOffset delta=%d",
-		totalAdded, emptyBefore, emptyAfter, slot.MagicOffset-slot.MagicOffset)
+	t.Logf("Total: added %d items, empty slots %d → %d, capacity %d → %d",
+		totalAdded, emptyBefore, emptyAfter, capacityBefore, armamentCapacity(slot))
 
 	// Full verification.
 	verifyPostAdd(t, slot, platform, allIDs, fmt.Sprintf("PerCategory_%d", totalAdded))
 
 	t.Logf("SUCCESS: %d items across %d categories added and verified", totalAdded, len(categories))
+}
+
+// TestAddItems_RespectsArmamentCapacity locks the allocator's over-capacity
+// contract: requesting more non-stackable items than `armamentCapacity(slot)`
+// must surface the "armament/armor array full" error from allocateGaItem.
+// This guards against a future change that silently swallows over-capacity
+// adds (e.g. by reusing pre-NextArmamentIndex holes — which would corrupt the
+// save's monotonic counter ordering).
+func TestAddItems_RespectsArmamentCapacity(t *testing.T) {
+	save, slotIdx := loadBulkTestSave(t)
+	slot := &save.Slots[slotIdx]
+	platform := string(save.Platform)
+
+	capacity := armamentCapacity(slot)
+	weaponIDs := collectIDs("melee_armaments", platform, capacity+50)
+	if len(weaponIDs) < capacity+1 {
+		t.Skipf("not enough weapons in DB to overflow capacity (have %d, need %d)", len(weaponIDs), capacity+1)
+	}
+
+	// Take capacity+5 items so allocateGaItem must error after exactly
+	// `capacity` placements.
+	overflow := capacity + 5
+	if overflow > len(weaponIDs) {
+		overflow = len(weaponIDs)
+	}
+	ids := weaponIDs[:overflow]
+
+	err := core.AddItemsToSlot(slot, ids, 1, 0, false)
+	if err == nil {
+		t.Fatalf("AddItemsToSlot accepted %d items with capacity=%d — allocator must error",
+			overflow, capacity)
+	}
+	if !strings.Contains(err.Error(), "armament/armor array full") {
+		t.Errorf("expected 'armament/armor array full' error, got: %v", err)
+	}
+	t.Logf("Correctly rejected over-capacity add (%d items > capacity %d): %v",
+		overflow, capacity, err)
 }

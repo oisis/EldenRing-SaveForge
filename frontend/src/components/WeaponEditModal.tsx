@@ -8,7 +8,17 @@ import {
     GetInfuseTypes,
     GetItemList,
 } from '../../wailsjs/go/main/App';
-import { db, main } from '../../wailsjs/go/models';
+import { db, editor, main } from '../../wailsjs/go/models';
+import { aowApplyPatch, infusionPatch, upgradePatch } from './weaponPatch';
+
+// Workspace mode — when provided, the modal routes upgrade / infusion / AoW
+// edits through the in-memory inventory workspace via updateWeapon(uid, patch).
+// In that mode pending* state from the returned EditableItem is surfaced to the
+// user separately from the read-only current* values.
+export interface WeaponEditModalWorkspace {
+    sessionID: string;
+    updateWeapon: (uid: string, patch: editor.WeaponPatch) => Promise<editor.EditableItem | null>;
+}
 
 interface Props {
     charIndex: number;
@@ -16,6 +26,11 @@ interface Props {
     source: 'inventory' | 'storage';
     onClose: () => void;
     onApplied?: (patch: WeaponPatch) => void;
+    // Optional — when provided, the modal operates in workspace mode for the
+    // weapon identified by `uid`. The provided EditableItem snapshot supplies
+    // current/pending AoW state without an extra round-trip.
+    workspace?: WeaponEditModalWorkspace;
+    workspaceItem?: editor.EditableItem;
 }
 
 // WeaponPatch — fields that may change after an Apply.
@@ -67,8 +82,18 @@ interface AoWAvailabilityEntry {
 
 type AoWStatus = 'current' | 'available' | 'in_use' | 'missing' | 'conflict';
 
-export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }: Props) {
+export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, workspace, workspaceItem }: Props) {
+    const isWorkspaceMode = !!workspace && !!workspaceItem;
     const [imgError, setImgError] = useState(false);
+    const [pendingAoWName, setPendingAoWName] = useState<string>(workspaceItem?.pendingAoWName ?? '');
+    const [pendingAoWClear, setPendingAoWClear] = useState<boolean>(workspaceItem?.pendingAoWClear ?? false);
+    const [pendingAoWItemID, setPendingAoWItemID] = useState<number>(workspaceItem?.pendingAoWItemID ?? 0);
+
+    useEffect(() => {
+        setPendingAoWName(workspaceItem?.pendingAoWName ?? '');
+        setPendingAoWClear(workspaceItem?.pendingAoWClear ?? false);
+        setPendingAoWItemID(workspaceItem?.pendingAoWItemID ?? 0);
+    }, [workspaceItem?.pendingAoWName, workspaceItem?.pendingAoWClear, workspaceItem?.pendingAoWItemID]);
 
     // Live working state — starts from props but tracks Apply results so the
     // modal can show the new level / itemId / infusion without being closed.
@@ -258,6 +283,23 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
         setError(null);
         setSuccess(null);
         const newItemId = currentItemId - currentLevel + selectedLevel;
+        if (isWorkspaceMode) {
+            const patch = upgradePatch(selectedLevel);
+            workspace!.updateWeapon(workspaceItem!.uid, patch)
+                .then(updated => {
+                    if (!updated) {
+                        setError('Failed to update upgrade — see notification.');
+                        return;
+                    }
+                    setCurrentItemId(updated.itemID);
+                    setCurrentLevel(updated.currentUpgrade);
+                    setCurrentInfusionName(updated.infusionName ?? '');
+                    setSuccess(`Level updated to +${updated.currentUpgrade} (pending save)`);
+                })
+                .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+                .finally(() => setApplying(false));
+            return;
+        }
         const expectedCurrentItemId = currentItemId;
         ApplyWeaponUpgradeLevel(charIndex, item.handle, expectedCurrentItemId, newItemId)
             .then(() => {
@@ -284,8 +326,25 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
         setError(null);
         setSuccess(null);
         const newItemId = currentItemId - currentInfuseOffset + selectedInfuseOffset;
-        const expectedCurrentItemId = currentItemId;
         const newName = infuseTypes.find(t => t.offset === selectedInfuseOffset)?.name ?? 'Standard';
+        if (isWorkspaceMode) {
+            const patch = infusionPatch(newName);
+            workspace!.updateWeapon(workspaceItem!.uid, patch)
+                .then(updated => {
+                    if (!updated) {
+                        setError('Failed to update infusion — see notification.');
+                        return;
+                    }
+                    setCurrentItemId(updated.itemID);
+                    setCurrentLevel(updated.currentUpgrade);
+                    setCurrentInfusionName(updated.infusionName ?? '');
+                    setSuccess(`Infusion updated to ${newName} (pending save)`);
+                })
+                .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+                .finally(() => setApplying(false));
+            return;
+        }
+        const expectedCurrentItemId = currentItemId;
         ApplyWeaponInfusion(charIndex, item.handle, expectedCurrentItemId, newItemId)
             .then(() => {
                 setCurrentItemId(newItemId);
@@ -310,6 +369,24 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
         setApplying(true);
         setError(null);
         setSuccess(null);
+        if (isWorkspaceMode) {
+            const patch = aowApplyPatch(newAoWItemID);
+            workspace!.updateWeapon(workspaceItem!.uid, patch)
+                .then(updated => {
+                    if (!updated) {
+                        setError('Failed to update Ash of War — see notification.');
+                        return;
+                    }
+                    setSelectedAoW(null);
+                    setSuccess(`${label} (pending save)`);
+                    setPendingAoWName(updated.pendingAoWName ?? '');
+                    setPendingAoWClear(updated.pendingAoWClear ?? false);
+                    setPendingAoWItemID(updated.pendingAoWItemID ?? 0);
+                })
+                .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
+                .finally(() => setApplying(false));
+            return;
+        }
         ApplyWeaponAoWStrict(charIndex, item.handle, newAoWItemID)
             .then(async () => {
                 await Promise.all([refreshWeaponState(), refreshAvailability()]);
@@ -342,7 +419,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
 
     const onRemoveAoW = () => {
         if (!canRemoveAoW) return;
-        applyAoW(0, 'Ash of War removed');
+        applyAoW(0, 'Custom Ash of War removed — built-in skill restored');
     };
 
     const statusBadge = (status: AoWStatus) => {
@@ -551,13 +628,26 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                                 Ash of War
                             </span>
                             {canMountAoW && (
-                                <span className="text-[9px] font-mono text-muted-foreground/70 truncate ml-2">
+                                <span
+                                    className="text-[9px] font-mono text-muted-foreground/70 truncate ml-2"
+                                    title={currentAoWId === 0
+                                        ? "No custom Ash of War — weapon uses its built-in skill"
+                                        : undefined}
+                                >
                                     {currentAoWId === 0
-                                        ? 'None'
+                                        ? 'Default skill'
                                         : currentAoWName ?? `Unknown (0x${currentAoWId.toString(16).toUpperCase()})`}
                                 </span>
                             )}
                         </div>
+
+                        {isWorkspaceMode && (pendingAoWClear || pendingAoWItemID !== 0) && (
+                            <div className="text-[10px] px-2 py-1 rounded border bg-amber-500/10 border-amber-500/30 text-amber-200 leading-snug">
+                                {pendingAoWClear
+                                    ? 'Pending save: built-in skill will be restored.'
+                                    : `Pending save: ${pendingAoWName || `0x${pendingAoWItemID.toString(16).toUpperCase()}`}`}
+                            </div>
+                        )}
 
                         {!canMountAoW ? (
                             <p className="text-[10px] text-muted-foreground/70 italic">
@@ -582,7 +672,12 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                                     <button
                                         onClick={onRemoveAoW}
                                         disabled={!canRemoveAoW}
-                                        title={canRemoveAoW ? 'Remove current Ash of War' : 'No Ash of War to remove'}
+                                        title={canRemoveAoW
+                                            ? "Remove custom Ash of War — weapon will use its built-in skill"
+                                            : "No custom Ash of War attached"}
+                                        aria-label={canRemoveAoW
+                                            ? "Remove custom Ash of War — weapon will use its built-in skill"
+                                            : "No custom Ash of War attached"}
                                         className={`px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider rounded border transition-all ${
                                             canRemoveAoW
                                                 ? 'text-red-300 bg-red-500/10 border-red-500/30 hover:bg-red-500/20'
@@ -592,6 +687,10 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                                         Remove
                                     </button>
                                 </div>
+
+                                <p className="text-[9px] text-muted-foreground/60 italic leading-tight">
+                                    Removing a custom Ash of War restores the weapon's built-in skill.
+                                </p>
 
                                 <label className="flex items-center gap-1.5 text-[9px] text-muted-foreground/80 cursor-pointer select-none">
                                     <input

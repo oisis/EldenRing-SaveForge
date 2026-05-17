@@ -600,6 +600,32 @@ func TestAddArrowsStackable(t *testing.T) {
 		t.Fatal("IsArrowID returned false for known arrow ID")
 	}
 
+	// The vanilla fixture may already contain `arrowID` in GaItemData because
+	// the player picked up an arrow in-game (GaItemData = "ever acquired"
+	// list, not "currently in inventory"). Snapshot the pre-existing count so
+	// we can assert AddItemsToSlot didn't append a NEW entry.
+	countArrowsInGaItemData := func() int {
+		if slot.GaItemDataOffset <= 0 {
+			return 0
+		}
+		sa := core.NewSlotAccessor(slot.Data)
+		count, err := sa.ReadU32(slot.GaItemDataOffset)
+		if err != nil {
+			return 0
+		}
+		hits := 0
+		for j := 0; j < int(count); j++ {
+			entryOff := slot.GaItemDataOffset + 8 + j*16
+			entryID, err := sa.ReadU32(entryOff)
+			if err == nil && entryID == arrowID {
+				hits++
+			}
+		}
+		return hits
+	}
+	preArrowCount := countArrowsInGaItemData()
+	t.Logf("Pre-existing arrow entries in GaItemData: %d", preArrowCount)
+
 	err := core.AddItemsToSlot(slot, []uint32{arrowID}, 99, 0, true)
 	if err != nil {
 		t.Fatalf("AddItemsToSlot failed for arrow: %v", err)
@@ -617,19 +643,12 @@ func TestAddArrowsStackable(t *testing.T) {
 		t.Error("Arrow not found in GaMap after add")
 	}
 
-	// Verify GaItemData does NOT contain the arrow (arrows go to projectile list)
-	if slot.GaItemDataOffset > 0 {
-		sa := core.NewSlotAccessor(slot.Data)
-		count, err := sa.ReadU32(slot.GaItemDataOffset)
-		if err == nil {
-			for j := 0; j < int(count); j++ {
-				entryOff := slot.GaItemDataOffset + 8 + j*16
-				entryID, err := sa.ReadU32(entryOff)
-				if err == nil && entryID == arrowID {
-					t.Error("Arrow was registered in GaItemData — should only go to projectile list")
-				}
-			}
-		}
+	// Arrows are stackable; AddItemsToSlot must NOT push a new GaItemData
+	// entry. The count of arrow IDs in GaItemData must be identical pre/post.
+	postArrowCount := countArrowsInGaItemData()
+	if postArrowCount != preArrowCount {
+		t.Errorf("Arrow entry count in GaItemData changed: pre=%d post=%d — should be equal (arrows belong to projectile list, not GaItemData)",
+			preArrowCount, postArrowCount)
 	}
 
 	// Verify inventory has quantity 99

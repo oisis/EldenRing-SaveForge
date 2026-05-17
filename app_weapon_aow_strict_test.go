@@ -19,12 +19,12 @@ import (
 // slot.InventoryEnd = 61. slot.GaItemDataOffset = 0 (upsertGaItemData no-op).
 func weaponAoWStrictFixture() *App {
 	const (
-		wepHandle = uint32(0x80800001) // ItemTypeWeapon prefix 0x8
-		wepItemID = uint32(0x000F4240) // Standard Dagger +0
-		aowHandle = uint32(0xC0800001) // ItemTypeAow prefix 0xC
-		aowItemID = uint32(0x80003070) // Sword Dance
-		gaStart   = core.GaItemsStart // 0x20 = 32
-		gaAoWSize = core.GaRecordAoW  // 8
+		wepHandle = uint32(0x80800001)  // ItemTypeWeapon prefix 0x8
+		wepItemID = uint32(0x000F4240)  // Standard Dagger +0
+		aowHandle = uint32(0xC0800001)  // ItemTypeAow prefix 0xC
+		aowItemID = uint32(0x80003070)  // Sword Dance
+		gaStart   = core.GaItemsStart   // 0x20 = 32
+		gaAoWSize = core.GaRecordAoW    // 8
 		gaWepSize = core.GaRecordWeapon // 21
 		bufSize   = 512
 	)
@@ -58,7 +58,7 @@ func weaponAoWStrictFixture() *App {
 	binary.LittleEndian.PutUint32(slot.Data[off+8:], 0xFFFFFFFF)  // Unk2
 	binary.LittleEndian.PutUint32(slot.Data[off+12:], 0xFFFFFFFF) // Unk3
 	binary.LittleEndian.PutUint32(slot.Data[off+16:], 0xFFFFFFFF) // AoWGaItemHandle (none)
-	slot.Data[off+20] = 0                                          // Unk5
+	slot.Data[off+20] = 0                                         // Unk5
 
 	slot.InventoryEnd = gaStart + gaAoWSize + gaWepSize // 61
 	slot.GaItemDataOffset = 0
@@ -163,15 +163,15 @@ func TestApplyWeaponAoWStrict_RemoveAoW(t *testing.T) {
 		t.Fatalf("ApplyWeaponAoWStrict (remove): unexpected error: %v", err)
 	}
 
-	// AoWGaItemHandle reset to 0xFFFFFFFF in GaItems.
-	if slot.GaItems[1].AoWGaItemHandle != 0xFFFFFFFF {
-		t.Errorf("GaItems[1].AoWGaItemHandle = 0x%08X, want 0xFFFFFFFF", slot.GaItems[1].AoWGaItemHandle)
+	// AoWGaItemHandle reset to canonical NoCustomAoWHandle (vanilla-aligned).
+	if slot.GaItems[1].AoWGaItemHandle != core.NoCustomAoWHandle {
+		t.Errorf("GaItems[1].AoWGaItemHandle = 0x%08X, want 0x%08X", slot.GaItems[1].AoWGaItemHandle, core.NoCustomAoWHandle)
 	}
 
-	// AoWGaItemHandle reset to 0xFFFFFFFF in slot.Data.
+	// AoWGaItemHandle reset to canonical NoCustomAoWHandle in slot.Data.
 	dataAoWHandle := binary.LittleEndian.Uint32(slot.Data[weaponByteOff+16:])
-	if dataAoWHandle != 0xFFFFFFFF {
-		t.Errorf("slot.Data AoWHandle = 0x%08X, want 0xFFFFFFFF", dataAoWHandle)
+	if dataAoWHandle != core.NoCustomAoWHandle {
+		t.Errorf("slot.Data AoWHandle = 0x%08X, want 0x%08X", dataAoWHandle, core.NoCustomAoWHandle)
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 	"github.com/oisis/EldenRing-SaveForge/backend/deploy"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -56,11 +57,23 @@ type App struct {
 	deploySSH    *deploy.SSHManager
 	deployLocal  *deploy.LocalManager
 	favSlotNames map[int]string // preset name written to each Favorites slot; empty = loaded from save (unknown)
+
+	// Phase 1 inventory edit session state. One active session per character.
+	// editSessions is keyed by session ID; editSessionByChar maps charIdx → ID
+	// so callers can look up the current session for a character without
+	// scanning. Sessions are pure RAM — never persisted, never carry mutations
+	// in Phase 1.
+	editSessions      map[string]*editor.InventoryEditSession
+	editSessionByChar map[int]string
 }
 
 // NewApp creates a new App struct
 func NewApp() *App {
-	return &App{favSlotNames: make(map[int]string)}
+	return &App{
+		favSlotNames:      make(map[int]string),
+		editSessions:      make(map[string]*editor.InventoryEditSession),
+		editSessionByChar: make(map[int]string),
+	}
 }
 
 // startup is called when the app starts. The context is saved
@@ -1406,7 +1419,8 @@ func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error)
 }
 
 // ApplyWeaponAoWStrict sets or removes the AoW on a weapon using only pre-existing free copies.
-// newAoWItemID == 0: removes the AoW (patches AoWGaItemHandle to 0xFFFFFFFF in-place).
+// newAoWItemID == 0: removes the AoW (patches AoWGaItemHandle to the canonical
+// core.NoCustomAoWHandle (0x00000000) in-place).
 // newAoWItemID != 0: finds the first free copy of that AoW in the slot and attaches it.
 //   Returns an error if no free copy exists, if a shared-handle conflict is detected,
 //   or if any standard validation fails. Unlike ApplyWeaponAoW, never allocates new GaItem records.
@@ -1437,7 +1451,7 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 
 	var newAoWHandle uint32
 	if newAoWItemID == 0 {
-		newAoWHandle = 0xFFFFFFFF
+		newAoWHandle = core.NoCustomAoWHandle
 	} else {
 		if newAoWItemID>>28 != 8 {
 			return fmt.Errorf("newAoWItemID 0x%08X is not an Ash of War item ID", newAoWItemID)

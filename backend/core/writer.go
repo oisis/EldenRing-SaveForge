@@ -436,7 +436,7 @@ func allocateGaItem(slot *SaveSlot, handle, itemID uint32) error {
 		ItemID:          itemID,
 		Unk2:            -1,
 		Unk3:            -1,
-		AoWGaItemHandle: 0xFFFFFFFF,
+		AoWGaItemHandle: NoCustomAoWHandle,
 		Unk5:            0,
 	}
 
@@ -1115,9 +1115,13 @@ func PatchWeaponItemID(slot *SaveSlot, handle, expectedCurrentItemID, newItemID 
 }
 
 // PatchWeaponAoWHandle patches the AoWGaItemHandle field of a weapon GaItem in-place.
-// newAoWHandle == 0xFFFFFFFF: removes AoW attachment (always allowed).
-// newAoWHandle != 0xFFFFFFFF: attaches an existing AoW GaItem — validates that the handle
-// identifies an existing AoW GaItem and is not already referenced by a different weapon.
+// newAoWHandle indicates no-custom-AoW (per IsNoCustomAoWHandle): removes AoW
+// attachment. Always allowed; the canonical NoCustomAoWHandle value is
+// written regardless of which sentinel the caller supplied — keeps disk
+// output vanilla-aligned even when legacy callers still pass 0xFFFFFFFF.
+// newAoWHandle is a valid 0xC0... handle: attaches an existing AoW GaItem —
+// validates that the handle identifies an existing AoW GaItem and is not
+// already referenced by a different weapon.
 // No GaItem allocation, no RebuildSlotFull — exactly 4 bytes at [weaponOff+16] are overwritten.
 func PatchWeaponAoWHandle(slot *SaveSlot, weaponHandle uint32, newAoWHandle uint32) error {
 	if slot == nil {
@@ -1147,7 +1151,12 @@ func PatchWeaponAoWHandle(slot *SaveSlot, weaponHandle uint32, newAoWHandle uint
 		return fmt.Errorf("PatchWeaponAoWHandle: weapon handle 0x%08X not found in GaItems", weaponHandle)
 	}
 
-	if newAoWHandle != 0xFFFFFFFF {
+	if IsNoCustomAoWHandle(newAoWHandle) {
+		// Canonicalize the sentinel: callers may still pass the legacy
+		// 0xFFFFFFFF, but disk output should match the in-game vanilla
+		// value (0x00000000) — see the constant docs in structures.go.
+		newAoWHandle = NoCustomAoWHandle
+	} else {
 		if newAoWHandle&GaHandleTypeMask != ItemTypeAow {
 			return fmt.Errorf("PatchWeaponAoWHandle: newAoWHandle 0x%08X is not an AoW handle (expected prefix 0xC0000000)", newAoWHandle)
 		}
@@ -1185,8 +1194,8 @@ func PatchWeaponAoWHandle(slot *SaveSlot, weaponHandle uint32, newAoWHandle uint
 
 // PatchWeaponAoW sets or removes the Ash of War attached to a weapon GaItem.
 //
-// newAoWItemID == 0: removes AoW — patches AoWGaItemHandle to 0xFFFFFFFF in-place.
-// No GaItem allocation, no RebuildSlotFull.
+// newAoWItemID == 0: removes AoW — patches AoWGaItemHandle to the canonical
+// NoCustomAoWHandle (0x00000000) in-place. No GaItem allocation, no RebuildSlotFull.
 //
 // newAoWItemID != 0: allocates a fresh AoW GaItem (never reuses an existing handle —
 // sharing an AoW handle between two weapons causes EXCEPTION_ACCESS_VIOLATION),
@@ -1233,8 +1242,8 @@ func PatchWeaponAoW(slot *SaveSlot, weaponHandle, newAoWItemID uint32) error {
 		if err := sa.CheckBounds(curr+16, 4, "PatchWeaponAoW/remove"); err != nil {
 			return err
 		}
-		binary.LittleEndian.PutUint32(slot.Data[curr+16:], 0xFFFFFFFF)
-		slot.GaItems[idx].AoWGaItemHandle = 0xFFFFFFFF
+		binary.LittleEndian.PutUint32(slot.Data[curr+16:], NoCustomAoWHandle)
+		slot.GaItems[idx].AoWGaItemHandle = NoCustomAoWHandle
 		return nil
 	}
 

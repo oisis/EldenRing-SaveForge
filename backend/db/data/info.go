@@ -11,6 +11,7 @@ package data
 var Information = map[uint32]ItemData{
 	// ─── About * tutorial messages (base) ───────────────────────────────
 	0x4000238C: {Name: "About Sites of Grace", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_sites_of_grace.png"},
+	0x4000238D: {Name: "About Sorceries and Incantations", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_sorceries_and_incantations.png"},
 	0x4000238E: {Name: "About Bows", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_bows.png"},
 	0x4000238F: {Name: "About Crouching", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_crouching.png"},
 	0x40002390: {Name: "About Stance-Breaking", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_stance_breaking.png"},
@@ -23,10 +24,12 @@ var Information = map[uint32]ItemData{
 	0x40002397: {Name: "About Summoning Spirits", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_summoning_spirits.png"},
 	0x40002398: {Name: "About Guarding", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_guarding.png"},
 	0x40002399: {Name: "About Item Crafting", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_item_crafting.png"},
+	0x4000239B: {Name: "About Flask of Wondrous Physick", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_flask_of_wondrous_physick.png"},
 	0x4000239C: {Name: "About Adding Skills", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_adding_skills.png"},
 	0x4000239D: {Name: "About Birdseye Telescopes", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_birdseye_telescopes.png"},
 	0x4000239E: {Name: "About Spiritspring Jumping", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_spiritspring_jumping.png"},
 	0x4000239F: {Name: "About Vanquishing Enemy Groups", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_vanquishing_enemy_groups.png"},
+	0x400023A0: {Name: "About Teardrop Scarabs", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_teardrop_scarabs.png"},
 	0x400023A1: {Name: "About Summoning Other Players", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_summoning_other_players.png"},
 	0x400023A2: {Name: "About Cooperative Multiplayer", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_cooperative_multiplayer.png"},
 	0x400023A3: {Name: "About Competitive Multiplayer", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_competitive_multiplayer.png"},
@@ -48,12 +51,19 @@ var Information = map[uint32]ItemData{
 	0x400023B1: {Name: "About Pouches", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_pouches.png"},
 	0x400023B2: {Name: "About Dodging", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_dodging.png"},
 	0x400023B4: {Name: "About Wielding Armaments", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_wielding_armaments.png"},
+	0x400023B5: {Name: "About Great Runes", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_great_runes.png"},
+	0x400023B6: {Name: "About the Cave of Knowledge", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_the_cave_of_knowledge.png"},
+	0x400023BE: {Name: "About Duels", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_duels.png"},
+	0x400023BF: {Name: "About United Combat and Combat Ordeals", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_united_combat_and_combat_ordeals.png"},
+	0x400023C0: {Name: "About Combat with Spirit Ashes", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_combat_with_spirit_ashes.png"},
+	0x400023C1: {Name: "About Marika's Effigy at the Roundtable", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_marikas_effigy_at_the_roundtable.png"},
 	// 0x400023EB: cut content (never shipped). Spawned copies carry [ERROR]
 	// prefix at runtime — Fextralife "About Multiplayer" page + Unobtainable Items list.
 	0x400023EB: {Name: "About Multiplayer", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_multiplayer.png", Flags: []string{"cut_content", "ban_risk"}},
 
 	// ─── About * tutorial messages (DLC) ────────────────────────────────
 	0x401EA848: {Name: "About the Scadutree Blessing", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_the_scadutree_blessing.png", Flags: []string{"dlc"}},
+	0x401EA849: {Name: "About the Revered Spirit Ash Blessing", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_the_revered_spirit_ash_blessing.png", Flags: []string{"dlc"}},
 	0x401EA84A: {Name: "About New Inventory Features", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/info/about_new_inventory_features.png", Flags: []string{"dlc"}},
 
 	// ─── Paintings ──────────────────────────────────────────────────────
@@ -71,8 +81,14 @@ var Information = map[uint32]ItemData{
 	// ─── Letters (base) ─────────────────────────────────────────────────
 	// User verified all of these appear in the Information tab in-game,
 	// even though er-save-manager classifies them under KeyItems.txt.
+	// FMG uses the same "Letter from Volcano Manor" name for the Istvan
+	// (0x40001FBF) and Rileigh (0x40001FC4) hunt letters. App display
+	// names carry a target-NPC suffix so Add Items can disambiguate them;
+	// the third hunt letter (Juno Hoslow) is already discriminated in FMG
+	// itself as "Red Letter" (0x40001FC5).
+	0x40001FBF: {Name: "Letter from Volcano Manor (Istvan)", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_from_volcano_manor.png"},
 	0x40001FC3: {Name: "Irina's Letter", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/irinas_letter.png"},
-	0x40001FC4: {Name: "Letter from Volcano Manor", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_from_volcano_manor.png"},
+	0x40001FC4: {Name: "Letter from Volcano Manor (Rileigh)", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_from_volcano_manor.png"},
 	0x40001FC5: {Name: "Red Letter", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/red_letter.png"},
 	0x40001FE7: {Name: "Letter to Patches", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_to_patches.png"},
 	0x40001FED: {Name: "Letter to Bernahl", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/letter_to_bernahl.png"},
@@ -132,13 +148,21 @@ var Information = map[uint32]ItemData{
 	0x4000220C: {Name: "Note: The Lord of Frenzied Flame", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/note_the_lord_of_frenzied_flame.png"},
 	0x4000220D: {Name: "Note: Below the Capital", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/note_below_the_capital.png"},
 
+	// ─── Sortable misc info items (low-range / standalone) ─────────────
+	// Items outside the Set A Notes range (0x400021FC+) and outside the Letters
+	// range that nevertheless live on the Information tab in-game per Fextralife.
+	// All three have goodsType=12, real iconId, finite sortId in EquipParamGoods.
+	0x40002020: {Name: "Note: The Preceptor's Secret", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/note_the_preceptors_secret.png"},
+	0x40002021: {Name: "Weathered Map", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/weathered_map.png"},
+	0x40002312: {Name: "Sellia's Secret", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/sellias_secret.png"},
+
 	// ─── Notes (DLC) ────────────────────────────────────────────────────
 	0x401EA3D9: {Name: "Furnace Keeper's Note", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/furnace_keepers_note.png", Flags: []string{"dlc"}},
-	// 0x401EA443: Note: Sealed Spiritsprings — DLC entry exists but params
-	// are unfinished (no iconId, no goodsType=12). Spawning produces broken
-	// in-game state: appears as "ICON" placeholder in Tools tab instead of
-	// Info tab. Verified against regulation.bin post-DLC build via param dump.
-	0x401EA443: {Name: "Note: Sealed Spiritsprings", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/note_sealed_spiritsprings.png", Flags: []string{"dlc", "cut_content", "ban_risk"}},
+	// Set A / Set B for SOTE Sealed Spiritsprings: 0x401EA3DF is the shipped
+	// canonical entry (goodsType=12, iconId=3861, sortId=453100); the duplicate
+	// 0x401EA443 (goodsType=0, iconId=0, sortId=999999) is cut/broken and is
+	// intentionally NOT exposed — same precedent as the base-game Set B Notes.
+	0x401EA3DF: {Name: "Note: Sealed Spiritsprings", Category: "info", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/note_sealed_spiritsprings.png", Flags: []string{"dlc"}},
 }
 
 // Note: Region/World Maps (Map: Limgrave West, Map: Caelid, etc.) — relocated

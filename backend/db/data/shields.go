@@ -1,7 +1,7 @@
 package data
 
 var Shields = map[uint32]ItemData{
-	0x0148D3B0: {Name: "Shield of Night", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/shield_of_night.png", Flags: []string{"dlc"}},
+	0x0148D3B0: {Name: "Shield of Night", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/shield_of_night.png", Flags: []string{"dlc"}},
 	0x01C9C380: {Name: "Buckler", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/buckler.png"},
 	0x01C9C7CC: {Name: "Bloody Buckler", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/bloody_buckler.png"},
 	0x01C9EA90: {Name: "Perfumer's Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/perfumers_shield.png"},
@@ -22,7 +22,7 @@ var Shields = map[uint32]ItemData{
 	0x01CBE660: {Name: "Ice Crest Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/ice_crest_shield.png"},
 	0x01CC0D70: {Name: "Smoldering Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/smoldering_shield.png"},
 	0x01CCA9B0: {Name: "Spiralhorn Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/spiralhorn_shield.png"},
-	0x01CCD0C0: {Name: "Coil Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/coil_shield.png"},
+	0x01CCD0C0: {Name: "Coil Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/coil_shield.png"},
 	0x01D18BB0: {Name: "Smithscript Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/smithscript_shield.png", Flags: []string{"dlc"}},
 	0x01D905C0: {Name: "Kite Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/kite_shield.png"},
 	0x01D92CD0: {Name: "Marred Leather Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/marred_leather_shield.png"},
@@ -30,7 +30,7 @@ var Shields = map[uint32]ItemData{
 	0x01D97AF0: {Name: "Banished Knight's Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/banished_knights_shield.png"},
 	0x01D9A200: {Name: "Albinauric Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/albinauric_shield.png"},
 	0x01D9C910: {Name: "Sun Realm Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/sun_realm_shield.png"},
-	0x01D9F020: {Name: "Silver Mirrorshield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/silver_mirrorshield.png"},
+	0x01D9F020: {Name: "Silver Mirrorshield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/silver_mirrorshield.png"},
 	0x01DA1730: {Name: "Round Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/round_shield.png"},
 	0x01DA3E40: {Name: "Scorpion Kite Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/scorpion_kite_shield.png"},
 	0x01DA6550: {Name: "Twinbird Kite Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/twinbird_kite_shield.png"},
@@ -91,7 +91,7 @@ var Shields = map[uint32]ItemData{
 	0x01E0F8E8: {Name: "Poison Serpent Crest Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/serpent_crest_shield.png"},
 	0x01E0F94C: {Name: "Blood Serpent Crest Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/serpent_crest_shield.png"},
 	0x01E0F9B0: {Name: "Occult Serpent Crest Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/serpent_crest_shield.png"},
-	0x01E11C10: {Name: "Golden Lion Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/golden_lion_shield.png", Flags: []string{"dlc"}},
+	0x01E11C10: {Name: "Golden Lion Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/golden_lion_shield.png", Flags: []string{"dlc"}},
 	0x01E84800: {Name: "Dragon Towershield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/dragon_towershield.png"},
 	0x01E89620: {Name: "Distinguished Greatshield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/distinguished_greatshield.png"},
 	0x01E8BD30: {Name: "Crucible Hornshield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/crucible_hornshield.png"},
@@ -167,5 +167,5 @@ var Shields = map[uint32]ItemData{
 	0x016F2060: {Name: "Beast-Repellent Torch", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/beast_repellent_torch.png"},
 	0x016F4770: {Name: "Sentry's Torch", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/sentrys_torch.png"},
 	0x0175D720: {Name: "Nanaya's Torch", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/nanayas_torch.png"},
-	0x0175FE30: {Name: "Lamenting Visage", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/lamenting_visage.png"},
+	0x0175FE30: {Name: "Lamenting Visage", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/lamenting_visage.png"},
 }

@@ -18,22 +18,35 @@ var (
 
 // ItemEntry represents a single item from the game database.
 type ItemEntry struct {
-	ID           uint32            `json:"id"`
-	Name         string            `json:"name"`
-	Category     string            `json:"category"`
-	SubCategory  string            `json:"subCategory,omitempty"`
-	MaxInventory uint32            `json:"maxInventory"`
-	MaxStorage   uint32            `json:"maxStorage"`
-	MaxUpgrade   uint32            `json:"maxUpgrade"`
-	IconPath     string            `json:"iconPath"`
-	Flags        []string          `json:"flags"`
-	Description  string            `json:"description,omitempty"`
-	Location     string            `json:"location,omitempty"`
-	Weight       float64           `json:"weight,omitempty"`
-	Weapon       *data.WeaponStats `json:"weapon,omitempty"`
-	Armor        *data.ArmorStats  `json:"armor,omitempty"`
+	ID               uint32            `json:"id"`
+	Name             string            `json:"name"`
+	Category         string            `json:"category"`
+	SubCategory      string            `json:"subCategory,omitempty"`
+	MaxInventory     uint32            `json:"maxInventory"`
+	MaxStorage       uint32            `json:"maxStorage"`
+	MaxUpgrade       uint32            `json:"maxUpgrade"`
+	IconPath         string            `json:"iconPath"`
+	Flags            []string          `json:"flags"`
+	Description      string            `json:"description,omitempty"`
+	Location         string            `json:"location,omitempty"`
+	Weight           float64           `json:"weight,omitempty"`
+	Weapon           *data.WeaponStats `json:"weapon,omitempty"`
+	Armor            *data.ArmorStats  `json:"armor,omitempty"`
 	Spell            *data.SpellStats  `json:"spell,omitempty"`
 	AoWCompatBitmask uint64            `json:"aowCompatBitmask,omitempty"`
+	// Text is the generated Phase 3B.1 text payload (display + canonical
+	// name, caption, description, location, per-field provenance).
+	// Read-only for the frontend; nil when the item ID has no ItemTexts
+	// entry. Legacy Description / Location remain populated independently
+	// so existing UI bindings keep working unchanged.
+	Text *data.ItemTextData `json:"text,omitempty"`
+	// Stats is the generated Phase 3C.3 stats payload. For weapon-like
+	// items it wraps a copy of the WeaponStatsV1 record (kind="weapon");
+	// for non-weapon items, or weapon-like items without a V1 entry, it
+	// is nil. Legacy `Weapon` / `Armor` / `Spell` pointers remain
+	// populated independently so existing UI bindings keep working
+	// unchanged — Phase 3C.3 only adds a new payload field.
+	Stats *data.ItemStatsData `json:"stats,omitempty"`
 }
 
 // weightedCategory lists item categories that have physical weight from regulation.bin weapon/armor params.
@@ -275,8 +288,43 @@ func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (comp
 	return IsAoWCompatibleWithWepType(aowItemID, weaponData.WepType)
 }
 
-// enrichItemEntry populates Description, Weight, and stat fields from the Descriptions table,
-// falling back to ItemWeights for items not in descriptions.
+// enrichItemEntry populates Description, Location, Weight, and stat fields
+// on an ItemEntry from the curated data tables.
+//
+// Resolution order:
+//  1. Legacy data.Descriptions seeds Description / Location / Weight and
+//     the legacy stat pointers (Weapon / Armor / Spell). This preserves
+//     fallback coverage for IDs that pre-date the Phase 3B.1 ItemTexts
+//     generator (e.g. descriptions.go orphan rows not present in any
+//     app category map).
+//  2. data.ItemTexts (Phase 3B.1) then overrides Description / Location
+//     when the new generated entry has non-empty values. ItemTexts is
+//     sourced from FMG with curated descriptions.go fallback for
+//     Description, and curated descriptions.go is the sole source for
+//     Location. Empty fields on ItemTexts leave the legacy value intact.
+//  3. Phase 3B.3 also surfaces the full ItemTextData value on e.Text so
+//     the frontend can read DisplayName / CanonicalName / Caption /
+//     per-field provenance without re-querying the backend. e.Text is
+//     nil for IDs without an ItemTexts entry.
+//  4. Phase 3C.2 overrides e.Weapon and e.Weight with values mapped from
+//     data.WeaponStatsV1ByID when an entry exists. The V1 table covers
+//     all four weapon-like categories (melee_armaments, shields,
+//     ranged_and_catalysts, arrows_and_bolts) with stats sourced
+//     directly from EquipParamWeapon. Holy damage in particular flows
+//     from V1.AttackHoly (← attackBaseDark) into legacy HolyDamage —
+//     R-STA-01 guarded by enrich_weapon_stats_test.go. Items without a
+//     V1 entry keep whatever step 1 supplied from descriptions.go.
+//  5. Phase 3C.3 attaches a generated stats payload at e.Stats for
+//     weapon-like items with a V1 entry. The payload wraps a copy of
+//     the WeaponStatsV1 record together with provenance fields
+//     (SourceParam / SourceRowID / Warnings) so the frontend can read
+//     V1-only fields (guard cuts, stamina attack, somber flags, ...)
+//     without touching the legacy projection. The legacy e.Weapon
+//     pointer set in step 4 stays exactly as before — Phase 3C.3 is
+//     additive, not a replacement.
+//
+// Armor and Spell pointers remain owned by data.Descriptions in Phase
+// 3C.3; their generated layers will arrive in later sub-phases.
 func enrichItemEntry(e *ItemEntry) {
 	if data.Descriptions != nil {
 		if desc, ok := data.Descriptions[e.ID]; ok {
@@ -288,12 +336,102 @@ func enrichItemEntry(e *ItemEntry) {
 			e.Spell = desc.Spell
 		}
 	}
+	// Prefer the Phase 3B.1 ItemTexts entry for Description / Location
+	// when populated. Empty strings leave the legacy fallback intact.
+	// Also expose the full ItemTextData payload (Phase 3B.3) by copying
+	// the map value into a fresh local — taking &data.ItemTexts[e.ID]
+	// directly is illegal in Go (map values are not addressable).
+	if data.ItemTexts != nil {
+		if t, ok := data.ItemTexts[e.ID]; ok {
+			if t.Description != "" {
+				e.Description = t.Description
+			}
+			if t.Location != "" {
+				e.Location = t.Location
+			}
+			text := t
+			e.Text = &text
+		}
+	}
+	// Phase 3C.2: prefer the generated WeaponStatsV1 table for weapon-like
+	// items. The mapper preserves the legacy data.WeaponStats shape (and
+	// therefore the existing ItemEntry payload) so the frontend renders
+	// from item.weapon exactly as before — but with EquipParamWeapon as
+	// the source of truth instead of partial descriptions.go entries.
+	// Holy damage flows through V1.AttackHoly → legacy HolyDamage; the
+	// R-STA-01 Dark→Holy rename happened entirely in the V1 generator.
+	if data.WeaponStatsV1ByID != nil {
+		if v, ok := data.WeaponStatsV1ByID[e.ID]; ok {
+			e.Weapon = weaponStatsV1ToLegacy(v)
+			if v.Weight > 0 {
+				e.Weight = v.Weight
+			}
+			// Phase 3C.3: surface the full V1 record as a typed
+			// payload alongside the legacy Weapon projection.
+			// Take a local copy because map values are not
+			// addressable — pointing at v keeps the payload safe
+			// from later map mutations.
+			weapon := v
+			e.Stats = &data.ItemStatsData{
+				Kind:        data.ItemStatsKindWeapon,
+				Weapon:      &weapon,
+				SourceParam: "EquipParamWeapon",
+				SourceRowID: v.SourceRowID,
+				Warnings:    v.Warnings,
+			}
+		}
+	}
 	// Only physical items carry weight — spells, consumables, key items etc. share ID space with weapon/armor params.
 	if e.Weight == 0 && weightedCategory[e.Category] {
 		if w, ok := data.ItemWeights[e.ID]; ok {
 			e.Weight = w
 		}
 	}
+}
+
+// weaponStatsV1ToLegacy projects the Phase 3C.1 WeaponStatsV1 record
+// onto the legacy data.WeaponStats shape consumed by the frontend.
+//
+// Field mapping is intentionally explicit (no reflection, no name-based
+// auto-copy). Fields not present in legacy WeaponStats (AttackStamina,
+// Guard*, ScalingArcRaw, WepType, IsInfusable/IsSomber/MaxUpgrade,
+// Status*, DefaultAoWID, SourceRowID, Warnings) stay on the V1 record
+// and will be exposed in Phase 3C.3 via a new payload field. They are
+// NOT folded into unrelated legacy fields.
+//
+// CRITICAL — R-STA-01: V1.AttackHoly originates from
+// EquipParamWeapon.attackBaseDark (Elden Ring's CSV keeps the legacy
+// Dark naming) and is mapped here to legacy WeaponStats.HolyDamage —
+// not to any Dark-named legacy field, of which there is none.
+//
+// Int32 → uint32 conversion clamps negative values to zero. V1 emits
+// non-negative numbers in practice (CSV sources are non-negative),
+// but the guard keeps the projection safe against future regressions.
+func weaponStatsV1ToLegacy(v data.WeaponStatsV1) *data.WeaponStats {
+	return &data.WeaponStats{
+		Weight:     v.Weight,
+		PhysDamage: nonNegU32(v.AttackPhysical),
+		MagDamage:  nonNegU32(v.AttackMagic),
+		FireDamage: nonNegU32(v.AttackFire),
+		LitDamage:  nonNegU32(v.AttackLightning),
+		HolyDamage: nonNegU32(v.AttackHoly),
+		ScaleStr:   nonNegU32(v.ScalingStrRaw),
+		ScaleDex:   nonNegU32(v.ScalingDexRaw),
+		ScaleInt:   nonNegU32(v.ScalingIntRaw),
+		ScaleFai:   nonNegU32(v.ScalingFaiRaw),
+		ReqStr:     nonNegU32(v.StatReqStr),
+		ReqDex:     nonNegU32(v.StatReqDex),
+		ReqInt:     nonNegU32(v.StatReqInt),
+		ReqFai:     nonNegU32(v.StatReqFai),
+		ReqArc:     nonNegU32(v.StatReqArc),
+	}
+}
+
+func nonNegU32(v int32) uint32 {
+	if v <= 0 {
+		return 0
+	}
+	return uint32(v)
 }
 
 // GetItemEntryByID returns a fully enriched ItemEntry for the given base item ID, or nil if not found.

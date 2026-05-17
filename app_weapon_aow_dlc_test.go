@@ -52,7 +52,7 @@ func weaponAoWDLCFixture() *App {
 	binary.LittleEndian.PutUint32(slot.Data[off+8:], 0xFFFFFFFF)  // Unk2
 	binary.LittleEndian.PutUint32(slot.Data[off+12:], 0xFFFFFFFF) // Unk3
 	binary.LittleEndian.PutUint32(slot.Data[off+16:], 0xFFFFFFFF) // AoWGaItemHandle (none)
-	slot.Data[off+20] = 0                                          // Unk5
+	slot.Data[off+20] = 0                                         // Unk5
 
 	slot.InventoryEnd = gaStart + gaAoWSize + gaWepSize // 61
 	slot.GaItemDataOffset = 0
@@ -142,14 +142,14 @@ func TestApplyWeaponAoWStrict_DLCUnmappedWepType_Allows(t *testing.T) {
 // Dagger (wepType=1) + shield-only AoW (0x80007530, bits 32-34 only) → incompatible.
 func TestApplyWeaponAoW_KnownIncompatible_Blocks(t *testing.T) {
 	const (
-		wepHandle        = uint32(0x80800001)
-		wepItemID        = uint32(0x000F4240) // Standard Dagger +0, wepType=1
-		aowHandle        = uint32(0xC0800001)
-		shieldOnlyAoWID  = uint32(0x80007530) // compatible with ShieldSmall/Normal/Large only
-		gaStart          = core.GaItemsStart
-		gaAoWSize        = core.GaRecordAoW
-		gaWepSize        = core.GaRecordWeapon
-		bufSize          = 512
+		wepHandle       = uint32(0x80800001)
+		wepItemID       = uint32(0x000F4240) // Standard Dagger +0, wepType=1
+		aowHandle       = uint32(0xC0800001)
+		shieldOnlyAoWID = uint32(0x80007530) // compatible with ShieldSmall/Normal/Large only
+		gaStart         = core.GaItemsStart
+		gaAoWSize       = core.GaRecordAoW
+		gaWepSize       = core.GaRecordWeapon
+		bufSize         = 512
 	)
 
 	app := NewApp()
@@ -253,9 +253,9 @@ func TestApplyWeaponAoW_RemoveAlwaysAllowed(t *testing.T) {
 		t.Fatalf("ApplyWeaponAoW remove: unexpected error: %v", err)
 	}
 
-	// AoWGaItemHandle should be 0xFFFFFFFF after remove
-	if slot.GaItems[1].AoWGaItemHandle != 0xFFFFFFFF {
-		t.Errorf("after remove: AoWGaItemHandle = 0x%08X, want 0xFFFFFFFF", slot.GaItems[1].AoWGaItemHandle)
+	// AoWGaItemHandle should be canonical NoCustomAoWHandle after remove (vanilla-aligned).
+	if slot.GaItems[1].AoWGaItemHandle != core.NoCustomAoWHandle {
+		t.Errorf("after remove: AoWGaItemHandle = 0x%08X, want 0x%08X", slot.GaItems[1].AoWGaItemHandle, core.NoCustomAoWHandle)
 	}
 }
 
@@ -280,7 +280,7 @@ func TestApplyWeaponAoWStrict_RemoveAlwaysAllowed(t *testing.T) {
 		t.Fatalf("ApplyWeaponAoWStrict remove: unexpected error: %v", err)
 	}
 
-	if slot.GaItems[1].AoWGaItemHandle != 0xFFFFFFFF {
-		t.Errorf("after remove: AoWGaItemHandle = 0x%08X, want 0xFFFFFFFF", slot.GaItems[1].AoWGaItemHandle)
+	if slot.GaItems[1].AoWGaItemHandle != core.NoCustomAoWHandle {
+		t.Errorf("after remove: AoWGaItemHandle = 0x%08X, want 0x%08X", slot.GaItems[1].AoWGaItemHandle, core.NoCustomAoWHandle)
 	}
 }

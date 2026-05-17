@@ -4,6 +4,773 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(items): polish generated weapon details
+
+Builds on the Phase 3C.4 wiring with a polish pass on the weapon
+details panel — adds Critical, fixes Attribute Scaling rendering,
+hides empty Attributes Required rows, and surfaces weapon-attached
+SpEffects as a new Passive Effects section. Backend `WeaponStatsV1`
+gains a `Critical` field and a `PassiveEffects []WeaponPassiveEffect`
+slice, both regenerated from `EquipParamWeapon` (with `SpEffectParam`
+for effect resolution).
+
+**Critical**:
+
+- New `WeaponStatsV1.Critical int32` populated as
+  `100 + EquipParamWeapon.throwAtkRate` (CSV stores the offset above
+  a base of 100; pre-adding the base lets the UI render verbatim).
+- Examples: Misericorde → 140, Lordsworn's Straight Sword → 110,
+  Uchigatana / most weapons → 100.
+- Rendered in the Attack Power table instead of the previous
+  hard-coded N/A; legacy fallback unchanged when V1 is absent.
+
+**Attribute Scaling**:
+
+- Now rendered as game-like grade plus raw value, e.g.
+  `Dex D (50)`, `Int C (60)`. Thresholds follow the community
+  standard (S ≥ 175, A ≥ 140, B ≥ 90, C ≥ 60, D ≥ 25, E ≥ 1).
+- Zero-scaling rows are hidden; if a weapon has zero scaling
+  across the board, a compact `None` placeholder shows instead
+  of five empty rows.
+- A small `?` help icon next to the heading opens a local popover
+  explaining what the grade / raw value mean and that V1 uses
+  level +0 raw correction values (upgrade multipliers deferred).
+
+**Attributes Required**:
+
+- Rows with `0` are filtered out, so weapons that only scale on
+  Str/Dex no longer show `Int 0 / Fai 0 / Arc 0` placeholders
+  (e.g. Moonveil now shows just `Str 12 / Dex 18 / Int 23`).
+- Empty list falls back to `None`.
+
+**Passive Effects (backend)**:
+
+- New `WeaponPassiveEffect{Kind, Source, SpEffectID, Label, Value,
+  Known}` and `WeaponStatsV1.PassiveEffects []WeaponPassiveEffect`.
+- Generator resolves `spEffectBehaviorId0..2` (on-hit) and
+  `residentSpEffectId/1/2` (resident) against `SpEffectParam`.
+  On-hit slots map status `*AttackPower` columns
+  (`poizonAttackPower`, `diseaseAttackPower`, `bloodAttackPower`,
+  `freezeAttackPower`, `sleepAttackPower`, `madnessAttackPower`,
+  `curseAttackPower`) to user-facing labels: **Poison**,
+  **Scarlet Rot**, **Blood Loss**, **Frost**, **Sleep**,
+  **Madness**, **Death Blight**.
+- Resident effects use a small curated label map:
+  - `5141100` → *Restores FP upon defeating enemies* (Sacrificial
+    Axe family).
+  - `5071100` → *Restores HP upon defeating enemies* (Serpent-God's
+    Curved Sword family).
+  - `1927` → *Boosts Dragon Communion incantations*.
+  - `1919` → *Boosts death sorceries*.
+- Unresolved SpEffect IDs are kept with `Known=false` and a generic
+  label (`Unknown on-hit effect` / `Unknown resident effect`) plus
+  the raw SpEffect ID, so nothing is silently dropped.
+- Slot ordering is deterministic (on-hit 0→1→2, then resident
+  0→1→2; within a slot, statuses iterate in the order above).
+
+**Passive Effects (UI)**:
+
+- New `Passive Effects` section rendered only when at least one
+  effect exists — most weapons have none and we keep the panel
+  quiet for them rather than rendering an empty placeholder.
+- Effects grouped by `Kind`: `on_hit` → **On hit**, `resident` →
+  **While held**. Empty groups (e.g. weapon with only resident
+  effects) hide their sub-heading.
+- Known on-hit status: `Label (Value)` (e.g. `Blood Loss (45)` for
+  Uchigatana, `Blood Loss (50)` for Moonveil / Rivers of Blood).
+- Known resident: bare label (e.g. `Restores FP upon defeating
+  enemies` for Sacrificial Axe).
+- Unknown effects: `Label (SpEffect <id>)` rendered italic/muted
+  to differentiate from resolved entries.
+- A `?` help icon next to the heading opens a local popover that
+  explains the On hit / While held split and the Unknown fallback
+  behaviour.
+
+**Tests** (`backend/db/data/`):
+
+- `TestWeaponStatsV1CriticalKnownValues` anchors Critical on
+  Misericorde (140), Lordsworn's Straight Sword (110), and
+  Uchigatana (100).
+- `TestWeaponStatsV1PassiveOnHitBloodLoss` covers Uchigatana (45)
+  + Moonveil / Rivers of Blood (50).
+- `TestWeaponStatsV1PassiveResidentLabels` covers the four curated
+  resident labels.
+- `TestWeaponStatsV1PassiveNoneForPlainWeapon` guards Lordsworn's
+  Straight Sword against spurious effects from the resolver.
+
+**What did NOT change**:
+
+- Armor / spell panels untouched.
+- Legacy `WeaponStats` projection unchanged; legacy `item.weapon`
+  consumers still see the same fields.
+- `WeaponStatsV1.Status*` fields stay zero (legacy projection is
+  still deferred); the `status-deferred` warning is retained for
+  that reason and explicitly explained in the regenerated header
+  comment of `weapon_stats_generated.go`.
+- No reinforcement-level math yet — V1 still ships raw `correct*`
+  values; ReinforceParamWeapon multipliers remain on the V2
+  roadmap.
+
+### feat(ui): render generated weapon stats in details panel
+
+Phase 3C.4 wires `ItemDetailPanel` to the typed Phase 3C.3 stats
+payload (`item.stats.weapon`, `WeaponStatsV1`) while preserving full
+fallback to the legacy `item.weapon` projection. The panel layout is
+unchanged — the existing Attack / Guard / Scaling / Requirements grid
+stays as it was — but the values now come from `EquipParamWeapon`
+via the V1 record, and V1-only data finally shows up in the UI.
+
+**Source preference**: `item.stats.weapon` is preferred (nullish-aware:
+zero is a valid value, e.g. Longsword Holy = 0); `item.weapon` is the
+fallback for IDs not covered by the V1 generator. For weapon-like
+categories without either pointer, the previous "stats data missing"
+banner still appears.
+
+**R-STA-01 (Dark → Holy)**: the backend renamed Elden Ring's legacy
+`attackBaseDark` / `darkGuardCutRate` columns to `AttackHoly` /
+`GuardHoly` already in Phase 3C.1. The UI labels every relevant row
+as **Holy** — no "Dark" string is ever rendered.
+
+**New / improved rendering**:
+
+- **Attack Power** — V1 source, with optional `Stamina` row when
+  `V1.AttackStamina > 0` (most weapons leave it 0, so we keep the
+  table compact rather than show a perpetual zero).
+- **Guarded Dmg Negation** — previously hard-coded to N/A across all
+  six rows; now populated from `V1.GuardPhysical/Magic/Fire/
+  Lightning/Holy` and `V1.GuardBoost`. Shields and weapons with
+  guard data finally show their real values; entries without V1
+  data fall back to N/A as before.
+- **Attribute Scaling** — previously had Arc hard-coded to N/A; now
+  pulls `V1.ScalingArcRaw`. Str/Dex/Int/Fai prefer V1, legacy
+  fallback intact. Labels are still raw numbers (no fake S/A/B/C
+  letter grades — those need `CalcCorrectGraph` and are deferred).
+- **Attributes Required** — prefers V1 `StatReq*`, falls back to
+  legacy `Req*`.
+- **Item Info** — `Max Upgrade` now sources from
+  `V1.MaxUpgrade` when present (covers Sacred Relic Sword +10,
+  Longsword +25, ammo 0). New optional `Reinforcement` row shows
+  "Somber" / "Standard" derived from `V1.IsSomber` / `V1.IsInfusable`;
+  hidden when neither applies (e.g. ammo).
+- **Weight** — V1 weight preferred; legacy `item.weapon.Weight`,
+  `item.armor.Weight`, and `item.weight` remain the fallback chain.
+
+**What did NOT change**:
+
+- Armor and Spell panels are untouched. Their resolution path
+  remains `item.armor` / `item.spell` from `data.Descriptions`.
+- Panel header, icon, caption, description, location, and "no data"
+  fallback render exactly as before.
+- No Wails bindings change; this is a UI-only commit.
+- `WeaponStatsV1.Warnings` is intentionally NOT surfaced — the V1
+  generator only emits a `status-deferred` informational warning,
+  not anything an end user needs to see.
+
+### feat(db): expose generated weapon stats payload
+
+Adds a new optional `ItemEntry.Stats` payload that exposes the
+generated `WeaponStatsV1` record (Phase 3C.1) alongside the legacy
+`Weapon` projection. The change is additive and shape-preserving:
+existing UI bindings continue to read `item.weapon` exactly as Phase
+3C.2 left them; Phase 3C.3 simply attaches `item.stats` so the
+frontend can render V1-only fields (guard cuts, stamina attack,
+arcane scaling, somber/upgrade flags, etc.) without re-querying the
+backend or touching the legacy projection.
+
+**Payload shape (minimal wrapper, no `any` / `interface{}`)**:
+
+```go
+type ItemStatsKind string
+
+const (
+    ItemStatsKindNone   ItemStatsKind = ""
+    ItemStatsKindWeapon ItemStatsKind = "weapon"
+    ItemStatsKindArmor  ItemStatsKind = "armor"
+    ItemStatsKindSpell  ItemStatsKind = "spell"
+    ItemStatsKindGoods  ItemStatsKind = "goods"
+    ItemStatsKindAoW    ItemStatsKind = "ash_of_war"
+)
+
+type ItemStatsData struct {
+    Kind        ItemStatsKind  `json:"kind"`
+    Weapon      *WeaponStatsV1 `json:"weapon,omitempty"`
+    SourceParam string         `json:"sourceParam,omitempty"`
+    SourceRowID uint32         `json:"sourceRowId,omitempty"`
+    Warnings    []string       `json:"warnings,omitempty"`
+}
+```
+
+Future stats kinds (armor / spell / goods / ash_of_war) will get
+their own concrete pointer fields when their generated tables land —
+the enum already reserves the constants. We deliberately avoid `any`
+so the Wails-generated TS bindings stay strongly typed.
+
+`enrichItemEntry` now sets `e.Stats` after the existing
+`weaponStatsV1ToLegacy` step:
+
+- `Kind = ItemStatsKindWeapon`
+- `Weapon = &copy(v)` (local copy — map values are not addressable)
+- `SourceParam = "EquipParamWeapon"`
+- `SourceRowID = v.SourceRowID`
+- `Warnings = v.Warnings`
+
+Items without a V1 entry get `e.Stats == nil`. Legacy `e.Weapon` /
+`e.Armor` / `e.Spell` / `e.Text` pointers remain populated exactly as
+before — the Phase 3C.3 hookup is purely additive.
+
+**Wails bindings change** (auto-regenerated by `wails generate
+module` during `make build`):
+
+- `data.WeaponStatsV1` — new TS class with all 40 fields typed
+  (`number` / `boolean` / `string[]`), no `any`.
+- `data.ItemStatsData` — new TS class with `kind` / `weapon?` /
+  `sourceParam?` / `sourceRowId?` / `warnings?`.
+- `db.ItemEntry.stats?: data.ItemStatsData` — new optional field.
+
+Frontend UI components are not modified in this commit — Phase 3C.4
+will render the V1-only fields in `ItemDetailPanel`.
+
+New tests in `backend/db/item_stats_payload_test.go`:
+
+- `TestEnrichItemEntrySetsWeaponStatsPayload` — Lance: payload
+  present, `Kind=weapon`, `Weapon.ItemID` matches, `SourceParam`
+  and `SourceRowID` populated.
+- `TestEnrichItemEntryStatsPayloadHolyMapping` — R-STA-01 payload
+  guard on Sacred Relic Sword (`Stats.Weapon.AttackHoly` ==
+  legacy `Weapon.HolyDamage`).
+- `TestEnrichItemEntryStatsPayloadV1OnlyFields` — Longsword
+  (standard +25 / GemMountType=2), Sacred Relic Sword + Icon
+  Shield (somber +10 / GemMountType=0); shield `GuardHoly` cross-
+  checked against the source map.
+- `TestEnrichItemEntryStatsPayloadNilForNonWeapon` — armor / spell
+  anchors carry no `Stats` payload but retain legacy `Armor` /
+  `Spell` pointers.
+- `TestEnrichItemEntryStatsPayloadDoesNotBreakLegacyWeapon` —
+  Longsword: legacy `e.Weapon` and `e.Stats.Weapon` both populated;
+  legacy field values match the V1 mapper output.
+- `TestEnrichItemEntryStatsPayloadNilForMissing` — unknown ID
+  produces no panic and `Stats == nil`.
+
+All Phase 3C.2 / 3B regression tests continue to pass unchanged.
+
+### feat(db): enrich legacy weapon stats from generated data
+
+Wires the Phase 3C.1 `WeaponStatsV1ByID` table into runtime enrichment.
+`enrichItemEntry` now applies a new step after the existing
+descriptions.go / ItemTexts seeds: when the item ID has a V1 entry, the
+legacy `ItemEntry.Weapon` pointer is rebuilt from V1 data via a small
+explicit mapper, and `e.Weight` is overridden when V1 carries a
+non-zero weight.
+
+The change is payload-shape-preserving — `ItemEntry` still exposes the
+legacy `Weapon *data.WeaponStats` field with the same JSON tag, so the
+frontend renders item details exactly as before. Phase 3C.3 will add a
+new payload field for the V1-only fields (stamina attack, guard cuts,
+arcane scaling, somber/upgrade flags, etc.) without disturbing the
+legacy projection.
+
+**R-STA-01 mapping (critical, runtime layer)**. `V1.AttackHoly` —
+sourced from `EquipParamWeapon.attackBaseDark` in Phase 3C.1 — is
+projected onto legacy `WeaponStats.HolyDamage`. Legacy
+`data.WeaponStats` has no Dark-named field; the Dark→Holy rename
+happens entirely inside the V1 generator and the runtime mapper.
+Sacred Relic Sword anchor: V1 `AttackHoly=76` → enriched
+`Weapon.HolyDamage=76`.
+
+**Mapping table (V1 → legacy)**:
+
+| V1 field          | Legacy `WeaponStats` field |
+| ----------------- | -------------------------- |
+| `Weight`          | `Weight`                   |
+| `AttackPhysical`  | `PhysDamage`               |
+| `AttackMagic`     | `MagDamage`                |
+| `AttackFire`      | `FireDamage`               |
+| `AttackLightning` | `LitDamage`                |
+| `AttackHoly`      | `HolyDamage`               |
+| `ScalingStrRaw`   | `ScaleStr`                 |
+| `ScalingDexRaw`   | `ScaleDex`                 |
+| `ScalingIntRaw`   | `ScaleInt`                 |
+| `ScalingFaiRaw`   | `ScaleFai`                 |
+| `StatReqStr`      | `ReqStr`                   |
+| `StatReqDex`      | `ReqDex`                   |
+| `StatReqInt`      | `ReqInt`                   |
+| `StatReqFai`      | `ReqFai`                   |
+| `StatReqArc`      | `ReqArc`                   |
+
+V1-only fields (`AttackStamina`, `Guard*`, `ScalingArcRaw`, `WepType`,
+`IsInfusable`, `IsSomber`, `MaxUpgrade`, `Status*`, `DefaultAoWID`,
+`SourceRowID`, `Warnings`) intentionally stay on the V1 record — they
+are NOT folded into unrelated legacy fields, and will be surfaced
+through a new payload field in Phase 3C.3.
+
+Mapper is explicit (no reflection, no name-based auto-copy). Int32 →
+uint32 conversion clamps negatives to zero via `nonNegU32`; V1 currently
+emits non-negative numbers but the guard keeps the projection safe.
+
+Items without a V1 entry continue to use the legacy `data.Descriptions`
+fallback for `Weapon`. `Armor`, `Spell`, `Description`, `Location`, and
+`Text` are unaffected — Phase 3C.2 is scoped strictly to weapon stats.
+
+New tests in `backend/db/enrich_weapon_stats_test.go`:
+
+- `TestEnrichItemEntryUsesWeaponStatsV1` — Lance `0x010450A0`: every
+  legacy `WeaponStats` field matches the V1-mapped value.
+- `TestEnrichItemEntryWeaponStatsV1HolyMapping` — R-STA-01 runtime
+  guard on Sacred Relic Sword `0x002F4D60`.
+- `TestEnrichItemEntryWeaponStatsV1SomberAndStandardAnchors` — V1
+  IsSomber/MaxUpgrade flags lock down on Longsword / Great Épée /
+  Fire Knight's Greatsword (standard +25) and Sacred Relic Sword /
+  Icon Shield (somber +10); enriched `Weapon.PhysDamage` /
+  `HolyDamage` confirm V1 drove enrichment.
+- `TestEnrichItemEntryWeaponStatsV1Ammo` — Fire Arrow / Lightning
+  Bolt enrich from V1 (legacy `descriptions.go` historically had no
+  ammo stats).
+- `TestEnrichItemEntryWeaponStatsFallbackToDescriptions` — dynamic
+  discovery of a descriptions.go orphan outside V1 coverage.
+- `TestEnrichItemEntryPreservesArmorSpellStats` — Armor and Spell
+  pointers untouched by the Phase 3C.2 hookup.
+- `TestEnrichItemEntryWeaponStatsDoesNotAffectText` — Phase 3B.3
+  Text payload + Description / Location regression guard.
+- `TestNonNegU32` — clamp helper contract.
+
+### feat(db): add generated weapon stats table
+
+Adds `WeaponStatsV1` — a new generated Go map at
+`backend/db/data/weapon_stats_generated.go` shipping base stats for all
+736 weapon-like items across the four covered categories:
+
+- `melee_armaments`: 439 items
+- `shields`: 165 items
+- `ranged_and_catalysts`: 64 items
+- `arrows_and_bolts`: 68 items
+
+The data is sourced directly from `EquipParamWeapon.csv` and
+`ReinforceParamWeapon.csv` (regulation dump) and decoupled from the
+curated `descriptions.go` stat fields, which remain partial. Phase 3C.2
+will wire this table into runtime enrichment; Phase 3C.1 is **data
+only** — no `enrichItemEntry`, `ItemEntry`, frontend, or Wails binding
+changes ship in this commit.
+
+**R-STA-01 mapping (critical)**. Elden Ring's regulation CSV keeps Dark
+Souls' legacy "Dark" naming for what the live game (and this app) calls
+Holy. The generator maps these columns explicitly:
+
+- `AttackHoly` ← `EquipParamWeapon.attackBaseDark`
+- `GuardHoly`  ← `EquipParamWeapon.darkGuardCutRate`
+
+There is no separate "Holy" CSV column. Sacred Relic Sword
+(`0x002F4D60`) is the canonical anchor: `attackBaseDark = 76`,
+`darkGuardCutRate = 45` → `AttackHoly = 76`, `GuardHoly = 45`.
+
+**Somber / standard inference** comes from `ReinforceParamWeapon` band
+sizes at the weapon's `reinforceTypeId`:
+
+- 26-row band → `IsInfusable=true`, `IsSomber=false`, `MaxUpgrade=25`
+- 11-row band → `IsInfusable=false`, `IsSomber=true`, `MaxUpgrade=10`
+- 1-row band  → no upgrades (arrows, bolts, torches, sealed weapons)
+
+**Deferred to V2** (recorded as per-row warnings):
+
+- Status-effect damage applied by the weapon (poison, bleed, frost,
+  sleep, madness, scarlet rot) — derivation requires SpEffect /
+  AtkParam traversal; Phase 3C.1 leaves Status* fields at zero with a
+  `status-deferred` warning on every entry.
+- Letter-grade scaling (S/A/B/C/D/E) — needs CalcCorrectGraph
+  evaluation; raw `correctStrength` etc. are shipped as
+  `ScalingStrRaw` instead.
+
+**Generator** lives at `tmp/scripts/generate_weapon_stats.go`
+(untracked, like other generators). Output is sorted by item ID
+ascending, contains no body timestamps, and lists SHA256 of every input
+in the header. Reproducibility is asserted in
+`TestWeaponStatsV1GeneratorReproducible` which re-runs the generator
+under `go run` and compares the file hash before and after.
+
+New tests in `backend/db/data/weapon_stats_generated_test.go`:
+
+- `TestWeaponStatsV1HasKnownIDs` — 9 anchor IDs across all 4
+  categories incl. Sacred Relic Sword and ammo.
+- `TestWeaponStatsV1Coverage` — every entry in `Weapons`, `Shields`,
+  `RangedAndCatalysts`, `ArrowsAndBolts` has a `WeaponStatsV1ByID`
+  entry (no allow-list).
+- `TestWeaponStatsV1HolyMapping` — Sacred Relic Sword `AttackHoly` and
+  `GuardHoly` are non-zero (R-STA-01).
+- `TestWeaponStatsV1MaxUpgradeSomberStandard` — Longsword / Great Épée
+  +25 standard, Sacred Relic Sword / Icon Shield +10 somber.
+- `TestWeaponStatsV1GemMountType` — infusable weapons report
+  `gemMountType=2`; unique/somber report `0`.
+- `TestWeaponStatsV1Ammo` — Fire Arrow / Lightning Bolt carry
+  `MaxUpgrade=0`, ammo-bracket `WepType`, no guard data.
+- `TestWeaponStatsV1GeneratorReproducible` — byte-identical re-run.
+- `TestWeaponStatsV1NoPanicOnMissing` — zero-value lookup.
+
+### feat(ui): render generated item text in details panel
+
+Wires `ItemDetailPanel.tsx` to the Phase 3B.3 `item.text` payload. Three
+text fields are now surfaced with preference for the generated source
+and a legacy fallback:
+
+- `Caption` — new optional flavour-text section above `Description`,
+  rendered italicised when `item.text.Caption` is non-empty.
+- `Description` — prefers `item.text.Description`, falls back to legacy
+  `item.description`.
+- `Location` — new section, prefers `item.text.Location`, falls back to
+  legacy `item.location`. (Previously the panel did not render
+  `location` at all — the curated Fextralife-sourced strings shipped in
+  `descriptions.go` were dead data on the frontend.)
+
+The panel title still uses `item.name`, so app-curated disambiguations
+such as "Letter from Volcano Manor (Istvan)" / "(Rileigh)" and the
+Misricorde / Chain Gauntlets style overrides keep their app-side
+suffixes. `CanonicalName`, per-field provenance, and `DLCSource` are
+deliberately not exposed in this phase to avoid cluttering the panel —
+they remain available on the model for future tooling.
+
+The "No data" fallback now considers caption / description / location
+plus stats sections, so items with only a caption (or only a location)
+no longer trip the empty-state message.
+
+Backend, save-writing paths, the generated `ItemTexts` table, and the
+Wails bindings are unchanged.
+
+### feat(db): expose generated item text payload
+
+Surfaces the Phase 3B.1 `ItemTextData` value on the `ItemEntry` JSON
+payload via a new optional `Text *data.ItemTextData` field. After
+enrichment `e.Text` carries the generated DisplayName / CanonicalName /
+Caption / Description / Location plus per-field provenance, or stays
+`nil` for IDs without a matching `ItemTexts` entry.
+
+Phase 3B.2 behaviour is unchanged: legacy `Description` and `Location`
+on `ItemEntry` keep flowing from the same FMG/curated fallback chain so
+existing UI bindings render identically without code changes. Save
+writing, stats enrichment, and the generated `item_text_generated.go`
+table are untouched. Wails regenerates `frontend/wailsjs/go/models.ts`
+to add the `data.ItemTextData` class and the optional `text?` field on
+`db.ItemEntry`; no other generated bindings change.
+
+The Go pointer is populated by copying the map value into a local
+variable before taking its address (`text := t; e.Text = &text`) — map
+values are not addressable, so this avoids a subtle compiler error if
+future refactors inline the assignment.
+
+New tests in `backend/db/enrich_text_test.go`:
+
+- `TestEnrichItemEntrySetsTextPayload` — Lance (`0x010450A0`) populates
+  `e.Text.DisplayName` / `CanonicalName` / `Caption` from `ItemTexts`.
+- `TestEnrichItemEntryTextPayloadPreservesLegacyFields` — legacy
+  `Description` and `Location` survive payload exposure.
+- `TestEnrichItemEntryTextPayloadNilForMissing` — unknown IDs produce
+  `e.Text == nil` with no panic.
+- `TestEnrichItemEntryTextPayloadAppDisambiguation` — Volcano Manor
+  letters (`0x40001FBF` / `0x40001FC4`) keep their app-suffixed
+  DisplayName while CanonicalName carries the bare FMG name.
+
+### feat(db): enrich item descriptions from generated text data
+
+Wires the Phase 3B.1 `ItemTexts` generated table into runtime enrichment:
+`enrichItemEntry` now prefers `data.ItemTexts[id].Description` and
+`Location` over the legacy `data.Descriptions[id]` values when populated,
+falling back to the legacy map for IDs not covered by the new table.
+
+The change is text-only and additive — the `ItemEntry` JSON payload
+shape is unchanged, no new fields are exposed yet (Phase 3B.3 will add
+`Text *ItemTextData`), and the Wails bindings do not need regeneration.
+Legacy `Weight`, `Weapon`, `Armor`, and `Spell` pointers continue to
+flow from `data.Descriptions` exactly as before — Phase 3C will replace
+them with dedicated generated stats tables.
+
+This unlocks higher-fidelity FMG-sourced descriptions (76.8 % FMG Info
+coverage from Phase 3A audit) plus the curated Fextralife-sourced
+Location data (94.8 % coverage) without touching frontend code.
+
+New tests in `backend/db/enrich_text_test.go`:
+
+- `TestEnrichItemEntryUsesItemTextsDescription` — Black Syrup
+  (`0x401EA3D3`) renders the FMG description supplied by ItemTexts.
+- `TestEnrichItemEntryUsesItemTextsLocation` — Lance (`0x010450A0`)
+  renders the curated Location surfaced via ItemTexts.
+- `TestEnrichItemEntryFallsBackToDescriptions` — orphan IDs present in
+  `descriptions.go` but absent from `ItemTexts` keep their legacy text.
+- `TestEnrichItemEntryPreservesLegacyStats` — Lance still carries its
+  `WeaponStats` pointer after the wiring change.
+- `TestEnrichItemEntryNoPanicMissingText` — unknown IDs enrich safely.
+
+### fix(db): add missing SOTE Black Syrup key item
+
+Adds the previously-missing shipped Shadow of the Erdtree key item
+`0x401EA3D3` "Black Syrup" to `backend/db/data/key_items.go`.
+Regulation row 2008019 (EquipParamGoods, `dlc01` FMG) ships with
+`goodsType=1`, `iconId=801`, `sortId=204363`, `maxNum=1`, `refCategory=0` —
+the canonical SOTE-questline key item that had been absent from the app
+inventory database. The sub-category auto-classifier in
+`key_items_subcat.go` routes it to the "Inactive Great Runes + Keys +
+Medallions" catch-all (no curated rule matches).
+
+Scope is intentionally narrow per Phase 2B.4 review: the 7 other items
+flagged by the audit as missing real shipped Goods entries remain
+deferred:
+
+- **Scorpion Stew / Gourmet Scorpion Stew** (Set A `0x401E8930/31`) — Set B
+  variants `0x401E8932/33` are already in `tools.go` and both Sets ship
+  with full regulation params; canonical A/B choice requires drop-table
+  research before any replace/coexist decision.
+- **5 Miquella questline phrases** (`0x401EA7A8`–`0x401EA7AC`: Ring of
+  Miquella, May the Best Win, The Two Fingers, Let Us Go Together,
+  O Mother) — already exposed via `gestures.go` under the same canonical
+  IDs. The "missing" classification is an audit-tooling gap
+  (Gesture↔EquipParamGoods cross-source matching is not yet wired into
+  `tmp/item-audit/scripts/build_comparison.py`) deferred to a tooling
+  cleanup commit.
+
+New regression tests in `phase2b4_black_syrup_test.go`:
+
+- `TestPhase2B4BlackSyrupPresent` — verifies the entry's name, category,
+  caps, icon path and `dlc` flag.
+- `TestPhase2B4BlackSyrupNoDuplicateAcrossMaps` — guards against
+  accidentally adding the same ID or display name to `Tools`, `Gestures`,
+  `Information`, `StandardAshes`, `ArrowsAndBolts`, `BolsteringMaterials`,
+  `CraftingMaterials`, `Incantations`, `Sorceries`.
+- `TestPhase2B4ScorpionStewUntouched` — pins the Set A/B status quo so
+  the deferred decision isn't silently subverted.
+- `TestPhase2B4MiquellaPhrasesStayInGestures` — pins the 5 phrase IDs in
+  `Gestures` and asserts no duplicate entry in `KeyItems`/`Tools`.
+
+### fix(db): add missing Volcano Manor letter and disambiguate quest letters
+
+Adds the previously-missing shipped `0x40001FBF` Letter from Volcano
+Manor entry to `backend/db/data/info.go` and renames its sibling
+`0x40001FC4` so the Add Items UI can distinguish the two. Both IDs
+ship with identical FMG canonical name "Letter from Volcano Manor",
+identical `iconId=3055`, and consecutive `sortId` (451010, 451020) —
+they are two real quest letters from Tanith during the Recusant
+questline, discriminated only by their description target NPC.
+
+| App ID         | Display name (after)                     | Quest target           | regulation row |
+|----------------|------------------------------------------|------------------------|----------------|
+| `0x40001FBF`   | Letter from Volcano Manor (Istvan)       | Old Knight Istvan      | 8127 (new in app) |
+| `0x40001FC4`   | Letter from Volcano Manor (Rileigh)      | Rileigh the Idle       | 8132 (renamed)    |
+| `0x40001FC5`   | Red Letter (unchanged)                   | Juno Hoslow            | 8133 (already discriminated in FMG) |
+
+The orphan description entry for `0x40001FBF` in
+`backend/db/data/descriptions.go` is now naturally picked up by
+`enrichItemEntry`. Disambiguating the display names is an
+app-only UI/database concern — save behavior, item IDs and FMG
+canonical names are unchanged. New unit test
+`TestPhase2B3VolcanoManorLettersDisambiguated` guards the rename
+plus a regression check ensuring no `Information` entry uses the
+bare FMG name without a target-NPC suffix.
+
+### fix(db): replace cut Sealed Spiritsprings note with shipped ID
+
+Replaces the broken Set-B-equivalent `0x401EA443` Note: Sealed
+Spiritsprings entry in `backend/db/data/info.go` with the shipped
+canonical variant `0x401EA3DF`. The cut variant had
+`goodsType=0 / iconId=0 / sortId=999999` in
+`tmp/regulation-bin-dump/csv/EquipParamGoods.csv` (row 2008131) and
+rendered as an `"ICON"` placeholder under the Tools tab; the shipped
+variant (row 2008031) has `goodsType=12`, `iconId=3861`,
+`sortId=453100`, full FMG name/description/caption metadata, and slots
+naturally next to `0x401EA3D9` Furnace Keeper's Note.
+
+| Field           | Before (`0x401EA443`)                       | After (`0x401EA3DF`)       |
+|-----------------|---------------------------------------------|----------------------------|
+| In Information map | yes                                       | yes                        |
+| Name            | Note: Sealed Spiritsprings                  | Note: Sealed Spiritsprings |
+| Category        | info                                        | info                       |
+| Flags           | `["dlc", "cut_content", "ban_risk"]`        | `["dlc"]`                  |
+| Param goodsType | 0                                           | 12                         |
+| Param iconId    | 0                                           | 3861                       |
+| Param sortId    | 999999                                      | 453100                     |
+
+Also removed the orphaned `0x401EA443: {Location: "Location unknown
+or not yet indexed."}` stub from `backend/db/data/descriptions.go`.
+Sibling SOTE Notes (`0x401EA3DB`–`0x401EA3DE`) carry no descriptions
+either, so adding one for `0x401EA3DF` is deferred to a separate
+descriptions pass.
+
+Tests: `TestPhase2B3SealedSpiritspringsRealVariantAbsent` was flipped
+to `TestPhase2B3SealedSpiritspringsCanonicalReplacement`, asserting
+the canonical entry is present with `dlc`-only flags and Mechanics /
+Locations sub-category, and that the broken `0x401EA443` is absent.
+
+See `tmp/item-audit/sealed_spiritsprings_investigation.md` for the
+side-by-side comparison, evidence trail, and the three strategies
+considered (A: replace — adopted; B: coexist; C: hold).
+
+### fix(db): add missing information notes
+
+Phase 2B.3 batch 1 of the item database audit adds 13 entries to
+`backend/db/data/info.go`. Each entry was verified to have
+`goodsType=12`, real `iconId` and finite `sortId` in
+`tmp/regulation-bin-dump/csv/EquipParamGoods.csv`, no collision with an
+existing prefixed ID in `info.go`, and an FMG name confirmed by
+`tmp/regulation-bin-dump/msg/name_mapping.csv`.
+
+| ID (hex)   | ID (dec) | Name                                          | Group         | DLC |
+|------------|----------|-----------------------------------------------|---------------|-----|
+| 0x40002020 |  8224    | Note: The Preceptor's Secret                  | unique note   | no  |
+| 0x40002021 |  8225    | Weathered Map                                 | unique note   | no  |
+| 0x40002312 |  8978    | Sellia's Secret                               | unique note   | no  |
+| 0x4000238D |  9101    | About Sorceries and Incantations              | About * base  | no  |
+| 0x4000239B |  9115    | About Flask of Wondrous Physick               | About * base  | no  |
+| 0x400023A0 |  9120    | About Teardrop Scarabs                        | About * base  | no  |
+| 0x400023B5 |  9141    | About Great Runes                             | About * base  | no  |
+| 0x400023B6 |  9142    | About the Cave of Knowledge                   | About * base  | no  |
+| 0x400023BE |  9150    | About Duels                                   | About * base  | no  |
+| 0x400023BF |  9151    | About United Combat and Combat Ordeals        | About * base  | no  |
+| 0x400023C0 |  9152    | About Combat with Spirit Ashes                | About * base  | no  |
+| 0x400023C1 |  9153    | About Marika's Effigy at the Roundtable       | About * base  | no  |
+| 0x401EA849 |  2009161 | About the Revered Spirit Ash Blessing         | About * SOTE  | yes |
+
+Sub-category is assigned automatically by `classifyInfoItem` in
+`info_subcat.go`: `"About *"` and `"Note: *"` entries land in
+`Mechanics / Locations Info`; the remaining two (`Weathered Map`,
+`Sellia's Secret`) fall to `Letters / Maps / Paintings`.
+
+Explicitly NOT added in this commit (verified by the new tests):
+
+- 15 Set B duplicate Notes in `0x4000222E–0x4000223F`. They duplicate
+  Set A names already in `info.go` and have unfinished regulation
+  params (`goodsType=0`, `iconId=0`, `sortId=999999`); the omission
+  was already documented in `info.go`.
+- The real shipped `Note: Sealed Spiritsprings` (`0x401EA3DF`). The
+  current `info.go` entry `0x401EA443` is the broken Set-B-equivalent
+  flagged `cut_content/ban_risk`; replacing it is deferred to a
+  separate canonical-correction commit.
+
+See `tmp/item-audit/phase2b3_info_reclassification.csv` and
+`tmp/item-audit/phase2b3_info_reclassification_summary.md` for the
+reclassification trail (15 entries demoted from `real_missing_add` to
+`duplicate_variant_ignore`, 1 SOTE flagged `needs_manual_decision`).
+
+### fix(db): add missing arrows and bolts
+
+Phase 2B.2 of the item database audit adds four base-game elemental
+projectiles that were absent from `backend/db/data/arrows_and_bolts.go`,
+all classified as `real_missing_add` in
+`tmp/item-audit/phase2_classification_missing.csv`.
+
+| ID (hex)   | ID (dec) | Name                | Sub-category | wepType |
+|------------|----------|---------------------|--------------|--------:|
+| 0x02FB1790 | 50010000 | Fire Arrow          | Arrows       | 81      |
+| 0x030AA7F0 | 51030000 | Golem's Magic Arrow | Greatarrows  | 83      |
+| 0x03199C10 | 52010000 | Lightning Bolt      | Bolts        | 85      |
+| 0x0328DE50 | 53010000 | Lightning Greatbolt | Greatbolts   | 86      |
+
+All four are base-game (non-DLC), `MaxUpgrade=0`, `Flags=["stackable"]`.
+Stack caps follow the existing sub-category convention:
+
+- Arrows / Bolts: `MaxInventory=99`, `MaxStorage=600`
+- Greatarrows: `MaxInventory=30`, `MaxStorage=600`
+- Greatbolts (Ballista Bolt class, wepType=86): `MaxInventory=20`,
+  `MaxStorage=600` (matching `Ballista Bolt` and `Bone Ballista Bolt`)
+
+Names and IDs verified against `tmp/regulation-bin-dump/csv/EquipParamWeapon.csv`
+and `tmp/regulation-bin-dump/msg/name_mapping.csv` (FMG=`WeaponName.fmg`).
+
+Regression test: `backend/db/data/phase2b2_arrows_bolts_test.go` asserts each
+entry's Name/Category/SubCategory/MaxInventory/MaxStorage/MaxUpgrade/flags
+and verifies that stack sizes match the canonical sibling in the same
+sub-category.
+
+### fix(db): add missing base and SOTE weapons and correct Beast Claw item ID
+
+Phase 2B.1 of the item database audit (`tmp/item-audit/phase2_classification_*`)
+addresses two issues:
+
+1. **Beast Claw ID collision (paired fix).** `backend/db/data/incantations.go`
+   carried an erroneous entry at `0x04153A20` named "Beast Claw" — but that ID
+   belongs to the SOTE Beast Claw **weapon** (`EquipParamWeapon` row
+   68500000, wepType=95). The real Beast Claw incantation lives at Goods row
+   6820 = `0x40001AA4` and is untouched. The bogus incantation entry was
+   removed; the weapon entry was added to `melee_armaments.go`.
+
+2. **Five missing weapons.** Items present in regulation but absent from the
+   DB were added to `backend/db/data/melee_armaments.go`:
+
+   | ID (hex)     | ID (dec)  | Name                       | Subcat                | MaxUpgrade | DLC |
+   |--------------|-----------|----------------------------|-----------------------|-----------:|:---:|
+   | 0x002F4D60   | 3100000   | Sacred Relic Sword         | Greatswords           | 10 (somber)| —   |
+   | 0x005BDBA0   | 6020000   | Great Épée                 | Heavy Thrusting Swords| 25         | —   |
+   | 0x01038D50   | 17010000  | Mohgwyn's Sacred Spear     | Great Spears          | 10 (somber)| —   |
+   | 0x00170A70   | 1510000   | Fire Knight's Shortsword   | Daggers               | 25         | dlc |
+   | 0x0044F840   | 4520000   | Fire Knight's Greatsword   | Colossal Swords       | 25         | dlc |
+   | 0x04153A20   | 68500000  | Beast Claw (SOTE weapon)   | Beast Claws           | 25         | dlc |
+
+   Each entry sets `SubCategory` explicitly because `classifyMelee` in
+   `melee_subcat.go` strips infusion prefixes ("Sacred ", "Fire ") destructively,
+   which would otherwise mis-classify these names. Data was verified against
+   `tmp/regulation-bin-dump/csv/EquipParamWeapon.csv` (wepType, reinforceTypeId)
+   and `tmp/regulation-bin-dump/msg/name_mapping.csv` (FMG names).
+
+   Regression test: `backend/db/data/phase2b1_weapons_test.go` asserts the six
+   entries exist in `Weapons` with the expected Name/Category/SubCategory/
+   MaxUpgrade/DLC flag, and that `0x04153A20` is absent from `Incantations`
+   while `0x40001AA4` (the real incantation) is present.
+
+### fix(db): mark 45 somber weapons, catalysts, bows and shields as max upgrade 10
+
+Audit (`tmp/item-audit/`) cross-referenced every entry in
+`backend/db/data/{melee_armaments,ranged_and_catalysts,shields}.go` against
+`tmp/regulation-bin-dump/csv/EquipParamWeapon.csv` joined with
+`tmp/regulation-bin-dump/csv/ReinforceParamWeapon.csv` and surfaced 45 items
+flagged as Icon-Shield-bug analogues: the DB carried MaxUpgrade=25 while
+regulation derives a somber +10 path (reinforceTypeId ∈ {2200, 2400, 3200,
+3300, 8300, 8500}, gemMountType=0). `AddItemsToCharacter` was routing them
+through the standard infusable branch, so the editor could fabricate ItemIDs
+for affinity variants (`base+100..+1200`) or upgrade levels above +10 — none
+of which exist in EquipParamWeapon, so the items vanished after the save
+was loaded in-game (same failure mode as Icon Shield in v0.7).
+
+Each entry's MaxUpgrade was changed from 25 → 10. Name, Category, ID and
+all other fields are untouched.
+
+Shields (5, `backend/db/data/shields.go`):
+
+- Shield of Night            0x0148D3B0 / 21550000 (SOTE, reinforceTypeId=8500)
+- Coil Shield                0x01CCD0C0 / 30200000 (reinforceTypeId=8500)
+- Silver Mirrorshield        0x01D9F020 / 31060000 (reinforceTypeId=8300)
+- Golden Lion Shield         0x01E11C10 / 31530000 (SOTE, reinforceTypeId=8300)
+- Lamenting Visage           0x0175FE30 / 24510000 (SOTE, reinforceTypeId=2200)
+
+Ranged / catalysts (24, `backend/db/data/ranged_and_catalysts.go`):
+
+- Bows / Greatbows: Harp Bow, Erdtree Bow, Serpent Bow, Pulley Bow,
+  Black Bow, Ansbach's Longbow (SOTE), Lion Greatbow, Golem Greatbow,
+  Erdtree Greatbow (all reinforceTypeId=2200).
+- Crossbows / Hand Ballista: Pulley Crossbow (rId=3300), Full Moon Crossbow,
+  Repeating Crossbow (SOTE), Crepus's Black-Key Crossbow, Jar Cannon
+  (rId=3200).
+- Glintstone staves: Rotten Staff (rId=2200), Crystal Staff,
+  Carian Regal Scepter, Azur's Glintstone Staff, Lusat's Glintstone Staff,
+  Rotten Crystal Staff, Staff of the Great Beyond (SOTE) (rId=2400).
+- Sacred Seals: Golden Order Seal, Erdtree Seal, Dragon Communion Seal
+  (rId=2400).
+
+Melee armaments (16, `backend/db/data/melee_armaments.go`):
+
+- Stone-Sheathed Sword (SOTE), Spirit Sword (SOTE), Varr's Bouquet,
+  Serpent Flail (SOTE), Stormhawk Axe, Bonny Butchering Knife (SOTE),
+  Spirit Glaive (SOTE), Tooth Whip (SOTE), Poisoned Hand (SOTE),
+  Madding Hand (SOTE), Deadly Poison Perfume Bottle (SOTE),
+  Barbed Staff-Spear (SOTE), Scepter of the All-Knowing,
+  Devourer's Scepter, Watchdog's Staff, Staff of the Avatar
+  (all reinforceTypeId=2200).
+
+After the fix, the frontend renders the +0..+10 slider and hides the
+infusion selector (`item.maxUpgrade === 25` gate) for these items, and the
+backend's `MaxUpgrade==10` branch ignores `infuseOffset` entirely.
+
+Tests:
+- `backend/db/data/weapons_somber_max_upgrade_test.go` — table-driven DB
+  guard for all 45 items (asserts presence, name, category and
+  MaxUpgrade=10) plus `TestStandardControls_StayAt25` regression for six
+  controls (Longsword, Composite Bow, Longbow, Light Crossbow,
+  Academy Glintstone Staff, Finger Seal) that must keep MaxUpgrade=25.
+- The existing `backend/db/data/shields_somber_test.go` and
+  `app_somber_greatshields_test.go` (nine v0.7 greatshields) remain green.
+
 ### chore(inventory): hide deprecated Weapon Edit tab and rename Sort Order to Weapons & Sort Order
 
 The Inventory → Weapon Edit pill is removed from the tab list in

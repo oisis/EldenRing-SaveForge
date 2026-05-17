@@ -39,8 +39,25 @@ The map is critical — inventory, equipment, and storage reference items by han
 | 0x04 | u32 | Item ID |
 | 0x08 | u32 | Unknown 2 |
 | 0x0C | u32 | Unknown 3 |
-| 0x10 | u32 | Ash of War GaItem Handle |
+| 0x10 | u32 | Ash of War GaItem Handle (sentinel semantics below) |
 | 0x14 | u8 | Unknown 5 |
+
+#### Weapon AoWGaItemHandle field semantics
+
+The 4 bytes at offset `0x10` reference an attached custom Ash of War gem **by handle**, not by ItemID. Possible values:
+
+| Value | Meaning |
+|---|---|
+| `0x00000000` | No custom AoW — **canonical vanilla sentinel** (the game writes this). Weapon uses its built-in skill from `EquipParamWeapon.swordArtsParamId` in `regulation.bin`; the default skill is **not** stored in the save. |
+| `0xFFFFFFFF` | No custom AoW — **legacy SaveForge sentinel** (emitted by builds before commit `4e800b9`). Readers accept it for compatibility; the writer no longer emits it. |
+| `0xC0xxxxxx` | Valid custom AoW handle. Must match a `0xC0...` AoW GaItem record present in the same slot. |
+| any other | Invalid / corrupted. |
+
+Removing a custom Ash of War only clears this 4-byte field to `0x00000000`; `Weapon.ItemID` is untouched, and the weapon's built-in skill returns on the next game load via the `regulation.bin` fallback. The previously attached AoW GaItem record is intentionally left in place as a free copy.
+
+**Shared-handle invariant**: no two weapon records in the same slot may reference the same non-sentinel AoW handle — sharing causes `EXCEPTION_ACCESS_VIOLATION` on game load. The same AoW ItemID may legitimately appear multiple times, but each weapon must point to a **distinct** AoW GaItem handle.
+
+See [54-ash-of-war](54-ash-of-war.md) for the full design doc covering skill resolution, write-path rules, availability states, and forensic notes.
 
 ### Record Format — Armor (16 bytes)
 

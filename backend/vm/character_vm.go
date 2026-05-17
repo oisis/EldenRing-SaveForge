@@ -45,9 +45,9 @@ type ItemViewModel struct {
 	IconPath         string   `json:"iconPath"`
 	Flags            []string `json:"flags"`
 	ReadOnly         bool     `json:"readOnly"`
-	AoWID            uint32   `json:"aowId"`       // item ID of the AoW gem attached to this weapon (0 = none / not a weapon)
-	CanMountAoW      bool     `json:"canMountAoW"` // true iff gemMountType==2 (standard infusable weapon)
-	WepType          uint16   `json:"wepType"`     // weapon category integer from EquipParamWeapon (0 for non-weapons)
+	AoWID            uint32   `json:"aowId"`            // item ID of the AoW gem attached to this weapon (0 = none / not a weapon)
+	CanMountAoW      bool     `json:"canMountAoW"`      // true iff gemMountType==2 (standard infusable weapon)
+	WepType          uint16   `json:"wepType"`          // weapon category integer from EquipParamWeapon (0 for non-weapons)
 	AoWCompatBitmask uint64   `json:"aowCompatBitmask"` // 36-bit canMountWep bitmask (non-zero for AoWs only)
 }
 
@@ -247,10 +247,11 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHa
 			}
 
 			// Resolve the AoW gem attached to this weapon instance.
-			// AoWGaItemHandle == 0xFFFFFFFF means no AoW gem is applied.
+			// Two sentinels denote "no custom AoW": the vanilla 0x00000000
+			// and the legacy SaveForge 0xFFFFFFFF (see core.IsNoCustomAoWHandle).
 			var aowID uint32
 			if category == "Weapon" {
-				if gi, ok2 := gaItemsByHandle[item.GaItemHandle]; ok2 && gi.AoWGaItemHandle != 0xFFFFFFFF {
+				if gi, ok2 := gaItemsByHandle[item.GaItemHandle]; ok2 && !core.IsNoCustomAoWHandle(gi.AoWGaItemHandle) {
 					if aowItemID, ok3 := gaMap[gi.AoWGaItemHandle]; ok3 && aowItemID != 0 {
 						aowID = aowItemID
 					}

@@ -11,6 +11,7 @@ package data
 var ArrowsAndBolts = map[uint32]ItemData{
 	// ─── Arrows ─────────────────────────────────────────────────────────
 	0x02FAF080: {Name: "Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsArrows, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/arrow.png", Flags: []string{"stackable"}},
+	0x02FB1790: {Name: "Fire Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsArrows, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/fire_arrow.png", Flags: []string{"stackable"}},
 	0x02FB3EA0: {Name: "Serpent Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsArrows, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/serpent_arrow.png", Flags: []string{"stackable"}},
 	0x02FB65B0: {Name: "Bone Arrow (Fletched)", Category: "arrows_and_bolts", SubCategory: SubcatArrowsArrows, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/bone_arrow_fletched.png", Flags: []string{"stackable"}},
 	0x02FB8CC0: {Name: "St. Trina's Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsArrows, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/st_trinas_arrow.png", Flags: []string{"stackable"}},
@@ -48,6 +49,7 @@ var ArrowsAndBolts = map[uint32]ItemData{
 	0x030A32C0: {Name: "Great Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatarrows, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/great_arrow.png", Flags: []string{"stackable"}},
 	0x030A59D0: {Name: "Golem's Great Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatarrows, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/golems_great_arrow.png", Flags: []string{"stackable"}},
 	0x030A80E0: {Name: "Golden Great Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatarrows, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/golden_great_arrow.png", Flags: []string{"stackable"}},
+	0x030AA7F0: {Name: "Golem's Magic Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatarrows, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/golems_magic_arrow.png", Flags: []string{"stackable"}},
 	0x030ACF00: {Name: "Radahn's Spear", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatarrows, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/radahns_spear.png", Flags: []string{"stackable"}},
 	0x030AF610: {Name: "Bone Great Arrow (Fletched)", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatarrows, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/bone_great_arrow_fletched.png", Flags: []string{"stackable"}},
 	0x030B1D20: {Name: "Bone Great Arrow", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatarrows, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/bone_great_arrow.png", Flags: []string{"stackable"}},
@@ -55,6 +57,7 @@ var ArrowsAndBolts = map[uint32]ItemData{
 	// ─── Bolts ──────────────────────────────────────────────────────────
 	0x0311D3E0: {Name: "Igon's Harpoon", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/igons_harpoon.png", Flags: []string{"dlc", "stackable"}},
 	0x03197500: {Name: "Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsBolts, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/bolt.png", Flags: []string{"stackable"}},
+	0x03199C10: {Name: "Lightning Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsBolts, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/lightning_bolt.png", Flags: []string{"stackable"}},
 	0x0319C320: {Name: "Perfumer's Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsBolts, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/perfumers_bolt.png", Flags: []string{"stackable"}},
 	0x0319EA30: {Name: "Black-Key Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsBolts, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/black_key_bolt.png", Flags: []string{"stackable"}},
 	0x031A1140: {Name: "Burred Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsBolts, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/burred_bolt.png", Flags: []string{"stackable"}},
@@ -77,6 +80,7 @@ var ArrowsAndBolts = map[uint32]ItemData{
 
 	// ─── Greatbolts ─────────────────────────────────────────────────────
 	0x0328B740: {Name: "Ballista Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 20, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/ballista_bolt.png", Flags: []string{"stackable"}},
+	0x0328DE50: {Name: "Lightning Greatbolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 20, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/lightning_greatbolt.png", Flags: []string{"stackable"}},
 	0x03290560: {Name: "Explosive Greatbolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/explosive_greatbolt.png", Flags: []string{"stackable"}},
 	0x03292C70: {Name: "Bone Ballista Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 20, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/bone_ballista_bolt.png", Flags: []string{"stackable"}},
 	0x03305860: {Name: "Rabbath's Greatbolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/rabbaths_greatbolt.png", Flags: []string{"dlc", "stackable"}},
