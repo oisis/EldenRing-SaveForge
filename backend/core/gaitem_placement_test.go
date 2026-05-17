@@ -238,3 +238,85 @@ func TestScanGaItems_TrackedIndices(t *testing.T) {
 		t.Errorf("PartGaItemHandle: expected 0x80, got 0x%X", slot.PartGaItemHandle)
 	}
 }
+
+// TestAllocateGaItem_ReturnsFullErrorAtCapacity locks the allocator's
+// boundary contract: when NextArmamentIndex (or NextAoWIndex for AoW) has
+// reached len(GaItems), allocateGaItem must surface "armament/armor array
+// full" (or "AoW array full") instead of silently reusing pre-Next empty
+// slots. Reusing pre-Next holes would break the save format's monotonic
+// handle-counter ordering inside the armament zone.
+//
+// Note: the GaItems array can contain empty slots at indices < NextArmamentIndex
+// (left over from in-game deletions); the test seeds such a layout so the
+// boundary check cannot accidentally be satisfied by "scan back for an empty
+// hole" logic.
+func TestAllocateGaItem_ReturnsFullErrorAtCapacity(t *testing.T) {
+	t.Run("Weapon at capacity", func(t *testing.T) {
+		slot := makeTestSlot(8)
+		// Layout: indices 0..7 occupied except 2 and 4 (pre-Next holes).
+		// NextArmamentIndex = 8 → no room above.
+		for i := 0; i < 8; i++ {
+			if i == 2 || i == 4 {
+				continue
+			}
+			slot.GaItems[i] = GaItemFull{
+				Handle:          uint32(ItemTypeWeapon | 0x00800000 | uint32(i)),
+				ItemID:          uint32(0x00100000 + i),
+				Unk2:            -1,
+				Unk3:            -1,
+				AoWGaItemHandle: NoCustomAoWHandle,
+			}
+		}
+		slot.NextAoWIndex = 0
+		slot.NextArmamentIndex = 8 // == len(GaItems) — capacity exhausted
+
+		err := allocateGaItem(slot, uint32(ItemTypeWeapon|0x00800009), 0x00200000)
+		if err == nil {
+			t.Fatal("allocateGaItem must error when NextArmamentIndex == len(GaItems); got nil")
+		}
+		if !contains(err.Error(), "armament/armor array full") {
+			t.Errorf("expected 'armament/armor array full' error, got: %v", err)
+		}
+
+		// Pre-Next holes (indices 2, 4) must remain empty — allocator must
+		// not silently fill them.
+		if !slot.GaItems[2].IsEmpty() {
+			t.Error("index 2 (pre-Next hole) was overwritten — allocator broke monotonic ordering")
+		}
+		if !slot.GaItems[4].IsEmpty() {
+			t.Error("index 4 (pre-Next hole) was overwritten — allocator broke monotonic ordering")
+		}
+	})
+
+	t.Run("AoW at capacity", func(t *testing.T) {
+		slot := makeTestSlot(4)
+		for i := 0; i < 4; i++ {
+			slot.GaItems[i] = GaItemFull{
+				Handle:          uint32(ItemTypeAow | 0x00800000 | uint32(i)),
+				ItemID:          uint32(0x40000000 + i),
+				Unk2:            -1,
+				Unk3:            -1,
+				AoWGaItemHandle: NoCustomAoWHandle,
+			}
+		}
+		slot.NextAoWIndex = 4 // == len(GaItems) — full
+		slot.NextArmamentIndex = 4
+
+		err := allocateGaItem(slot, uint32(ItemTypeAow|0x00800009), 0x40000099)
+		if err == nil {
+			t.Fatal("allocateGaItem (AoW) must error when NextAoWIndex == len(GaItems); got nil")
+		}
+		if !contains(err.Error(), "AoW array full") {
+			t.Errorf("expected 'AoW array full' error, got: %v", err)
+		}
+	})
+}
+
+func contains(s, substr string) bool {
+	for i := 0; i+len(substr) <= len(s); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
