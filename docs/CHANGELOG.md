@@ -4,6 +4,77 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(db): add generated weapon stats table
+
+Adds `WeaponStatsV1` — a new generated Go map at
+`backend/db/data/weapon_stats_generated.go` shipping base stats for all
+736 weapon-like items across the four covered categories:
+
+- `melee_armaments`: 439 items
+- `shields`: 165 items
+- `ranged_and_catalysts`: 64 items
+- `arrows_and_bolts`: 68 items
+
+The data is sourced directly from `EquipParamWeapon.csv` and
+`ReinforceParamWeapon.csv` (regulation dump) and decoupled from the
+curated `descriptions.go` stat fields, which remain partial. Phase 3C.2
+will wire this table into runtime enrichment; Phase 3C.1 is **data
+only** — no `enrichItemEntry`, `ItemEntry`, frontend, or Wails binding
+changes ship in this commit.
+
+**R-STA-01 mapping (critical)**. Elden Ring's regulation CSV keeps Dark
+Souls' legacy "Dark" naming for what the live game (and this app) calls
+Holy. The generator maps these columns explicitly:
+
+- `AttackHoly` ← `EquipParamWeapon.attackBaseDark`
+- `GuardHoly`  ← `EquipParamWeapon.darkGuardCutRate`
+
+There is no separate "Holy" CSV column. Sacred Relic Sword
+(`0x002F4D60`) is the canonical anchor: `attackBaseDark = 76`,
+`darkGuardCutRate = 45` → `AttackHoly = 76`, `GuardHoly = 45`.
+
+**Somber / standard inference** comes from `ReinforceParamWeapon` band
+sizes at the weapon's `reinforceTypeId`:
+
+- 26-row band → `IsInfusable=true`, `IsSomber=false`, `MaxUpgrade=25`
+- 11-row band → `IsInfusable=false`, `IsSomber=true`, `MaxUpgrade=10`
+- 1-row band  → no upgrades (arrows, bolts, torches, sealed weapons)
+
+**Deferred to V2** (recorded as per-row warnings):
+
+- Status-effect damage applied by the weapon (poison, bleed, frost,
+  sleep, madness, scarlet rot) — derivation requires SpEffect /
+  AtkParam traversal; Phase 3C.1 leaves Status* fields at zero with a
+  `status-deferred` warning on every entry.
+- Letter-grade scaling (S/A/B/C/D/E) — needs CalcCorrectGraph
+  evaluation; raw `correctStrength` etc. are shipped as
+  `ScalingStrRaw` instead.
+
+**Generator** lives at `tmp/scripts/generate_weapon_stats.go`
+(untracked, like other generators). Output is sorted by item ID
+ascending, contains no body timestamps, and lists SHA256 of every input
+in the header. Reproducibility is asserted in
+`TestWeaponStatsV1GeneratorReproducible` which re-runs the generator
+under `go run` and compares the file hash before and after.
+
+New tests in `backend/db/data/weapon_stats_generated_test.go`:
+
+- `TestWeaponStatsV1HasKnownIDs` — 9 anchor IDs across all 4
+  categories incl. Sacred Relic Sword and ammo.
+- `TestWeaponStatsV1Coverage` — every entry in `Weapons`, `Shields`,
+  `RangedAndCatalysts`, `ArrowsAndBolts` has a `WeaponStatsV1ByID`
+  entry (no allow-list).
+- `TestWeaponStatsV1HolyMapping` — Sacred Relic Sword `AttackHoly` and
+  `GuardHoly` are non-zero (R-STA-01).
+- `TestWeaponStatsV1MaxUpgradeSomberStandard` — Longsword / Great Épée
+  +25 standard, Sacred Relic Sword / Icon Shield +10 somber.
+- `TestWeaponStatsV1GemMountType` — infusable weapons report
+  `gemMountType=2`; unique/somber report `0`.
+- `TestWeaponStatsV1Ammo` — Fire Arrow / Lightning Bolt carry
+  `MaxUpgrade=0`, ammo-bracket `WepType`, no guard data.
+- `TestWeaponStatsV1GeneratorReproducible` — byte-identical re-run.
+- `TestWeaponStatsV1NoPanicOnMissing` — zero-value lookup.
+
 ### feat(ui): render generated item text in details panel
 
 Wires `ItemDetailPanel.tsx` to the Phase 3B.3 `item.text` payload. Three

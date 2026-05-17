@@ -164,3 +164,97 @@ type ItemTextData struct {
 // ItemTexts maps item IDs to their displayable text data.
 // Populated by generated code in item_text_generated.go.
 var ItemTexts map[uint32]ItemTextData
+
+// WeaponStatsV1 holds weapon-like base stats for a single item, sourced
+// directly from EquipParamWeapon / ReinforceParamWeapon and shipped as a
+// generated Go map. Covers melee_armaments, shields, ranged_and_catalysts
+// and arrows_and_bolts.
+//
+// IMPORTANT — R-STA-01: Elden Ring's EquipParamWeapon CSV stores Holy
+// damage in legacy "Dark"-named columns (`attackBaseDark`, `darkGuardCutRate`,
+// `correctType_Dark`). AttackHoly / GuardHoly below ARE sourced from those
+// columns — there is no separate "Holy" CSV column. App UI surfaces them
+// as "Holy" so consumers do not see the `Dark` naming.
+//
+// Status damage applied by a weapon (poison/bleed/etc.) is NOT sourced
+// from EquipParamWeapon directly; it requires traversing SpEffect /
+// AtkParam tables which Phase 3C.1 intentionally does not interpret.
+// Status* fields therefore stay zero in V1 and a "status-deferred"
+// warning is recorded.
+//
+// Field provenance is documented per-field; numbers are taken verbatim
+// from the CSV (with the documented "Dark"→"Holy" rename). Guard cut
+// rates are stored as int32 — CSV values are integer percentages such
+// as 30, 45, etc. in the rows surveyed.
+type WeaponStatsV1 struct {
+	ItemID uint32 // app item ID (matches category map keys, == regulation row ID)
+
+	// Source classification
+	WepType         uint16 // EquipParamWeapon.wepType
+	SortGroupID     uint8  // EquipParamWeapon.sortGroupId
+	ReinforceTypeID int32  // EquipParamWeapon.reinforceTypeId (band base in ReinforceParamWeapon)
+	GemMountType    uint8  // EquipParamWeapon.gemMountType (0=none, 1=somber, 2=infusable)
+
+	Weight float64 // EquipParamWeapon.weight
+
+	// Base attack power (level +0). AttackHoly is sourced from attackBaseDark.
+	AttackPhysical  int32 // EquipParamWeapon.attackBasePhysics
+	AttackMagic     int32 // EquipParamWeapon.attackBaseMagic
+	AttackFire      int32 // EquipParamWeapon.attackBaseFire
+	AttackLightning int32 // EquipParamWeapon.attackBaseThunder
+	AttackHoly      int32 // EquipParamWeapon.attackBaseDark — see R-STA-01
+	AttackStamina   int32 // EquipParamWeapon.attackBaseStamina
+
+	// Guard cut rates (percentages) and guard boost (staminaGuardDef).
+	GuardPhysical  int32 // EquipParamWeapon.physGuardCutRate
+	GuardMagic     int32 // EquipParamWeapon.magGuardCutRate
+	GuardFire      int32 // EquipParamWeapon.fireGuardCutRate
+	GuardLightning int32 // EquipParamWeapon.thunGuardCutRate
+	GuardHoly      int32 // EquipParamWeapon.darkGuardCutRate — see R-STA-01
+	GuardBoost     int32 // EquipParamWeapon.staminaGuardDef
+
+	// Wielding stat requirements (properStrength etc.).
+	StatReqStr int32 // EquipParamWeapon.properStrength
+	StatReqDex int32 // EquipParamWeapon.properAgility
+	StatReqInt int32 // EquipParamWeapon.properMagic
+	StatReqFai int32 // EquipParamWeapon.properFaith
+	StatReqArc int32 // EquipParamWeapon.properLuck
+
+	// Raw stat scaling coefficients (correctStrength etc.). NOT letter
+	// grades — those require CalcCorrectGraph and are deferred to V2.
+	ScalingStrRaw int32 // EquipParamWeapon.correctStrength
+	ScalingDexRaw int32 // EquipParamWeapon.correctAgility
+	ScalingIntRaw int32 // EquipParamWeapon.correctMagic
+	ScalingFaiRaw int32 // EquipParamWeapon.correctFaith
+	ScalingArcRaw int32 // EquipParamWeapon.correctLuck
+
+	// Status-effect damage applied by the weapon. Phase 3C.1 leaves
+	// these zero — derivation requires SpEffect / AtkParam traversal.
+	StatusPoison     int32
+	StatusBleed      int32
+	StatusFrost      int32
+	StatusSleep      int32
+	StatusMadness    int32
+	StatusScarletRot int32
+
+	// Default Ash of War (swordArtsParamId — not a Gem item ID).
+	DefaultAoWID int32 // EquipParamWeapon.swordArtsParamId
+
+	// Reinforcement classification derived from ReinforceParamWeapon
+	// band size at ReinforceTypeID:
+	//   - band size 26 → IsInfusable=true,  IsSomber=false, MaxUpgrade=25
+	//   - band size 11 → IsInfusable=false, IsSomber=true,  MaxUpgrade=10
+	//   - band size 1  → IsInfusable=false, IsSomber=false, MaxUpgrade=0
+	IsInfusable bool
+	IsSomber    bool
+	MaxUpgrade  int32
+
+	// Provenance
+	SourceRowID uint32   // EquipParamWeapon Row ID (always == ItemID)
+	Warnings    []string // empty for fully-resolved rows
+}
+
+// WeaponStatsV1ByID maps weapon-like item IDs (melee_armaments, shields,
+// ranged_and_catalysts, arrows_and_bolts) to their generated V1 stats.
+// Populated by generated code in weapon_stats_generated.go.
+var WeaponStatsV1ByID map[uint32]WeaponStatsV1
