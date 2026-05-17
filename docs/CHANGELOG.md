@@ -4,6 +4,113 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(items): polish generated weapon details
+
+Builds on the Phase 3C.4 wiring with a polish pass on the weapon
+details panel — adds Critical, fixes Attribute Scaling rendering,
+hides empty Attributes Required rows, and surfaces weapon-attached
+SpEffects as a new Passive Effects section. Backend `WeaponStatsV1`
+gains a `Critical` field and a `PassiveEffects []WeaponPassiveEffect`
+slice, both regenerated from `EquipParamWeapon` (with `SpEffectParam`
+for effect resolution).
+
+**Critical**:
+
+- New `WeaponStatsV1.Critical int32` populated as
+  `100 + EquipParamWeapon.throwAtkRate` (CSV stores the offset above
+  a base of 100; pre-adding the base lets the UI render verbatim).
+- Examples: Misericorde → 140, Lordsworn's Straight Sword → 110,
+  Uchigatana / most weapons → 100.
+- Rendered in the Attack Power table instead of the previous
+  hard-coded N/A; legacy fallback unchanged when V1 is absent.
+
+**Attribute Scaling**:
+
+- Now rendered as game-like grade plus raw value, e.g.
+  `Dex D (50)`, `Int C (60)`. Thresholds follow the community
+  standard (S ≥ 175, A ≥ 140, B ≥ 90, C ≥ 60, D ≥ 25, E ≥ 1).
+- Zero-scaling rows are hidden; if a weapon has zero scaling
+  across the board, a compact `None` placeholder shows instead
+  of five empty rows.
+- A small `?` help icon next to the heading opens a local popover
+  explaining what the grade / raw value mean and that V1 uses
+  level +0 raw correction values (upgrade multipliers deferred).
+
+**Attributes Required**:
+
+- Rows with `0` are filtered out, so weapons that only scale on
+  Str/Dex no longer show `Int 0 / Fai 0 / Arc 0` placeholders
+  (e.g. Moonveil now shows just `Str 12 / Dex 18 / Int 23`).
+- Empty list falls back to `None`.
+
+**Passive Effects (backend)**:
+
+- New `WeaponPassiveEffect{Kind, Source, SpEffectID, Label, Value,
+  Known}` and `WeaponStatsV1.PassiveEffects []WeaponPassiveEffect`.
+- Generator resolves `spEffectBehaviorId0..2` (on-hit) and
+  `residentSpEffectId/1/2` (resident) against `SpEffectParam`.
+  On-hit slots map status `*AttackPower` columns
+  (`poizonAttackPower`, `diseaseAttackPower`, `bloodAttackPower`,
+  `freezeAttackPower`, `sleepAttackPower`, `madnessAttackPower`,
+  `curseAttackPower`) to user-facing labels: **Poison**,
+  **Scarlet Rot**, **Blood Loss**, **Frost**, **Sleep**,
+  **Madness**, **Death Blight**.
+- Resident effects use a small curated label map:
+  - `5141100` → *Restores FP upon defeating enemies* (Sacrificial
+    Axe family).
+  - `5071100` → *Restores HP upon defeating enemies* (Serpent-God's
+    Curved Sword family).
+  - `1927` → *Boosts Dragon Communion incantations*.
+  - `1919` → *Boosts death sorceries*.
+- Unresolved SpEffect IDs are kept with `Known=false` and a generic
+  label (`Unknown on-hit effect` / `Unknown resident effect`) plus
+  the raw SpEffect ID, so nothing is silently dropped.
+- Slot ordering is deterministic (on-hit 0→1→2, then resident
+  0→1→2; within a slot, statuses iterate in the order above).
+
+**Passive Effects (UI)**:
+
+- New `Passive Effects` section rendered only when at least one
+  effect exists — most weapons have none and we keep the panel
+  quiet for them rather than rendering an empty placeholder.
+- Effects grouped by `Kind`: `on_hit` → **On hit**, `resident` →
+  **While held**. Empty groups (e.g. weapon with only resident
+  effects) hide their sub-heading.
+- Known on-hit status: `Label (Value)` (e.g. `Blood Loss (45)` for
+  Uchigatana, `Blood Loss (50)` for Moonveil / Rivers of Blood).
+- Known resident: bare label (e.g. `Restores FP upon defeating
+  enemies` for Sacrificial Axe).
+- Unknown effects: `Label (SpEffect <id>)` rendered italic/muted
+  to differentiate from resolved entries.
+- A `?` help icon next to the heading opens a local popover that
+  explains the On hit / While held split and the Unknown fallback
+  behaviour.
+
+**Tests** (`backend/db/data/`):
+
+- `TestWeaponStatsV1CriticalKnownValues` anchors Critical on
+  Misericorde (140), Lordsworn's Straight Sword (110), and
+  Uchigatana (100).
+- `TestWeaponStatsV1PassiveOnHitBloodLoss` covers Uchigatana (45)
+  + Moonveil / Rivers of Blood (50).
+- `TestWeaponStatsV1PassiveResidentLabels` covers the four curated
+  resident labels.
+- `TestWeaponStatsV1PassiveNoneForPlainWeapon` guards Lordsworn's
+  Straight Sword against spurious effects from the resolver.
+
+**What did NOT change**:
+
+- Armor / spell panels untouched.
+- Legacy `WeaponStats` projection unchanged; legacy `item.weapon`
+  consumers still see the same fields.
+- `WeaponStatsV1.Status*` fields stay zero (legacy projection is
+  still deferred); the `status-deferred` warning is retained for
+  that reason and explicitly explained in the regenerated header
+  comment of `weapon_stats_generated.go`.
+- No reinforcement-level math yet — V1 still ships raw `correct*`
+  values; ReinforceParamWeapon multipliers remain on the V2
+  roadmap.
+
 ### feat(ui): render generated weapon stats in details panel
 
 Phase 3C.4 wires `ItemDetailPanel` to the typed Phase 3C.3 stats
