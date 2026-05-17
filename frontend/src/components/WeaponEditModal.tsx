@@ -128,12 +128,40 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
     // ─── Ash of War state ─────────────────────────────────────────────────────
     const [ashesOfWar, setAshesOfWar] = useState<AshOfWarOption[]>([]);
     const [aowAvailability, setAowAvailability] = useState<Map<number, AoWAvailabilityEntry>>(new Map());
-    const [currentAoWId, setCurrentAoWId] = useState<number>(0);
-    const [canMountAoW, setCanMountAoW] = useState<boolean>(false);
-    const [wepType, setWepType] = useState<number>(0);
+    // In workspace mode the AoW-mount metadata (currentAoWId / canMountAoW /
+    // wepType) comes straight from the editable workspace item — GetCharacter
+    // reads the *save* state, which can drift from the workspace (added
+    // items have no save-side handle, prior Saves may re-allocate handles).
+    // Legacy mode keeps the GetCharacter fallback so WeaponEditTab and other
+    // non-workspace callers are unaffected.
+    const [currentAoWId, setCurrentAoWId] = useState<number>(
+        isWorkspaceMode ? (workspaceItem?.currentAoWItemID ?? 0) : 0,
+    );
+    const [canMountAoW, setCanMountAoW] = useState<boolean>(
+        isWorkspaceMode ? (workspaceItem?.canMountAoW ?? false) : false,
+    );
+    const [wepType, setWepType] = useState<number>(
+        isWorkspaceMode ? (workspaceItem?.wepType ?? 0) : 0,
+    );
     const [selectedAoW, setSelectedAoW] = useState<number | null>(null);
     const [aowSearch, setAowSearch] = useState('');
     const [showUnavailable, setShowUnavailable] = useState(false);
+
+    // Keep workspace-mode AoW state synced with the latest workspaceItem
+    // snapshot — every UpdateWeapon call returns a fresh EditableItem with
+    // updated CurrentAoW* (post-save) and Pending* fields.
+    useEffect(() => {
+        if (!isWorkspaceMode || !workspaceItem) return;
+        setCurrentAoWId(workspaceItem.currentAoWItemID ?? 0);
+        setCanMountAoW(workspaceItem.canMountAoW ?? false);
+        setWepType(workspaceItem.wepType ?? 0);
+    }, [
+        isWorkspaceMode,
+        workspaceItem?.currentAoWItemID,
+        workspaceItem?.canMountAoW,
+        workspaceItem?.wepType,
+        workspaceItem,
+    ]);
 
     // Load AoW item list (one-shot).
     useEffect(() => {
@@ -148,8 +176,11 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         }).catch(() => setAshesOfWar([]));
     }, []);
 
-    // Refresh weapon state (currentAoWId/canMountAoW/wepType) from GetCharacter.
+    // Refresh weapon state (currentAoWId/canMountAoW/wepType) from
+    // GetCharacter. Used only outside workspace mode — workspace mode reads
+    // these directly from the editable item.
     const refreshWeaponState = useCallback(async () => {
+        if (isWorkspaceMode) return;
         try {
             const char = await GetCharacter(charIndex);
             const all = [...(char?.inventory ?? []), ...(char?.storage ?? [])];
@@ -162,7 +193,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         } catch {
             // leave existing state
         }
-    }, [charIndex, item.handle]);
+    }, [charIndex, item.handle, isWorkspaceMode]);
 
     const refreshAvailability = useCallback(async () => {
         try {

@@ -123,6 +123,14 @@ type EditableItem struct {
 	IsWeapon              bool          `json:"isWeapon"`
 	IsArmor               bool          `json:"isArmor"`
 	IsTalisman            bool          `json:"isTalisman"`
+	// AoW mounting compatibility metadata, populated for weapon-editable
+	// items. WepType / CanMountAoW mirror the DB lookups done by
+	// vm.MapParsedSlotToVM so the WeaponEditModal can resolve AoW
+	// compatibility directly from the workspace item without falling
+	// back to GetCharacter (which can desync for newly-added items, or
+	// when the handle has been re-allocated by a prior Save).
+	WepType               uint16        `json:"wepType,omitempty"`
+	CanMountAoW           bool          `json:"canMountAoW,omitempty"`
 	CurrentAoWHandle      uint32        `json:"currentAoWHandle,omitempty"`
 	CurrentAoWItemID      uint32        `json:"currentAoWItemID,omitempty"`
 	CurrentAoWName        string        `json:"currentAoWName,omitempty"`
@@ -343,6 +351,14 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 		IsTalisman:       isTalisman,
 	}
 	if isWeapon {
+		// Weapon AoW-mounting metadata: WepType is the EquipParamWeapon
+		// category integer (0 = unknown), CanMountAoW reflects the
+		// gemMountType==2 gate. Both come from the DB entry resolved by
+		// GetItemDataFuzzy above and are exposed to the workspace so the
+		// edit modal does not have to round-trip through GetCharacter
+		// (which can desync for handles re-allocated by Save).
+		editable.WepType = itemData.WepType
+		editable.CanMountAoW = itemData.GemMountType == 2
 		populateCurrentAoW(slot, editable, weaponAoWRefs, aowSharedCount)
 	}
 	return classified{editable: editable}

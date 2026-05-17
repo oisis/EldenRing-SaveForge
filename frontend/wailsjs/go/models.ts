@@ -950,6 +950,8 @@ export namespace editor {
 	    isWeapon: boolean;
 	    isArmor: boolean;
 	    isTalisman: boolean;
+	    wepType?: number;
+	    canMountAoW?: boolean;
 	    currentAoWHandle?: number;
 	    currentAoWItemID?: number;
 	    currentAoWName?: string;
@@ -986,6 +988,8 @@ export namespace editor {
 	        this.isWeapon = source["isWeapon"];
 	        this.isArmor = source["isArmor"];
 	        this.isTalisman = source["isTalisman"];
+	        this.wepType = source["wepType"];
+	        this.canMountAoW = source["canMountAoW"];
 	        this.currentAoWHandle = source["currentAoWHandle"];
 	        this.currentAoWItemID = source["currentAoWItemID"];
 	        this.currentAoWName = source["currentAoWName"];

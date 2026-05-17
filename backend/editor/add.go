@@ -105,6 +105,16 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 		IsArmor:          isArmorCategory(itemData.Category),
 		IsTalisman:       itemData.Category == "talismans",
 	}
+	if item.IsWeapon {
+		// Mirror BuildSnapshot — added weapons must carry the same
+		// AoW-mounting metadata so the edit modal can compute
+		// compatibility without round-tripping through GetCharacter
+		// (added items have no save-side GaItemHandle yet). CurrentAoW*
+		// stays empty: Source=added items have no current AoW until the
+		// workspace is saved and re-loaded from the slot.
+		item.WepType = itemData.WepType
+		item.CanMountAoW = itemData.GemMountType == 2
+	}
 
 	dst := sliceFor(snap, targetContainer)
 	if targetPosition < 0 {
