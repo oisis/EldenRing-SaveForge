@@ -358,6 +358,30 @@ func TestValidate_CurrentAoWSharedIsWarning(t *testing.T) {
 	}
 }
 
+// Phase 4B: a single item with both pending-set AND pending-clear is
+// invalid workspace state. Validate must surface CodePendingAoWConflict
+// as an error so save refuses byte-for-byte.
+func TestValidate_PendingAoWConflictIsError(t *testing.T) {
+	snap := makeSeededWeaponWithCurrentAoW()
+	snap.InventoryItems[0].PendingAoWItemID = aowLionsClawItemID
+	snap.InventoryItems[0].PendingAoWClear = true
+
+	rep := Validate(*snap)
+	if rep.OK {
+		t.Fatal("expected OK=false for conflicting pending AoW state")
+	}
+	found := false
+	for _, e := range rep.Errors {
+		if e.Code == CodePendingAoWConflict {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("missing CodePendingAoWConflict error; errors: %+v", rep.Errors)
+	}
+}
+
 func TestValidate_CurrentAoWNonAoWCategoryIsWarning(t *testing.T) {
 	// Build a snapshot where CurrentAoWItemID resolves to a non-AoW
 	// category. We use a known weapon itemID (Claymore) here — its

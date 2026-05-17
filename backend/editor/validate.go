@@ -50,6 +50,7 @@ const (
 	CodeSharedAoWConflict       = "shared_aow_conflict"
 	CodeSharedAoWNotChecked     = "shared_aow_not_checked"
 	CodePendingAoWUnknown       = "pending_aow_unknown"
+	CodePendingAoWConflict      = "pending_aow_conflict"
 	CodeCurrentAoWMissing       = "current_aow_missing"
 	CodeCurrentAoWShared        = "current_aow_shared"
 	CodeCurrentAoWNonAoWCategory = "current_aow_non_aow_category"
@@ -181,6 +182,22 @@ func Validate(snap InventoryWorkspaceSnapshot) WorkspaceValidationReport {
 				}
 			}
 
+			// Conflicting pending AoW intent (Phase 4B). PendingAoWClear
+			// is mutually exclusive with PendingAoWItemID != 0 —
+			// UpdateWeapon enforces this on accept, but defense-in-depth
+			// catches any path that bypasses it (direct field mutation,
+			// future bugs).
+			if it.PendingAoWClear && it.PendingAoWItemID != 0 {
+				rep.Errors = append(rep.Errors, WorkspaceValidationIssue{
+					Severity: SeverityError,
+					Code:     CodePendingAoWConflict,
+					Message: fmt.Sprintf("conflicting pending AoW state: clear=true AND set=0x%08X (item %s)",
+						it.PendingAoWItemID, it.Name),
+					UID:    it.UID,
+					Handle: it.OriginalHandle,
+				})
+			}
+
 			// Current AoW (Phase 4A): read-side anomalies surface as
 			// warnings only. Existing saves may carry these states; we
 			// want the UI to display them without blocking save. A later
@@ -235,15 +252,12 @@ func Validate(snap InventoryWorkspaceSnapshot) WorkspaceValidationReport {
 		})
 	}
 
-	// TODO Phase 4: cross-reference AoWGaItemHandle across all weapons to
-	// detect shared-AoW corruption (core.ScanAoWAvailability already does
-	// this on slot.GaItems, but requires slot access). Phase 1 records a
-	// warning so consumers know the check is deferred.
-	rep.Warnings = append(rep.Warnings, WorkspaceValidationIssue{
-		Severity: SeverityWarning,
-		Code:     CodeSharedAoWNotChecked,
-		Message:  "shared AoW handle detection is deferred until Phase 4 (weapon edit integration)",
-	})
+	// Phase 4A landed per-item shared-AoW detection via the
+	// CurrentAoWStatus=AoWStatusShared path (CodeCurrentAoWShared
+	// warning per weapon). The legacy global deferral warning
+	// (CodeSharedAoWNotChecked) is no longer emitted — keep the
+	// constant for backward-compatible JSON parsing on the frontend.
+	_ = CodeSharedAoWNotChecked
 
 	if len(rep.Errors) > 0 {
 		rep.OK = false

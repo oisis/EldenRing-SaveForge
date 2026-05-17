@@ -68,29 +68,159 @@ func baselineFor(snap *InventoryWorkspaceSnapshot) map[uint32]ContainerKind {
 	return b
 }
 
-func TestRejectPendingAoW_TriggersOnInventoryItem(t *testing.T) {
+// ─── Pending AoW collect / validate (Phase 4B) ─────────────────
+
+func TestCollectPendingAoWChanges_PicksUpSet(t *testing.T) {
+	snap := savableSnap()
+	snap.InventoryItems[0].PendingAoWItemID = 0x80002710 // Lion's Claw
+	got := collectPendingAoWChanges(snap)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(got))
+	}
+	if got[0].UID != snap.InventoryItems[0].UID ||
+		got[0].AoWItemID != 0x80002710 ||
+		got[0].Clear {
+		t.Errorf("unexpected change: %+v", got[0])
+	}
+}
+
+func TestCollectPendingAoWChanges_PicksUpClear(t *testing.T) {
+	snap := savableSnap()
+	snap.StorageItems[0].PendingAoWClear = true
+	got := collectPendingAoWChanges(snap)
+	if len(got) != 1 {
+		t.Fatalf("expected 1 change, got %d", len(got))
+	}
+	if !got[0].Clear || got[0].AoWItemID != 0 {
+		t.Errorf("expected clear intent, got %+v", got[0])
+	}
+}
+
+func TestCollectPendingAoWChanges_IgnoresUntouchedWeapons(t *testing.T) {
+	snap := savableSnap()
+	if got := collectPendingAoWChanges(snap); len(got) != 0 {
+		t.Errorf("clean snapshot should yield no changes; got %+v", got)
+	}
+}
+
+func TestCollectPendingAoWChanges_IgnoresConflictingItem(t *testing.T) {
 	snap := savableSnap()
 	snap.InventoryItems[0].PendingAoWItemID = 0x80002710
-	err := rejectPendingAoW(snap)
-	if err == nil {
-		t.Fatal("expected error for pending AoW")
-	}
-	if !strings.Contains(err.Error(), "pending AoW") {
-		t.Errorf("error should mention pending AoW, got %v", err)
+	snap.InventoryItems[0].PendingAoWClear = true
+	// collect should refuse to pick a side — Validate's
+	// CodePendingAoWConflict surfaces this case.
+	if got := collectPendingAoWChanges(snap); len(got) != 0 {
+		t.Errorf("conflicting item should be skipped by collect; got %+v", got)
 	}
 }
 
-func TestRejectPendingAoW_TriggersOnStorageItem(t *testing.T) {
+func TestCollectPendingAoWChanges_IgnoresNonWeapons(t *testing.T) {
 	snap := savableSnap()
-	snap.StorageItems[0].PendingAoWItemID = 0x80002710
-	if err := rejectPendingAoW(snap); err == nil {
-		t.Fatal("expected error for pending AoW in storage")
+	// Synthesize a talisman with bogus pending AoW state. Even if a
+	// bug ever set PendingAoWItemID on a non-weapon, collect must
+	// never include it (Save would then crash patching a non-weapon
+	// handle).
+	snap.InventoryItems = append(snap.InventoryItems, EditableItem{
+		UID:              "hnd:0xA0123456",
+		Source:           ItemSourceOriginal,
+		Container:        ContainerInventory,
+		OriginalHandle:   0xA0123456,
+		ItemID:           0x200003E8,
+		BaseItemID:       0x200003E8,
+		Name:             "Crimson Amber Medallion",
+		Category:         "talismans",
+		Quantity:         1,
+		IsTalisman:       true,
+		PendingAoWItemID: 0x80002710,
+	})
+	for _, c := range collectPendingAoWChanges(snap) {
+		if c.UID == "hnd:0xA0123456" {
+			t.Errorf("non-weapon should be filtered out, got %+v", c)
+		}
 	}
 }
 
-func TestRejectPendingAoW_CleanSnapshotOK(t *testing.T) {
-	if err := rejectPendingAoW(savableSnap()); err != nil {
-		t.Fatalf("clean snapshot should accept: %v", err)
+func TestValidatePendingAoWChanges_AcceptsCompatible(t *testing.T) {
+	// Claymore base (0x003085E0) + Lion's Claw (0x80002710) — known
+	// compatible pair (covered by db tests).
+	changes := []pendingAoWChange{
+		{
+			UID: "hnd:0x80800002", WeaponItemID: 0x003085E0, WeaponName: "Claymore",
+			AoWItemID: 0x80002710,
+		},
+	}
+	if err := validatePendingAoWChanges(changes); err != nil {
+		t.Errorf("expected compatible pair to pass: %v", err)
+	}
+}
+
+func TestValidatePendingAoWChanges_RejectsNonAoWCategory(t *testing.T) {
+	// AoWItemID points at a weapon ID — wrong category.
+	changes := []pendingAoWChange{
+		{WeaponName: "Claymore", WeaponItemID: 0x003085E0, AoWItemID: 0x000F4240},
+	}
+	err := validatePendingAoWChanges(changes)
+	if err == nil {
+		t.Fatal("expected error for non-AoW category")
+	}
+	if !strings.Contains(err.Error(), "ashes_of_war") {
+		t.Errorf("error should mention ashes_of_war, got %v", err)
+	}
+}
+
+func TestValidatePendingAoWChanges_RejectsUnknownItem(t *testing.T) {
+	changes := []pendingAoWChange{
+		{WeaponName: "Claymore", WeaponItemID: 0x003085E0, AoWItemID: 0xDEADBEEF},
+	}
+	if err := validatePendingAoWChanges(changes); err == nil {
+		t.Fatal("expected error for unknown AoW item")
+	}
+}
+
+func TestValidatePendingAoWChanges_ClearAlwaysAccepted(t *testing.T) {
+	changes := []pendingAoWChange{
+		{WeaponName: "Dagger", WeaponItemID: 0x000F4240, Clear: true},
+	}
+	if err := validatePendingAoWChanges(changes); err != nil {
+		t.Errorf("clear intent should always pass, got %v", err)
+	}
+}
+
+func TestValidatePendingAoWChanges_FailsClosedOnUnknownCompat(t *testing.T) {
+	// 0x00FFFFFF — synthetic weapon ID that GetItemDataFuzzy can't
+	// resolve. WepType=0 → IsAshOfWarCompatibleWithWeapon returns
+	// known=false → validate must reject.
+	changes := []pendingAoWChange{
+		{WeaponName: "Synthetic", WeaponItemID: 0x00FFFFFF, AoWItemID: 0x80002710},
+	}
+	err := validatePendingAoWChanges(changes)
+	if err == nil {
+		t.Fatal("expected fail-closed reject on unknown compatibility")
+	}
+}
+
+// ─── lookupHandleByUID ─────────────────────────────────────────────
+
+func TestLookupHandleByUID_FindsInventory(t *testing.T) {
+	snap := savableSnap()
+	got := lookupHandleByUID(snap, "hnd:0x80800001")
+	if got != 0x80800001 {
+		t.Errorf("got 0x%08X, want 0x80800001", got)
+	}
+}
+
+func TestLookupHandleByUID_FindsStorage(t *testing.T) {
+	snap := savableSnap()
+	got := lookupHandleByUID(snap, "hnd:0x80800002")
+	if got != 0x80800002 {
+		t.Errorf("got 0x%08X, want 0x80800002", got)
+	}
+}
+
+func TestLookupHandleByUID_Miss(t *testing.T) {
+	snap := savableSnap()
+	if got := lookupHandleByUID(snap, "hnd:0xDEADBEEF"); got != 0 {
+		t.Errorf("unknown UID should yield 0, got 0x%08X", got)
 	}
 }
 

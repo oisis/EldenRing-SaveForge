@@ -3,10 +3,10 @@ package main
 import (
 	"bytes"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
 	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 )
 
@@ -91,14 +91,16 @@ func TestSaveInventoryWorkspaceChanges_UnknownSession(t *testing.T) {
 	}
 }
 
-func TestSaveInventoryWorkspaceChanges_RejectsPendingAoW(t *testing.T) {
+// Phase 4B: Save now SETS pending AoW. The legacy "rejects pending AoW"
+// test was inverted to "rejects non-AoW item as AoW" — Save still
+// refuses an obviously bogus pending state (e.g. AoWItemID set to a
+// weapon ID by direct field mutation that bypassed UpdateWeapon).
+func TestSaveInventoryWorkspaceChanges_RejectsNonAoWItemAsAoW(t *testing.T) {
 	app, idx := realSaveAppForSave(t)
 	snap, err := app.StartInventoryEditSession(idx)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	// Set pending AoW on an existing weapon. Use the first inventory
-	// item that's a weapon.
 	weaponUID := ""
 	for _, it := range snap.InventoryItems {
 		if it.IsWeapon {
@@ -109,23 +111,71 @@ func TestSaveInventoryWorkspaceChanges_RejectsPendingAoW(t *testing.T) {
 	if weaponUID == "" {
 		t.Skip("no weapon in inventory")
 	}
-	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, weaponUID, editor.WeaponPatch{
-		SetAoWItemID: true, AoWItemID: 0x80002710, // Lion's Claw
-	}); err != nil {
-		t.Fatalf("UpdateWeapon: %v", err)
+	// Direct workspace mutation (bypassing UpdateWeapon's validation)
+	// to plant a non-AoW item ID into PendingAoWItemID.
+	sess := app.editSessions[snap.SessionID]
+	for i := range sess.Workspace.InventoryItems {
+		if sess.Workspace.InventoryItems[i].UID == weaponUID {
+			sess.Workspace.InventoryItems[i].PendingAoWItemID = 0x003085E0 // Claymore — weapon, not AoW
+			break
+		}
 	}
 
 	slot := &app.save.Slots[idx]
 	before := snapshotSlotBytes(slot)
 	_, err = app.SaveInventoryWorkspaceChanges(snap.SessionID)
 	if err == nil {
-		t.Fatal("expected error for pending AoW")
-	}
-	if !strings.Contains(err.Error(), "pending AoW") {
-		t.Errorf("error should mention pending AoW, got %v", err)
+		t.Fatal("expected rejection for non-AoW pending item")
 	}
 	if !bytes.Equal(slot.Data, before) {
-		t.Error("slot.Data mutated after rejection")
+		t.Error("slot.Data mutated after non-AoW rejection")
+	}
+}
+
+// Save with a known-incompatible AoW (different weapon family) is
+// rejected fail-closed by validatePendingAoWChanges before any
+// mutation reaches slot.Data.
+func TestSaveInventoryWorkspaceChanges_RejectsIncompatibleAoW(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Find any weapon the DB says is incompatible with Lion's Claw
+	// (known=true, compatible=false). Daggers, bows, fists etc. all
+	// qualify — search broadly.
+	const lionsClaw = uint32(0x80002710)
+	weaponUID := ""
+	for _, it := range snap.InventoryItems {
+		if !it.IsWeapon {
+			continue
+		}
+		compat, known := db.IsAshOfWarCompatibleWithWeapon(lionsClaw, it.ItemID)
+		if known && !compat {
+			weaponUID = it.UID
+			break
+		}
+	}
+	if weaponUID == "" {
+		t.Skip("no known-incompatible weapon in fixture to test against Lion's Claw")
+	}
+	// Plant directly to bypass UpdateWeapon's accept check (which is
+	// identity-based, not compat-based).
+	sess := app.editSessions[snap.SessionID]
+	for i := range sess.Workspace.InventoryItems {
+		if sess.Workspace.InventoryItems[i].UID == weaponUID {
+			sess.Workspace.InventoryItems[i].PendingAoWItemID = 0x80002710
+			break
+		}
+	}
+	slot := &app.save.Slots[idx]
+	before := snapshotSlotBytes(slot)
+	_, err = app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err == nil {
+		t.Fatal("expected incompatible-AoW rejection")
+	}
+	if !bytes.Equal(slot.Data, before) {
+		t.Error("slot.Data mutated after incompatibility rejection")
 	}
 }
 
@@ -726,39 +776,370 @@ func TestSaveInventoryWorkspaceChanges_PreservesCurrentAoWAfterReparse(t *testin
 	check(updated.StorageItems)
 }
 
-// Save with PendingAoWItemID != 0 must still reject byte-for-byte.
-// Phase 4A does not implement the write path — it only adds read-side
-// surface area.
-func TestSaveInventoryWorkspaceChanges_PendingAoWStillRejectedInPhase4A(t *testing.T) {
+// ─── Phase 4B: pending AoW save success paths ────────────────────
+
+// Save pending AoW on an existing weapon. Picks the weapon whose
+// CurrentAoWStatus already permits a known-compatible AoW so the
+// IsAshOfWarCompatibleWithWeapon gate accepts.
+func TestSaveInventoryWorkspaceChanges_SavesPendingAoWOnExistingWeapon(t *testing.T) {
 	app, idx := realSaveAppForSave(t)
 	snap, err := app.StartInventoryEditSession(idx)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	weaponUID := ""
+	// Use Lion's Claw (greatsword-class). Pick the first Claymore (or
+	// any GemMountType=2 weapon known to take Lion's Claw). Easier: any
+	// weapon already showing CurrentAoWStatus="custom" is by definition
+	// AoW-compatible at the weapon level — we can swap in Lion's Claw
+	// only if the IsAshOfWarCompatibleWithWeapon helper accepts. Iterate
+	// candidates until one passes the compat gate.
+	const aowID = uint32(0x80002710) // Lion's Claw
+	weaponUID, weaponHandle := "", uint32(0)
 	for _, it := range snap.InventoryItems {
-		if it.IsWeapon {
+		if !it.IsWeapon || it.MaxUpgrade < 25 {
+			continue
+		}
+		compat, known := dbCompatHelper(it.ItemID, aowID)
+		if known && compat {
 			weaponUID = it.UID
+			weaponHandle = it.OriginalHandle
 			break
 		}
 	}
 	if weaponUID == "" {
-		t.Skip("no weapon in inventory")
+		t.Skip("no Lion's Claw-compatible weapon in inventory")
 	}
 	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, weaponUID, editor.WeaponPatch{
-		SetAoWItemID: true, AoWItemID: 0x80002710, // Lion's Claw
+		SetAoWItemID: true, AoWItemID: aowID,
 	}); err != nil {
 		t.Fatalf("UpdateWeapon: %v", err)
 	}
-	slot := &app.save.Slots[idx]
-	before := snapshotSlotBytes(slot)
-	_, err = app.SaveInventoryWorkspaceChanges(snap.SessionID)
-	if err == nil {
-		t.Fatal("expected error for pending AoW")
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
 	}
-	if !bytes.Equal(slot.Data, before) {
-		t.Error("slot.Data mutated after Phase 4A pending-AoW rejection")
+	if updated.Dirty {
+		t.Error("Dirty should be false after Save")
 	}
+	// Find weapon post-save: its handle is stable across reorder/save.
+	var post *editor.EditableItem
+	for i := range updated.InventoryItems {
+		if updated.InventoryItems[i].OriginalHandle == weaponHandle {
+			post = &updated.InventoryItems[i]
+			break
+		}
+	}
+	if post == nil {
+		t.Fatalf("weapon 0x%08X missing after save", weaponHandle)
+	}
+	if post.CurrentAoWItemID != aowID {
+		t.Errorf("CurrentAoWItemID = 0x%08X, want 0x%08X", post.CurrentAoWItemID, aowID)
+	}
+	if post.CurrentAoWStatus != editor.AoWStatusCustom {
+		t.Errorf("CurrentAoWStatus = %q, want %q", post.CurrentAoWStatus, editor.AoWStatusCustom)
+	}
+	if post.CurrentAoWShared {
+		t.Error("CurrentAoWShared should be false for a freshly minted AoW handle")
+	}
+	if post.PendingAoWItemID != 0 || post.PendingAoWName != "" || post.PendingAoWClear {
+		t.Errorf("Pending* fields should clear after save, got %+v", post)
+	}
+}
+
+// Save pending AoW on a newly added weapon.
+func TestSaveInventoryWorkspaceChanges_SavesPendingAoWOnAddedWeapon(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Add a Claymore (greatsword, Lion's Claw-compatible) and queue
+	// Lion's Claw as its pending AoW.
+	const (
+		claymoreID = uint32(0x003085E0)
+		aowID      = uint32(0x80002710)
+	)
+	if _, err := app.AddInventoryWorkspaceItem(snap.SessionID,
+		editor.AddItemSpec{ItemID: claymoreID}, "inventory", 0); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	post1, err := app.GetInventoryEditSession(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(post1.InventoryItems) == 0 || post1.InventoryItems[0].ItemID != claymoreID {
+		t.Fatalf("added Claymore not at inv[0]: %+v", post1.InventoryItems)
+	}
+	addedUID := post1.InventoryItems[0].UID
+	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, addedUID, editor.WeaponPatch{
+		SetAoWItemID: true, AoWItemID: aowID,
+	}); err != nil {
+		t.Fatalf("UpdateWeapon: %v", err)
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// The added Claymore should now be original (reparsed from slot).
+	var added *editor.EditableItem
+	for i := range updated.InventoryItems {
+		if updated.InventoryItems[i].ItemID == claymoreID &&
+			updated.InventoryItems[i].CurrentAoWItemID == aowID {
+			added = &updated.InventoryItems[i]
+			break
+		}
+	}
+	if added == nil {
+		t.Fatalf("added Claymore with Lion's Claw not found post-save")
+	}
+	if added.OriginalHandle == 0 {
+		t.Error("added weapon must have a real handle after save")
+	}
+	if added.CurrentAoWStatus != editor.AoWStatusCustom {
+		t.Errorf("CurrentAoWStatus = %q, want custom", added.CurrentAoWStatus)
+	}
+}
+
+// Save pending AoW + transfer: weapon moves to other container and
+// receives Lion's Claw in same session.
+func TestSaveInventoryWorkspaceChanges_SavesPendingAoWPlusTransfer(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	const aowID = uint32(0x80002710)
+	weaponUID, weaponHandle := "", uint32(0)
+	for _, it := range snap.InventoryItems {
+		if !it.IsWeapon || it.MaxUpgrade < 25 {
+			continue
+		}
+		if compat, known := dbCompatHelper(it.ItemID, aowID); known && compat {
+			weaponUID = it.UID
+			weaponHandle = it.OriginalHandle
+			break
+		}
+	}
+	if weaponUID == "" {
+		t.Skip("no Lion's Claw-compatible weapon for transfer+AoW")
+	}
+	if _, err := app.TransferInventoryWorkspaceItem(snap.SessionID, weaponUID, "storage"); err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, weaponUID, editor.WeaponPatch{
+		SetAoWItemID: true, AoWItemID: aowID,
+	}); err != nil {
+		t.Fatalf("UpdateWeapon: %v", err)
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	var post *editor.EditableItem
+	for i := range updated.StorageItems {
+		if updated.StorageItems[i].OriginalHandle == weaponHandle {
+			post = &updated.StorageItems[i]
+			break
+		}
+	}
+	if post == nil {
+		t.Fatalf("weapon 0x%08X missing from storage post-save", weaponHandle)
+	}
+	if post.CurrentAoWItemID != aowID {
+		t.Errorf("CurrentAoWItemID = 0x%08X, want 0x%08X", post.CurrentAoWItemID, aowID)
+	}
+}
+
+// Save pending AoW + weapon upgrade: both ItemID and AoW persist.
+func TestSaveInventoryWorkspaceChanges_SavesPendingAoWPlusUpgrade(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	const aowID = uint32(0x80002710)
+	// Find any Lion's Claw-compatible weapon with at least 1 upgrade
+	// step of headroom. We'll patch to (CurrentUpgrade+1) to keep the
+	// math simple regardless of starting point.
+	weaponUID, weaponHandle, weaponBase, startUp := "", uint32(0), uint32(0), 0
+	for _, it := range snap.InventoryItems {
+		if !it.IsWeapon || it.MaxUpgrade < it.CurrentUpgrade+1 {
+			continue
+		}
+		if compat, known := dbCompatHelper(it.ItemID, aowID); known && compat {
+			weaponUID = it.UID
+			weaponHandle = it.OriginalHandle
+			weaponBase = it.BaseItemID
+			startUp = it.CurrentUpgrade
+			break
+		}
+	}
+	if weaponUID == "" {
+		t.Skip("no eligible upgrade+AoW weapon")
+	}
+	targetUp := startUp + 1
+	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, weaponUID, editor.WeaponPatch{
+		SetUpgrade: true, Upgrade: targetUp,
+	}); err != nil {
+		t.Fatalf("UpdateWeapon upgrade: %v", err)
+	}
+	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, weaponUID, editor.WeaponPatch{
+		SetAoWItemID: true, AoWItemID: aowID,
+	}); err != nil {
+		t.Fatalf("UpdateWeapon AoW: %v", err)
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	var post *editor.EditableItem
+	for i := range updated.InventoryItems {
+		if updated.InventoryItems[i].OriginalHandle == weaponHandle {
+			post = &updated.InventoryItems[i]
+			break
+		}
+	}
+	if post == nil {
+		t.Fatalf("weapon missing post-save")
+	}
+	// Note: ItemID re-encoding uses BaseItemID + infusionOffset + level.
+	// We only check that CurrentUpgrade reached the target; the exact
+	// ItemID may carry a non-zero infusion offset if the source weapon
+	// is already infused, which is independent of this test's goal.
+	if post.CurrentUpgrade != targetUp {
+		t.Errorf("CurrentUpgrade = %d, want %d (base 0x%08X)", post.CurrentUpgrade, targetUp, weaponBase)
+	}
+	if post.CurrentAoWItemID != aowID {
+		t.Errorf("CurrentAoWItemID = 0x%08X, want 0x%08X", post.CurrentAoWItemID, aowID)
+	}
+}
+
+// Save the same AoW item ID on two different weapons in one session.
+// PatchWeaponAoW must mint distinct handles so CurrentAoWShared stays
+// false for both.
+func TestSaveInventoryWorkspaceChanges_TwoWeaponsSameAoWItem_DistinctHandles(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	const aowID = uint32(0x80002710)
+	var picks []editor.EditableItem
+	for _, it := range snap.InventoryItems {
+		if !it.IsWeapon || it.MaxUpgrade < 25 {
+			continue
+		}
+		if compat, known := dbCompatHelper(it.ItemID, aowID); known && compat {
+			picks = append(picks, it)
+			if len(picks) == 2 {
+				break
+			}
+		}
+	}
+	if len(picks) < 2 {
+		t.Skip("need at least 2 Lion's Claw-compatible weapons for distinct-handle test")
+	}
+	for _, w := range picks {
+		if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, w.UID, editor.WeaponPatch{
+			SetAoWItemID: true, AoWItemID: aowID,
+		}); err != nil {
+			t.Fatalf("UpdateWeapon %s: %v", w.UID, err)
+		}
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	handles := map[uint32]bool{}
+	for _, w := range picks {
+		for _, it := range updated.InventoryItems {
+			if it.OriginalHandle != w.OriginalHandle {
+				continue
+			}
+			if it.CurrentAoWItemID != aowID {
+				t.Errorf("weapon 0x%08X CurrentAoWItemID = 0x%08X, want 0x%08X",
+					w.OriginalHandle, it.CurrentAoWItemID, aowID)
+			}
+			if it.CurrentAoWShared {
+				t.Errorf("weapon 0x%08X CurrentAoWShared should be false (distinct handles)",
+					w.OriginalHandle)
+			}
+			if it.CurrentAoWHandle == 0 {
+				t.Errorf("weapon 0x%08X has zero CurrentAoWHandle post-save", w.OriginalHandle)
+			}
+			if handles[it.CurrentAoWHandle] {
+				t.Errorf("duplicate CurrentAoWHandle 0x%08X across saved weapons",
+					it.CurrentAoWHandle)
+			}
+			handles[it.CurrentAoWHandle] = true
+			break
+		}
+	}
+}
+
+// Save pending AoW clear: weapon's CurrentAoWStatus drops to "none".
+func TestSaveInventoryWorkspaceChanges_SavesPendingAoWClear(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Find any weapon with a custom AoW currently attached.
+	weaponUID, weaponHandle := "", uint32(0)
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon && it.CurrentAoWStatus == editor.AoWStatusCustom {
+			weaponUID = it.UID
+			weaponHandle = it.OriginalHandle
+			break
+		}
+	}
+	for _, it := range snap.StorageItems {
+		if weaponUID != "" {
+			break
+		}
+		if it.IsWeapon && it.CurrentAoWStatus == editor.AoWStatusCustom {
+			weaponUID = it.UID
+			weaponHandle = it.OriginalHandle
+			break
+		}
+	}
+	if weaponUID == "" {
+		t.Skip("no weapon with custom AoW in fixture to clear")
+	}
+	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, weaponUID, editor.WeaponPatch{
+		ClearAoW: true,
+	}); err != nil {
+		t.Fatalf("UpdateWeapon ClearAoW: %v", err)
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	check := func(items []editor.EditableItem) bool {
+		for _, it := range items {
+			if it.OriginalHandle == weaponHandle {
+				if it.CurrentAoWStatus != editor.AoWStatusNone {
+					t.Errorf("after clear, CurrentAoWStatus = %q, want %q",
+						it.CurrentAoWStatus, editor.AoWStatusNone)
+				}
+				if it.HasCurrentAoW {
+					t.Error("HasCurrentAoW should be false after clear")
+				}
+				return true
+			}
+		}
+		return false
+	}
+	if !check(updated.InventoryItems) && !check(updated.StorageItems) {
+		t.Errorf("weapon 0x%08X missing post-save", weaponHandle)
+	}
+}
+
+// dbCompatHelper wraps db.IsAshOfWarCompatibleWithWeapon so tests can
+// call it without importing db at the test file's package level. Keeps
+// the import surface narrow.
+func dbCompatHelper(weaponItemID, aowItemID uint32) (bool, bool) {
+	return db.IsAshOfWarCompatibleWithWeapon(aowItemID, weaponItemID)
 }
 
 // ─── Phase 3B: baseline regeneration ──────────────────────────────

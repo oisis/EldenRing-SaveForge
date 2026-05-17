@@ -16,12 +16,13 @@ import (
 // Callers use this to follow the same item through subsequent edits.
 type HandlesByUID map[string]uint32
 
-// ApplyWorkspaceSave is the Phase 3B commit path. It validates the
-// workspace, rejects changes still out of scope (pending AoW), then
-// writes a reorder + add + transfer + remove + weapon-upgrade plan
-// into slot.Data via the wipe-and-replay layout.
+// ApplyWorkspaceSave is the Phase 4B commit path. It validates the
+// workspace, rejects out-of-scope or unsafe edits, then writes a
+// reorder + add + transfer + remove + weapon-upgrade + pending-AoW plan
+// into slot.Data via the wipe-and-replay layout plus targeted GaItem
+// patches.
 //
-// In scope for Phase 3B (extends Phase 3A):
+// In scope for Phase 4B (extends Phase 3B):
 //   - reorder existing editable items within their original container
 //   - transfer existing editable items between Inventory and Storage —
 //     OriginalHandle is preserved, the GaItem stays in place, and only
@@ -36,12 +37,22 @@ type HandlesByUID map[string]uint32
 //   - patch weapon ItemID for existing items with upgrade/infusion
 //     changes via core.PatchWeaponItemID (works correctly for
 //     transferred weapons too — patch keys on handle, not container)
+//   - apply pending AoW edits (Phase 4B):
+//       * PendingAoWItemID != 0 — allocate a fresh AoW GaItem via
+//         core.PatchWeaponAoW (never reuses a handle, so two weapons
+//         setting the same AoW item get distinct handles)
+//       * PendingAoWClear == true — patch weapon's AoWGaItemHandle
+//         field to the canonical no-custom sentinel via
+//         core.PatchWeaponAoWHandle (in-place, no rebuild)
 //   - preserve unsupported/pass-through records at their original
 //     physical SlotIndex
 //
 // Still rejected with clear errors (slot.Data left untouched):
-//   - workspace validation errors
-//   - any EditableItem with PendingAoWItemID != 0 (Phase 4)
+//   - workspace validation errors (including the new
+//     CodePendingAoWConflict)
+//   - any pending AoW set whose AoW item is not category "ashes_of_war"
+//   - any pending AoW set whose (aow, weapon) compatibility is known
+//     and false, or unknown (fail-closed)
 //   - missing baseline data (session created without baseline tracking)
 //   - inventory or storage capacity exceeded by the final layout
 //   - pass-through SlotIndex collisions
@@ -77,11 +88,16 @@ func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, b
 			len(rep.Errors), rep.Errors[0].Message)
 	}
 
-	if err := rejectPendingAoW(snap); err != nil {
-		return nil, err
-	}
 	if baseline == nil {
-		return nil, fmt.Errorf("ApplyWorkspaceSave: session missing baseline handle map (Phase 3B requires a session created with baseline tracking)")
+		return nil, fmt.Errorf("ApplyWorkspaceSave: session missing baseline handle map (requires a session created with baseline tracking)")
+	}
+	// Pending AoW pre-flight (Phase 4B). Collect intents first so
+	// execution and validation share one source of truth; validation
+	// runs before any mutation so slot.Data stays byte-identical on
+	// rejection.
+	aowChanges := collectPendingAoWChanges(snap)
+	if err := validatePendingAoWChanges(aowChanges); err != nil {
+		return nil, err
 	}
 	// Note: transfer and remove are now in-scope. We still compute the
 	// plans up-front so any future per-action validation has a single
@@ -140,6 +156,15 @@ func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, b
 		return nil, fmt.Errorf("ApplyWorkspaceSave: %w", err)
 	}
 
+	// ── Step 2.5: apply pending AoW patches (Phase 4B) ────────────
+	// Runs AFTER executeAdds so added weapons have real handles, and
+	// AFTER executeWeaponPatches so any upgrade/infusion-driven ItemID
+	// change has already settled (compatibility was validated against
+	// the workspace's effective ItemID up-front).
+	if err := executePendingAoWPatches(slot, snap, aowChanges); err != nil {
+		return nil, fmt.Errorf("ApplyWorkspaceSave: %w", err)
+	}
+
 	// ── Step 3: wipe + replay record layouts in both containers ───
 	if err := writeContainerLayout(slot, snap, ContainerInventory); err != nil {
 		return nil, fmt.Errorf("ApplyWorkspaceSave: write inventory: %w", err)
@@ -155,19 +180,153 @@ func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, b
 	return handles, nil
 }
 
-// rejectPendingAoW returns an error if any editable item carries a
-// pending AoW request. Phase 3B still cannot allocate AoW handles —
-// pending AoW save lands in Phase 4 alongside compatibility checks.
-func rejectPendingAoW(snap *InventoryWorkspaceSnapshot) error {
-	for _, list := range [][]EditableItem{snap.InventoryItems, snap.StorageItems} {
-		for _, it := range list {
-			if it.PendingAoWItemID != 0 {
-				return fmt.Errorf("ApplyWorkspaceSave: pending AoW save not implemented (item %s, UID %s, pending AoW 0x%08X)",
-					it.Name, it.UID, it.PendingAoWItemID)
+// pendingAoWChange is a single pending AoW intent extracted from the
+// workspace at save time. Exactly one of (AoWItemID != 0) or Clear is
+// true — collect rejects ambiguous state up-front.
+//
+// WeaponItemID is the workspace's effective ItemID at collect time
+// (may include pending upgrade/infusion offset); IsAshOfWarCompatibleWithWeapon
+// uses fuzzy DB resolution so the upgrade offset doesn't matter for
+// compatibility — the underlying weapon type drives the gate.
+type pendingAoWChange struct {
+	UID          string
+	Container    ContainerKind
+	WeaponItemID uint32
+	WeaponName   string
+	AoWItemID    uint32 // 0 ⇒ clear
+	Clear        bool
+}
+
+// collectPendingAoWChanges walks both editable lists and returns one
+// pendingAoWChange per weapon with a pending AoW intent
+// (PendingAoWItemID != 0 OR PendingAoWClear == true). Non-weapon
+// editables and items with no pending AoW edit are skipped.
+//
+// Items with conflicting state (clear + set) are skipped here — the
+// validator catches them via CodePendingAoWConflict before execution.
+func collectPendingAoWChanges(snap *InventoryWorkspaceSnapshot) []pendingAoWChange {
+	var out []pendingAoWChange
+	gather := func(items []EditableItem, container ContainerKind) {
+		for i := range items {
+			it := &items[i]
+			if !it.IsWeapon {
+				continue
+			}
+			switch {
+			case it.PendingAoWClear && it.PendingAoWItemID != 0:
+				// Conflicting state — let validator surface it.
+				continue
+			case it.PendingAoWClear:
+				out = append(out, pendingAoWChange{
+					UID: it.UID, Container: container,
+					WeaponItemID: it.ItemID, WeaponName: it.Name,
+					Clear: true,
+				})
+			case it.PendingAoWItemID != 0:
+				out = append(out, pendingAoWChange{
+					UID: it.UID, Container: container,
+					WeaponItemID: it.ItemID, WeaponName: it.Name,
+					AoWItemID: it.PendingAoWItemID,
+				})
 			}
 		}
 	}
+	gather(snap.InventoryItems, ContainerInventory)
+	gather(snap.StorageItems, ContainerStorage)
+	return out
+}
+
+// validatePendingAoWChanges performs read-only checks against the DB.
+// Runs BEFORE any mutation so slot.Data stays untouched on rejection.
+//
+// Rules:
+//   - Clear intents pass unconditionally — the no-custom sentinel is
+//     always a legal AoW state.
+//   - Set intents must resolve to a known DB item with category
+//     "ashes_of_war".
+//   - (aow, weapon) compatibility must be true. Fail-closed on unknown
+//     compatibility (e.g., DLC weapons not yet wired into the compat
+//     bitmask) so save never silently produces a state the game can't
+//     load.
+func validatePendingAoWChanges(changes []pendingAoWChange) error {
+	for _, c := range changes {
+		if c.Clear {
+			continue
+		}
+		aow, _ := db.GetItemDataFuzzy(c.AoWItemID)
+		if aow.Name == "" {
+			return fmt.Errorf("ApplyWorkspaceSave: pending AoW 0x%08X unknown in DB (weapon %s)",
+				c.AoWItemID, c.WeaponName)
+		}
+		if aow.Category != "ashes_of_war" {
+			return fmt.Errorf("ApplyWorkspaceSave: pending AoW 0x%08X (%s) is category %q, not ashes_of_war (weapon %s)",
+				c.AoWItemID, aow.Name, aow.Category, c.WeaponName)
+		}
+		wep, _ := db.GetItemDataFuzzy(c.WeaponItemID)
+		compat, known := db.IsAshOfWarCompatibleWithWeapon(c.AoWItemID, c.WeaponItemID)
+		if !known {
+			return fmt.Errorf("ApplyWorkspaceSave: AoW/weapon compatibility unknown for AoW %s (0x%08X) on weapon %s (0x%08X, category %q, WepType=%d) — refusing fail-closed",
+				aow.Name, c.AoWItemID, c.WeaponName, c.WeaponItemID, wep.Category, wep.WepType)
+		}
+		if !compat {
+			return fmt.Errorf("ApplyWorkspaceSave: AoW %s (0x%08X) is not compatible with weapon %s (0x%08X, WepType=%d)",
+				aow.Name, c.AoWItemID, c.WeaponName, c.WeaponItemID, wep.WepType)
+		}
+	}
 	return nil
+}
+
+// executePendingAoWPatches applies each pendingAoWChange to slot via
+// core helpers. Set intents allocate a fresh AoW GaItem and rebuild the
+// slot; clear intents patch in-place. Each call re-resolves the weapon
+// handle from snap so added weapons (assigned a real handle by
+// executeAdds) are found correctly.
+//
+// Shared-handle prevention: core.PatchWeaponAoW always mints a new
+// handle via generateUniqueHandle, so even N pending sets targeting
+// the same AoW itemID across N weapons produce N distinct handles.
+//
+// Old AoW GaItems left behind by a clear or by a replaced custom AoW
+// are intentionally NOT garbage-collected (Phase 4B policy — see the
+// notes under ApplyWorkspaceSave's docstring).
+func executePendingAoWPatches(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, changes []pendingAoWChange) error {
+	for _, c := range changes {
+		handle := lookupHandleByUID(snap, c.UID)
+		if handle == 0 {
+			return fmt.Errorf("pending AoW on %s: weapon handle not resolved (UID=%q)",
+				c.WeaponName, c.UID)
+		}
+		if c.Clear {
+			if err := core.PatchWeaponAoWHandle(slot, handle, core.NoCustomAoWHandle); err != nil {
+				return fmt.Errorf("clear AoW on %s (handle 0x%08X): %w",
+					c.WeaponName, handle, err)
+			}
+			continue
+		}
+		if err := core.PatchWeaponAoW(slot, handle, c.AoWItemID); err != nil {
+			return fmt.Errorf("set AoW 0x%08X on %s (handle 0x%08X): %w",
+				c.AoWItemID, c.WeaponName, handle, err)
+		}
+	}
+	return nil
+}
+
+// lookupHandleByUID finds the editable item with the given UID across
+// both containers and returns its OriginalHandle (0 if not found).
+// Used by executePendingAoWPatches after executeAdds has populated
+// handles for Source=Added items.
+func lookupHandleByUID(snap *InventoryWorkspaceSnapshot, uid string) uint32 {
+	for _, it := range snap.InventoryItems {
+		if it.UID == uid {
+			return it.OriginalHandle
+		}
+	}
+	for _, it := range snap.StorageItems {
+		if it.UID == uid {
+			return it.OriginalHandle
+		}
+	}
+	return 0
 }
 
 // currentEditableContainerMap collapses both editable container slices

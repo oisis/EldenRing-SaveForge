@@ -33,15 +33,12 @@ func TestValidate_CleanWorkspaceIsOK(t *testing.T) {
 	if len(rep.Errors) != 0 {
 		t.Errorf("unexpected errors: %+v", rep.Errors)
 	}
-	// Shared-AoW deferral warning is always present in Phase 1.
-	foundDeferral := false
+	// Phase 4B removed the global CodeSharedAoWNotChecked deferral
+	// warning — per-item AoW warnings (current_aow_*) replaced it.
 	for _, w := range rep.Warnings {
 		if w.Code == CodeSharedAoWNotChecked {
-			foundDeferral = true
+			t.Errorf("global CodeSharedAoWNotChecked should no longer be emitted; got %+v", w)
 		}
-	}
-	if !foundDeferral {
-		t.Errorf("expected shared-AoW deferral warning")
 	}
 }
 

@@ -131,6 +131,7 @@ type EditableItem struct {
 	CurrentAoWStatus      string        `json:"currentAoWStatus,omitempty"`
 	PendingAoWItemID      uint32        `json:"pendingAoWItemID,omitempty"`
 	PendingAoWName        string        `json:"pendingAoWName,omitempty"`
+	PendingAoWClear       bool          `json:"pendingAoWClear,omitempty"`
 	HasPendingWeaponPatch bool          `json:"hasPendingWeaponPatch,omitempty"`
 }
 

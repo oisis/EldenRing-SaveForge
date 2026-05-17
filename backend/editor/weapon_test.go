@@ -291,6 +291,11 @@ func TestUpdateWeapon_SetAoWZeroClearsPending(t *testing.T) {
 	if it.PendingAoWItemID != 0 || it.PendingAoWName != "" {
 		t.Errorf("pending AoW should be cleared: %+v", it)
 	}
+	// Phase 4B: SetAoWItemID=0 is an explicit clear-intent — Save
+	// patches the weapon to the no-custom sentinel.
+	if !it.PendingAoWClear {
+		t.Errorf("PendingAoWClear should be true after SetAoWItemID=0")
+	}
 }
 
 func TestUpdateWeapon_ClearAoWFlag(t *testing.T) {
@@ -306,6 +311,30 @@ func TestUpdateWeapon_ClearAoWFlag(t *testing.T) {
 	it := snap.InventoryItems[0]
 	if it.PendingAoWItemID != 0 || it.PendingAoWName != "" {
 		t.Errorf("ClearAoW failed to wipe pending fields: %+v", it)
+	}
+	if !it.PendingAoWClear {
+		t.Errorf("PendingAoWClear should be true after ClearAoW")
+	}
+}
+
+// SetAoWItemID with a real ID after a prior clear request should
+// supersede the clear — workspace must end up in a "set" state, not
+// in the rejected "set+clear" state.
+func TestUpdateWeapon_SetAoWOverridesPriorClear(t *testing.T) {
+	snap := weaponSnap()
+	snap.InventoryItems[0].PendingAoWClear = true
+
+	if err := UpdateWeapon(snap, "hnd:0x80800001", WeaponPatch{
+		SetAoWItemID: true, AoWItemID: aowLionsClaw,
+	}); err != nil {
+		t.Fatalf("UpdateWeapon: %v", err)
+	}
+	it := snap.InventoryItems[0]
+	if it.PendingAoWItemID != aowLionsClaw {
+		t.Errorf("PendingAoWItemID = 0x%08X, want 0x%08X", it.PendingAoWItemID, aowLionsClaw)
+	}
+	if it.PendingAoWClear {
+		t.Error("PendingAoWClear should be false after SetAoWItemID with real ID")
 	}
 }
 

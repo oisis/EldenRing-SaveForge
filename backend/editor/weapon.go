@@ -16,16 +16,21 @@ import (
 //   - SetUpgrade:      Upgrade replaces CurrentUpgrade; ItemID is re-encoded.
 //   - SetInfusionName: InfusionName replaces the current infusion; ItemID
 //     is re-encoded. "" / "Standard" map to the un-infused offset 0.
-//   - SetAoWItemID:    AoWItemID is stored as PendingAoWItemID (and the
-//     resolved name as PendingAoWName). AoWItemID == 0 is treated as a
-//     clear (same as ClearAoW).
-//   - ClearAoW:        clears PendingAoWItemID/PendingAoWName.
+//   - SetAoWItemID:    AoWItemID != 0 stores it as PendingAoWItemID (with
+//     resolved PendingAoWName) and resets PendingAoWClear. AoWItemID == 0
+//     is treated as a clear (same as ClearAoW): sets PendingAoWClear=true,
+//     clears PendingAoWItemID / PendingAoWName.
+//   - ClearAoW:        sets PendingAoWClear=true and clears
+//     PendingAoWItemID / PendingAoWName. Distinct from "no pending edit"
+//     — Save will patch the weapon's AoWGaItemHandle to the no-custom
+//     sentinel.
 //
-// Phase 1.7 hard limits:
-//   - No real handle allocation. AoW handle minting is Phase 4/Save.
-//   - No slot.Data mutation. No legacy ApplyWeapon* calls.
-//   - Shared-AoW corruption detection is still deferred (warning emitted
-//     by Validate).
+// Phase 4B contract:
+//   - Save consumes PendingAoWItemID (custom AoW set) and PendingAoWClear
+//     (custom AoW removal) and patches slot via core.PatchWeaponAoW /
+//     core.PatchWeaponAoWHandle.
+//   - PendingAoWItemID != 0 and PendingAoWClear == true at the same time
+//     is rejected by Validate.
 type WeaponPatch struct {
 	SetUpgrade      bool   `json:"setUpgrade"`
 	Upgrade         int    `json:"upgrade"`
@@ -92,6 +97,7 @@ func UpdateWeapon(snap *InventoryWorkspaceSnapshot, uid string, patch WeaponPatc
 	var pendingAoWID uint32
 	var pendingAoWName string
 	applyAoW := false
+	aoWClearIntent := false
 	if patch.SetAoWItemID {
 		applyAoW = true
 		if patch.AoWItemID != 0 {
@@ -105,7 +111,15 @@ func UpdateWeapon(snap *InventoryWorkspaceSnapshot, uid string, patch WeaponPatc
 			}
 			pendingAoWID = patch.AoWItemID
 			pendingAoWName = aow.Name
+		} else {
+			// SetAoWItemID with explicit 0 is the wire-level "clear AoW"
+			// request — same intent as ClearAoW. Save will patch the
+			// weapon to the no-custom sentinel.
+			aoWClearIntent = true
 		}
+	}
+	if patch.ClearAoW {
+		aoWClearIntent = true
 	}
 
 	// All checks passed — commit.
@@ -122,9 +136,16 @@ func UpdateWeapon(snap *InventoryWorkspaceSnapshot, uid string, patch WeaponPatc
 		it.PendingAoWItemID = pendingAoWID
 		it.PendingAoWName = pendingAoWName
 	}
-	if patch.ClearAoW {
+	if aoWClearIntent {
+		// Clear (intent) wins over a stale Pending* set: keep workspace
+		// state unambiguous. Save reads PendingAoWClear to decide whether
+		// to patch the AoWGaItemHandle to the no-custom sentinel.
+		it.PendingAoWClear = true
 		it.PendingAoWItemID = 0
 		it.PendingAoWName = ""
+	} else if applyAoW && pendingAoWID != 0 {
+		// Setting a real custom AoW supersedes any prior clear request.
+		it.PendingAoWClear = false
 	}
 
 	if patch.SetUpgrade || patch.SetInfusionName || patch.SetAoWItemID || patch.ClearAoW {
