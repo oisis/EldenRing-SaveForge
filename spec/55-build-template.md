@@ -1,0 +1,212 @@
+# 55 — Build Template
+
+> **Type**: Design doc
+> **Status**: 🔲 Planned — Phase A implemented (`backend/templates/`), Phase B–E pending
+> **Scope**: Portable JSON representation of an Inventory Workspace snapshot. Defines the `saveforge.build-template` schema v1, the export contract (`BuildTemplateFromSnapshot`), Ash of War handling rules, and what is deliberately excluded from the payload so a template can be applied to any save without colliding with its handle space.
+
+---
+
+## 1. Purpose
+
+Players want to bootstrap a new character with a known loadout — same weapons, upgrade levels, infusions, Ashes of War, sort order — without re-adding everything by hand. A "build template" is the portable, source-of-truth representation of that loadout.
+
+The template captures **only the game-content identifiers** that survive across saves. It deliberately excludes everything that ties data to a specific save: GaItem handles, session UIDs, acquisition indices, GaItem map flags. This makes templates safe to share between users, between platforms, and between characters within the same save.
+
+This document covers the v1 schema, the exporter contract (Phase A), and the placeholder design for import (Phase D/E). Settings export — UI preferences, theme, deploy targets — is a separate feature with its own schema and is out of scope here.
+
+---
+
+## 2. Schema header
+
+```json
+{
+  "schema": "saveforge.build-template",
+  "version": 1,
+  "createdAt": "2026-05-17T12:34:56Z",
+  "appVersion": "0.15.0-beta",
+  "metadata": { ... },
+  "sections": { ... }
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `schema` | string | ✅ | Must equal `"saveforge.build-template"`. Importer rejects any other value. |
+| `version` | int | ✅ | Schema version. v1 only in Phase A. Importer accepts `1 ≤ v ≤ SchemaVersion`. |
+| `createdAt` | string | ✅ | RFC 3339 UTC timestamp. Informational. |
+| `appVersion` | string | optional | SaveForge version that produced the template. Informational. |
+| `metadata` | object | optional | User-facing labels (name, description, tags, source character). No load-bearing fields. |
+| `sections` | object | ✅ | Section payloads keyed by stable section identifier. |
+
+Forward-compatible behavior: unknown fields under `metadata` are tolerated by Go's `encoding/json` and ignored. Unknown section keys are silently dropped by the v1 parser — a v2 reader will pick them up.
+
+---
+
+## 3. Section: `inventory.workspace`
+
+The Phase A payload. Mirrors the subset of `editor.InventoryWorkspaceSnapshot` that is portable.
+
+```json
+"sections": {
+  "inventory.workspace": {
+    "inventoryItems": [ TemplateItem, ... ],
+    "storageItems":   [ TemplateItem, ... ]
+  }
+}
+```
+
+Both arrays must be present (possibly empty), but `ValidateBuildTemplate` rejects the template if both are empty — an empty template has no use.
+
+### 3.1. `TemplateItem`
+
+```json
+{
+  "baseItemID":   4030000,
+  "name":         "Greatsword",
+  "category":     "melee_armaments",
+  "quantity":     1,
+  "upgrade":      25,
+  "infusionName": "Heavy",
+  "aowItemID":    2168029136,
+  "container":    "inventory",
+  "position":     0
+}
+```
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `baseItemID` | uint32 | ✅ | DB base ID (no upgrade/infusion encoding). Source of truth at import. **Must not be 0.** |
+| `name` | string | optional | Debug/display only. Not used at import. |
+| `category` | string | optional | Debug/display only. |
+| `quantity` | uint32 | ✅ | Stack size. **Must not be 0.** |
+| `upgrade` | int | optional | Weapon upgrade level (0–25 / 0–10 depending on weapon). Default 0. |
+| `infusionName` | string | optional | One of `db.InfuseTypes` names (`Heavy`, `Keen`, `Quality`, …). Absent or `""` means "Standard". |
+| `aowItemID` | uint32 (pointer) | optional | Custom Ash of War gem item ID. Absent if no custom AoW. **Never `0`.** |
+| `container` | string | ✅ | `"inventory"` or `"storage"`. Must match the parent array. |
+| `position` | int | ✅ | Stable sort position within the container, 0-indexed. |
+
+### 3.2. AoW encoding
+
+`aowItemID` is a pointer + `omitempty` so the JSON contract is:
+
+| Source `CurrentAoWStatus` | JSON output |
+|---|---|
+| `"custom"` with `CurrentAoWItemID != 0` | `"aowItemID": <id>` |
+| `"none"` (no custom AoW, sentinel handle) | field omitted |
+| `"missing"` (dangling handle) | field omitted + `aow_missing_skipped` warning |
+| `"shared"` (handle referenced by multiple weapons) | field omitted + `aow_shared_skipped` warning |
+| empty status (non-weapon) | field omitted |
+
+The exporter **never** writes `aowItemID: 0` and **never** writes the in-save no-custom sentinel handle (`0x00000000` / `0xFFFFFFFF`). Both would leak save-local addressing into the template.
+
+---
+
+## 4. Excluded fields
+
+These fields exist on `editor.EditableItem` but are deliberately **not** emitted by the exporter. They are session- or save-local and would tie the template to one save's handle space:
+
+- `originalHandle` — GaItem handle in the source save.
+- `currentAoWHandle` — GaItem handle of the source AoW.
+- `uid` — workspace session-scoped UUID.
+- `acquisitionIndex` — per-character chronology counter; will be re-issued on import.
+- `pendingAoWItemID`, `pendingAoWName`, `pendingAoWClear`, `hasPendingWeaponPatch` — unsaved RAM-only edits; the exporter mirrors *current saved* state, not pending requests.
+- `hasGaItem`, `hasCurrentAoW`, `currentAoWShared`, `currentAoWStatus` — derived flags; recomputed at import from the destination save's DB.
+- `isWeapon`, `isArmor`, `isTalisman` — derived from DB lookup at import; would only drift.
+- `maxUpgrade` — DB constant; never authoritative in a template.
+- `iconPath` — cosmetic; localised resource paths.
+
+Pass-through records (`UnsupportedInventoryRecords`, `UnsupportedStorageRecords`) are also excluded from Phase A. They describe items outside the Phase 1 editable allow-list and would not survive an `AddInventoryWorkspaceItem`-based import.
+
+A regression test in `backend/templates/schema_test.go` (`TestSchemaJSON_OmitsForbiddenFields`) marshals a fully-populated template and grep-asserts that none of these field names appear in the JSON.
+
+---
+
+## 5. Exporter contract (Phase A)
+
+```go
+func BuildTemplateFromSnapshot(
+    snap editor.InventoryWorkspaceSnapshot,
+    opts ExportOptions,
+) (*BuildTemplate, *ExportReport, error)
+```
+
+Behavior:
+
+- `opts.IncludeInventory` and `opts.IncludeStorage` independently gate the two arrays. At least one must be true.
+- Items are stable-sorted by `EditableItem.Position`; the resulting array index becomes the template's `position`. Divergence emits one `position_normalized` warning per affected item.
+- `BaseItemID == 0` and `Quantity == 0` are exporter errors (return `error`, no template produced).
+- `Source: added` and `Source: original` items are exported identically — the template is shape-only.
+- `opts.Now` is exposed for tests; production callers leave it zero and the exporter uses `time.Now().UTC()`.
+
+`ExportReport.Warnings[]` is non-empty when AoW state was dropped or positions renormalised. Each entry carries `{code, uid, container, position, message}`. The Phase B UI surfaces these warnings before writing the file.
+
+### 5.1. Warning codes
+
+| Code | Meaning |
+|---|---|
+| `aow_missing_skipped` | Weapon's source AoW handle did not resolve in `slot.GaMap`. AoW not exported. |
+| `aow_shared_skipped` | Weapon's source AoW handle was referenced by ≥2 weapons (save corruption). AoW not exported. |
+| `position_normalized` | An item's reported `Position` did not match its final array index after stable sort. |
+
+These strings are stable; importer UIs and tests are expected to assert on them.
+
+---
+
+## 6. Validator contract
+
+```go
+func ValidateBuildTemplate(tpl *BuildTemplate) error
+```
+
+Phase A scope: structural and invariant checks only. **No DB lookups.** Validates:
+
+- `tpl != nil`
+- `tpl.Schema == "saveforge.build-template"`
+- `0 < tpl.Version ≤ SchemaVersion`
+- `tpl.Sections.InventoryWorkspace != nil`
+- At least one of `inventoryItems` / `storageItems` is non-empty
+- Per item: `BaseItemID != 0`, `Quantity != 0`, `Container` matches the parent array
+
+DB-level checks (item exists, AoW compatible with weapon type, quantity within `MaxInventory*(NG+1)` cap) belong to the import path (Phase D) where the destination save's context is available.
+
+---
+
+## 7. Phase roadmap
+
+| Phase | Scope | Status |
+|---|---|---|
+| **A** | Schema + exporter (`backend/templates/`), spec doc, tests | ✅ this PR |
+| **B** | Wails binding `ExportBuildTemplateToFile`, SortOrderTab UI dropdown | 🔲 pending |
+| **C** | Local template library under `UserConfigDir`/`templates/` | 🔲 pending |
+| **D** | Import preview: `ValidateBuildTemplate` + DB resolution + AoW compat dry-run | 🔲 pending |
+| **E** | `ApplyBuildTemplateToWorkspace` — re-uses existing `AddInventoryWorkspaceItem` + `SaveInventoryWorkspaceChanges` path | 🔲 pending |
+| 2+ | `character.profile` section (level, stats, talisman slots), opt-in via `$enabled` | 🔲 deferred |
+
+Settings export (theme, deploy targets, UI preferences) is **not** part of this design. It will be a separate schema `saveforge.settings-export` if/when it becomes a priority.
+
+---
+
+## 8. Import path (preview design — Phase D/E)
+
+Phase A does not implement import. The schema is designed to support it without changes. Sketch:
+
+1. `LoadBuildTemplateFromFile(path)` → `*BuildTemplate` + structural validation.
+2. `PreviewBuildTemplateImport(sessionID, tpl, opts)` → diff report against current workspace:
+   - Resolve each `baseItemID` via `db.GetItemDataFuzzy`. Unknown → error per item.
+   - For weapons with `aowItemID`: check `db.IsAoWCompatibleWithWepType` against the weapon's `wepType`. Incompatible → warning per item.
+   - Cap `quantity` to `MaxInventory * (ClearCount + 1)` of the destination save (warning when clamped).
+3. `ApplyBuildTemplateToWorkspace(sessionID, tpl, mode)` translates each `TemplateItem` to `editor.AddItemSpec` and calls the existing `AddInventoryWorkspaceItem` mutation. The workspace is left dirty in RAM; nothing is written to the save until the user clicks **Save Changes**, which routes through the existing `SaveInventoryWorkspaceChanges` and reuses the proven handle allocator in `core.AddItemsToSlotBatch`.
+
+Critical invariant: import **never** auto-saves and **never** reads `originalHandle` from the template — the template does not carry one.
+
+---
+
+## 9. Sources
+
+- `backend/editor/workspace.go` — `EditableItem`, `InventoryWorkspaceSnapshot`, `AoWStatus*` constants.
+- `backend/editor/add.go` — `AddItemSpec`, the natural import-side mirror of `TemplateItem`.
+- `backend/editor/save.go` — `ApplyWorkspaceSave`, the eventual import write path.
+- `backend/db/db.go` — `GetItemDataFuzzy`, `InfuseTypes`, `IsAoWCompatibleWithWepType`.
+- [54-ash-of-war.md](54-ash-of-war.md) — sentinel handle semantics, shared-handle invariant.
+- [37-character-presets.md](37-character-presets.md) — prior preset export design; distinct from build templates, but informs versioning conventions.
+- [39-inventory-reorder.md](39-inventory-reorder.md), [52-acquisition-sort-stride2.md](52-acquisition-sort-stride2.md), [53-inventory-storage-transfer.md](53-inventory-storage-transfer.md) — workspace UI prior art.
