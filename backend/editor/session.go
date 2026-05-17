@@ -14,8 +14,10 @@ import (
 //
 // The session is held in-memory on App and never persisted to disk.
 // BaselineEditableHandles captures the (handle → container) state at
-// Start time and is consumed by Phase 3A save to detect out-of-scope
-// changes (transfer / remove) before any mutation reaches slot.Data.
+// Start time and is consumed by ApplyWorkspaceSave to detect transfers
+// and removals against the original load. Phase 3B regenerates this
+// after every successful save so subsequent edits diff against the
+// freshly-reparsed state rather than the original load.
 type InventoryEditSession struct {
 	ID                      string                   `json:"id"`
 	CharacterIndex          int                      `json:"characterIndex"`

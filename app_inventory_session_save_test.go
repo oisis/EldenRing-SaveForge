@@ -129,71 +129,617 @@ func TestSaveInventoryWorkspaceChanges_RejectsPendingAoW(t *testing.T) {
 	}
 }
 
-func TestSaveInventoryWorkspaceChanges_RejectsTransfer(t *testing.T) {
+// ─── Phase 3B: transfer success paths ─────────────────────────────
+
+func TestSaveInventoryWorkspaceChanges_TransferInventoryToStorage(t *testing.T) {
 	app, idx := realSaveAppForSave(t)
 	snap, err := app.StartInventoryEditSession(idx)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	weaponUID := ""
+	target := ""
+	var targetHandle uint32
 	for _, it := range snap.InventoryItems {
 		if it.IsWeapon {
-			weaponUID = it.UID
+			target = it.UID
+			targetHandle = it.OriginalHandle
 			break
 		}
 	}
-	if weaponUID == "" {
-		t.Skip("no weapon in inventory")
+	if target == "" {
+		t.Skip("no weapon in inventory to transfer")
 	}
-	if _, err := app.MoveInventoryWorkspaceItem(snap.SessionID, weaponUID, "storage", 0); err != nil {
+	if _, err := app.MoveInventoryWorkspaceItem(snap.SessionID, target, "storage", 0); err != nil {
 		t.Fatalf("Move: %v", err)
 	}
 
-	slot := &app.save.Slots[idx]
-	before := snapshotSlotBytes(slot)
-	_, err = app.SaveInventoryWorkspaceChanges(snap.SessionID)
-	if err == nil {
-		t.Fatal("expected error for transfer")
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
 	}
-	if !strings.Contains(err.Error(), "transfer not implemented") {
-		t.Errorf("error should mention transfer, got %v", err)
+	if updated.Dirty {
+		t.Error("Dirty should be false after Save")
 	}
-	if !bytes.Equal(slot.Data, before) {
-		t.Error("slot.Data mutated after transfer rejection")
+	// Handle absent from inventory.
+	for _, it := range updated.InventoryItems {
+		if it.OriginalHandle == targetHandle {
+			t.Errorf("handle 0x%08X still in inventory after transfer", targetHandle)
+		}
 	}
+	// Handle present in storage with same value.
+	foundInSto := false
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			foundInSto = true
+			break
+		}
+	}
+	if !foundInSto {
+		t.Errorf("handle 0x%08X missing from storage after transfer", targetHandle)
+	}
+	assertNoDuplicateHandles(t, updated)
+	assertNoDuplicateAcqIndices(t, updated)
 }
 
-func TestSaveInventoryWorkspaceChanges_RejectsRemove(t *testing.T) {
+func TestSaveInventoryWorkspaceChanges_TransferStorageToInventory(t *testing.T) {
 	app, idx := realSaveAppForSave(t)
 	snap, err := app.StartInventoryEditSession(idx)
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	weaponUID := ""
-	for _, it := range snap.InventoryItems {
-		if it.IsWeapon {
-			weaponUID = it.UID
+	if len(snap.StorageItems) == 0 {
+		t.Skip("no storage items to transfer")
+	}
+	target := snap.StorageItems[0].UID
+	targetHandle := snap.StorageItems[0].OriginalHandle
+	if _, err := app.MoveInventoryWorkspaceItem(snap.SessionID, target, "inventory", 0); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if updated.Dirty {
+		t.Error("Dirty should be false after Save")
+	}
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			t.Errorf("handle 0x%08X still in storage after transfer", targetHandle)
+		}
+	}
+	foundInInv := false
+	for _, it := range updated.InventoryItems {
+		if it.OriginalHandle == targetHandle {
+			foundInInv = true
 			break
 		}
 	}
-	if weaponUID == "" {
+	if !foundInInv {
+		t.Errorf("handle 0x%08X missing from inventory after transfer", targetHandle)
+	}
+	assertNoDuplicateHandles(t, updated)
+	assertNoDuplicateAcqIndices(t, updated)
+}
+
+// ─── Phase 3B: remove success paths ───────────────────────────────
+
+func TestSaveInventoryWorkspaceChanges_RemoveFromInventory(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	target := ""
+	var targetHandle uint32
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon {
+			target = it.UID
+			targetHandle = it.OriginalHandle
+			break
+		}
+	}
+	if target == "" {
+		t.Skip("no weapon in inventory to remove")
+	}
+	if _, err := app.RemoveInventoryWorkspaceItem(snap.SessionID, target); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if updated.Dirty {
+		t.Error("Dirty should be false after Save")
+	}
+	for _, it := range updated.InventoryItems {
+		if it.OriginalHandle == targetHandle {
+			t.Errorf("handle 0x%08X still in inventory after remove", targetHandle)
+		}
+	}
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			t.Errorf("handle 0x%08X leaked into storage after remove", targetHandle)
+		}
+	}
+	assertNoDuplicateHandles(t, updated)
+	assertNoDuplicateAcqIndices(t, updated)
+}
+
+func TestSaveInventoryWorkspaceChanges_RemoveFromStorage(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(snap.StorageItems) == 0 {
+		t.Skip("no storage items to remove")
+	}
+	target := snap.StorageItems[0].UID
+	targetHandle := snap.StorageItems[0].OriginalHandle
+
+	if _, err := app.RemoveInventoryWorkspaceItem(snap.SessionID, target); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			t.Errorf("handle 0x%08X still in storage after remove", targetHandle)
+		}
+	}
+	for _, it := range updated.InventoryItems {
+		if it.OriginalHandle == targetHandle {
+			t.Errorf("handle 0x%08X leaked into inventory after remove", targetHandle)
+		}
+	}
+	assertNoDuplicateHandles(t, updated)
+	assertNoDuplicateAcqIndices(t, updated)
+}
+
+// ─── Phase 3B: transfer + sibling edits ──────────────────────────
+
+func TestSaveInventoryWorkspaceChanges_TransferAndReorderTarget(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(snap.StorageItems) < 1 {
+		t.Skip("need at least 1 storage item for reorder")
+	}
+	// Pick a weapon to transfer from inventory.
+	target := ""
+	var targetHandle uint32
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon {
+			target = it.UID
+			targetHandle = it.OriginalHandle
+			break
+		}
+	}
+	if target == "" {
 		t.Skip("no weapon in inventory")
 	}
-	if _, err := app.RemoveInventoryWorkspaceItem(snap.SessionID, weaponUID); err != nil {
+	// Transfer to storage at the END.
+	if _, err := app.TransferInventoryWorkspaceItem(snap.SessionID, target, "storage"); err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	// Reorder: pick the (now first) existing storage item and move to position 0.
+	// After append-transfer the original first-storage item is still
+	// at position 0, so move it to position 1 to swap with the transferred one.
+	mid, err := app.GetInventoryEditSession(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(mid.StorageItems) < 2 {
+		t.Skip("need at least 2 storage items post-transfer to reorder")
+	}
+	firstStorageUID := mid.StorageItems[0].UID
+	if _, err := app.MoveInventoryWorkspaceItem(snap.SessionID, firstStorageUID, "storage", 1); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Transferred handle must be present in storage.
+	foundInSto := false
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			foundInSto = true
+			break
+		}
+	}
+	if !foundInSto {
+		t.Errorf("transferred handle 0x%08X missing from storage after transfer+reorder", targetHandle)
+	}
+	assertNoDuplicateHandles(t, updated)
+	assertNoDuplicateAcqIndices(t, updated)
+}
+
+func TestSaveInventoryWorkspaceChanges_TransferAndAdd(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	target := ""
+	var targetHandle uint32
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon {
+			target = it.UID
+			targetHandle = it.OriginalHandle
+			break
+		}
+	}
+	if target == "" {
+		t.Skip("no weapon to transfer")
+	}
+	// Transfer to storage.
+	if _, err := app.TransferInventoryWorkspaceItem(snap.SessionID, target, "storage"); err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	// Add a new Dagger to inventory.
+	if _, err := app.AddInventoryWorkspaceItem(snap.SessionID,
+		editor.AddItemSpec{ItemID: 0x000F4240}, "inventory", 0); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Transferred handle in storage.
+	foundInSto := false
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			foundInSto = true
+			break
+		}
+	}
+	if !foundInSto {
+		t.Errorf("transferred handle 0x%08X missing from storage", targetHandle)
+	}
+	// Added Dagger has a real handle and is in inventory.
+	foundDagger := false
+	for _, it := range updated.InventoryItems {
+		if it.ItemID == 0x000F4240 && it.OriginalHandle != 0 {
+			foundDagger = true
+			break
+		}
+	}
+	if !foundDagger {
+		t.Error("added Dagger missing from inventory after transfer+add")
+	}
+	assertNoDuplicateHandles(t, updated)
+	assertNoDuplicateAcqIndices(t, updated)
+}
+
+func TestSaveInventoryWorkspaceChanges_TransferAndWeaponUpgrade(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	target := ""
+	var targetHandle, targetBase uint32
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon && it.CurrentUpgrade == 0 && it.MaxUpgrade >= 3 {
+			target = it.UID
+			targetHandle = it.OriginalHandle
+			targetBase = it.BaseItemID
+			break
+		}
+	}
+	if target == "" {
+		t.Skip("no upgradable weapon to transfer")
+	}
+	// Transfer to storage AND upgrade +3 in same session.
+	if _, err := app.TransferInventoryWorkspaceItem(snap.SessionID, target, "storage"); err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, target, editor.WeaponPatch{
+		SetUpgrade: true, Upgrade: 3,
+	}); err != nil {
+		t.Fatalf("UpdateWeapon: %v", err)
+	}
+
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Find the transferred+patched weapon in storage.
+	var found *editor.EditableItem
+	for i, it := range updated.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			found = &updated.StorageItems[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("transferred handle 0x%08X missing from storage after transfer+upgrade", targetHandle)
+	}
+	if found.ItemID != targetBase+3 {
+		t.Errorf("ItemID = 0x%08X, want 0x%08X (+3)", found.ItemID, targetBase+3)
+	}
+	if found.CurrentUpgrade != 3 {
+		t.Errorf("CurrentUpgrade = %d, want 3", found.CurrentUpgrade)
+	}
+	assertNoDuplicateHandles(t, updated)
+}
+
+// ─── Phase 3B: remove + add ──────────────────────────────────────
+
+func TestSaveInventoryWorkspaceChanges_RemoveAndAdd(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	target := ""
+	var targetHandle uint32
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon {
+			target = it.UID
+			targetHandle = it.OriginalHandle
+			break
+		}
+	}
+	if target == "" {
+		t.Skip("no weapon to remove")
+	}
+	if _, err := app.RemoveInventoryWorkspaceItem(snap.SessionID, target); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := app.AddInventoryWorkspaceItem(snap.SessionID,
+		editor.AddItemSpec{ItemID: 0x000F4240}, "inventory", 0); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Removed handle absent.
+	for _, it := range updated.InventoryItems {
+		if it.OriginalHandle == targetHandle {
+			t.Errorf("removed handle 0x%08X still in inventory", targetHandle)
+		}
+	}
+	// Added Dagger present.
+	foundDagger := false
+	for _, it := range updated.InventoryItems {
+		if it.ItemID == 0x000F4240 && it.OriginalHandle != 0 {
+			foundDagger = true
+			break
+		}
+	}
+	if !foundDagger {
+		t.Error("added Dagger missing from inventory after remove+add")
+	}
+	assertNoDuplicateHandles(t, updated)
+	assertNoDuplicateAcqIndices(t, updated)
+}
+
+// ─── Phase 3B: full combined workflow ────────────────────────────
+
+func TestSaveInventoryWorkspaceChanges_FullCombinedWorkflow(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if len(snap.InventoryItems) < 3 || len(snap.StorageItems) < 2 {
+		t.Skip("need >=3 inv + >=2 storage items for combined workflow")
+	}
+	// Find an upgradable weapon that is NOT the one we'll transfer or remove.
+	upgradeUID := ""
+	var upgradeHandle, upgradeBase uint32
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon && it.CurrentUpgrade == 0 && it.MaxUpgrade >= 5 {
+			upgradeUID = it.UID
+			upgradeHandle = it.OriginalHandle
+			upgradeBase = it.BaseItemID
+			break
+		}
+	}
+	if upgradeUID == "" {
+		t.Skip("no eligible upgrade weapon in combined workflow")
+	}
+	// Pick a different item to transfer (any non-upgrade weapon, or
+	// any item if needed). And another for remove.
+	transferUID, removeUID := "", ""
+	var transferHandle, removeHandle uint32
+	for _, it := range snap.InventoryItems {
+		if it.UID == upgradeUID {
+			continue
+		}
+		if transferUID == "" {
+			transferUID = it.UID
+			transferHandle = it.OriginalHandle
+			continue
+		}
+		if removeUID == "" {
+			removeUID = it.UID
+			removeHandle = it.OriginalHandle
+			break
+		}
+	}
+	if transferUID == "" || removeUID == "" {
+		t.Skip("not enough distinct inventory items for combined workflow")
+	}
+
+	// 1. Reorder inventory: swap first two.
+	firstInvUID := snap.InventoryItems[0].UID
+	if firstInvUID != upgradeUID && firstInvUID != transferUID && firstInvUID != removeUID {
+		if _, err := app.MoveInventoryWorkspaceItem(snap.SessionID, firstInvUID, "inventory", 1); err != nil {
+			t.Fatalf("Move inv: %v", err)
+		}
+	}
+	// 2. Reorder storage: swap first two.
+	firstStoUID := snap.StorageItems[0].UID
+	if _, err := app.MoveInventoryWorkspaceItem(snap.SessionID, firstStoUID, "storage", 1); err != nil {
+		t.Fatalf("Move sto: %v", err)
+	}
+	// 3. Transfer one item inventory → storage.
+	if _, err := app.TransferInventoryWorkspaceItem(snap.SessionID, transferUID, "storage"); err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	// 4. Add a Dagger to inventory.
+	if _, err := app.AddInventoryWorkspaceItem(snap.SessionID,
+		editor.AddItemSpec{ItemID: 0x000F4240}, "inventory", 0); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	// 5. Upgrade existing weapon +5.
+	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, upgradeUID, editor.WeaponPatch{
+		SetUpgrade: true, Upgrade: 5,
+	}); err != nil {
+		t.Fatalf("UpdateWeapon: %v", err)
+	}
+	// 6. Remove an item.
+	if _, err := app.RemoveInventoryWorkspaceItem(snap.SessionID, removeUID); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
 
-	slot := &app.save.Slots[idx]
-	before := snapshotSlotBytes(slot)
-	_, err = app.SaveInventoryWorkspaceChanges(snap.SessionID)
-	if err == nil {
-		t.Fatal("expected error for remove")
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
 	}
-	if !strings.Contains(err.Error(), "remove not implemented") {
-		t.Errorf("error should mention remove, got %v", err)
+	if updated.Dirty {
+		t.Error("Dirty should be false after Save")
 	}
-	if !bytes.Equal(slot.Data, before) {
-		t.Error("slot.Data mutated after remove rejection")
+	// Verify final state.
+	// Transferred handle in storage, not inventory.
+	for _, it := range updated.InventoryItems {
+		if it.OriginalHandle == transferHandle {
+			t.Errorf("transferred handle 0x%08X still in inventory", transferHandle)
+		}
+	}
+	foundTransfer := false
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == transferHandle {
+			foundTransfer = true
+			break
+		}
+	}
+	if !foundTransfer {
+		t.Errorf("transferred handle 0x%08X missing from storage", transferHandle)
+	}
+	// Added Dagger present in inventory with real handle.
+	foundDagger := false
+	for _, it := range updated.InventoryItems {
+		if it.ItemID == 0x000F4240 && it.OriginalHandle != 0 {
+			foundDagger = true
+			break
+		}
+	}
+	if !foundDagger {
+		t.Error("added Dagger missing from inventory after combined save")
+	}
+	// Upgraded weapon updated.
+	foundUpgrade := false
+	for _, it := range updated.InventoryItems {
+		if it.OriginalHandle == upgradeHandle {
+			if it.ItemID != upgradeBase+5 || it.CurrentUpgrade != 5 {
+				t.Errorf("upgraded weapon ItemID=0x%08X upgrade=%d, want 0x%08X +5",
+					it.ItemID, it.CurrentUpgrade, upgradeBase+5)
+			}
+			foundUpgrade = true
+			break
+		}
+	}
+	if !foundUpgrade {
+		t.Error("upgraded weapon missing from inventory after combined save")
+	}
+	// Removed handle absent everywhere.
+	for _, it := range updated.InventoryItems {
+		if it.OriginalHandle == removeHandle {
+			t.Errorf("removed handle 0x%08X still in inventory", removeHandle)
+		}
+	}
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == removeHandle {
+			t.Errorf("removed handle 0x%08X leaked into storage", removeHandle)
+		}
+	}
+	assertNoDuplicateHandles(t, updated)
+	assertNoDuplicateAcqIndices(t, updated)
+}
+
+// ─── Phase 3B: baseline regeneration ──────────────────────────────
+
+// After a successful save, the session's baseline must be refreshed so
+// a subsequent save against the same session doesn't see the previous
+// transfer / remove as if it were a fresh out-of-scope edit.
+func TestSaveInventoryWorkspaceChanges_BaselineRegeneratedAfterSave(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	target := ""
+	var targetHandle uint32
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon {
+			target = it.UID
+			targetHandle = it.OriginalHandle
+			break
+		}
+	}
+	if target == "" {
+		t.Skip("no weapon to transfer")
+	}
+	// Save 1: transfer inventory → storage.
+	if _, err := app.TransferInventoryWorkspaceItem(snap.SessionID, target, "storage"); err != nil {
+		t.Fatalf("Transfer: %v", err)
+	}
+	if _, err := app.SaveInventoryWorkspaceChanges(snap.SessionID); err != nil {
+		t.Fatalf("Save #1: %v", err)
+	}
+	// Save 2: reorder only (no further transfer / remove). Should
+	// succeed without baseline-detection confusion. We pick the now-
+	// in-storage transferred item and move it to the end of storage.
+	mid, err := app.GetInventoryEditSession(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	transferredUID := ""
+	for _, it := range mid.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			transferredUID = it.UID
+			break
+		}
+	}
+	if transferredUID == "" {
+		t.Fatalf("transferred item lost between saves")
+	}
+	if len(mid.StorageItems) < 2 {
+		t.Skip("not enough storage items for second-reorder check")
+	}
+	if _, err := app.MoveInventoryWorkspaceItem(snap.SessionID, transferredUID, "storage", len(mid.StorageItems)-1); err != nil {
+		t.Fatalf("Move: %v", err)
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save #2: %v — baseline likely stale", err)
+	}
+	if updated.Dirty {
+		t.Error("Dirty should be false after Save #2")
+	}
+	// Still in storage with same handle.
+	stillInSto := false
+	for _, it := range updated.StorageItems {
+		if it.OriginalHandle == targetHandle {
+			stillInSto = true
+			break
+		}
+	}
+	if !stillInSto {
+		t.Errorf("handle 0x%08X missing after second save", targetHandle)
 	}
 }
 

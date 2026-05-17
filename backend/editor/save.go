@@ -10,32 +10,51 @@ import (
 
 // HandlesByUID maps editor UIDs to allocated GaItem handles after a
 // successful ApplyWorkspaceSave. UID format for existing items is
-// "hnd:0x%08X" (handle never changes) and "new:N" for added items
-// (handle freshly minted by AddItemsToSlotBatch). Callers use this to
-// follow the same item through subsequent edits.
+// "hnd:0x%08X" (handle never changes — kept stable across transfers and
+// reorders) and "new:N" for added items (handle freshly minted by
+// AddItemsToSlotBatch). Removed items are absent from this map.
+// Callers use this to follow the same item through subsequent edits.
 type HandlesByUID map[string]uint32
 
-// ApplyWorkspaceSave is the Phase 3A commit path. It validates the
-// workspace, rejects changes that are out of scope for this phase, then
-// writes a reorder + add + weapon-upgrade plan into slot.Data.
+// ApplyWorkspaceSave is the Phase 3B commit path. It validates the
+// workspace, rejects changes still out of scope (pending AoW), then
+// writes a reorder + add + transfer + remove + weapon-upgrade plan
+// into slot.Data via the wipe-and-replay layout.
 //
-// In scope for Phase 3A:
+// In scope for Phase 3B (extends Phase 3A):
 //   - reorder existing editable items within their original container
+//   - transfer existing editable items between Inventory and Storage —
+//     OriginalHandle is preserved, the GaItem stays in place, and only
+//     the inventory record is moved; old record is wiped by the layout
+//     rebuild
+//   - remove existing editable items from the workspace — their record
+//     is absent from both containers post-save; GaItem stays in
+//     slot.GaItems / slot.GaMap (conservative no-GC policy — see notes
+//     under "GaItem GC policy" below)
 //   - add new editable items (Source=Added) — allocates real handles
 //     and GaItem entries via core.AddItemsToSlotBatch
 //   - patch weapon ItemID for existing items with upgrade/infusion
-//     changes via core.PatchWeaponItemID
+//     changes via core.PatchWeaponItemID (works correctly for
+//     transferred weapons too — patch keys on handle, not container)
 //   - preserve unsupported/pass-through records at their original
-//     SlotIndex
+//     physical SlotIndex
 //
-// Rejected with clear errors (slot.Data left untouched):
+// Still rejected with clear errors (slot.Data left untouched):
 //   - workspace validation errors
-//   - any EditableItem with PendingAoWItemID != 0
-//   - existing item moved across containers (transfer)
-//   - baseline handle missing from current workspace (remove)
-//   - missing baseline data (session created before Phase 3A)
-//   - inventory or storage capacity exceeded
+//   - any EditableItem with PendingAoWItemID != 0 (Phase 4)
+//   - missing baseline data (session created without baseline tracking)
+//   - inventory or storage capacity exceeded by the final layout
 //   - pass-through SlotIndex collisions
+//
+// GaItem GC policy (Phase 3B):
+//   - Removed items leave their GaItem record orphaned in slot.GaItems
+//     and slot.GaMap. No record in slot.Data references them after the
+//     layout rebuild, so they do not show up in any container.
+//   - We do NOT call RepairOrphanedGaItems automatically. The trade-off
+//     is a small amount of wasted GaItem array space versus the safety
+//     risk of an under-tested GC sweep mutating shared state.
+//   - Future Phase 4+ may add explicit GC when AoW work lands and the
+//     ownership model is fully understood.
 //
 // Atomicity contract:
 //   - Callers MUST snapshot slot via core.SnapshotSlot BEFORE calling
@@ -62,11 +81,18 @@ func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, b
 		return nil, err
 	}
 	if baseline == nil {
-		return nil, fmt.Errorf("ApplyWorkspaceSave: session missing baseline handle map (Phase 3A requires a session created with baseline tracking)")
+		return nil, fmt.Errorf("ApplyWorkspaceSave: session missing baseline handle map (Phase 3B requires a session created with baseline tracking)")
 	}
-	if err := rejectTransferOrRemove(snap, baseline); err != nil {
-		return nil, err
-	}
+	// Note: transfer and remove are now in-scope. We still compute the
+	// plans up-front so any future per-action validation has a single
+	// well-tested entry point. The wipe-and-replay layout below
+	// naturally realises these plans without needing per-record patches:
+	// removed items don't appear in either container's editable list,
+	// so they're not re-emitted; transferred items appear in their new
+	// container's editable list, so they're emitted there with their
+	// original handle preserved.
+	_ = detectRemovedEditableHandles(snap, baseline)
+	_ = detectTransferredEditableItems(snap, baseline)
 
 	// Capacity pre-check (also runs in writeContainerLayout, but doing
 	// it up-front keeps slot.Data untouched on rejection).
@@ -130,12 +156,13 @@ func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, b
 }
 
 // rejectPendingAoW returns an error if any editable item carries a
-// pending AoW request. Phase 3A cannot allocate AoW handles yet.
+// pending AoW request. Phase 3B still cannot allocate AoW handles —
+// pending AoW save lands in Phase 4 alongside compatibility checks.
 func rejectPendingAoW(snap *InventoryWorkspaceSnapshot) error {
 	for _, list := range [][]EditableItem{snap.InventoryItems, snap.StorageItems} {
 		for _, it := range list {
 			if it.PendingAoWItemID != 0 {
-				return fmt.Errorf("ApplyWorkspaceSave: pending AoW save not implemented in Phase 3A (item %s, UID %s, pending AoW 0x%08X)",
+				return fmt.Errorf("ApplyWorkspaceSave: pending AoW save not implemented (item %s, UID %s, pending AoW 0x%08X)",
 					it.Name, it.UID, it.PendingAoWItemID)
 			}
 		}
@@ -143,35 +170,68 @@ func rejectPendingAoW(snap *InventoryWorkspaceSnapshot) error {
 	return nil
 }
 
-// rejectTransferOrRemove diffs the current workspace against the
-// baseline handle map captured at session start. Any baseline handle
-// missing from the current workspace = remove. Any baseline handle
-// present but in the opposite container = transfer. Both are rejected
-// in Phase 3A.
-func rejectTransferOrRemove(snap *InventoryWorkspaceSnapshot, baseline map[uint32]ContainerKind) error {
-	current := make(map[uint32]ContainerKind, len(snap.InventoryItems)+len(snap.StorageItems))
+// currentEditableContainerMap collapses both editable container slices
+// into a (handle → container) map for Source=Original items with a real
+// handle. Added items and zero handles are skipped — they're not
+// represented in the baseline. Shared by both detection helpers.
+func currentEditableContainerMap(snap *InventoryWorkspaceSnapshot) map[uint32]ContainerKind {
+	out := make(map[uint32]ContainerKind, len(snap.InventoryItems)+len(snap.StorageItems))
 	for _, it := range snap.InventoryItems {
 		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
-			current[it.OriginalHandle] = ContainerInventory
+			out[it.OriginalHandle] = ContainerInventory
 		}
 	}
 	for _, it := range snap.StorageItems {
 		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
-			current[it.OriginalHandle] = ContainerStorage
+			out[it.OriginalHandle] = ContainerStorage
 		}
 	}
-	for h, origContainer := range baseline {
+	return out
+}
+
+// detectRemovedEditableHandles returns the baseline handles that no
+// longer appear in the workspace's editable lists. Added items are not
+// considered — they're not in the baseline to begin with. Used by
+// callers that want to know which removals are about to be committed
+// (e.g., for future GC bookkeeping or telemetry); the actual record
+// removal happens implicitly via the wipe-and-replay layout, which
+// only emits items present in the workspace.
+func detectRemovedEditableHandles(snap *InventoryWorkspaceSnapshot, baseline map[uint32]ContainerKind) []uint32 {
+	if baseline == nil {
+		return nil
+	}
+	current := currentEditableContainerMap(snap)
+	var removed []uint32
+	for h := range baseline {
+		if _, present := current[h]; !present {
+			removed = append(removed, h)
+		}
+	}
+	return removed
+}
+
+// detectTransferredEditableItems returns the baseline handles whose
+// container differs in the current workspace, mapped to their new
+// container. Added items are ignored (no baseline entry). Reorder
+// within the same container is not flagged. Used the same way as
+// detectRemovedEditableHandles — informational; the wipe-and-replay
+// layout realises the move by emitting the item in its new container.
+func detectTransferredEditableItems(snap *InventoryWorkspaceSnapshot, baseline map[uint32]ContainerKind) map[uint32]ContainerKind {
+	if baseline == nil {
+		return nil
+	}
+	current := currentEditableContainerMap(snap)
+	out := map[uint32]ContainerKind{}
+	for h, orig := range baseline {
 		cur, present := current[h]
 		if !present {
-			return fmt.Errorf("ApplyWorkspaceSave: remove not implemented in Phase 3A (handle 0x%08X missing from workspace, originally in %s)",
-				h, origContainer)
+			continue
 		}
-		if cur != origContainer {
-			return fmt.Errorf("ApplyWorkspaceSave: transfer not implemented in Phase 3A (handle 0x%08X moved %s → %s)",
-				h, origContainer, cur)
+		if cur != orig {
+			out[h] = cur
 		}
 	}
-	return nil
+	return out
 }
 
 // validatePassThroughIndices ensures the pass-through SlotIndices fit

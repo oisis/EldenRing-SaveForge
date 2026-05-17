@@ -171,13 +171,14 @@ func parseContainerKind(s string) (editor.ContainerKind, error) {
 }
 
 // SaveInventoryWorkspaceChanges commits the workspace's RAM-only edits
-// into slot.Data via editor.ApplyWorkspaceSave (Phase 3A — supports
-// reorder + add + weapon upgrade/infusion + pass-through preservation).
+// into slot.Data via editor.ApplyWorkspaceSave (Phase 3B — supports
+// reorder + add + transfer + remove + weapon upgrade/infusion +
+// pass-through preservation; pending AoW still rejected for Phase 4).
 //
 // Failure / rejection contract:
-//   - Validation errors, pending AoW, transfer, remove, or capacity
-//     overflow → return error WITHOUT mutating slot.Data; session
-//     stays Dirty=true so the user can revise the workspace.
+//   - Validation errors, pending AoW, or capacity overflow → return
+//     error WITHOUT mutating slot.Data; session stays Dirty=true so
+//     the user can revise the workspace.
 //   - Mutation error after writes begin → roll back via
 //     core.RestoreSlot; session stays Dirty=true.
 //
