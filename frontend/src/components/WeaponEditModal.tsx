@@ -342,7 +342,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
 
     const onRemoveAoW = () => {
         if (!canRemoveAoW) return;
-        applyAoW(0, 'Ash of War removed');
+        applyAoW(0, 'Custom Ash of War removed — built-in skill restored');
     };
 
     const statusBadge = (status: AoWStatus) => {
@@ -551,9 +551,14 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                                 Ash of War
                             </span>
                             {canMountAoW && (
-                                <span className="text-[9px] font-mono text-muted-foreground/70 truncate ml-2">
+                                <span
+                                    className="text-[9px] font-mono text-muted-foreground/70 truncate ml-2"
+                                    title={currentAoWId === 0
+                                        ? "No custom Ash of War — weapon uses its built-in skill"
+                                        : undefined}
+                                >
                                     {currentAoWId === 0
-                                        ? 'None'
+                                        ? 'Default skill'
                                         : currentAoWName ?? `Unknown (0x${currentAoWId.toString(16).toUpperCase()})`}
                                 </span>
                             )}
@@ -582,7 +587,12 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                                     <button
                                         onClick={onRemoveAoW}
                                         disabled={!canRemoveAoW}
-                                        title={canRemoveAoW ? 'Remove current Ash of War' : 'No Ash of War to remove'}
+                                        title={canRemoveAoW
+                                            ? "Remove custom Ash of War — weapon will use its built-in skill"
+                                            : "No custom Ash of War attached"}
+                                        aria-label={canRemoveAoW
+                                            ? "Remove custom Ash of War — weapon will use its built-in skill"
+                                            : "No custom Ash of War attached"}
                                         className={`px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider rounded border transition-all ${
                                             canRemoveAoW
                                                 ? 'text-red-300 bg-red-500/10 border-red-500/30 hover:bg-red-500/20'
@@ -592,6 +602,10 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied }:
                                         Remove
                                     </button>
                                 </div>
+
+                                <p className="text-[9px] text-muted-foreground/60 italic leading-tight">
+                                    Removing a custom Ash of War restores the weapon's built-in skill.
+                                </p>
 
                                 <label className="flex items-center gap-1.5 text-[9px] text-muted-foreground/80 cursor-pointer select-none">
                                     <input
