@@ -220,6 +220,14 @@ type WeaponStatsV1 struct {
 	StatReqFai int32 // EquipParamWeapon.properFaith
 	StatReqArc int32 // EquipParamWeapon.properLuck
 
+	// Critical damage rate displayed in-game. Sourced from
+	// EquipParamWeapon.throwAtkRate which stores the *offset* above a
+	// base of 100 (Misericorde row stores 40 → in-game shows 140,
+	// Lordsworn's Straight Sword stores 10 → 110, default 0 → 100).
+	// The generator pre-adds the 100 base so consumers can render the
+	// value verbatim.
+	Critical int32
+
 	// Raw stat scaling coefficients (correctStrength etc.). NOT letter
 	// grades — those require CalcCorrectGraph and are deferred to V2.
 	ScalingStrRaw int32 // EquipParamWeapon.correctStrength
