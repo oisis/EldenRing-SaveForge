@@ -9,6 +9,7 @@ import {
     GetItemList,
 } from '../../wailsjs/go/main/App';
 import { db, editor, main } from '../../wailsjs/go/models';
+import { aowApplyPatch, infusionPatch, upgradePatch } from './weaponPatch';
 
 // Workspace mode — when provided, the modal routes upgrade / infusion / AoW
 // edits through the in-memory inventory workspace via updateWeapon(uid, patch).
@@ -283,7 +284,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         setSuccess(null);
         const newItemId = currentItemId - currentLevel + selectedLevel;
         if (isWorkspaceMode) {
-            const patch = editor.WeaponPatch.createFrom({ setUpgrade: true, upgrade: selectedLevel });
+            const patch = upgradePatch(selectedLevel);
             workspace!.updateWeapon(workspaceItem!.uid, patch)
                 .then(updated => {
                     if (!updated) {
@@ -327,8 +328,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         const newItemId = currentItemId - currentInfuseOffset + selectedInfuseOffset;
         const newName = infuseTypes.find(t => t.offset === selectedInfuseOffset)?.name ?? 'Standard';
         if (isWorkspaceMode) {
-            const storedName = newName === 'Standard' ? '' : newName;
-            const patch = editor.WeaponPatch.createFrom({ setInfusionName: true, infusionName: storedName });
+            const patch = infusionPatch(newName);
             workspace!.updateWeapon(workspaceItem!.uid, patch)
                 .then(updated => {
                     if (!updated) {
@@ -370,9 +370,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         setError(null);
         setSuccess(null);
         if (isWorkspaceMode) {
-            const patch = newAoWItemID === 0
-                ? editor.WeaponPatch.createFrom({ clearAoW: true })
-                : editor.WeaponPatch.createFrom({ setAoWItemID: true, aowItemID: newAoWItemID });
+            const patch = aowApplyPatch(newAoWItemID);
             workspace!.updateWeapon(workspaceItem!.uid, patch)
                 .then(updated => {
                     if (!updated) {
