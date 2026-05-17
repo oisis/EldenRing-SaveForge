@@ -221,6 +221,7 @@ export namespace data {
 	    StatReqInt: number;
 	    StatReqFai: number;
 	    StatReqArc: number;
+	    Critical: number;
 	    ScalingStrRaw: number;
 	    ScalingDexRaw: number;
 	    ScalingIntRaw: number;
@@ -268,6 +269,7 @@ export namespace data {
 	        this.StatReqInt = source["StatReqInt"];
 	        this.StatReqFai = source["StatReqFai"];
 	        this.StatReqArc = source["StatReqArc"];
+	        this.Critical = source["Critical"];
 	        this.ScalingStrRaw = source["ScalingStrRaw"];
 	        this.ScalingDexRaw = source["ScalingDexRaw"];
 	        this.ScalingIntRaw = source["ScalingIntRaw"];

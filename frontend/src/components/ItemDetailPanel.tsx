@@ -6,9 +6,26 @@ interface ItemDetailPanelProps {
     onClose: () => void;
 }
 
+// scalingLetter maps a weapon's raw correctX value (EquipParamWeapon.correctStrength etc.)
+// onto the community-standard letter grade rendered in the in-game weapon panel.
+// Thresholds match Fextralife / community references and are sourced from the
+// audit recorded in tmp/scripts/audit_weapon_detail_fields.py. They reflect the
+// V1 raw-correction view: upgrade-level multipliers from ReinforceParamWeapon
+// are deferred to V2 (see WeaponStatsV1 comment in backend/db/data/types.go).
+function scalingLetter(raw: number): string {
+    if (raw >= 175) return 'S';
+    if (raw >= 140) return 'A';
+    if (raw >= 90) return 'B';
+    if (raw >= 60) return 'C';
+    if (raw >= 25) return 'D';
+    if (raw >= 1) return 'E';
+    return '–';
+}
+
 export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     const [brokenIcon, setBrokenIcon] = useState(false);
     const [iconPreview, setIconPreview] = useState(false);
+    const [scalingHelp, setScalingHelp] = useState(false);
 
     const V = (v: number | undefined) => v != null ? String(v) : 'N/A';
     const VF = (v: number | undefined) => v != null ? v.toFixed(1) : 'N/A';
@@ -71,6 +88,33 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     const wReqFai = v1Weapon?.StatReqFai ?? legacyWeapon?.ReqFai;
     const wReqArc = v1Weapon?.StatReqArc ?? legacyWeapon?.ReqArc;
 
+    // V1.Critical already includes the +100 base offset (EquipParamWeapon
+    // stores the value above 100; generator pre-adds it). Legacy
+    // WeaponStats has no equivalent field — fall through to N/A.
+    const wCritical = v1Weapon?.Critical;
+
+    // Required attributes: drop zero rows so weapons that only scale on
+    // Str/Dex don't surface "Int 0 / Fai 0 / Arc 0" placeholders.
+    const requiredRows = ([
+        ['Str', wReqStr],
+        ['Dex', wReqDex],
+        ['Int', wReqInt],
+        ['Fai', wReqFai],
+        ['Arc', wReqArc],
+    ] as [string, number | undefined][]).filter(([, v]) => v != null && v > 0);
+
+    // Attribute scaling: same filter (drop zeros) but emit Grade (value)
+    // for each non-zero scaling stat.
+    const scalingRows = ([
+        ['Str', wScaleStr],
+        ['Dex', wScaleDex],
+        ['Int', wScaleInt],
+        ['Fai', wScaleFai],
+        ['Arc', wScaleArc],
+    ] as [string, number | undefined][])
+        .filter(([, v]) => v != null && v > 0)
+        .map(([label, v]) => [label, `${scalingLetter(v!)} (${v})`] as [string, string]);
+
     const wWeight = v1Weapon?.Weight ?? legacyWeapon?.Weight ?? item.armor?.Weight ?? item.weight ?? 0;
 
     // V1-only metadata for the Item Info section. Empty when no V1 payload
@@ -97,7 +141,7 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     if (wAttackStamina != null && wAttackStamina > 0) {
         attackRows.push(['Stamina', wAttackStamina]);
     }
-    attackRows.push(['Critical', 'N/A']);
+    attackRows.push(['Critical', wCritical != null ? wCritical : 'N/A']);
 
     return (
         <div className="h-full flex flex-col border-l border-border bg-card overflow-hidden">
@@ -218,43 +262,74 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                             </div>
                         </div>
                         <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1">
-                                <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attribute Scaling</h4>
-                                <table className="w-full text-[9px]">
-                                    <tbody>
-                                        {([
-                                            ['Str', V(wScaleStr)],
-                                            ['Dex', V(wScaleDex)],
-                                            ['Int', V(wScaleInt)],
-                                            ['Fai', V(wScaleFai)],
-                                            ['Arc', V(wScaleArc)],
-                                        ] as [string, string][]).map(([label, val]) => (
-                                            <tr key={label} className="border-b border-border/20">
-                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
-                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            <div className="space-y-1 relative">
+                                <div className="flex items-center gap-1">
+                                    <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attribute Scaling</h4>
+                                    <button
+                                        type="button"
+                                        aria-label="What does the scaling grade mean?"
+                                        onClick={() => setScalingHelp(v => !v)}
+                                        className="w-3 h-3 rounded-full border border-muted-foreground/50 text-[7px] font-black text-muted-foreground hover:border-foreground hover:text-foreground transition-colors flex items-center justify-center leading-none"
+                                    >
+                                        ?
+                                    </button>
+                                </div>
+                                {scalingHelp && (
+                                    <div className="absolute z-10 top-5 left-0 right-0 p-2.5 bg-popover border border-border rounded-md shadow-lg text-[9px] leading-relaxed text-foreground/80 space-y-1.5">
+                                        <p>
+                                            Attribute scaling is shown as a game-like grade plus the
+                                            underlying raw value. For example, <span className="font-bold">Dex B (91)</span>
+                                            {' '}means the weapon has B-grade Dexterity scaling with a raw
+                                            correction value of 91.
+                                        </p>
+                                        <p>
+                                            Two weapons can both show <span className="font-bold">B</span>, but the one
+                                            with the higher number is closer to <span className="font-bold">A</span>.
+                                        </p>
+                                        <p className="text-muted-foreground">
+                                            V1 uses the weapon's raw correction values from regulation data
+                                            (level +0). Upgrade-level multipliers are planned for a future revision.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() => setScalingHelp(false)}
+                                            className="mt-1 text-[8px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
+                                )}
+                                {scalingRows.length > 0 ? (
+                                    <table className="w-full text-[9px]">
+                                        <tbody>
+                                            {scalingRows.map(([label, val]) => (
+                                                <tr key={label} className="border-b border-border/20">
+                                                    <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                    <td className="py-0.5 text-right font-black text-foreground">{val}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                ) : (
+                                    <p className="text-[9px] text-muted-foreground/60 italic">None</p>
+                                )}
                             </div>
                             <div className="space-y-1">
                                 <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attributes Required</h4>
-                                <table className="w-full text-[9px]">
-                                    <tbody>
-                                        {([
-                                            ['Str', V(wReqStr)],
-                                            ['Dex', V(wReqDex)],
-                                            ['Int', V(wReqInt)],
-                                            ['Fai', V(wReqFai)],
-                                            ['Arc', V(wReqArc)],
-                                        ] as [string, string][]).map(([label, val]) => (
-                                            <tr key={label} className="border-b border-border/20">
-                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
-                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                {requiredRows.length > 0 ? (
+                                    <table className="w-full text-[9px]">
+                                        <tbody>
+                                            {requiredRows.map(([label, val]) => (
+                                                <tr key={label} className="border-b border-border/20">
+                                                    <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                    <td className="py-0.5 text-right font-black text-foreground">{val}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                ) : (
+                                    <p className="text-[9px] text-muted-foreground/60 italic">None</p>
+                                )}
                             </div>
                         </div>
                     </div>
