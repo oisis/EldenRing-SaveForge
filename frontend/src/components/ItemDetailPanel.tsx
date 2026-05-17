@@ -31,6 +31,74 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     const showArmor = item.armor || isArmorCategory;
     const showSpell = item.spell || isSpellCategory;
 
+    // Phase 3C.4: prefer the typed Phase 3C.3 stats payload (item.stats.weapon)
+    // for weapon-like items; legacy item.weapon stays the fallback so items
+    // covered only by descriptions.go (outside the V1 generator's four
+    // weapon-like categories) keep rendering as before.
+    //
+    // R-STA-01: V1.AttackHoly / V1.GuardHoly are sourced from Elden Ring's
+    // legacy "Dark"-named CSV columns. The backend already performed the
+    // Dark→Holy rename — the UI must surface "Holy" only, never "Dark".
+    const v1Weapon = item.stats?.kind === 'weapon' ? item.stats.weapon : undefined;
+    const legacyWeapon = item.weapon;
+
+    // Nullish-aware preference: V1 number 0 is a valid value (e.g. Longsword
+    // Holy damage), so use `??` rather than `||` to keep zeros from falling
+    // through to the legacy field.
+    const wAttackPhys = v1Weapon?.AttackPhysical ?? legacyWeapon?.PhysDamage;
+    const wAttackMagic = v1Weapon?.AttackMagic ?? legacyWeapon?.MagDamage;
+    const wAttackFire = v1Weapon?.AttackFire ?? legacyWeapon?.FireDamage;
+    const wAttackLight = v1Weapon?.AttackLightning ?? legacyWeapon?.LitDamage;
+    const wAttackHoly = v1Weapon?.AttackHoly ?? legacyWeapon?.HolyDamage;
+    const wAttackStamina = v1Weapon?.AttackStamina;
+
+    const wGuardPhys = v1Weapon?.GuardPhysical;
+    const wGuardMagic = v1Weapon?.GuardMagic;
+    const wGuardFire = v1Weapon?.GuardFire;
+    const wGuardLight = v1Weapon?.GuardLightning;
+    const wGuardHoly = v1Weapon?.GuardHoly;
+    const wGuardBoost = v1Weapon?.GuardBoost;
+
+    const wScaleStr = v1Weapon?.ScalingStrRaw ?? legacyWeapon?.ScaleStr;
+    const wScaleDex = v1Weapon?.ScalingDexRaw ?? legacyWeapon?.ScaleDex;
+    const wScaleInt = v1Weapon?.ScalingIntRaw ?? legacyWeapon?.ScaleInt;
+    const wScaleFai = v1Weapon?.ScalingFaiRaw ?? legacyWeapon?.ScaleFai;
+    const wScaleArc = v1Weapon?.ScalingArcRaw;
+
+    const wReqStr = v1Weapon?.StatReqStr ?? legacyWeapon?.ReqStr;
+    const wReqDex = v1Weapon?.StatReqDex ?? legacyWeapon?.ReqDex;
+    const wReqInt = v1Weapon?.StatReqInt ?? legacyWeapon?.ReqInt;
+    const wReqFai = v1Weapon?.StatReqFai ?? legacyWeapon?.ReqFai;
+    const wReqArc = v1Weapon?.StatReqArc ?? legacyWeapon?.ReqArc;
+
+    const wWeight = v1Weapon?.Weight ?? legacyWeapon?.Weight ?? item.armor?.Weight ?? item.weight ?? 0;
+
+    // V1-only metadata for the Item Info section. Empty when no V1 payload
+    // (e.g. non-weapon items, or weapon-like IDs outside V1 coverage).
+    const v1MaxUpgrade = v1Weapon?.MaxUpgrade;
+    const reinforcementLabel = v1Weapon
+        ? v1Weapon.IsSomber
+            ? 'Somber'
+            : v1Weapon.IsInfusable
+                ? 'Standard'
+                : '—'
+        : undefined;
+
+    // Build Attack Power rows dynamically so Stamina only shows when V1
+    // reports a non-zero value (most weapons leave it 0 — surfacing the row
+    // unconditionally would clutter the panel).
+    const attackRows: [string, number | undefined | 'N/A'][] = [
+        ['Physical', wAttackPhys],
+        ['Magic', wAttackMagic],
+        ['Fire', wAttackFire],
+        ['Lightning', wAttackLight],
+        ['Holy', wAttackHoly],
+    ];
+    if (wAttackStamina != null && wAttackStamina > 0) {
+        attackRows.push(['Stamina', wAttackStamina]);
+    }
+    attackRows.push(['Critical', 'N/A']);
+
     return (
         <div className="h-full flex flex-col border-l border-border bg-card overflow-hidden">
             {/* Header */}
@@ -70,7 +138,7 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                     <div>
                         <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Weight </span>
                         <span className="text-[10px] font-bold text-foreground">
-                            {item.weapon?.Weight ?? item.armor?.Weight ?? item.weight ?? 0}
+                            {wWeight}
                         </span>
                     </div>
                 </div>
@@ -106,11 +174,9 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                 )}
 
                 {/* Weapon Stats */}
-                {showWeapon && (() => {
-                    const w = item.weapon;
-                    return (
+                {showWeapon && (
                     <div className="space-y-3">
-                        {!w && (
+                        {!v1Weapon && !legacyWeapon && (
                             <p className="text-[8px] font-bold uppercase tracking-widest text-amber-500/80 text-center">stats data missing</p>
                         )}
                         <div className="grid grid-cols-2 gap-3">
@@ -118,19 +184,15 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                                 <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Attack Power</h4>
                                 <table className="w-full text-[9px]">
                                     <tbody>
-                                        {([
-                                            ['Physical', V(w?.PhysDamage)],
-                                            ['Magic', V(w?.MagDamage)],
-                                            ['Fire', V(w?.FireDamage)],
-                                            ['Lightning', V(w?.LitDamage)],
-                                            ['Holy', V(w?.HolyDamage)],
-                                            ['Critical', 'N/A'],
-                                        ] as [string, string][]).map(([label, val]) => (
-                                            <tr key={label} className="border-b border-border/20">
-                                                <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
-                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
-                                            </tr>
-                                        ))}
+                                        {attackRows.map(([label, raw]) => {
+                                            const val = raw === 'N/A' ? 'N/A' : V(raw);
+                                            return (
+                                                <tr key={label} className="border-b border-border/20">
+                                                    <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
+                                                    <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -139,16 +201,16 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                                 <table className="w-full text-[9px]">
                                     <tbody>
                                         {([
-                                            ['Physical', 'N/A'],
-                                            ['Magic', 'N/A'],
-                                            ['Fire', 'N/A'],
-                                            ['Lightning', 'N/A'],
-                                            ['Holy', 'N/A'],
-                                            ['Guard Boost', 'N/A'],
+                                            ['Physical', V(wGuardPhys)],
+                                            ['Magic', V(wGuardMagic)],
+                                            ['Fire', V(wGuardFire)],
+                                            ['Lightning', V(wGuardLight)],
+                                            ['Holy', V(wGuardHoly)],
+                                            ['Guard Boost', V(wGuardBoost)],
                                         ] as [string, string][]).map(([label, val]) => (
                                             <tr key={label} className="border-b border-border/20">
                                                 <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
-                                                <td className="py-0.5 text-right font-black text-muted-foreground/40">{val}</td>
+                                                <td className={`py-0.5 text-right font-black ${val === 'N/A' ? 'text-muted-foreground/40' : 'text-foreground'}`}>{val}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -161,11 +223,11 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                                 <table className="w-full text-[9px]">
                                     <tbody>
                                         {([
-                                            ['Str', V(w?.ScaleStr)],
-                                            ['Dex', V(w?.ScaleDex)],
-                                            ['Int', V(w?.ScaleInt)],
-                                            ['Fai', V(w?.ScaleFai)],
-                                            ['Arc', 'N/A'],
+                                            ['Str', V(wScaleStr)],
+                                            ['Dex', V(wScaleDex)],
+                                            ['Int', V(wScaleInt)],
+                                            ['Fai', V(wScaleFai)],
+                                            ['Arc', V(wScaleArc)],
                                         ] as [string, string][]).map(([label, val]) => (
                                             <tr key={label} className="border-b border-border/20">
                                                 <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
@@ -180,11 +242,11 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                                 <table className="w-full text-[9px]">
                                     <tbody>
                                         {([
-                                            ['Str', V(w?.ReqStr)],
-                                            ['Dex', V(w?.ReqDex)],
-                                            ['Int', V(w?.ReqInt)],
-                                            ['Fai', V(w?.ReqFai)],
-                                            ['Arc', V(w?.ReqArc)],
+                                            ['Str', V(wReqStr)],
+                                            ['Dex', V(wReqDex)],
+                                            ['Int', V(wReqInt)],
+                                            ['Fai', V(wReqFai)],
+                                            ['Arc', V(wReqArc)],
                                         ] as [string, string][]).map(([label, val]) => (
                                             <tr key={label} className="border-b border-border/20">
                                                 <td className="py-0.5 text-muted-foreground font-medium">{label}</td>
@@ -196,8 +258,7 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                             </div>
                         </div>
                     </div>
-                    );
-                })()}
+                )}
 
                 {showArmor && (() => {
                     const a = item.armor;
@@ -314,10 +375,16 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                             <span className="text-muted-foreground font-bold">Max Storage</span>
                             <span className="font-black text-foreground">{item.maxStorage}</span>
                         </div>
-                        {item.maxUpgrade > 0 && (
+                        {(v1MaxUpgrade != null ? v1MaxUpgrade : item.maxUpgrade) > 0 && (
                             <div className="flex justify-between bg-muted/10 rounded px-2 py-1">
                                 <span className="text-muted-foreground font-bold">Max Upgrade</span>
-                                <span className="font-black text-foreground">+{item.maxUpgrade}</span>
+                                <span className="font-black text-foreground">+{v1MaxUpgrade ?? item.maxUpgrade}</span>
+                            </div>
+                        )}
+                        {reinforcementLabel && reinforcementLabel !== '—' && (
+                            <div className="flex justify-between bg-muted/10 rounded px-2 py-1">
+                                <span className="text-muted-foreground font-bold">Reinforcement</span>
+                                <span className="font-black text-foreground">{reinforcementLabel}</span>
                             </div>
                         )}
                     </div>

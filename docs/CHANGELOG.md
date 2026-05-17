@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(ui): render generated weapon stats in details panel
+
+Phase 3C.4 wires `ItemDetailPanel` to the typed Phase 3C.3 stats
+payload (`item.stats.weapon`, `WeaponStatsV1`) while preserving full
+fallback to the legacy `item.weapon` projection. The panel layout is
+unchanged — the existing Attack / Guard / Scaling / Requirements grid
+stays as it was — but the values now come from `EquipParamWeapon`
+via the V1 record, and V1-only data finally shows up in the UI.
+
+**Source preference**: `item.stats.weapon` is preferred (nullish-aware:
+zero is a valid value, e.g. Longsword Holy = 0); `item.weapon` is the
+fallback for IDs not covered by the V1 generator. For weapon-like
+categories without either pointer, the previous "stats data missing"
+banner still appears.
+
+**R-STA-01 (Dark → Holy)**: the backend renamed Elden Ring's legacy
+`attackBaseDark` / `darkGuardCutRate` columns to `AttackHoly` /
+`GuardHoly` already in Phase 3C.1. The UI labels every relevant row
+as **Holy** — no "Dark" string is ever rendered.
+
+**New / improved rendering**:
+
+- **Attack Power** — V1 source, with optional `Stamina` row when
+  `V1.AttackStamina > 0` (most weapons leave it 0, so we keep the
+  table compact rather than show a perpetual zero).
+- **Guarded Dmg Negation** — previously hard-coded to N/A across all
+  six rows; now populated from `V1.GuardPhysical/Magic/Fire/
+  Lightning/Holy` and `V1.GuardBoost`. Shields and weapons with
+  guard data finally show their real values; entries without V1
+  data fall back to N/A as before.
+- **Attribute Scaling** — previously had Arc hard-coded to N/A; now
+  pulls `V1.ScalingArcRaw`. Str/Dex/Int/Fai prefer V1, legacy
+  fallback intact. Labels are still raw numbers (no fake S/A/B/C
+  letter grades — those need `CalcCorrectGraph` and are deferred).
+- **Attributes Required** — prefers V1 `StatReq*`, falls back to
+  legacy `Req*`.
+- **Item Info** — `Max Upgrade` now sources from
+  `V1.MaxUpgrade` when present (covers Sacred Relic Sword +10,
+  Longsword +25, ammo 0). New optional `Reinforcement` row shows
+  "Somber" / "Standard" derived from `V1.IsSomber` / `V1.IsInfusable`;
+  hidden when neither applies (e.g. ammo).
+- **Weight** — V1 weight preferred; legacy `item.weapon.Weight`,
+  `item.armor.Weight`, and `item.weight` remain the fallback chain.
+
+**What did NOT change**:
+
+- Armor and Spell panels are untouched. Their resolution path
+  remains `item.armor` / `item.spell` from `data.Descriptions`.
+- Panel header, icon, caption, description, location, and "no data"
+  fallback render exactly as before.
+- No Wails bindings change; this is a UI-only commit.
+- `WeaponStatsV1.Warnings` is intentionally NOT surfaced — the V1
+  generator only emits a `status-deferred` informational warning,
+  not anything an end user needs to see.
+
 ### feat(db): expose generated weapon stats payload
 
 Adds a new optional `ItemEntry.Stats` payload that exposes the
