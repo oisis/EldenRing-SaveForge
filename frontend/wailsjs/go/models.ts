@@ -906,6 +906,267 @@ export namespace deploy {
 
 }
 
+export namespace editor {
+	
+	export class AddItemSpec {
+	    itemID: number;
+	    baseItemID: number;
+	    quantity: number;
+	    upgrade: number;
+	    infusionName: string;
+	    aowItemID: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AddItemSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.itemID = source["itemID"];
+	        this.baseItemID = source["baseItemID"];
+	        this.quantity = source["quantity"];
+	        this.upgrade = source["upgrade"];
+	        this.infusionName = source["infusionName"];
+	        this.aowItemID = source["aowItemID"];
+	    }
+	}
+	export class EditableItem {
+	    uid: string;
+	    source: string;
+	    container: string;
+	    position: number;
+	    originalHandle: number;
+	    itemID: number;
+	    baseItemID: number;
+	    name: string;
+	    category: string;
+	    quantity: number;
+	    acquisitionIndex: number;
+	    currentUpgrade: number;
+	    maxUpgrade: number;
+	    infusionName?: string;
+	    iconPath?: string;
+	    hasGaItem: boolean;
+	    isWeapon: boolean;
+	    isArmor: boolean;
+	    isTalisman: boolean;
+	    currentAoWHandle?: number;
+	    currentAoWItemID?: number;
+	    currentAoWName?: string;
+	    hasCurrentAoW?: boolean;
+	    currentAoWShared?: boolean;
+	    currentAoWStatus?: string;
+	    pendingAoWItemID?: number;
+	    pendingAoWName?: string;
+	    pendingAoWClear?: boolean;
+	    hasPendingWeaponPatch?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditableItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uid = source["uid"];
+	        this.source = source["source"];
+	        this.container = source["container"];
+	        this.position = source["position"];
+	        this.originalHandle = source["originalHandle"];
+	        this.itemID = source["itemID"];
+	        this.baseItemID = source["baseItemID"];
+	        this.name = source["name"];
+	        this.category = source["category"];
+	        this.quantity = source["quantity"];
+	        this.acquisitionIndex = source["acquisitionIndex"];
+	        this.currentUpgrade = source["currentUpgrade"];
+	        this.maxUpgrade = source["maxUpgrade"];
+	        this.infusionName = source["infusionName"];
+	        this.iconPath = source["iconPath"];
+	        this.hasGaItem = source["hasGaItem"];
+	        this.isWeapon = source["isWeapon"];
+	        this.isArmor = source["isArmor"];
+	        this.isTalisman = source["isTalisman"];
+	        this.currentAoWHandle = source["currentAoWHandle"];
+	        this.currentAoWItemID = source["currentAoWItemID"];
+	        this.currentAoWName = source["currentAoWName"];
+	        this.hasCurrentAoW = source["hasCurrentAoW"];
+	        this.currentAoWShared = source["currentAoWShared"];
+	        this.currentAoWStatus = source["currentAoWStatus"];
+	        this.pendingAoWItemID = source["pendingAoWItemID"];
+	        this.pendingAoWName = source["pendingAoWName"];
+	        this.pendingAoWClear = source["pendingAoWClear"];
+	        this.hasPendingWeaponPatch = source["hasPendingWeaponPatch"];
+	    }
+	}
+	export class WorkspaceValidationIssue {
+	    severity: string;
+	    code: string;
+	    message: string;
+	    uid?: string;
+	    handle?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceValidationIssue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.severity = source["severity"];
+	        this.code = source["code"];
+	        this.message = source["message"];
+	        this.uid = source["uid"];
+	        this.handle = source["handle"];
+	    }
+	}
+	export class WorkspaceValidationReport {
+	    ok: boolean;
+	    errors: WorkspaceValidationIssue[];
+	    warnings: WorkspaceValidationIssue[];
+	    inventoryItemCount: number;
+	    storageItemCount: number;
+	    unsupportedInventoryCount: number;
+	    unsupportedStorageCount: number;
+	    duplicateUIDs: string[];
+	    duplicateHandles: number[];
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceValidationReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ok = source["ok"];
+	        this.errors = this.convertValues(source["errors"], WorkspaceValidationIssue);
+	        this.warnings = this.convertValues(source["warnings"], WorkspaceValidationIssue);
+	        this.inventoryItemCount = source["inventoryItemCount"];
+	        this.storageItemCount = source["storageItemCount"];
+	        this.unsupportedInventoryCount = source["unsupportedInventoryCount"];
+	        this.unsupportedStorageCount = source["unsupportedStorageCount"];
+	        this.duplicateUIDs = source["duplicateUIDs"];
+	        this.duplicateHandles = source["duplicateHandles"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RawInventoryRecord {
+	    container: string;
+	    slotIndex: number;
+	    handle: number;
+	    quantity: number;
+	    acquisitionIndex: number;
+	    itemID: number;
+	    name?: string;
+	    category?: string;
+	    reason: string;
+	    hasGaItem: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RawInventoryRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.container = source["container"];
+	        this.slotIndex = source["slotIndex"];
+	        this.handle = source["handle"];
+	        this.quantity = source["quantity"];
+	        this.acquisitionIndex = source["acquisitionIndex"];
+	        this.itemID = source["itemID"];
+	        this.name = source["name"];
+	        this.category = source["category"];
+	        this.reason = source["reason"];
+	        this.hasGaItem = source["hasGaItem"];
+	    }
+	}
+	export class InventoryWorkspaceSnapshot {
+	    sessionID: string;
+	    characterIndex: number;
+	    inventoryItems: EditableItem[];
+	    storageItems: EditableItem[];
+	    unsupportedInventoryRecords: RawInventoryRecord[];
+	    unsupportedStorageRecords: RawInventoryRecord[];
+	    dirty: boolean;
+	    validation: WorkspaceValidationReport;
+	
+	    static createFrom(source: any = {}) {
+	        return new InventoryWorkspaceSnapshot(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.sessionID = source["sessionID"];
+	        this.characterIndex = source["characterIndex"];
+	        this.inventoryItems = this.convertValues(source["inventoryItems"], EditableItem);
+	        this.storageItems = this.convertValues(source["storageItems"], EditableItem);
+	        this.unsupportedInventoryRecords = this.convertValues(source["unsupportedInventoryRecords"], RawInventoryRecord);
+	        this.unsupportedStorageRecords = this.convertValues(source["unsupportedStorageRecords"], RawInventoryRecord);
+	        this.dirty = source["dirty"];
+	        this.validation = this.convertValues(source["validation"], WorkspaceValidationReport);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class WeaponPatch {
+	    setUpgrade: boolean;
+	    upgrade: number;
+	    setInfusionName: boolean;
+	    infusionName: string;
+	    setAoWItemID: boolean;
+	    aowItemID: number;
+	    clearAoW: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new WeaponPatch(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.setUpgrade = source["setUpgrade"];
+	        this.upgrade = source["upgrade"];
+	        this.setInfusionName = source["setInfusionName"];
+	        this.infusionName = source["infusionName"];
+	        this.setAoWItemID = source["setAoWItemID"];
+	        this.aowItemID = source["aowItemID"];
+	        this.clearAoW = source["clearAoW"];
+	    }
+	}
+	
+
+}
+
 export namespace main {
 	
 	export class SkippedAdd {
