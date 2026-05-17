@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as App from '../wailsjs/go/main/App';
-import { editor } from '../wailsjs/go/models';
+import { editor, main, templates } from '../wailsjs/go/models';
 
 // This is a contract test that locks the Wails-generated binding surface
 // the inventory workspace UI depends on. Any unintentional rename or
@@ -27,6 +27,11 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.RemoveInventoryWorkspaceItem).toBe('function');
         expect(typeof App.SaveInventoryWorkspaceChanges).toBe('function');
         expect(typeof App.DiscardInventoryEditSession).toBe('function');
+    });
+
+    it('exposes Phase B build template export endpoints', () => {
+        expect(typeof App.ExportBuildTemplateJSON).toBe('function');
+        expect(typeof App.ExportBuildTemplateToFile).toBe('function');
     });
 });
 
@@ -128,5 +133,33 @@ describe('Wails binding contract: editor.WorkspaceValidationReport', () => {
         expect('warnings' in sample).toBe(true);
         expect('inventoryItemCount' in sample).toBe(true);
         expect('storageItemCount' in sample).toBe(true);
+    });
+});
+
+describe('Wails binding contract: build template export DTOs', () => {
+    it('exposes BuildTemplateExportOptions fields the modal sends', () => {
+        const sample = main.BuildTemplateExportOptions.createFrom({});
+        expect('includeInventory' in sample).toBe(true);
+        expect('includeStorage' in sample).toBe(true);
+        expect('name' in sample).toBe(true);
+        expect('description' in sample).toBe(true);
+        expect('author' in sample).toBe(true);
+        expect('tags' in sample).toBe(true);
+    });
+
+    it('exposes BuildTemplateExportResult fields the UI reads back', () => {
+        const sample = main.BuildTemplateExportResult.createFrom({});
+        expect('path' in sample).toBe(true);
+        expect('json' in sample).toBe(true);
+        expect('warnings' in sample).toBe(true);
+        expect('skippedItems' in sample).toBe(true);
+    });
+
+    it('exposes templates.ExportWarning fields for surface in toasts', () => {
+        const sample = templates.ExportWarning.createFrom({});
+        expect('code' in sample).toBe(true);
+        expect('message' in sample).toBe(true);
+        expect('container' in sample).toBe(true);
+        expect('position' in sample).toBe(true);
     });
 });

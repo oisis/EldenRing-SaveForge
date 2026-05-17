@@ -106,6 +106,14 @@ export function DownloadRemoteSave(arg1) {
   return window['go']['main']['App']['DownloadRemoteSave'](arg1);
 }
 
+export function ExportBuildTemplateJSON(arg1, arg2) {
+  return window['go']['main']['App']['ExportBuildTemplateJSON'](arg1, arg2);
+}
+
+export function ExportBuildTemplateToFile(arg1, arg2) {
+  return window['go']['main']['App']['ExportBuildTemplateToFile'](arg1, arg2);
+}
+
 export function ExportCharacterPresetToFile(arg1, arg2) {
   return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1, arg2);
 }

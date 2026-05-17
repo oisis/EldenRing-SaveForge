@@ -1227,6 +1227,64 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class BuildTemplateExportOptions {
+	    includeInventory: boolean;
+	    includeStorage: boolean;
+	    name: string;
+	    description: string;
+	    author: string;
+	    tags: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BuildTemplateExportOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.includeInventory = source["includeInventory"];
+	        this.includeStorage = source["includeStorage"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.author = source["author"];
+	        this.tags = source["tags"];
+	    }
+	}
+	export class BuildTemplateExportResult {
+	    path?: string;
+	    json?: string;
+	    warnings?: templates.ExportWarning[];
+	    skippedItems: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new BuildTemplateExportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.json = source["json"];
+	        this.warnings = this.convertValues(source["warnings"], templates.ExportWarning);
+	        this.skippedItems = source["skippedItems"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class BuiltinCharacterPresetInfo {
 	    id: string;
 	    name: string;
@@ -1398,6 +1456,31 @@ export namespace main {
 	        this.slotIndex = source["slotIndex"];
 	        this.charName = source["charName"];
 	        this.changeCount = source["changeCount"];
+	    }
+	}
+
+}
+
+export namespace templates {
+	
+	export class ExportWarning {
+	    code: string;
+	    uid?: string;
+	    container?: string;
+	    position: number;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExportWarning(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.uid = source["uid"];
+	        this.container = source["container"];
+	        this.position = source["position"];
+	        this.message = source["message"];
 	    }
 	}
 

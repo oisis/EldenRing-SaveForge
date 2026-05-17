@@ -1,7 +1,7 @@
 # 55 — Build Template
 
 > **Type**: Design doc
-> **Status**: 🔲 Planowany — Phase A zaimplementowany (`backend/templates/`), Phase B–E pending
+> **Status**: 🔲 Planowany — Phase A + B zaimplementowane (`backend/templates/`, `app_templates.go`, UI SortOrderTab), Phase C–E pending
 > **Scope**: Przenośna reprezentacja JSON snapshotu Inventory Workspace. Definiuje schemat `saveforge.build-template` v1, kontrakt eksportu (`BuildTemplateFromSnapshot`), reguły obsługi Ash of War oraz zakres pól celowo wykluczonych z payloadu — tak by szablon można było zaaplikować na dowolnym save'ie bez kolizji z jego przestrzenią handle'i.
 
 ---
@@ -175,12 +175,35 @@ Sprawdzenia na poziomie DB (item istnieje, AoW kompatybilne z typem broni, quant
 
 | Faza | Scope | Status |
 |---|---|---|
-| **A** | Schemat + eksporter (`backend/templates/`), spec doc, testy | ✅ ten PR |
-| **B** | Wails binding `ExportBuildTemplateToFile`, dropdown w SortOrderTab UI | 🔲 pending |
+| **A** | Schemat + eksporter (`backend/templates/`), spec doc, testy | ✅ |
+| **B** | Wails bindings `ExportBuildTemplateJSON` / `ExportBuildTemplateToFile`, dropdown + modal w SortOrderTab | ✅ |
 | **C** | Lokalna biblioteka szablonów pod `UserConfigDir`/`templates/` | 🔲 pending |
 | **D** | Preview importu: `ValidateBuildTemplate` + DB resolution + AoW compat dry-run | 🔲 pending |
 | **E** | `ApplyBuildTemplateToWorkspace` — re-use istniejącej ścieżki `AddInventoryWorkspaceItem` + `SaveInventoryWorkspaceChanges` | 🔲 pending |
 | 2+ | Sekcja `character.profile` (level, stats, talisman slots), opt-in via `$enabled` | 🔲 odroczone |
+
+### 7.1. Kontrakt endpointów Phase B
+
+Dwie metody-receivery `App` exposed przez Wails:
+
+```go
+func (a *App) ExportBuildTemplateJSON(sessionID string, opts BuildTemplateExportOptions) (BuildTemplateExportResult, error)
+func (a *App) ExportBuildTemplateToFile(sessionID string, opts BuildTemplateExportOptions) (BuildTemplateExportResult, error)
+```
+
+Zachowanie wspólne dla obu:
+
+- Resolve aktywnej `InventoryEditSession` po `sessionID`. Nieznana sesja → error `inventory edit session %q not found`.
+- Buduj `templates.ExportOptions` z `opts`, stempl `AppVersion` ze zmiennej `appVersion` z pakietu, wypełnij `Metadata.SourceCharacterIndex` z sesji i `Metadata.SourceCharacterName` z nazwy postaci w save'ie (pusty jeśli brak załadowanego save'a).
+- Uruchom `templates.BuildTemplateFromSnapshot`, potem `ValidateBuildTemplate`. Walidacyjne błędy idą jako wrapped errors.
+- **Nigdy** nie wołaj `SaveInventoryWorkspaceChanges`, **nigdy** nie mutuj slot data, **nigdy** nie alokuj handle'i. Eksport to czysty read ze snapshotu workspace.
+- Workspace z `Dirty=true` jest poprawnym źródłem eksportu — feature istnieje właśnie po to by user mógł zachwycić build przed kliknięciem Save Changes.
+
+`ExportBuildTemplateJSON` zwraca payload JSON jako string (pole `JSON` w `BuildTemplateExportResult`) i całkowicie pomija I/O na disk. Przydatne do podglądu i testów.
+
+`ExportBuildTemplateToFile` pokazuje natywny save-file dialog przez `runtime.SaveFileDialog`, zapisuje plik z mode 0644, zwraca wybraną ścieżkę. Anulowanie (pusta ścieżka z dialogu) **nie** jest errorem: wynik zwracany z `Path == ""`, frontend cicho ignoruje. Domyślna nazwa pliku jest derived z `metadata.name`, fallback do `<character>-build.json`, potem `saveforge-build-template.json`.
+
+Warningi z `templates.ExportReport` są przekazywane przez `BuildTemplateExportResult.Warnings` tak by UI mogło je pokazać po udanym zapisie bez mutowania state workspace'a.
 
 Settings export (motyw, deploy targets, preferencje UI) **nie** jest częścią tego designu. Będzie osobnym schematem `saveforge.settings-export` jeśli/gdy stanie się priorytetem.
 

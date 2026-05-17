@@ -13,6 +13,8 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     RemoveInventoryWorkspaceItem: vi.fn(),
     SaveInventoryWorkspaceChanges: vi.fn(),
     DiscardInventoryEditSession: vi.fn(),
+    ExportBuildTemplateToFile: vi.fn(),
+    ExportBuildTemplateJSON: vi.fn(),
     GetItemList: vi.fn().mockResolvedValue([]),
 }));
 
@@ -191,5 +193,108 @@ describe('SortOrderTab (workspace mode)', () => {
             // Second StartInventoryEditSession call to re-seed after discard.
             expect(mocks.StartInventoryEditSession).toHaveBeenCalledTimes(2);
         });
+    });
+});
+
+describe('SortOrderTab — Export Template (Phase B)', () => {
+    it('renders Export Template button when session is active', async () => {
+        await mount(makeSnapshot({ sessionID: 'ses-exp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        const btn = await screen.findByRole('button', { name: /Export Template/i });
+        expect(btn).toBeEnabled();
+    });
+
+    it('opens the dropdown menu when the button is clicked', async () => {
+        await mount(makeSnapshot({ sessionID: 'ses-exp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        const btn = await screen.findByRole('button', { name: /Export Template/i });
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        expect(screen.getByRole('menuitem', { name: /Export Inventory only/i })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /Export Storage only/i })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /Export Both/i })).toBeInTheDocument();
+        expect(screen.getByRole('menuitem', { name: /Export with options/i })).toBeInTheDocument();
+    });
+
+    it('Export Inventory only sends includeInventory=true and includeStorage=false', async () => {
+        mocks.ExportBuildTemplateToFile.mockResolvedValue({ path: '/tmp/x.json', warnings: [], skippedItems: 0 });
+        await mount(makeSnapshot({ sessionID: 'ses-inv', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Export Inventory only/i }));
+        });
+        await waitFor(() => {
+            expect(mocks.ExportBuildTemplateToFile).toHaveBeenCalledTimes(1);
+        });
+        const [, opts] = mocks.ExportBuildTemplateToFile.mock.calls[0] as [string, { includeInventory: boolean; includeStorage: boolean }];
+        expect(opts.includeInventory).toBe(true);
+        expect(opts.includeStorage).toBe(false);
+    });
+
+    it('Export Storage only sends includeInventory=false and includeStorage=true', async () => {
+        mocks.ExportBuildTemplateToFile.mockResolvedValue({ path: '/tmp/x.json', warnings: [], skippedItems: 0 });
+        await mount(makeSnapshot({ sessionID: 'ses-sto', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Export Storage only/i }));
+        });
+        await waitFor(() => {
+            expect(mocks.ExportBuildTemplateToFile).toHaveBeenCalledTimes(1);
+        });
+        const [, opts] = mocks.ExportBuildTemplateToFile.mock.calls[0] as [string, { includeInventory: boolean; includeStorage: boolean }];
+        expect(opts.includeInventory).toBe(false);
+        expect(opts.includeStorage).toBe(true);
+    });
+
+    it('Export Both sends includeInventory=true and includeStorage=true', async () => {
+        mocks.ExportBuildTemplateToFile.mockResolvedValue({ path: '/tmp/x.json', warnings: [], skippedItems: 0 });
+        await mount(makeSnapshot({ sessionID: 'ses-both', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Export Both/i }));
+        });
+        await waitFor(() => {
+            expect(mocks.ExportBuildTemplateToFile).toHaveBeenCalledTimes(1);
+        });
+        const [, opts] = mocks.ExportBuildTemplateToFile.mock.calls[0] as [string, { includeInventory: boolean; includeStorage: boolean }];
+        expect(opts.includeInventory).toBe(true);
+        expect(opts.includeStorage).toBe(true);
+    });
+
+    it('Export with options opens the modal and shows dirty note when workspace is dirty', async () => {
+        await mount(makeSnapshot({ sessionID: 'ses-mod', dirty: true, inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Export with options/i }));
+        });
+        expect(screen.getByTestId('export-template-modal')).toBeInTheDocument();
+        expect(screen.getByTestId('export-dirty-note')).toBeInTheDocument();
+    });
+
+    it('cancelled save dialog (empty path) does not toast success', async () => {
+        const toastMod = (await import('../lib/toast')).default as unknown as {
+            success: ReturnType<typeof vi.fn>;
+            error: ReturnType<typeof vi.fn>;
+        };
+        mocks.ExportBuildTemplateToFile.mockResolvedValue({ path: '', warnings: [], skippedItems: 0 });
+        await mount(makeSnapshot({ sessionID: 'ses-cancel', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Export Both/i }));
+        });
+        await waitFor(() => {
+            expect(mocks.ExportBuildTemplateToFile).toHaveBeenCalledTimes(1);
+        });
+        // No success toast for cancelled dialog.
+        expect(toastMod.success).not.toHaveBeenCalledWith(expect.stringContaining('Build template saved'));
     });
 });

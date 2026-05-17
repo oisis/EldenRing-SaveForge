@@ -59,6 +59,10 @@ export function DiscardInventoryEditSession(arg1:string):Promise<void>;
 
 export function DownloadRemoteSave(arg1:string):Promise<string>;
 
+export function ExportBuildTemplateJSON(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<main.BuildTemplateExportResult>;
+
+export function ExportBuildTemplateToFile(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<main.BuildTemplateExportResult>;
+
 export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSettings):Promise<string>;
 
 export function GetActiveSlots():Promise<Array<boolean>>;
