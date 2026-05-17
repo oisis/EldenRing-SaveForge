@@ -33,6 +33,11 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.ExportBuildTemplateJSON).toBe('function');
         expect(typeof App.ExportBuildTemplateToFile).toBe('function');
     });
+
+    it('exposes Phase C build template preview endpoints', () => {
+        expect(typeof App.PreviewBuildTemplateImportJSON).toBe('function');
+        expect(typeof App.PreviewBuildTemplateImportFromFile).toBe('function');
+    });
 });
 
 describe('Wails binding contract: editor.EditableItem', () => {
@@ -161,5 +166,37 @@ describe('Wails binding contract: build template export DTOs', () => {
         expect('message' in sample).toBe(true);
         expect('container' in sample).toBe(true);
         expect('position' in sample).toBe(true);
+    });
+});
+
+describe('Wails binding contract: import preview DTOs (Phase C)', () => {
+    it('exposes ImportPreviewReport top-level fields', () => {
+        const sample = templates.ImportPreviewReport.createFrom({});
+        expect('ok' in sample).toBe(true);
+        expect('errors' in sample).toBe(true);
+        expect('warnings' in sample).toBe(true);
+        expect('summary' in sample).toBe(true);
+    });
+
+    it('exposes ImportPreviewIssue positional fields', () => {
+        const sample = templates.ImportPreviewIssue.createFrom({});
+        expect('severity' in sample).toBe(true);
+        expect('code' in sample).toBe(true);
+        expect('message' in sample).toBe(true);
+        expect('container' in sample).toBe(true);
+        expect('position' in sample).toBe(true);
+        expect('baseItemID' in sample).toBe(true);
+        expect('aowItemID' in sample).toBe(true);
+    });
+
+    it('exposes ImportPreviewSummary bucket counters', () => {
+        const sample = templates.ImportPreviewSummary.createFrom({});
+        expect('inventoryItems' in sample).toBe(true);
+        expect('storageItems' in sample).toBe(true);
+        expect('weapons' in sample).toBe(true);
+        expect('armor' in sample).toBe(true);
+        expect('talismans' in sample).toBe(true);
+        expect('stackables' in sample).toBe(true);
+        expect('aowAssignments' in sample).toBe(true);
     });
 });

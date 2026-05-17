@@ -15,6 +15,8 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     DiscardInventoryEditSession: vi.fn(),
     ExportBuildTemplateToFile: vi.fn(),
     ExportBuildTemplateJSON: vi.fn(),
+    PreviewBuildTemplateImportFromFile: vi.fn(),
+    PreviewBuildTemplateImportJSON: vi.fn(),
     GetItemList: vi.fn().mockResolvedValue([]),
 }));
 
@@ -296,5 +298,90 @@ describe('SortOrderTab — Export Template (Phase B)', () => {
         });
         // No success toast for cancelled dialog.
         expect(toastMod.success).not.toHaveBeenCalledWith(expect.stringContaining('Build template saved'));
+    });
+});
+
+describe('SortOrderTab — Import Template Preview (Phase C)', () => {
+    it('exposes Import Template Preview in the Export Template menu', async () => {
+        await mount(makeSnapshot({ sessionID: 'ses-imp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        expect(screen.getByRole('menuitem', { name: /Import Template Preview/i })).toBeInTheDocument();
+    });
+
+    it('clicking the menu item calls PreviewBuildTemplateImportFromFile', async () => {
+        // Sentinel "cancelled" report — keeps modal closed.
+        mocks.PreviewBuildTemplateImportFromFile.mockResolvedValue({
+            ok: false,
+            errors: [],
+            warnings: [],
+            summary: {
+                inventoryItems: 0, storageItems: 0, weapons: 0, armor: 0,
+                talismans: 0, stackables: 0, aowAssignments: 0,
+            },
+        });
+        await mount(makeSnapshot({ sessionID: 'ses-imp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(mocks.PreviewBuildTemplateImportFromFile).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('renders the preview modal when a non-cancelled report comes back', async () => {
+        mocks.PreviewBuildTemplateImportFromFile.mockResolvedValue({
+            ok: true,
+            errors: [],
+            warnings: [],
+            summary: {
+                inventoryItems: 2, storageItems: 0, weapons: 2, armor: 0,
+                talismans: 0, stackables: 0, aowAssignments: 1,
+            },
+        });
+        await mount(makeSnapshot({ sessionID: 'ses-imp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+        });
+        expect(screen.getByTestId('import-preview-disclaimer')).toHaveTextContent(/does not change your workspace or save/i);
+    });
+
+    it('cancelled preview does not open the modal and does not toast', async () => {
+        const toastMod = (await import('../lib/toast')).default as unknown as {
+            success: ReturnType<typeof vi.fn>;
+            error: ReturnType<typeof vi.fn>;
+        };
+        mocks.PreviewBuildTemplateImportFromFile.mockResolvedValue({
+            ok: false,
+            errors: [],
+            warnings: [],
+            summary: {
+                inventoryItems: 0, storageItems: 0, weapons: 0, armor: 0,
+                talismans: 0, stackables: 0, aowAssignments: 0,
+            },
+        });
+        await mount(makeSnapshot({ sessionID: 'ses-imp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(mocks.PreviewBuildTemplateImportFromFile).toHaveBeenCalledTimes(1);
+        });
+        expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
+        expect(toastMod.success).not.toHaveBeenCalled();
+        expect(toastMod.error).not.toHaveBeenCalled();
     });
 });

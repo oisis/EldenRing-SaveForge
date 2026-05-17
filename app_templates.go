@@ -177,6 +177,76 @@ func writeBuildTemplateFile(path string, data []byte) error {
 	return nil
 }
 
+// PreviewBuildTemplateImportJSON runs the Phase C dry-run validator on
+// a JSON payload provided directly by the caller (UI textbox, clipboard,
+// test harness). It is the building block that
+// PreviewBuildTemplateImportFromFile composes with a file read.
+//
+// Phase C contract:
+//   - Does NOT mutate any session, save, or workspace.
+//   - Does NOT call AddInventoryWorkspaceItem or
+//     SaveInventoryWorkspaceChanges.
+//   - Malformed payloads return a non-OK report with a single error
+//     coded structure_invalid rather than a flat Go error, so the
+//     frontend can render parse failures and validation failures via
+//     the same panel.
+func (a *App) PreviewBuildTemplateImportJSON(jsonText string) (templates.ImportPreviewReport, error) {
+	tpl, err := templates.ParseBuildTemplateJSON([]byte(jsonText))
+	if err != nil {
+		return templates.ImportPreviewReport{
+			OK: false,
+			Errors: []templates.ImportPreviewIssue{{
+				Severity: "error",
+				Code:     templates.IssueCodeStructureInvalid,
+				Message:  err.Error(),
+			}},
+			Warnings: []templates.ImportPreviewIssue{},
+			Summary:  templates.ImportPreviewSummary{},
+		}, nil
+	}
+	return templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: "append"}), nil
+}
+
+// PreviewBuildTemplateImportFromFile opens a native file dialog, reads
+// the chosen JSON file, and runs the same dry-run preview as
+// PreviewBuildTemplateImportJSON. Cancellation (empty path) is not an
+// error: the call returns OK=false with no issues so the UI can detect
+// "user backed out" via report.Summary.InventoryItems == 0 + zero
+// errors. Match the convention of ExportBuildTemplateToFile's silent
+// cancel.
+func (a *App) PreviewBuildTemplateImportFromFile() (templates.ImportPreviewReport, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Preview Build Template",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Build Template (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return templates.ImportPreviewReport{}, err
+	}
+	if path == "" {
+		return cancelledPreviewReport(), nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return templates.ImportPreviewReport{}, fmt.Errorf("read template: %w", err)
+	}
+	return a.PreviewBuildTemplateImportJSON(string(data))
+}
+
+// cancelledPreviewReport is the sentinel returned when the user
+// cancelled the open-file dialog. It contains zero items and zero
+// issues so the UI can render the "no file chosen" state identically
+// to "preview hasn't run yet" without inventing a separate flag.
+func cancelledPreviewReport() templates.ImportPreviewReport {
+	return templates.ImportPreviewReport{
+		OK:       false,
+		Errors:   []templates.ImportPreviewIssue{},
+		Warnings: []templates.ImportPreviewIssue{},
+		Summary:  templates.ImportPreviewSummary{},
+	}
+}
+
 // filenameSanitizer strips anything that would be unsafe in a filename
 // across the three desktop OSes. Sequences of unsafe characters collapse
 // to a single dash, and surrounding dashes/whitespace are trimmed.

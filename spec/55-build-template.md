@@ -1,7 +1,7 @@
 # 55 — Build Template
 
 > **Type**: Design doc
-> **Status**: 🔲 Planned — Phase A + B implemented (`backend/templates/`, `app_templates.go`, SortOrderTab UI), Phase C–E pending
+> **Status**: 🔲 Planned — Phase A + B + C implemented (`backend/templates/`, `app_templates.go`, SortOrderTab UI with export + preview modals), Phase D/E pending
 > **Scope**: Portable JSON representation of an Inventory Workspace snapshot. Defines the `saveforge.build-template` schema v1, the export contract (`BuildTemplateFromSnapshot`), Ash of War handling rules, and what is deliberately excluded from the payload so a template can be applied to any save without colliding with its handle space.
 
 ---
@@ -177,8 +177,8 @@ DB-level checks (item exists, AoW compatible with weapon type, quantity within `
 |---|---|---|
 | **A** | Schema + exporter (`backend/templates/`), spec doc, tests | ✅ |
 | **B** | Wails bindings `ExportBuildTemplateJSON` / `ExportBuildTemplateToFile`, SortOrderTab dropdown + modal | ✅ |
-| **C** | Local template library under `UserConfigDir`/`templates/` | 🔲 pending |
-| **D** | Import preview: `ValidateBuildTemplate` + DB resolution + AoW compat dry-run | 🔲 pending |
+| **C** | Import preview: `ParseBuildTemplateJSON`, `PreviewBuildTemplateImport`, App endpoints, `ImportTemplatePreviewModal` (read-only) | ✅ |
+| **D** | Local template library under `UserConfigDir`/`templates/` | 🔲 pending |
 | **E** | `ApplyBuildTemplateToWorkspace` — re-uses existing `AddInventoryWorkspaceItem` + `SaveInventoryWorkspaceChanges` path | 🔲 pending |
 | 2+ | `character.profile` section (level, stats, talisman slots), opt-in via `$enabled` | 🔲 deferred |
 
@@ -209,9 +209,62 @@ Settings export (theme, deploy targets, UI preferences) is **not** part of this 
 
 ---
 
-## 8. Import path (preview design — Phase D/E)
+## 7.2. Phase C endpoint contract (Import Preview)
 
-Phase A does not implement import. The schema is designed to support it without changes. Sketch:
+Two `App`-receiver methods exposed via Wails:
+
+```go
+func (a *App) PreviewBuildTemplateImportJSON(jsonText string) (templates.ImportPreviewReport, error)
+func (a *App) PreviewBuildTemplateImportFromFile() (templates.ImportPreviewReport, error)
+```
+
+Behavior shared by both:
+
+- **Dry-run only.** No session is resolved, no workspace mutated, no save written, no handles allocated. `PreviewBuildTemplateImport` is in a package (`backend/templates`) that does not import `backend/editor` or `backend/core` — the absence of those imports is the structural guarantee.
+- Parse the JSON via `templates.ParseBuildTemplateJSON`, which wraps `json.Unmarshal` + `ValidateBuildTemplate`. Malformed payloads or schema mismatches produce a NON-OK report with a single `structure_invalid` error, not a Go `error` — this lets the frontend render parse and per-item failures through the same panel.
+- Per-item validation runs against the live DB and produces `ImportPreviewIssue` entries with `Code`, `Container`, `Position`, and item IDs so the UI can deep-link.
+
+### Validation rules
+
+| Code | Severity | Trigger |
+|---|---|---|
+| `structure_invalid` | error | JSON parse / `ValidateBuildTemplate` failed at the schema layer |
+| `schema_invalid` | error | `ValidateBuildTemplate` rejected a non-nil template after construction |
+| `unknown_item` | error | `db.GetItemDataFuzzy(BaseItemID).Name == ""` OR AoW item missing from DB |
+| `quantity_non_positive` | error | `Quantity == 0` (defence in depth alongside the schema validator) |
+| `upgrade_out_of_range` | error | `Upgrade < 0` or `Upgrade > db.ItemData.MaxUpgrade` |
+| `unknown_infusion` | error | `InfusionName != ""` and not present in `db.InfuseTypes` |
+| `aow_not_weapon_target` | error | `aowItemID != nil` but the target item's DB category is not in {melee_armaments, ranged_and_catalysts, shields} |
+| `aow_not_ash_category` | error | `aowItemID` resolves but its DB category is not `"ashes_of_war"` |
+| `aow_incompatible` | error | `db.IsAshOfWarCompatibleWithWeapon` returned `(false, true)` |
+| `aow_compat_unknown` | error | `db.IsAshOfWarCompatibleWithWeapon` returned `(_, false)` — **fail-closed** |
+| `name_mismatch_ignored` | warning | template's `Name` differs from DB name; DB is source of truth |
+| `unknown_mode` | warning | `ImportPreviewOptions.Mode` is set to a value other than `""` / `"append"` (forward-compat) |
+
+`OK = (len(Errors) == 0)`. Warnings never block.
+
+### Summary counters
+
+`ImportPreviewSummary` buckets items by **resolved DB category** (not the template's debug-only `Category` field):
+- `Weapons` ← `{melee_armaments, ranged_and_catalysts, shields}`
+- `Armor` ← `{head, chest, arms, legs}`
+- `Talismans` ← `{talismans}`
+- `Stackables` ← anything else that resolved in DB
+- `AoWAssignments` ← count of items whose AoW survived all compat checks
+
+### Fail-closed AoW compatibility
+
+When `db.IsAshOfWarCompatibleWithWeapon` reports `known=false` (missing bitmask data or unrecognised `wepType`), preview emits `aow_compat_unknown` and the report is NOT OK. This is intentional: silently accepting an unknown AoW assignment would let a template apply state that the game cannot represent.
+
+### File dialog cancellation
+
+`PreviewBuildTemplateImportFromFile` returns a sentinel report (`OK=false`, empty errors/warnings, empty summary) when the user dismisses the open-file dialog. The frontend uses `isCancelledPreview` to detect this shape and keeps the preview modal closed — no toast, no error.
+
+---
+
+## 8. Import path (apply design — Phase E)
+
+Phase A–C do not apply templates to workspaces. The schema is designed to support it without changes. Sketch:
 
 1. `LoadBuildTemplateFromFile(path)` → `*BuildTemplate` + structural validation.
 2. `PreviewBuildTemplateImport(sessionID, tpl, opts)` → diff report against current workspace:

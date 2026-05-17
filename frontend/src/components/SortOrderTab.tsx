@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExportBuildTemplateToFile, GetItemList } from '../../wailsjs/go/main/App';
-import { db, editor, main } from '../../wailsjs/go/models';
+import { ExportBuildTemplateToFile, GetItemList, PreviewBuildTemplateImportFromFile } from '../../wailsjs/go/main/App';
+import { db, editor, main, templates } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 import { useInventoryWorkspace, ContainerKind } from '../hooks/useInventoryWorkspace';
 import { WeaponEditModal } from './WeaponEditModal';
 import { ExportTemplateModal, formatWarningsSummary } from './templates/ExportTemplateModal';
+import { ImportTemplatePreviewModal, isCancelledPreview } from './templates/ImportTemplatePreviewModal';
 
 // Build a main.InventoryOrderItem-shaped adapter from a workspace EditableItem,
 // so the legacy WeaponEditModal can render without changes. Workspace dispatch
@@ -82,6 +83,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
     const [exportMenuOpen, setExportMenuOpen] = useState(false);
     const [exportModalOpen, setExportModalOpen] = useState(false);
+    const [importPreviewReport, setImportPreviewReport] = useState<templates.ImportPreviewReport | null>(null);
     const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
     const workspace = useInventoryWorkspace();
@@ -349,6 +351,21 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         }
     };
 
+    // Phase C: open dialog, run preview, render modal. No workspace
+    // mutation. Cancelled dialog stays silent (no toast).
+    const handleImportPreview = async () => {
+        setExportMenuOpen(false);
+        try {
+            const report = await PreviewBuildTemplateImportFromFile();
+            if (isCancelledPreview(report)) {
+                return;
+            }
+            setImportPreviewReport(report);
+        } catch (err) {
+            toast.error(`Preview failed: ${String(err)}`);
+        }
+    };
+
     const handleExportResult = (result: main.BuildTemplateExportResult) => {
         if (!result.path) {
             // User cancelled the save dialog. Stay silent to match the
@@ -461,6 +478,13 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         setExportModalOpen(false);
                         toast.error(`Export failed: ${String(err)}`);
                     }}
+                />
+            )}
+
+            {importPreviewReport && (
+                <ImportTemplatePreviewModal
+                    report={importPreviewReport}
+                    onClose={() => setImportPreviewReport(null)}
                 />
             )}
 
@@ -595,6 +619,15 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                         className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
                                     >
                                         Export with options…
+                                    </button>
+                                    <div className="my-0.5 border-t border-border/40" />
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={handleImportPreview}
+                                        className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
+                                    >
+                                        Import Template Preview…
                                     </button>
                                 </div>
                             )}

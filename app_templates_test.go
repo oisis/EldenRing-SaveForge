@@ -305,6 +305,110 @@ func TestMarshalBuildTemplate_IsIndented(t *testing.T) {
 	}
 }
 
+// ─── Phase C: PreviewBuildTemplateImportJSON ────────────────────────────
+
+func TestPreviewBuildTemplateImportJSON_HappyPath(t *testing.T) {
+	// Export a real workspace as JSON, then preview that JSON. End-to-end
+	// round trip — guarantees the App-level export and import contracts
+	// agree on the wire format.
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	exp, err := app.ExportBuildTemplateJSON(snap.SessionID, BuildTemplateExportOptions{
+		IncludeInventory: true,
+	})
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+
+	rep, err := app.PreviewBuildTemplateImportJSON(exp.JSON)
+	if err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+	if !rep.OK {
+		t.Fatalf("expected OK, got errors %+v", rep.Errors)
+	}
+	if rep.Summary.Weapons != len(testWeapons) {
+		t.Errorf("Summary.Weapons = %d, want %d", rep.Summary.Weapons, len(testWeapons))
+	}
+}
+
+func TestPreviewBuildTemplateImportJSON_InvalidJSON(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	rep, err := app.PreviewBuildTemplateImportJSON("not json at all")
+	if err != nil {
+		t.Fatalf("preview must not error on malformed JSON, returned %v", err)
+	}
+	if rep.OK {
+		t.Fatal("malformed JSON must produce a NOT-OK report")
+	}
+	if len(rep.Errors) != 1 || rep.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected one structure_invalid error, got %+v", rep.Errors)
+	}
+}
+
+func TestPreviewBuildTemplateImportJSON_WrongSchema(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	bad := `{"schema":"wrong","version":1,"createdAt":"2026-05-17T12:34:56Z","sections":{"inventory.workspace":{"inventoryItems":[{"baseItemID":15990336,"quantity":1,"container":"inventory","position":0}],"storageItems":[]}}}`
+	rep, err := app.PreviewBuildTemplateImportJSON(bad)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if rep.OK {
+		t.Fatal("wrong schema must produce NOT-OK")
+	}
+	if len(rep.Errors) != 1 || rep.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected structure_invalid, got %+v", rep.Errors)
+	}
+}
+
+func TestPreviewBuildTemplateImportJSON_DoesNotMutateSession(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	exp, err := app.ExportBuildTemplateJSON(snap.SessionID, BuildTemplateExportOptions{
+		IncludeInventory: true,
+	})
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+
+	dirtyBefore := app.editSessions[snap.SessionID].Workspace.Dirty
+	invCountBefore := len(app.editSessions[snap.SessionID].Workspace.InventoryItems)
+
+	if _, err := app.PreviewBuildTemplateImportJSON(exp.JSON); err != nil {
+		t.Fatalf("preview: %v", err)
+	}
+
+	if app.editSessions[snap.SessionID].Workspace.Dirty != dirtyBefore {
+		t.Errorf("preview mutated workspace.Dirty (before=%v after=%v)",
+			dirtyBefore, app.editSessions[snap.SessionID].Workspace.Dirty)
+	}
+	if got := len(app.editSessions[snap.SessionID].Workspace.InventoryItems); got != invCountBefore {
+		t.Errorf("preview changed inventory size (before=%d after=%d)", invCountBefore, got)
+	}
+}
+
+func TestCancelledPreviewReport_Shape(t *testing.T) {
+	// Cancelled file dialog produces a report that the UI treats as a
+	// no-op: not OK, no errors, no items. The contract is documented
+	// in the file dialog endpoint comments — this test guards it.
+	rep := cancelledPreviewReport()
+	if rep.OK {
+		t.Error("cancelled report must be OK=false")
+	}
+	if len(rep.Errors) != 0 || len(rep.Warnings) != 0 {
+		t.Errorf("cancelled report must carry no issues, got %+v", rep)
+	}
+	if rep.Summary.InventoryItems != 0 || rep.Summary.StorageItems != 0 {
+		t.Errorf("cancelled report must carry no items, got %+v", rep.Summary)
+	}
+}
+
 func TestDefaultTemplateFilename(t *testing.T) {
 	cases := []struct {
 		desc string

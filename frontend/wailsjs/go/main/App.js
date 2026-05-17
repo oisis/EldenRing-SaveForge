@@ -298,6 +298,14 @@ export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
   return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
 }
 
+export function PreviewBuildTemplateImportFromFile() {
+  return window['go']['main']['App']['PreviewBuildTemplateImportFromFile']();
+}
+
+export function PreviewBuildTemplateImportJSON(arg1) {
+  return window['go']['main']['App']['PreviewBuildTemplateImportJSON'](arg1);
+}
+
 export function RemoveFavoritePreset(arg1) {
   return window['go']['main']['App']['RemoveFavoritePreset'](arg1);
 }

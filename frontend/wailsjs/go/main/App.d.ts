@@ -6,6 +6,7 @@ import {vm} from '../models';
 import {db} from '../models';
 import {deploy} from '../models';
 import {core} from '../models';
+import {templates} from '../models';
 
 export function AddInventoryWorkspaceItem(arg1:string,arg2:editor.AddItemSpec,arg3:string,arg4:number):Promise<editor.InventoryWorkspaceSnapshot>;
 
@@ -154,6 +155,10 @@ export function LoadCharacterPresetFromURL(arg1:string):Promise<vm.CharacterPres
 export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,arg4:number):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
+
+export function PreviewBuildTemplateImportFromFile():Promise<templates.ImportPreviewReport>;
+
+export function PreviewBuildTemplateImportJSON(arg1:string):Promise<templates.ImportPreviewReport>;
 
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
 
