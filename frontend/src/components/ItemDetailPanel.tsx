@@ -13,6 +13,16 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     const V = (v: number | undefined) => v != null ? String(v) : 'N/A';
     const VF = (v: number | undefined) => v != null ? v.toFixed(1) : 'N/A';
 
+    // Phase 3B.4: prefer the generated text payload (item.text) when present,
+    // fall back to legacy item.description / item.location. App-curated
+    // item.name is kept as the panel title so disambiguated entries like
+    // "Letter from Volcano Manor (Istvan)" do not regress to the bare FMG
+    // canonical name.
+    const text = item.text;
+    const caption = text?.Caption?.trim() || '';
+    const description = (text?.Description?.trim()) || (item.description?.trim() ?? '');
+    const location = (text?.Location?.trim()) || (item.location?.trim() ?? '');
+
     const isWeaponCategory = ['melee_armaments', 'ranged_and_catalysts', 'shields'].includes(item.category);
     const isArmorCategory = ['head', 'chest', 'arms', 'legs'].includes(item.category);
     const isSpellCategory = ['sorceries', 'incantations'].includes(item.category);
@@ -65,12 +75,32 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                     </div>
                 </div>
 
+                {/* Caption — short FMG flavour text shown above Description when present */}
+                {caption && (
+                    <div className="space-y-1.5">
+                        <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Caption</h4>
+                        <p className="text-[10px] leading-relaxed italic text-foreground/70 whitespace-pre-line">
+                            {caption}
+                        </p>
+                    </div>
+                )}
+
                 {/* Description */}
-                {item.description && (
+                {description && (
                     <div className="space-y-1.5">
                         <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Description</h4>
                         <p className="text-[10px] leading-relaxed text-foreground/80 whitespace-pre-line">
-                            {item.description}
+                            {description}
+                        </p>
+                    </div>
+                )}
+
+                {/* Location — curated source, surfaced via item.text.Location with legacy fallback */}
+                {location && (
+                    <div className="space-y-1.5">
+                        <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Location</h4>
+                        <p className="text-[10px] leading-relaxed text-foreground/80 whitespace-pre-line">
+                            {location}
                         </p>
                     </div>
                 )}
@@ -294,7 +324,7 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                 </div>
 
                 {/* No data fallback */}
-                {!item.description && !showWeapon && !showArmor && !showSpell && (
+                {!description && !caption && !location && !showWeapon && !showArmor && !showSpell && (
                     <p className="text-[9px] text-muted-foreground/60 italic">No description or stats available for this item.</p>
                 )}
             </div>

@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(ui): render generated item text in details panel
+
+Wires `ItemDetailPanel.tsx` to the Phase 3B.3 `item.text` payload. Three
+text fields are now surfaced with preference for the generated source
+and a legacy fallback:
+
+- `Caption` — new optional flavour-text section above `Description`,
+  rendered italicised when `item.text.Caption` is non-empty.
+- `Description` — prefers `item.text.Description`, falls back to legacy
+  `item.description`.
+- `Location` — new section, prefers `item.text.Location`, falls back to
+  legacy `item.location`. (Previously the panel did not render
+  `location` at all — the curated Fextralife-sourced strings shipped in
+  `descriptions.go` were dead data on the frontend.)
+
+The panel title still uses `item.name`, so app-curated disambiguations
+such as "Letter from Volcano Manor (Istvan)" / "(Rileigh)" and the
+Misricorde / Chain Gauntlets style overrides keep their app-side
+suffixes. `CanonicalName`, per-field provenance, and `DLCSource` are
+deliberately not exposed in this phase to avoid cluttering the panel —
+they remain available on the model for future tooling.
+
+The "No data" fallback now considers caption / description / location
+plus stats sections, so items with only a caption (or only a location)
+no longer trip the empty-state message.
+
+Backend, save-writing paths, the generated `ItemTexts` table, and the
+Wails bindings are unchanged.
+
 ### feat(db): expose generated item text payload
 
 Surfaces the Phase 3B.1 `ItemTextData` value on the `ItemEntry` JSON
