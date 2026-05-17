@@ -204,11 +204,11 @@ export namespace data {
 	    Label: string;
 	    Value: number;
 	    Known: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new WeaponPassiveEffect(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.Kind = source["Kind"];
@@ -304,7 +304,7 @@ export namespace data {
 	        this.StatusSleep = source["StatusSleep"];
 	        this.StatusMadness = source["StatusMadness"];
 	        this.StatusScarletRot = source["StatusScarletRot"];
-	        this.PassiveEffects = source["PassiveEffects"] || [];
+	        this.PassiveEffects = this.convertValues(source["PassiveEffects"], WeaponPassiveEffect);
 	        this.DefaultAoWID = source["DefaultAoWID"];
 	        this.IsInfusable = source["IsInfusable"];
 	        this.IsSomber = source["IsSomber"];
@@ -312,6 +312,24 @@ export namespace data {
 	        this.SourceRowID = source["SourceRowID"];
 	        this.Warnings = source["Warnings"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ItemStatsData {
 	    kind: string;
@@ -405,6 +423,7 @@ export namespace data {
 	        this.ReqArc = source["ReqArc"];
 	    }
 	}
+	
 	export class WeaponStats {
 	    Weight: number;
 	    PhysDamage: number;
