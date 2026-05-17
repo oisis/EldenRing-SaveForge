@@ -564,6 +564,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         }
                     }}
                     onDeleted={(id) => toast.success(`Template ${id} deleted from library.`)}
+                    onRefreshed={(list) => toast.success(`Template library refreshed (${list.length} entries).`)}
                     onError={(err) => toast.error(`Library: ${String(err)}`)}
                 />
             )}

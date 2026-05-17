@@ -158,6 +158,10 @@ export function GetBosses(arg1) {
   return window['go']['main']['App']['GetBosses'](arg1);
 }
 
+export function GetBuildTemplateLibraryPath() {
+  return window['go']['main']['App']['GetBuildTemplateLibraryPath']();
+}
+
 export function GetBuiltinCharacterPreset(arg1) {
   return window['go']['main']['App']['GetBuiltinCharacterPreset'](arg1);
 }
@@ -332,6 +336,10 @@ export function PreviewBuildTemplateImportFromFile() {
 
 export function PreviewBuildTemplateImportJSON(arg1) {
   return window['go']['main']['App']['PreviewBuildTemplateImportJSON'](arg1);
+}
+
+export function RebuildBuildTemplateLibraryIndex() {
+  return window['go']['main']['App']['RebuildBuildTemplateLibraryIndex']();
 }
 
 export function RemoveFavoritePreset(arg1) {

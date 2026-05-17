@@ -8,6 +8,8 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     DeleteBuildTemplateFromLibrary: vi.fn(),
     RenameBuildTemplateInLibrary: vi.fn(),
     ExportLibraryBuildTemplateToFile: vi.fn(),
+    RebuildBuildTemplateLibraryIndex: vi.fn(),
+    GetBuildTemplateLibraryPath: vi.fn(),
 }));
 
 import * as App from '../../../../wailsjs/go/main/App';
@@ -45,6 +47,7 @@ const sampleEntries = [
 beforeEach(() => {
     Object.values(mocks).forEach(m => typeof m?.mockReset === 'function' && m.mockReset());
     mocks.ListBuildTemplateLibrary.mockResolvedValue(sampleEntries);
+    mocks.GetBuildTemplateLibraryPath.mockResolvedValue('/tmp/library');
 });
 
 afterEach(() => {
@@ -220,6 +223,88 @@ describe('TemplateLibraryModal — inline Rename', () => {
         expect(call[1]).toBe('New Name');
         expect(call[2]).toBe('updated');
         expect(call[3]).toEqual(['fresh']);
+    });
+});
+
+describe('TemplateLibraryModal — Refresh', () => {
+    it('calls RebuildBuildTemplateLibraryIndex and replaces the list with returned entries', async () => {
+        const rebuilt = [
+            ...sampleEntries,
+            {
+                id: 'tpl-3',
+                name: 'Dropped Template',
+                description: 'manual drop',
+                tags: [],
+                filename: 'dropped-tpl-3.json',
+                createdAt: '2026-05-15T12:00:00Z',
+                updatedAt: '2026-05-15T12:00:00Z',
+                inventoryItems: 4,
+                storageItems: 0,
+                warnings: 0,
+            },
+        ];
+        mocks.RebuildBuildTemplateLibraryIndex.mockResolvedValue(rebuilt);
+        const onRefreshed = vi.fn();
+        render(<TemplateLibraryModal {...defaultProps({ onRefreshed })} />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-refresh'));
+        });
+        await waitFor(() => {
+            expect(mocks.RebuildBuildTemplateLibraryIndex).toHaveBeenCalledTimes(1);
+        });
+        const entries = await screen.findAllByTestId('library-entry');
+        expect(entries).toHaveLength(3);
+        expect(onRefreshed).toHaveBeenCalled();
+        const [list] = onRefreshed.mock.calls[0];
+        expect(list).toHaveLength(3);
+    });
+
+    it('routes refresh errors through onError', async () => {
+        mocks.RebuildBuildTemplateLibraryIndex.mockRejectedValue(new Error('disk full'));
+        const onError = vi.fn();
+        render(<TemplateLibraryModal {...defaultProps({ onError })} />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-refresh'));
+        });
+        await waitFor(() => {
+            expect(onError).toHaveBeenCalled();
+        });
+    });
+});
+
+describe('TemplateLibraryModal — Empty state and library path', () => {
+    it('shows the new drop-and-refresh empty-state copy', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([]);
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        const empty = await screen.findByTestId('library-empty');
+        expect(empty).toHaveTextContent(/drop .json templates/i);
+        expect(empty).toHaveTextContent(/Refresh/);
+    });
+
+    it('shows the resolved library path inside the empty state when available', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([]);
+        mocks.GetBuildTemplateLibraryPath.mockResolvedValue('/Users/dev/library');
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        const pathEl = await screen.findByTestId('library-empty-path');
+        expect(pathEl).toHaveTextContent('/Users/dev/library');
+    });
+
+    it('renders the library path footer when entries are present', async () => {
+        mocks.GetBuildTemplateLibraryPath.mockResolvedValue('/Users/dev/library');
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        const footer = await screen.findByTestId('library-footer-path');
+        expect(footer).toHaveTextContent('/Users/dev/library');
+    });
+
+    it('degrades gracefully when GetBuildTemplateLibraryPath fails', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([]);
+        mocks.GetBuildTemplateLibraryPath.mockRejectedValue(new Error('no config dir'));
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        await screen.findByTestId('library-empty');
+        // Path element absent — no path-element render path crashes the modal.
+        expect(screen.queryByTestId('library-empty-path')).not.toBeInTheDocument();
     });
 });
 

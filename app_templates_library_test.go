@@ -222,6 +222,119 @@ func TestExportLibraryBuildTemplateToFile_ViaLibraryHelper(t *testing.T) {
 	}
 }
 
+func TestRebuildBuildTemplateLibraryIndex_PicksUpManuallyDroppedFiles(t *testing.T) {
+	app, _, _ := libraryFixture(t)
+	libDir := app.templateLibrary.RootDir()
+
+	// Drop a hand-written valid template file into the library
+	// without going through SaveTemplate, then verify the index
+	// catches it after Rebuild.
+	dropped := &templates.BuildTemplate{
+		Schema:    templates.SchemaKey,
+		Version:   templates.SchemaVersion,
+		CreatedAt: "2026-05-17T12:00:00Z",
+		Metadata: &templates.TemplateMetadata{
+			Name:        "manually dropped",
+			Description: "copied from another machine",
+		},
+		Sections: templates.TemplateSections{
+			InventoryWorkspace: &templates.InventoryWorkspaceSection{
+				InventoryItems: []templates.TemplateItem{{
+					BaseItemID: 0x000F4240,
+					Quantity:   1,
+					Container:  templates.ContainerInventory,
+					Position:   0,
+				}},
+				StorageItems: []templates.TemplateItem{},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(dropped, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal dropped: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(libDir, "hand-written.json"), data, 0644); err != nil {
+		t.Fatalf("write dropped: %v", err)
+	}
+
+	beforeList, _ := app.ListBuildTemplateLibrary()
+	if len(beforeList) != 1 {
+		t.Fatalf("baseline list should have 1 entry (fixture); got %d", len(beforeList))
+	}
+
+	rebuilt, err := app.RebuildBuildTemplateLibraryIndex()
+	if err != nil {
+		t.Fatalf("RebuildBuildTemplateLibraryIndex: %v", err)
+	}
+	if len(rebuilt) != 2 {
+		t.Fatalf("after rebuild want 2 entries, got %d (%+v)", len(rebuilt), rebuilt)
+	}
+	found := false
+	for _, e := range rebuilt {
+		if e.Name == "manually dropped" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("dropped template not picked up by rebuild")
+	}
+}
+
+func TestRebuildBuildTemplateLibraryIndex_SkipsCorruptFiles(t *testing.T) {
+	app, _, _ := libraryFixture(t)
+	libDir := app.templateLibrary.RootDir()
+
+	if err := os.WriteFile(filepath.Join(libDir, "garbage.json"), []byte("{not json"), 0644); err != nil {
+		t.Fatalf("write garbage: %v", err)
+	}
+
+	entries, err := app.RebuildBuildTemplateLibraryIndex()
+	if err != nil {
+		t.Fatalf("RebuildBuildTemplateLibraryIndex: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("garbage file leaked into index; want 1 entry, got %d", len(entries))
+	}
+}
+
+func TestRebuildBuildTemplateLibraryIndex_DoesNotTouchSaveOrWorkspace(t *testing.T) {
+	app, sessionID, _ := libraryFixture(t)
+	wsBefore := len(app.editSessions[sessionID].Workspace.InventoryItems)
+	dirtyBefore := app.editSessions[sessionID].Workspace.Dirty
+	slotBefore := append([]byte(nil), app.save.Slots[0].Data...)
+
+	if _, err := app.RebuildBuildTemplateLibraryIndex(); err != nil {
+		t.Fatalf("RebuildBuildTemplateLibraryIndex: %v", err)
+	}
+
+	if got := len(app.editSessions[sessionID].Workspace.InventoryItems); got != wsBefore {
+		t.Errorf("workspace inventory mutated: %d -> %d", wsBefore, got)
+	}
+	if app.editSessions[sessionID].Workspace.Dirty != dirtyBefore {
+		t.Errorf("dirty flag flipped during rebuild")
+	}
+	for i := range slotBefore {
+		if slotBefore[i] != app.save.Slots[0].Data[i] {
+			t.Errorf("slot.Data byte %d changed during rebuild", i)
+			break
+		}
+	}
+}
+
+func TestGetBuildTemplateLibraryPath_ReturnsRootDir(t *testing.T) {
+	app, _, _ := libraryFixture(t)
+	path, err := app.GetBuildTemplateLibraryPath()
+	if err != nil {
+		t.Fatalf("GetBuildTemplateLibraryPath: %v", err)
+	}
+	if path == "" {
+		t.Errorf("library path is empty")
+	}
+	if path != app.templateLibrary.RootDir() {
+		t.Errorf("returned path %q does not match RootDir %q", path, app.templateLibrary.RootDir())
+	}
+}
+
 func TestEnsureTemplateLibrary_IsLazyAndCached(t *testing.T) {
 	app := inventoryOrderFixture(testWeapons)
 	if app.templateLibrary != nil {

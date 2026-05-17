@@ -86,6 +86,8 @@ export function GetBellBearings(arg1:number):Promise<Array<db.BellBearingEntry>>
 
 export function GetBosses(arg1:number):Promise<Array<db.BossEntry>>;
 
+export function GetBuildTemplateLibraryPath():Promise<string>;
+
 export function GetBuiltinCharacterPreset(arg1:string):Promise<vm.CharacterPreset>;
 
 export function GetCharacter(arg1:number):Promise<vm.CharacterViewModel>;
@@ -173,6 +175,8 @@ export function PreviewBuildTemplateFromLibrary(arg1:string):Promise<main.Loaded
 export function PreviewBuildTemplateImportFromFile():Promise<main.LoadedTemplatePreview>;
 
 export function PreviewBuildTemplateImportJSON(arg1:string):Promise<templates.ImportPreviewReport>;
+
+export function RebuildBuildTemplateLibraryIndex():Promise<Array<templates.LibraryTemplateEntry>>;
 
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
 

@@ -681,6 +681,41 @@ func (a *App) RenameBuildTemplateInLibrary(id, name, description string, tags []
 	return lib.RenameTemplate(id, name, description, tags)
 }
 
+// RebuildBuildTemplateLibraryIndex rescans the library directory and
+// rewrites _index.json from the template files on disk. Files that
+// fail to parse or validate are silently skipped — they remain on
+// disk but do not appear in the new index. The post-rebuild list is
+// returned so the UI can refresh in a single round-trip.
+//
+// Use case: the user manually dropped a template JSON into the
+// library folder, or copied templates from another machine. Rebuild
+// makes those visible without restarting the app.
+//
+// Workspace and save state are untouched.
+func (a *App) RebuildBuildTemplateLibraryIndex() ([]templates.LibraryTemplateEntry, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return nil, err
+	}
+	if err := lib.RebuildIndex(); err != nil {
+		return nil, fmt.Errorf("RebuildBuildTemplateLibraryIndex: %w", err)
+	}
+	return lib.ListTemplates()
+}
+
+// GetBuildTemplateLibraryPath returns the on-disk directory the
+// library reads from / writes to. The UI surfaces this in the
+// empty-state copy and as a footer so users can find the folder for
+// manual file management. Lazy-initialises the library handle so the
+// directory exists by the time the path is returned.
+func (a *App) GetBuildTemplateLibraryPath() (string, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return "", err
+	}
+	return lib.RootDir(), nil
+}
+
 // ExportLibraryBuildTemplateToFile loads a stored template, opens a
 // native save-file dialog, and writes the chosen path. Cancellation
 // surfaces as an empty Path + nil error (mirrors ExportBuildTemplateToFile).

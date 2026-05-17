@@ -361,6 +361,8 @@ każdorazowego wybierania ścieżki pliku.
 | `DeleteBuildTemplateFromLibrary(id)` | Usuń plik + wpis w indeksie. |
 | `RenameBuildTemplateInLibrary(id, name, description, tags)` → `LibraryTemplateEntry` | Update metadanych w pliku i indeksie; bump `updatedAt`. |
 | `ExportLibraryBuildTemplateToFile(id)` → `BuildTemplateExportResult` | Save-file dialog + kopia wybranego szablonu do ścieżki użytkownika. Anulowanie → pusty Path. |
+| `RebuildBuildTemplateLibraryIndex()` → `[]LibraryTemplateEntry` | Rescan katalogu, przebuduj `_index.json` z plików szablonów, zwróć listę po rebuild. (Phase F) |
+| `GetBuildTemplateLibraryPath()` → `string` | Zwraca absolutną ścieżkę katalogu biblioteki; UI eksponuje to w empty-state i footerze do manualnego zarządzania plikami. (Phase F) |
 
 ### 8.4. Invarianty
 
@@ -375,7 +377,31 @@ każdorazowego wybierania ścieżki pliku.
 - **Settings export nie jest w zakresie** — to osobny, przyszły feature
   i nie może współdzielić tego katalogu.
 
-### 8.5. Frontend
+### 8.5. Source of truth & manualne zarządzanie plikami (Phase F)
+
+**Pliki szablonów na dysku są source of truth**; `_index.json` to cache
+metadanych. Użytkownik może:
+
+- Skopiować `.json` szablony z innego komputera do katalogu biblioteki.
+- Ręcznie wyedytować `metadata.name` / `metadata.tags` szablonu między sesjami.
+- Wyciągnąć szablony z katalogu żeby je "zarchiwizować".
+
+Po takich manualnych zmianach przycisk **Refresh** w
+`TemplateLibraryModal` woła `RebuildBuildTemplateLibraryIndex`, który:
+
+- Skanuje pliki `*.json` w katalogu biblioteki.
+- Parsuje i waliduje każdego kandydata; pliki uszkodzone lub niezgodne
+  ze schematem są w ciszy pomijane (zostają na dysku).
+- Atomowo nadpisuje `_index.json` ocalałymi wpisami.
+- Zachowuje ID i `createdAt` każdego wpisu, którego filename pasował do
+  wiersza w poprzednim indeksie, żeby selection state w UI był
+  stabilny między refresh.
+
+Dzięki temu user experience jest uczciwy: nic w bibliotece nie jest
+chowane za nieprzejrzystymi ID, a niesprawny cache zawsze można
+przebudować z plików, które jako jedyne zawierają realne dane buildu.
+
+### 8.6. Frontend
 
 - Dropdown `Export Template ▾` zyskuje pozycję `Template Library…`
   która otwiera `TemplateLibraryModal`.
@@ -386,6 +412,10 @@ każdorazowego wybierania ścieżki pliku.
   form), Delete (custom React confirm row — bez natywnego dialogu
   Wails, żeby testy mogły prowadzić flow pod jsdom i UI było spójne z
   resztą SortOrderTab).
+- Header zyskuje przycisk **Refresh** wołający
+  `RebuildBuildTemplateLibraryIndex`. Empty-state oraz mały footer
+  eksponują ścieżkę biblioteki na dysku, żeby user mógł tam wejść do
+  manualnego zarządzania plikami.
 - Udany Apply z biblioteki podmienia `result.Workspace` przez
   `useInventoryWorkspace.replaceSnapshot` i toast'uje:
   *"Template applied to workspace. Click Save changes to persist."*

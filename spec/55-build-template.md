@@ -358,6 +358,8 @@ delete, and export templates without picking a file path every time.
 | `DeleteBuildTemplateFromLibrary(id)` | Remove file + index entry. |
 | `RenameBuildTemplateInLibrary(id, name, description, tags)` → `LibraryTemplateEntry` | Update metadata in the file and the index; bump `updatedAt`. |
 | `ExportLibraryBuildTemplateToFile(id)` → `BuildTemplateExportResult` | Save-file dialog + copy chosen template to a user-picked path. Cancellation returns empty Path. |
+| `RebuildBuildTemplateLibraryIndex()` → `[]LibraryTemplateEntry` | Rescan directory, rewrite `_index.json` from template files, return post-rebuild list. (Phase F) |
+| `GetBuildTemplateLibraryPath()` → `string` | Return the absolute library directory; the UI surfaces this in the empty state + footer for manual file management. (Phase F) |
 
 ### 8.4. Invariants
 
@@ -372,7 +374,30 @@ delete, and export templates without picking a file path every time.
 - **Settings export is not included** — that is a separate, future
   feature and must not share this directory.
 
-### 8.5. Frontend
+### 8.5. Source of truth & manual file management (Phase F)
+
+The on-disk **template files are the source of truth**; `_index.json`
+is a metadata cache. Users may:
+
+- Copy `.json` templates from another machine into the library folder.
+- Hand-edit a template's `metadata.name` / `metadata.tags` between sessions.
+- Move templates out of the folder to "archive" them.
+
+After such manual changes, the **Refresh** action in
+`TemplateLibraryModal` calls `RebuildBuildTemplateLibraryIndex`, which:
+
+- Scans `*.json` files in the library directory.
+- Parses and validates each candidate; corrupt or schema-mismatched
+  files are silently skipped (they remain on disk).
+- Rewrites `_index.json` atomically with the surviving entries.
+- Preserves the ID and `createdAt` of any entry whose filename matched
+  a prior index row, so UI selection state stays stable across refresh.
+
+This keeps the user experience honest: nothing in the library is hidden
+behind opaque IDs, and a misbehaving cache can always be rebuilt from
+the only files that actually contain build data.
+
+### 8.6. Frontend
 
 - `Export Template ▾` dropdown gains a `Template Library…` item that
   opens `TemplateLibraryModal`.
@@ -383,6 +408,10 @@ delete, and export templates without picking a file path every time.
   Delete (custom React confirm row — no native Wails dialog, so tests
   can drive the flow under jsdom and the UI stays consistent with the
   rest of SortOrderTab).
+- Header gains a **Refresh** button calling
+  `RebuildBuildTemplateLibraryIndex`. The empty state and a small
+  footer expose the on-disk library path so users can navigate there
+  for manual file management.
 - Successful Apply from library swaps `result.Workspace` in via
   `useInventoryWorkspace.replaceSnapshot` and toasts:
   *"Template applied to workspace. Click Save changes to persist."*

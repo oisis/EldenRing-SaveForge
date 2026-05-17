@@ -3,8 +3,10 @@ import {
     ApplyBuildTemplateFromLibrary,
     DeleteBuildTemplateFromLibrary,
     ExportLibraryBuildTemplateToFile,
+    GetBuildTemplateLibraryPath,
     ListBuildTemplateLibrary,
     PreviewBuildTemplateFromLibrary,
+    RebuildBuildTemplateLibraryIndex,
     RenameBuildTemplateInLibrary,
 } from '../../../wailsjs/go/main/App';
 import { main, templates } from '../../../wailsjs/go/models';
@@ -30,6 +32,10 @@ interface Props {
     onError: (err: unknown) => void;
     onExportedToFile?: (result: main.BuildTemplateExportResult, entry: templates.LibraryTemplateEntry) => void;
     onDeleted?: (id: string) => void;
+    // onRefreshed fires after a successful rebuild so the parent can
+    // raise a toast or other ambient signal. Receives the post-rebuild
+    // entry list for parity with the modal's internal state.
+    onRefreshed?: (entries: templates.LibraryTemplateEntry[]) => void;
 }
 
 export function TemplateLibraryModal({
@@ -40,15 +46,18 @@ export function TemplateLibraryModal({
     onError,
     onExportedToFile,
     onDeleted,
+    onRefreshed,
 }: Props) {
     const [entries, setEntries] = useState<templates.LibraryTemplateEntry[]>([]);
     const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const [busyID, setBusyID] = useState<string>('');
     const [confirmDeleteID, setConfirmDeleteID] = useState<string>('');
     const [editingID, setEditingID] = useState<string>('');
     const [editName, setEditName] = useState('');
     const [editDescription, setEditDescription] = useState('');
     const [editTags, setEditTags] = useState('');
+    const [libraryPath, setLibraryPath] = useState<string>('');
 
     const dialogRef = useRef<HTMLDivElement | null>(null);
 
@@ -67,7 +76,28 @@ export function TemplateLibraryModal({
     useEffect(() => {
         dialogRef.current?.focus();
         refresh();
+        // Library path is fetched once per modal open. The directory
+        // does not move at runtime, so refetching on every render
+        // would be wasted IPC. Errors are swallowed silently — the
+        // footer + empty-state copy degrade gracefully to no path.
+        GetBuildTemplateLibraryPath()
+            .then(setLibraryPath)
+            .catch(() => setLibraryPath(''));
     }, [refresh]);
+
+    const onRefreshLibrary = async () => {
+        setRefreshing(true);
+        try {
+            const list = await RebuildBuildTemplateLibraryIndex();
+            const next = list ?? [];
+            setEntries(next);
+            onRefreshed?.(next);
+        } catch (err) {
+            onError(err);
+        } finally {
+            setRefreshing(false);
+        }
+    };
 
     const onPreview = async (entry: templates.LibraryTemplateEntry) => {
         setBusyID(entry.id);
@@ -175,8 +205,8 @@ export function TemplateLibraryModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
         >
             <div className="w-full max-w-3xl rounded-lg bg-card border border-border/60 shadow-xl">
-                <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
-                    <div>
+                <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
                         <h2 className="text-sm font-black uppercase tracking-wider">Build Template Library</h2>
                         <p className="mt-1 text-[11px] text-muted-foreground">
                             Saved templates from this device. Apply to workspace stages a RAM-only change — click
@@ -184,20 +214,49 @@ export function TemplateLibraryModal({
                             to persist.
                         </p>
                     </div>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all"
-                    >
-                        Close
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <button
+                            type="button"
+                            data-testid="library-refresh"
+                            onClick={onRefreshLibrary}
+                            disabled={refreshing}
+                            title="Rescan the templates folder and rebuild the index."
+                            className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all disabled:opacity-40"
+                        >
+                            {refreshing ? 'Refreshing…' : 'Refresh'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all"
+                        >
+                            Close
+                        </button>
+                    </div>
                 </div>
 
                 <div className="max-h-[60vh] overflow-y-auto px-4 py-3 text-[12px]">
                     {loading && <div data-testid="library-loading">Loading…</div>}
                     {empty && (
-                        <div data-testid="library-empty" className="text-muted-foreground py-6 text-center">
-                            No templates saved yet. Use Export Template → Save to local library to add one.
+                        <div data-testid="library-empty" className="text-muted-foreground py-6 text-center space-y-2">
+                            <div>
+                                Your local template library is empty. Export a template from the current workspace
+                                or drop <code>.json</code> templates into the templates folder, then click Refresh.
+                            </div>
+                            {libraryPath && (
+                                <div data-testid="library-empty-path" className="text-[10px] font-mono break-all">
+                                    {libraryPath}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {!empty && libraryPath && (
+                        <div
+                            data-testid="library-footer-path"
+                            className="mb-3 rounded border border-border/40 bg-background/40 px-3 py-1.5 text-[10px] text-muted-foreground"
+                        >
+                            <span className="font-bold uppercase tracking-wider">Library folder:</span>{' '}
+                            <span className="font-mono break-all">{libraryPath}</span>
                         </div>
                     )}
                     {!empty && (

@@ -53,6 +53,11 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.RenameBuildTemplateInLibrary).toBe('function');
         expect(typeof App.ExportLibraryBuildTemplateToFile).toBe('function');
     });
+
+    it('exposes Phase F library refresh / path endpoints', () => {
+        expect(typeof App.RebuildBuildTemplateLibraryIndex).toBe('function');
+        expect(typeof App.GetBuildTemplateLibraryPath).toBe('function');
+    });
 });
 
 describe('Wails binding contract: editor.EditableItem', () => {
