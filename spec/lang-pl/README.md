@@ -112,6 +112,7 @@ Plik save składa się z następujących głównych bloków (w kolejności sekwe
 | 51 | [Advanced Save Editor](51-advanced-save-editor.md) | **Design doc** (🔲 planowany) — Zakładka "Advanced → Save Editor": znane EventFlags, regulation snapshot params (NetworkParam), makra aplikacji, ręczna flaga po ID, lista pending changes, edytor raw offsets (Faza 2+) |
 | 52 | [Sortowanie Acquisition: Stride-2](52-acquisition-sort-stride2.md) | **Design doc** (✅ zaimplementowany) — Dlaczego ReorderInventory używa stride-2; odkrycie klucza `acqIdx>>1` przez testy sentinel; algorytm, dowód, bezpieczny zakres |
 | 53 | [Transfer Inventory ↔ Storage](53-inventory-storage-transfer.md) | **Design doc** (✅ zaimplementowany) — Dwukolumnowy Sort Order, dwukierunkowy single/multi drag-and-drop transfer, ścieżka rehandle dla duplikowanej instancji, osobny Storage Apply Order ze stride-2, guardy preview/apply per strona |
+| 54 | [Ash of War](54-ash-of-war.md) | **Design doc** (✅ zaimplementowany) — Semantyka wbudowanej i zewnętrznej umiejętności broni, sentinele braku custom AoW (canonical `0x00000000`, legacy `0xFFFFFFFF`), invariant unikalności handle, reguły writera/readera |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Metody testowania, checklista weryfikacji, plan odkryć |
 
 ---
