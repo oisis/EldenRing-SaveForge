@@ -151,6 +151,132 @@ func TestEnrichItemEntryNoPanicMissingText(t *testing.T) {
 	}
 }
 
+// TestEnrichItemEntrySetsTextPayload verifies the Phase 3B.3 wiring:
+// after enrichment, e.Text points to a copy of the matching
+// data.ItemTexts entry (DisplayName / CanonicalName / Caption preserved).
+//
+// Anchor: Lance (0x010450A0) — has FMG canonical name, curated Location,
+// and non-empty Caption, so all three text projections are observable.
+func TestEnrichItemEntrySetsTextPayload(t *testing.T) {
+	const id uint32 = 0x010450A0
+	want, ok := data.ItemTexts[id]
+	if !ok {
+		t.Fatalf("ItemTexts[0x%08X] missing; cannot anchor test on Lance", id)
+	}
+
+	e := &ItemEntry{ID: id, Category: "melee_armaments"}
+	enrichItemEntry(e)
+	if e.Text == nil {
+		t.Fatalf("enrichItemEntry: e.Text is nil; expected populated ItemTextData for Lance")
+	}
+	if e.Text.DisplayName != want.DisplayName {
+		t.Errorf("e.Text.DisplayName = %q, want %q", e.Text.DisplayName, want.DisplayName)
+	}
+	if e.Text.CanonicalName != want.CanonicalName {
+		t.Errorf("e.Text.CanonicalName = %q, want %q", e.Text.CanonicalName, want.CanonicalName)
+	}
+	if e.Text.Caption != want.Caption {
+		t.Errorf("e.Text.Caption = %q, want %q", e.Text.Caption, want.Caption)
+	}
+}
+
+// TestEnrichItemEntryTextPayloadPreservesLegacyFields confirms the
+// payload exposure does not regress legacy Description / Location set
+// by the Phase 3B.2 wiring. Lance carries both: FMG/curated Description
+// surfaced via ItemTexts and curated-only Location.
+func TestEnrichItemEntryTextPayloadPreservesLegacyFields(t *testing.T) {
+	const id uint32 = 0x010450A0
+	want, ok := data.ItemTexts[id]
+	if !ok {
+		t.Fatalf("ItemTexts[0x%08X] missing; cannot anchor test on Lance", id)
+	}
+
+	e := &ItemEntry{ID: id, Category: "melee_armaments"}
+	enrichItemEntry(e)
+	if e.Text == nil {
+		t.Fatalf("enrichItemEntry: e.Text is nil; expected populated ItemTextData")
+	}
+	if want.Description != "" && e.Description != want.Description {
+		t.Errorf("legacy Description = %q, want %q", e.Description, want.Description)
+	}
+	if want.Location != "" && e.Location != want.Location {
+		t.Errorf("legacy Location = %q, want %q", e.Location, want.Location)
+	}
+	if e.Description == "" {
+		t.Errorf("legacy Description was blanked by Phase 3B.3 wiring")
+	}
+	if e.Location == "" {
+		t.Errorf("legacy Location was blanked by Phase 3B.3 wiring")
+	}
+}
+
+// TestEnrichItemEntryTextPayloadNilForMissing asserts that IDs absent
+// from data.ItemTexts produce e.Text == nil without panic. The legacy
+// fallback path (Descriptions) must still leave Description / Location
+// untouched in this branch — sentinel ID is absent from both tables.
+func TestEnrichItemEntryTextPayloadNilForMissing(t *testing.T) {
+	const unknown uint32 = 0xDEADBEEF
+	if _, ok := data.ItemTexts[unknown]; ok {
+		t.Fatalf("0x%08X collides with a known item; pick a different sentinel", unknown)
+	}
+	if _, ok := data.Descriptions[unknown]; ok {
+		t.Fatalf("0x%08X collides with a known item; pick a different sentinel", unknown)
+	}
+
+	e := &ItemEntry{ID: unknown}
+	enrichItemEntry(e)
+	if e.Text != nil {
+		t.Errorf("enrichItemEntry: e.Text = %+v, want nil for unknown ID", e.Text)
+	}
+	if e.Description != "" {
+		t.Errorf("enrichItemEntry: Description = %q, want empty fallback", e.Description)
+	}
+	if e.Location != "" {
+		t.Errorf("enrichItemEntry: Location = %q, want empty fallback", e.Location)
+	}
+}
+
+// TestEnrichItemEntryTextPayloadAppDisambiguation locks down the
+// resolution rule for app-disambiguated names: DisplayName keeps the
+// app suffix ("(Istvan)" / "(Rileigh)") while CanonicalName carries the
+// bare FMG name. Legacy ItemEntry.Name is set elsewhere — this test only
+// guards the Phase 3B.3 payload.
+func TestEnrichItemEntryTextPayloadAppDisambiguation(t *testing.T) {
+	cases := []struct {
+		id   uint32
+		want string
+	}{
+		{0x40001FBF, "Letter from Volcano Manor (Istvan)"},
+		{0x40001FC4, "Letter from Volcano Manor (Rileigh)"},
+	}
+	for _, c := range cases {
+		text, ok := data.ItemTexts[c.id]
+		if !ok {
+			t.Errorf("ItemTexts[0x%08X] missing; cannot anchor disambiguation test", c.id)
+			continue
+		}
+
+		e := &ItemEntry{ID: c.id}
+		enrichItemEntry(e)
+		if e.Text == nil {
+			t.Errorf("enrichItemEntry(0x%08X): e.Text is nil", c.id)
+			continue
+		}
+		if e.Text.DisplayName != c.want {
+			t.Errorf("e.Text.DisplayName(0x%08X) = %q, want %q",
+				c.id, e.Text.DisplayName, c.want)
+		}
+		if e.Text.CanonicalName != "Letter from Volcano Manor" {
+			t.Errorf("e.Text.CanonicalName(0x%08X) = %q, want bare FMG name",
+				c.id, e.Text.CanonicalName)
+		}
+		if text.DisplayNameSource != data.TextSourceMixed {
+			t.Errorf("ItemTexts[0x%08X].DisplayNameSource = %q, want Mixed",
+				c.id, text.DisplayNameSource)
+		}
+	}
+}
+
 // TestEnrichItemEntryEmptyItemTextsDoesNotOverwriteDescriptions verifies
 // that an ItemTexts entry with empty Description / Location does NOT
 // blank out a populated legacy value. We construct the scenario by

@@ -34,6 +34,12 @@ type ItemEntry struct {
 	Armor            *data.ArmorStats  `json:"armor,omitempty"`
 	Spell            *data.SpellStats  `json:"spell,omitempty"`
 	AoWCompatBitmask uint64            `json:"aowCompatBitmask,omitempty"`
+	// Text is the generated Phase 3B.1 text payload (display + canonical
+	// name, caption, description, location, per-field provenance).
+	// Read-only for the frontend; nil when the item ID has no ItemTexts
+	// entry. Legacy Description / Location remain populated independently
+	// so existing UI bindings keep working unchanged.
+	Text *data.ItemTextData `json:"text,omitempty"`
 }
 
 // weightedCategory lists item categories that have physical weight from regulation.bin weapon/armor params.
@@ -289,6 +295,10 @@ func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (comp
 //     sourced from FMG with curated descriptions.go fallback for
 //     Description, and curated descriptions.go is the sole source for
 //     Location. Empty fields on ItemTexts leave the legacy value intact.
+//  3. Phase 3B.3 also surfaces the full ItemTextData value on e.Text so
+//     the frontend can read DisplayName / CanonicalName / Caption /
+//     per-field provenance without re-querying the backend. e.Text is
+//     nil for IDs without an ItemTexts entry.
 //
 // Stats and Weight are unaffected by ItemTexts in Phase 3B.2; they remain
 // owned by data.Descriptions / data.ItemWeights until Phase 3C ships
@@ -306,6 +316,9 @@ func enrichItemEntry(e *ItemEntry) {
 	}
 	// Prefer the Phase 3B.1 ItemTexts entry for Description / Location
 	// when populated. Empty strings leave the legacy fallback intact.
+	// Also expose the full ItemTextData payload (Phase 3B.3) by copying
+	// the map value into a fresh local — taking &data.ItemTexts[e.ID]
+	// directly is illegal in Go (map values are not addressable).
 	if data.ItemTexts != nil {
 		if t, ok := data.ItemTexts[e.ID]; ok {
 			if t.Description != "" {
@@ -314,6 +327,8 @@ func enrichItemEntry(e *ItemEntry) {
 			if t.Location != "" {
 				e.Location = t.Location
 			}
+			text := t
+			e.Text = &text
 		}
 	}
 	// Only physical items carry weight — spells, consumables, key items etc. share ID space with weapon/armor params.

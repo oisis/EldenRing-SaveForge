@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(db): expose generated item text payload
+
+Surfaces the Phase 3B.1 `ItemTextData` value on the `ItemEntry` JSON
+payload via a new optional `Text *data.ItemTextData` field. After
+enrichment `e.Text` carries the generated DisplayName / CanonicalName /
+Caption / Description / Location plus per-field provenance, or stays
+`nil` for IDs without a matching `ItemTexts` entry.
+
+Phase 3B.2 behaviour is unchanged: legacy `Description` and `Location`
+on `ItemEntry` keep flowing from the same FMG/curated fallback chain so
+existing UI bindings render identically without code changes. Save
+writing, stats enrichment, and the generated `item_text_generated.go`
+table are untouched. Wails regenerates `frontend/wailsjs/go/models.ts`
+to add the `data.ItemTextData` class and the optional `text?` field on
+`db.ItemEntry`; no other generated bindings change.
+
+The Go pointer is populated by copying the map value into a local
+variable before taking its address (`text := t; e.Text = &text`) — map
+values are not addressable, so this avoids a subtle compiler error if
+future refactors inline the assignment.
+
+New tests in `backend/db/enrich_text_test.go`:
+
+- `TestEnrichItemEntrySetsTextPayload` — Lance (`0x010450A0`) populates
+  `e.Text.DisplayName` / `CanonicalName` / `Caption` from `ItemTexts`.
+- `TestEnrichItemEntryTextPayloadPreservesLegacyFields` — legacy
+  `Description` and `Location` survive payload exposure.
+- `TestEnrichItemEntryTextPayloadNilForMissing` — unknown IDs produce
+  `e.Text == nil` with no panic.
+- `TestEnrichItemEntryTextPayloadAppDisambiguation` — Volcano Manor
+  letters (`0x40001FBF` / `0x40001FC4`) keep their app-suffixed
+  DisplayName while CanonicalName carries the bare FMG name.
+
 ### feat(db): enrich item descriptions from generated text data
 
 Wires the Phase 3B.1 `ItemTexts` generated table into runtime enrichment:

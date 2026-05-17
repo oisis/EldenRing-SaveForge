@@ -197,6 +197,40 @@ export namespace data {
 	        this.Poise = source["Poise"];
 	    }
 	}
+	export class ItemTextData {
+	    DisplayName: string;
+	    CanonicalName: string;
+	    Caption: string;
+	    Description: string;
+	    Location: string;
+	    DisplayNameSource: string;
+	    CanonicalSource: string;
+	    CaptionSource: string;
+	    DescriptionSource: string;
+	    LocationSource: string;
+	    DLCSource: string;
+	    Notes: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ItemTextData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.DisplayName = source["DisplayName"];
+	        this.CanonicalName = source["CanonicalName"];
+	        this.Caption = source["Caption"];
+	        this.Description = source["Description"];
+	        this.Location = source["Location"];
+	        this.DisplayNameSource = source["DisplayNameSource"];
+	        this.CanonicalSource = source["CanonicalSource"];
+	        this.CaptionSource = source["CaptionSource"];
+	        this.DescriptionSource = source["DescriptionSource"];
+	        this.LocationSource = source["LocationSource"];
+	        this.DLCSource = source["DLCSource"];
+	        this.Notes = source["Notes"];
+	    }
+	}
 	export class SpellStats {
 	    FPCost: number;
 	    Slots: number;
@@ -459,6 +493,7 @@ export namespace db {
 	    armor?: data.ArmorStats;
 	    spell?: data.SpellStats;
 	    aowCompatBitmask?: number;
+	    text?: data.ItemTextData;
 	
 	    static createFrom(source: any = {}) {
 	        return new ItemEntry(source);
@@ -482,6 +517,7 @@ export namespace db {
 	        this.armor = this.convertValues(source["armor"], data.ArmorStats);
 	        this.spell = this.convertValues(source["spell"], data.SpellStats);
 	        this.aowCompatBitmask = source["aowCompatBitmask"];
+	        this.text = this.convertValues(source["text"], data.ItemTextData);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
