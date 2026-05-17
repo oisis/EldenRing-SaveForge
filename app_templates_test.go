@@ -2,11 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 	"github.com/oisis/EldenRing-SaveForge/backend/templates"
 )
 
@@ -406,6 +409,381 @@ func TestCancelledPreviewReport_Shape(t *testing.T) {
 	}
 	if rep.Summary.InventoryItems != 0 || rep.Summary.StorageItems != 0 {
 		t.Errorf("cancelled report must carry no items, got %+v", rep.Summary)
+	}
+}
+
+// ─── Phase D: ApplyBuildTemplateToWorkspaceJSON ──────────────────────────
+
+// applyTemplateFixture spins up an App with one editable weapon already
+// in the slot, exports the workspace as JSON, then resets the workspace
+// state so apply has a clean target. Returns the app, source session ID,
+// and the exported JSON ready to feed back through Apply.
+func applyTemplateFixture(t *testing.T) (*App, string, string) {
+	t.Helper()
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	exp, err := app.ExportBuildTemplateJSON(snap.SessionID, BuildTemplateExportOptions{
+		IncludeInventory: true,
+	})
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	return app, snap.SessionID, exp.JSON
+}
+
+func TestApplyTemplate_HappyPath_AppendsInventoryItems(t *testing.T) {
+	app, sessionID, jsonText := applyTemplateFixture(t)
+	beforeInv := len(app.editSessions[sessionID].Workspace.InventoryItems)
+
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{Mode: "append"})
+	if err != nil {
+		t.Fatalf("ApplyBuildTemplateToWorkspaceJSON: %v", err)
+	}
+	if !res.Applied {
+		t.Fatalf("Applied=false; preview=%+v", res.Preview)
+	}
+	if !res.Preview.OK {
+		t.Errorf("Preview should be OK on happy path, got %+v", res.Preview)
+	}
+
+	afterInv := len(app.editSessions[sessionID].Workspace.InventoryItems)
+	if afterInv != beforeInv+len(testWeapons) {
+		t.Errorf("inventory size = %d, want %d + %d added", afterInv, beforeInv, len(testWeapons))
+	}
+}
+
+func TestApplyTemplate_PreservesRelativeOrderAndAppendsAfterExisting(t *testing.T) {
+	app, sessionID, jsonText := applyTemplateFixture(t)
+	existingFirst := app.editSessions[sessionID].Workspace.InventoryItems[0].BaseItemID
+	beforeCount := len(app.editSessions[sessionID].Workspace.InventoryItems)
+
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{})
+	if err != nil || !res.Applied {
+		t.Fatalf("apply failed: %v / %+v", err, res.Preview)
+	}
+
+	inv := app.editSessions[sessionID].Workspace.InventoryItems
+	if inv[0].BaseItemID != existingFirst {
+		t.Errorf("existing first item shifted: got 0x%X, want 0x%X", inv[0].BaseItemID, existingFirst)
+	}
+	// Imported items follow in the same order as testWeapons.
+	for i, w := range testWeapons {
+		appended := inv[beforeCount+i]
+		if appended.BaseItemID != w.itemID {
+			t.Errorf("appended item %d baseItemID = 0x%X, want 0x%X", i, appended.BaseItemID, w.itemID)
+		}
+		if appended.Source != "added" {
+			t.Errorf("appended item %d source = %q, want \"added\"", i, appended.Source)
+		}
+	}
+}
+
+func TestApplyTemplate_SetsWorkspaceDirty(t *testing.T) {
+	app, sessionID, jsonText := applyTemplateFixture(t)
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{})
+	if err != nil || !res.Applied {
+		t.Fatalf("apply failed: %v / %+v", err, res.Preview)
+	}
+	if !app.editSessions[sessionID].Workspace.Dirty {
+		t.Error("workspace.Dirty must be true after apply")
+	}
+	if !res.Workspace.Dirty {
+		t.Error("returned snapshot must reflect Dirty=true")
+	}
+}
+
+func TestApplyTemplate_DoesNotMutateSlotData(t *testing.T) {
+	app, sessionID, jsonText := applyTemplateFixture(t)
+	slot := &app.save.Slots[0]
+	dataBefore := append([]byte(nil), slot.Data...)
+
+	if _, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	if len(slot.Data) != len(dataBefore) {
+		t.Fatalf("slot.Data length changed (before=%d after=%d)", len(dataBefore), len(slot.Data))
+	}
+	for i := range dataBefore {
+		if slot.Data[i] != dataBefore[i] {
+			t.Fatalf("slot.Data mutated at offset %d", i)
+		}
+	}
+}
+
+func TestApplyTemplate_WeaponUpgradeInfusionAoWAppliedAsPendingState(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Hand-craft a template with one upgraded + infused + AoW-assigned
+	// dagger. Dagger + Sword Dance is known-compatible per
+	// backend/db/compat_test.go.
+	aow := uint32(0x80003070)
+	templateJSON := `{
+  "schema": "saveforge.build-template",
+  "version": 1,
+  "createdAt": "2026-05-17T12:34:56Z",
+  "sections": {
+    "inventory.workspace": {
+      "inventoryItems": [{
+        "baseItemID": 1000000,
+        "quantity": 1,
+        "upgrade": 5,
+        "infusionName": "Heavy",
+        "aowItemID": ` + fmt.Sprintf("%d", aow) + `,
+        "container": "inventory",
+        "position": 0
+      }],
+      "storageItems": []
+    }
+  }
+}`
+
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(snap.SessionID, templateJSON, ApplyTemplateOptions{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if !res.Applied {
+		t.Fatalf("Apply failed: %+v", res.Preview)
+	}
+
+	inv := app.editSessions[snap.SessionID].Workspace.InventoryItems
+	added := inv[len(inv)-1]
+	if added.CurrentUpgrade != 5 {
+		t.Errorf("CurrentUpgrade = %d, want 5", added.CurrentUpgrade)
+	}
+	if added.InfusionName != "Heavy" {
+		t.Errorf("InfusionName = %q, want \"Heavy\"", added.InfusionName)
+	}
+	if added.PendingAoWItemID != aow {
+		t.Errorf("PendingAoWItemID = 0x%X, want 0x%X", added.PendingAoWItemID, aow)
+	}
+	if !added.HasPendingWeaponPatch {
+		t.Error("HasPendingWeaponPatch must be true after AoW patch")
+	}
+}
+
+func TestApplyTemplate_PreviewErrorsBlockApplyAndKeepWorkspaceClean(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	beforeInv := len(app.editSessions[snap.SessionID].Workspace.InventoryItems)
+	beforeDirty := app.editSessions[snap.SessionID].Workspace.Dirty
+
+	// Template references an unknown item ID — preview will fail.
+	badJSON := `{
+  "schema": "saveforge.build-template",
+  "version": 1,
+  "createdAt": "2026-05-17T12:34:56Z",
+  "sections": {
+    "inventory.workspace": {
+      "inventoryItems": [{
+        "baseItemID": 3735928559,
+        "quantity": 1,
+        "container": "inventory",
+        "position": 0
+      }],
+      "storageItems": []
+    }
+  }
+}`
+
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(snap.SessionID, badJSON, ApplyTemplateOptions{})
+	if err != nil {
+		t.Fatalf("apply must surface preview errors via report, not Go error; got %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied must be false when preview reports errors")
+	}
+	if res.Preview.OK {
+		t.Error("Preview.OK must be false")
+	}
+	if got := len(app.editSessions[snap.SessionID].Workspace.InventoryItems); got != beforeInv {
+		t.Errorf("workspace mutated despite preview errors: inv %d -> %d", beforeInv, got)
+	}
+	if app.editSessions[snap.SessionID].Workspace.Dirty != beforeDirty {
+		t.Errorf("workspace.Dirty changed despite preview errors: %v -> %v",
+			beforeDirty, app.editSessions[snap.SessionID].Workspace.Dirty)
+	}
+}
+
+func TestApplyTemplate_CapacityOverflowBlocksApplyAndIsReportedAsError(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Forge a workspace that already sits at the inventory cap. The
+	// capacity preflight must reject the import before any AddItem
+	// runs.
+	sess := app.editSessions[snap.SessionID]
+	sess.Workspace.InventoryItems = make([]editor.EditableItem, core.CommonItemCount)
+
+	jsonText := `{
+  "schema": "saveforge.build-template",
+  "version": 1,
+  "createdAt": "2026-05-17T12:34:56Z",
+  "sections": {
+    "inventory.workspace": {
+      "inventoryItems": [{
+        "baseItemID": 1000000,
+        "quantity": 1,
+        "container": "inventory",
+        "position": 0
+      }],
+      "storageItems": []
+    }
+  }
+}`
+
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(snap.SessionID, jsonText, ApplyTemplateOptions{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied must be false on capacity overflow")
+	}
+	// Confirm capacity_exceeded is the surfaced reason.
+	found := false
+	for _, e := range res.Preview.Errors {
+		if e.Code == templates.IssueCodeCapacityExceeded {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected capacity_exceeded error, got %+v", res.Preview.Errors)
+	}
+	// Workspace must still hold exactly the pre-apply inventory.
+	if got := len(app.editSessions[snap.SessionID].Workspace.InventoryItems); got != core.CommonItemCount {
+		t.Errorf("workspace mutated on capacity reject: got %d, want %d", got, core.CommonItemCount)
+	}
+}
+
+func TestApplyTemplate_InvalidModeReturnsError(t *testing.T) {
+	app, sessionID, jsonText := applyTemplateFixture(t)
+	beforeInv := len(app.editSessions[sessionID].Workspace.InventoryItems)
+	if _, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{Mode: "replace-all"}); err == nil {
+		t.Fatal("expected error for unsupported mode")
+	}
+	if got := len(app.editSessions[sessionID].Workspace.InventoryItems); got != beforeInv {
+		t.Errorf("unsupported mode must not mutate workspace, got %d != %d", got, beforeInv)
+	}
+}
+
+func TestApplyTemplate_UnknownSessionReturnsError(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	_, err := app.ApplyBuildTemplateToWorkspaceJSON("ses-not-real", "{}", ApplyTemplateOptions{})
+	if err == nil {
+		t.Fatal("expected error for unknown session")
+	}
+}
+
+func TestApplyTemplate_InvalidJSONReturnsStructureErrorNotGoError(t *testing.T) {
+	app, sessionID, _ := applyTemplateFixture(t)
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, "not valid json", ApplyTemplateOptions{})
+	if err != nil {
+		t.Fatalf("malformed JSON must not produce Go error, got %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied must be false for malformed JSON")
+	}
+	if len(res.Preview.Errors) != 1 || res.Preview.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected one structure_invalid issue, got %+v", res.Preview.Errors)
+	}
+}
+
+func TestApplyTemplate_RoundTripThroughSavePersistsImportedItems(t *testing.T) {
+	// End-to-end: export → apply → SaveInventoryWorkspaceChanges →
+	// re-snapshot. Imported items must persist with fresh non-zero
+	// handles assigned by the existing handle allocator. The minimal
+	// inventoryOrderFixture does not provision a GaItems array large
+	// enough for new allocations, so this test rides the same real
+	// save fixture as the other Save tests and skips when absent.
+	app, charIdx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(charIdx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// One-item template (Dagger 0x000F4240) — narrow assertions.
+	jsonText := `{
+  "schema": "saveforge.build-template",
+  "version": 1,
+  "createdAt": "2026-05-17T12:34:56Z",
+  "sections": {
+    "inventory.workspace": {
+      "inventoryItems": [{
+        "baseItemID": 1000000,
+        "quantity": 1,
+        "container": "inventory",
+        "position": 0
+      }],
+      "storageItems": []
+    }
+  }
+}`
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(snap.SessionID, jsonText, ApplyTemplateOptions{})
+	if err != nil || !res.Applied {
+		t.Fatalf("apply: err=%v preview=%+v", err, res.Preview)
+	}
+
+	// All imported items currently have OriginalHandle=0 — Save must
+	// assign fresh non-zero handles, NOT reuse anything from the
+	// source. The shape check captures the invariant.
+	for _, it := range app.editSessions[snap.SessionID].Workspace.InventoryItems {
+		if it.Source == "added" && it.OriginalHandle != 0 {
+			t.Errorf("imported item has non-zero OriginalHandle pre-save: %+v", it)
+		}
+	}
+
+	saved, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if saved.Dirty {
+		t.Error("post-save snapshot should not be dirty")
+	}
+	// Imported Dagger must now be present with a non-zero handle.
+	found := false
+	for _, it := range saved.InventoryItems {
+		if it.BaseItemID == 0x000F4240 && it.OriginalHandle != 0 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("imported dagger missing or has zero handle after save")
+	}
+}
+
+func TestApplyTemplate_FromFileCancelledReturnsSentinelResult(t *testing.T) {
+	// Drive the cancellation path via the internal helper rather than
+	// invoking the GUI dialog. Mirrors how cancelledPreviewReport is
+	// tested.
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	res := cancelledApplyResult(app, snap.SessionID)
+	if res.Applied {
+		t.Error("cancelled apply must be Applied=false")
+	}
+	if res.Workspace.SessionID != snap.SessionID {
+		t.Errorf("cancelled result must echo current workspace, got %q want %q", res.Workspace.SessionID, snap.SessionID)
+	}
+	if len(res.Preview.Errors) != 0 || len(res.Preview.Warnings) != 0 {
+		t.Errorf("cancelled apply must carry no preview issues, got %+v", res.Preview)
 	}
 }
 

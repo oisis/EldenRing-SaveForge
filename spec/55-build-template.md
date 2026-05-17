@@ -1,7 +1,7 @@
 # 55 — Build Template
 
 > **Type**: Design doc
-> **Status**: 🔲 Planned — Phase A + B + C implemented (`backend/templates/`, `app_templates.go`, SortOrderTab UI with export + preview modals), Phase D/E pending
+> **Status**: 🔲 Planned — Phase A + B + C + D implemented (`backend/templates/`, `app_templates.go`, SortOrderTab UI with export + preview + apply), Phase E (local library) pending
 > **Scope**: Portable JSON representation of an Inventory Workspace snapshot. Defines the `saveforge.build-template` schema v1, the export contract (`BuildTemplateFromSnapshot`), Ash of War handling rules, and what is deliberately excluded from the payload so a template can be applied to any save without colliding with its handle space.
 
 ---
@@ -178,8 +178,8 @@ DB-level checks (item exists, AoW compatible with weapon type, quantity within `
 | **A** | Schema + exporter (`backend/templates/`), spec doc, tests | ✅ |
 | **B** | Wails bindings `ExportBuildTemplateJSON` / `ExportBuildTemplateToFile`, SortOrderTab dropdown + modal | ✅ |
 | **C** | Import preview: `ParseBuildTemplateJSON`, `PreviewBuildTemplateImport`, App endpoints, `ImportTemplatePreviewModal` (read-only) | ✅ |
-| **D** | Local template library under `UserConfigDir`/`templates/` | 🔲 pending |
-| **E** | `ApplyBuildTemplateToWorkspace` — re-uses existing `AddInventoryWorkspaceItem` + `SaveInventoryWorkspaceChanges` path | 🔲 pending |
+| **D** | Apply to workspace: `ApplyBuildTemplateToWorkspaceJSON/FromFile`, capacity preflight, RAM-only mutation with rollback, Apply button in preview modal | ✅ |
+| **E** | Local template library under `UserConfigDir`/`templates/` | 🔲 pending |
 | 2+ | `character.profile` section (level, stats, talisman slots), opt-in via `$enabled` | 🔲 deferred |
 
 ### 7.1. Phase B endpoint contract
@@ -262,9 +262,58 @@ When `db.IsAshOfWarCompatibleWithWeapon` reports `known=false` (missing bitmask 
 
 ---
 
-## 8. Import path (apply design — Phase E)
+## 7.3. Phase D endpoint contract (Apply to Workspace)
 
-Phase A–C do not apply templates to workspaces. The schema is designed to support it without changes. Sketch:
+```go
+func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText string, opts ApplyTemplateOptions) (ApplyTemplateResult, error)
+func (a *App) ApplyBuildTemplateToWorkspaceFromFile(sessionID string, opts ApplyTemplateOptions) (ApplyTemplateResult, error)
+```
+
+Result shape:
+
+```go
+type ApplyTemplateResult struct {
+    Preview   templates.ImportPreviewReport       `json:"preview"`
+    Workspace editor.InventoryWorkspaceSnapshot   `json:"workspace"`
+    Applied   bool                                `json:"applied"`
+}
+```
+
+### Invariants
+
+- **Apply is RAM-only.** Apply mutates `sess.Workspace` (sets `Dirty=true`) but **never** calls `SaveInventoryWorkspaceChanges`, **never** writes `slot.Data`, **never** allocates GaItem handles. The save file is untouched until the user clicks Save changes.
+- **Use of existing mutation path.** Items are appended to the workspace via `editor.AddItem` (the same call site the existing AddItem modal uses) and weapon-side fields are applied via `editor.UpdateWeapon` (the same call WeaponEditModal uses). No alternative path exists.
+- **Mode whitelist.** Phase D ships only `mode="append"` (empty string is normalised to append). Other modes (`"replace-inventory"`, `"replace-all"`) are reserved and reject with an error.
+
+### Validation order
+
+1. Mode whitelist — `""` or `"append"` only. Anything else → Go error, no mutation.
+2. Session existence — unknown session → Go error.
+3. `ParseBuildTemplateJSON` — schema/structure check. Failures land on `Preview.Errors` as `structure_invalid` (not a Go error), with `Applied=false`.
+4. `PreviewBuildTemplateImport` — per-item DB resolution + AoW compat. Failures return `Applied=false` with the preview report unchanged so the UI can render the same panel for parse and per-item issues.
+5. Capacity preflight — `len(existing) + len(unsupported) + len(imported)` must fit under `core.CommonItemCount` (2688) for inventory and `core.StorageCommonCount` (1920) for storage. Failures append `capacity_exceeded` to `Preview.Errors` and return `Applied=false`.
+6. RAM apply — append each `TemplateItem` via `editor.AddItem(...)` then, for weapons with non-default fields, `editor.UpdateWeapon(...)` with a `WeaponPatch` carrying `SetUpgrade` / `SetInfusionName` / `SetAoWItemID` as needed.
+
+### Apply behavior
+
+- **Append mode ordering** — imported inventory items land after any existing inventory items in template order. Same for storage. Existing items are not reordered.
+- **No save-local handles** — every imported item enters with `Source: added`, `OriginalHandle: 0`. The eventual Save step mints fresh handles via the existing handle allocator in `core.AddItemsToSlotBatch`.
+- **AoW assignment** — populates `PendingAoWItemID` / `PendingAoWName` + `HasPendingWeaponPatch=true`. Save resolves these into a real GaItem entry per the existing Phase 1.7 flow.
+- **Transactional rollback** — before applying any items, the workspace is snapshotted in-memory via `deepCopySnapshot`. If `editor.AddItem` or `editor.UpdateWeapon` returns an error mid-way (unexpected DB drift, unsupported category, etc.), the snapshot is restored and a `Preview.Errors` entry is appended explaining the abort. The session's `Workspace.Dirty` cannot be flipped to true by a partial apply.
+- **Cancelled file dialog** — `ApplyBuildTemplateToWorkspaceFromFile` with an empty selected path returns `Applied=false`, empty preview, current workspace. No mutation, no toast, no error.
+
+### Frontend flow
+
+- The preview modal accepts an optional `onApply` callback. When provided AND `report.OK==true`, an "Apply to workspace" button is rendered. Without `onApply` (the Phase C preview-only invocation), the button is hidden.
+- `PreviewBuildTemplateImportFromFile` now returns `LoadedTemplatePreview { Report, JSON, Path }` so the Apply flow can re-use the loaded JSON content without re-opening the file dialog.
+- On successful apply, the frontend swaps in `result.Workspace` via the `replaceSnapshot` hook method, closes the modal, and toasts: "Template applied to workspace. Click Save changes to persist."
+- On `Applied=false` (e.g. capacity overflow surfacing post-preview), the modal stays open and re-renders with the new error report.
+
+---
+
+## 8. Import path (apply design)
+
+Implemented in Phase D — see §7.3. The original sketch below is retained for the underlying motivation:
 
 1. `LoadBuildTemplateFromFile(path)` → `*BuildTemplate` + structural validation.
 2. `PreviewBuildTemplateImport(sessionID, tpl, opts)` → diff report against current workspace:

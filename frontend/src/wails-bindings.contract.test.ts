@@ -38,6 +38,11 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.PreviewBuildTemplateImportJSON).toBe('function');
         expect(typeof App.PreviewBuildTemplateImportFromFile).toBe('function');
     });
+
+    it('exposes Phase D build template apply endpoints', () => {
+        expect(typeof App.ApplyBuildTemplateToWorkspaceJSON).toBe('function');
+        expect(typeof App.ApplyBuildTemplateToWorkspaceFromFile).toBe('function');
+    });
 });
 
 describe('Wails binding contract: editor.EditableItem', () => {
@@ -198,5 +203,26 @@ describe('Wails binding contract: import preview DTOs (Phase C)', () => {
         expect('talismans' in sample).toBe(true);
         expect('stackables' in sample).toBe(true);
         expect('aowAssignments' in sample).toBe(true);
+    });
+});
+
+describe('Wails binding contract: apply DTOs (Phase D)', () => {
+    it('exposes ApplyTemplateOptions fields', () => {
+        const sample = main.ApplyTemplateOptions.createFrom({});
+        expect('mode' in sample).toBe(true);
+    });
+
+    it('exposes ApplyTemplateResult fields the hook reads back', () => {
+        const sample = main.ApplyTemplateResult.createFrom({});
+        expect('preview' in sample).toBe(true);
+        expect('workspace' in sample).toBe(true);
+        expect('applied' in sample).toBe(true);
+    });
+
+    it('exposes LoadedTemplatePreview fields the preview flow reads', () => {
+        const sample = main.LoadedTemplatePreview.createFrom({});
+        expect('report' in sample).toBe(true);
+        expect('json' in sample).toBe(true);
+        expect('path' in sample).toBe(true);
     });
 });

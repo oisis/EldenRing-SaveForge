@@ -110,10 +110,51 @@ describe('ImportTemplatePreviewModal', () => {
         expect(screen.getByTestId('import-preview-summary')).toHaveTextContent(/Blocked/);
     });
 
-    it('does NOT render an Apply button (Phase C is preview-only)', () => {
+    it('does NOT render an Apply button when onApply prop is omitted (Phase C preview-only)', () => {
         render(<ImportTemplatePreviewModal report={makeReport()} onClose={() => {}} />);
-        expect(screen.queryByRole('button', { name: /Apply/i })).not.toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: /Import to Workspace/i })).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-apply')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-apply-note')).not.toBeInTheDocument();
+    });
+
+    it('renders Apply button only when onApply is provided (Phase D)', () => {
+        const onApply = () => {};
+        render(<ImportTemplatePreviewModal report={makeReport()} onClose={() => {}} onApply={onApply} />);
+        const btn = screen.getByTestId('import-preview-apply');
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeEnabled();
+        // Apply note must explain that save remains required.
+        expect(screen.getByTestId('import-preview-apply-note')).toHaveTextContent(/Save changes/i);
+    });
+
+    it('disables Apply button when report is not OK even with onApply provided', () => {
+        const report = makeReport({
+            ok: false,
+            errors: [
+                templates.ImportPreviewIssue.createFrom({
+                    severity: 'error',
+                    code: 'capacity_exceeded',
+                    message: 'too full',
+                }),
+            ],
+        });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} onApply={() => {}} />);
+        expect(screen.getByTestId('import-preview-apply')).toBeDisabled();
+    });
+
+    it('Apply button calls onApply when clicked', async () => {
+        const { fireEvent } = await import('@testing-library/react');
+        let called = false;
+        const onApply = () => { called = true; };
+        render(<ImportTemplatePreviewModal report={makeReport()} onClose={() => {}} onApply={onApply} />);
+        fireEvent.click(screen.getByTestId('import-preview-apply'));
+        expect(called).toBe(true);
+    });
+
+    it('Apply button shows "Applying…" and is disabled while applying=true', () => {
+        render(<ImportTemplatePreviewModal report={makeReport()} onClose={() => {}} onApply={() => {}} applying={true} />);
+        const btn = screen.getByTestId('import-preview-apply');
+        expect(btn).toBeDisabled();
+        expect(btn).toHaveTextContent(/Applying/);
     });
 });
 

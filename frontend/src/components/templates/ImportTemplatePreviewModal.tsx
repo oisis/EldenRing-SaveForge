@@ -12,9 +12,16 @@ import { templates } from '../../../wailsjs/go/models';
 interface Props {
     report: templates.ImportPreviewReport;
     onClose: () => void;
+    // onApply is optional. When provided AND report.ok is true, the
+    // modal renders an "Apply to workspace" button that the caller can
+    // wire to ApplyBuildTemplateToWorkspaceJSON. Phase D users pass it
+    // in; Phase C callers (preview-only) leave it undefined and the
+    // button stays hidden.
+    onApply?: () => void;
+    applying?: boolean;
 }
 
-export function ImportTemplatePreviewModal({ report, onClose }: Props) {
+export function ImportTemplatePreviewModal({ report, onClose, onApply, applying }: Props) {
     const dialogRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
         dialogRef.current?.focus();
@@ -43,6 +50,14 @@ export function ImportTemplatePreviewModal({ report, onClose }: Props) {
                     >
                         Preview only — this does not change your workspace or save.
                     </p>
+                    {onApply && (
+                        <p
+                            data-testid="import-preview-apply-note"
+                            className="mt-1 text-[11px] text-muted-foreground"
+                        >
+                            Apply will add the template to your current workspace. The save file is not touched until you click Save changes.
+                        </p>
+                    )}
                 </div>
 
                 <div className="px-4 py-3 space-y-3 overflow-y-auto text-[12px]">
@@ -123,10 +138,26 @@ export function ImportTemplatePreviewModal({ report, onClose }: Props) {
                     <button
                         type="button"
                         onClick={onClose}
-                        className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all"
+                        disabled={applying}
+                        className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all disabled:opacity-40"
                     >
                         Close
                     </button>
+                    {onApply && (
+                        <button
+                            type="button"
+                            data-testid="import-preview-apply"
+                            onClick={onApply}
+                            disabled={!report.ok || applying}
+                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                                report.ok && !applying
+                                    ? 'bg-green-700/80 text-white hover:bg-green-700 shadow-sm'
+                                    : 'opacity-40 cursor-not-allowed bg-muted/20 text-muted-foreground'
+                            }`}
+                        >
+                            {applying ? 'Applying…' : 'Apply to workspace'}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>

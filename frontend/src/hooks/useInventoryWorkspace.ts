@@ -34,6 +34,11 @@ export interface UseInventoryWorkspaceResult {
     updateWeapon: (uid: string, patch: editor.WeaponPatch) => Promise<editor.EditableItem | null>;
     save: () => Promise<editor.InventoryWorkspaceSnapshot | null>;
     discard: () => Promise<void>;
+    // replaceSnapshot pushes a workspace produced outside the hook
+    // (e.g. an Apply Template call) into local state. Phase D uses this
+    // so the Apply flow can swap in the post-apply snapshot without
+    // re-fetching from the backend.
+    replaceSnapshot: (snap: editor.InventoryWorkspaceSnapshot) => void;
 }
 
 function snapshotError(label: string, err: unknown): string {
@@ -223,6 +228,10 @@ export function useInventoryWorkspace(): UseInventoryWorkspaceResult {
 
     const clearError = useCallback(() => setLastError(null), []);
 
+    const replaceSnapshot = useCallback((snap: editor.InventoryWorkspaceSnapshot) => {
+        applySnapshot(snap);
+    }, [applySnapshot]);
+
     return useMemo<UseInventoryWorkspaceResult>(() => ({
         sessionID: snapshot?.sessionID ?? '',
         characterIndex: snapshot?.characterIndex ?? null,
@@ -243,5 +252,6 @@ export function useInventoryWorkspace(): UseInventoryWorkspaceResult {
         updateWeapon,
         save,
         discard,
-    }), [snapshot, loading, saving, lastError, clearError, start, refresh, moveItem, transferItem, addItem, removeItem, updateWeapon, save, discard]);
+        replaceSnapshot,
+    }), [snapshot, loading, saving, lastError, clearError, start, refresh, moveItem, transferItem, addItem, removeItem, updateWeapon, save, discard, replaceSnapshot]);
 }

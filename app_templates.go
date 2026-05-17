@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 	"github.com/oisis/EldenRing-SaveForge/backend/templates"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -207,14 +208,29 @@ func (a *App) PreviewBuildTemplateImportJSON(jsonText string) (templates.ImportP
 	return templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: "append"}), nil
 }
 
+// LoadedTemplatePreview bundles the report with the raw JSON text and
+// file path so the UI can pass the same payload to a follow-up Apply
+// call without making the user pick the file again. Returned by
+// PreviewBuildTemplateImportFromFile; the Apply flow consumes JSON via
+// ApplyBuildTemplateToWorkspaceJSON.
+type LoadedTemplatePreview struct {
+	Report templates.ImportPreviewReport `json:"report"`
+	JSON   string                        `json:"json,omitempty"`
+	Path   string                        `json:"path,omitempty"`
+}
+
 // PreviewBuildTemplateImportFromFile opens a native file dialog, reads
 // the chosen JSON file, and runs the same dry-run preview as
 // PreviewBuildTemplateImportJSON. Cancellation (empty path) is not an
-// error: the call returns OK=false with no issues so the UI can detect
-// "user backed out" via report.Summary.InventoryItems == 0 + zero
-// errors. Match the convention of ExportBuildTemplateToFile's silent
-// cancel.
-func (a *App) PreviewBuildTemplateImportFromFile() (templates.ImportPreviewReport, error) {
+// error: the call returns a sentinel result with empty JSON/Path and
+// the zero report so the UI can detect "user backed out" via
+// isCancelledPreview on the report's shape.
+//
+// The JSON text is returned alongside the report so the Apply flow
+// (Phase D) can re-use the same payload without re-opening the file
+// dialog. Path is informational and used only by the UI for the
+// "applied X.json" toast.
+func (a *App) PreviewBuildTemplateImportFromFile() (LoadedTemplatePreview, error) {
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Preview Build Template",
 		Filters: []runtime.FileFilter{
@@ -222,16 +238,24 @@ func (a *App) PreviewBuildTemplateImportFromFile() (templates.ImportPreviewRepor
 		},
 	})
 	if err != nil {
-		return templates.ImportPreviewReport{}, err
+		return LoadedTemplatePreview{}, err
 	}
 	if path == "" {
-		return cancelledPreviewReport(), nil
+		return LoadedTemplatePreview{Report: cancelledPreviewReport()}, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return templates.ImportPreviewReport{}, fmt.Errorf("read template: %w", err)
+		return LoadedTemplatePreview{}, fmt.Errorf("read template: %w", err)
 	}
-	return a.PreviewBuildTemplateImportJSON(string(data))
+	report, err := a.PreviewBuildTemplateImportJSON(string(data))
+	if err != nil {
+		return LoadedTemplatePreview{}, err
+	}
+	return LoadedTemplatePreview{
+		Report: report,
+		JSON:   string(data),
+		Path:   path,
+	}, nil
 }
 
 // cancelledPreviewReport is the sentinel returned when the user
@@ -245,6 +269,304 @@ func cancelledPreviewReport() templates.ImportPreviewReport {
 		Warnings: []templates.ImportPreviewIssue{},
 		Summary:  templates.ImportPreviewSummary{},
 	}
+}
+
+// ─── Phase D — Apply Build Template to Workspace ────────────────────────
+
+// ApplyTemplateOptions controls the merge strategy when copying template
+// items into the workspace. Phase D ships only "append" (the default).
+// "replace-inventory" and "replace-all" are reserved.
+type ApplyTemplateOptions struct {
+	Mode string `json:"mode,omitempty"`
+}
+
+// ApplyTemplateResult is the dual-purpose return of an Apply call. When
+// the preview reports errors (template invalid, capacity overflow,
+// unsupported category), Applied is false and Workspace mirrors the
+// pre-apply state. When OK, Applied is true and Workspace is the new
+// RAM-only snapshot with Dirty=true. The frontend reads Applied to
+// decide between "show preview errors" and "swap workspace state".
+type ApplyTemplateResult struct {
+	Preview   templates.ImportPreviewReport     `json:"preview"`
+	Workspace editor.InventoryWorkspaceSnapshot `json:"workspace"`
+	Applied   bool                              `json:"applied"`
+}
+
+// ApplyBuildTemplateToWorkspaceJSON parses, validates, and applies a
+// build template to the active edit session in-memory.
+//
+// Phase D contract:
+//   - Does NOT call SaveInventoryWorkspaceChanges.
+//   - Does NOT mutate slot.Data or the underlying save.
+//   - Mutates only sess.Workspace (sets Dirty=true on success).
+//   - Failures during apply roll the workspace back to the pre-apply
+//     snapshot before returning, so partial states are not observable.
+//
+// Validation order (each level returns early without mutation when it
+// fails):
+//   1. Mode whitelist ("" or "append").
+//   2. Session exists.
+//   3. ParseBuildTemplateJSON (schema/structure).
+//   4. PreviewBuildTemplateImport (per-item DB + AoW compat).
+//   5. Capacity preflight (inventory + storage container slot caps).
+//   6. RAM apply via editor.AddItem and editor.UpdateWeapon.
+//
+// Returning (ApplyTemplateResult, nil) with Applied=false is the
+// expected "blocked by preview" outcome — the Go error channel is
+// reserved for unexpected failures (session lookup race, mid-apply
+// editor bug). Both shapes carry the current Workspace so the UI can
+// always re-render.
+func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText string, opts ApplyTemplateOptions) (ApplyTemplateResult, error) {
+	mode := opts.Mode
+	if mode == "" {
+		mode = "append"
+	}
+	if mode != "append" {
+		return ApplyTemplateResult{}, fmt.Errorf("ApplyBuildTemplate: unsupported import mode %q (Phase D only ships %q)", mode, "append")
+	}
+
+	sess, ok := a.editSessions[sessionID]
+	if !ok {
+		return ApplyTemplateResult{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	}
+
+	tpl, err := templates.ParseBuildTemplateJSON([]byte(jsonText))
+	if err != nil {
+		return ApplyTemplateResult{
+			Preview: templates.ImportPreviewReport{
+				OK: false,
+				Errors: []templates.ImportPreviewIssue{{
+					Severity: "error",
+					Code:     templates.IssueCodeStructureInvalid,
+					Message:  err.Error(),
+				}},
+				Warnings: []templates.ImportPreviewIssue{},
+				Summary:  templates.ImportPreviewSummary{},
+			},
+			Workspace: sess.Workspace,
+			Applied:   false,
+		}, nil
+	}
+
+	report := templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: mode})
+	if !report.OK {
+		return ApplyTemplateResult{
+			Preview:   report,
+			Workspace: sess.Workspace,
+			Applied:   false,
+		}, nil
+	}
+
+	sec := tpl.Sections.InventoryWorkspace
+	if capacityIssues := capacityPreflight(sess.Workspace, sec); len(capacityIssues) > 0 {
+		report.Errors = append(report.Errors, capacityIssues...)
+		report.OK = false
+		return ApplyTemplateResult{
+			Preview:   report,
+			Workspace: sess.Workspace,
+			Applied:   false,
+		}, nil
+	}
+
+	// Snapshot for rollback. EditableItem and RawInventoryRecord are
+	// value types — a shallow slice copy is enough to make a snapshot
+	// the apply path cannot accidentally mutate through.
+	backup := deepCopySnapshot(sess.Workspace)
+
+	if err := applyTemplateItemsToWorkspace(&sess.Workspace, sec.InventoryItems, editor.ContainerInventory); err != nil {
+		sess.Workspace = backup
+		return ApplyTemplateResult{
+			Preview:   buildApplyErrorReport(report, err),
+			Workspace: backup,
+			Applied:   false,
+		}, nil
+	}
+	if err := applyTemplateItemsToWorkspace(&sess.Workspace, sec.StorageItems, editor.ContainerStorage); err != nil {
+		sess.Workspace = backup
+		return ApplyTemplateResult{
+			Preview:   buildApplyErrorReport(report, err),
+			Workspace: backup,
+			Applied:   false,
+		}, nil
+	}
+
+	sess.Workspace.Dirty = true
+	sess.Workspace.Validation = editor.Validate(sess.Workspace)
+	return ApplyTemplateResult{
+		Preview:   report,
+		Workspace: sess.Workspace,
+		Applied:   true,
+	}, nil
+}
+
+// ApplyBuildTemplateToWorkspaceFromFile opens a file dialog and applies
+// the chosen template to the workspace. Cancellation (empty path) is a
+// non-error sentinel: Applied=false, no preview content. Mirrors the
+// cancel UX of PreviewBuildTemplateImportFromFile.
+func (a *App) ApplyBuildTemplateToWorkspaceFromFile(sessionID string, opts ApplyTemplateOptions) (ApplyTemplateResult, error) {
+	if _, ok := a.editSessions[sessionID]; !ok {
+		return ApplyTemplateResult{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	}
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Apply Build Template",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Build Template (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return ApplyTemplateResult{}, err
+	}
+	if path == "" {
+		return cancelledApplyResult(a, sessionID), nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ApplyTemplateResult{}, fmt.Errorf("read template: %w", err)
+	}
+	return a.ApplyBuildTemplateToWorkspaceJSON(sessionID, string(data), opts)
+}
+
+// cancelledApplyResult is the sentinel for "user backed out of the
+// Apply file dialog". Mirrors cancelledPreviewReport's contract:
+// Applied=false, empty preview, current workspace echoed so the UI can
+// stay in lock-step.
+func cancelledApplyResult(a *App, sessionID string) ApplyTemplateResult {
+	res := ApplyTemplateResult{
+		Preview: cancelledPreviewReport(),
+		Applied: false,
+	}
+	if sess, ok := a.editSessions[sessionID]; ok {
+		res.Workspace = sess.Workspace
+	}
+	return res
+}
+
+// applyTemplateItemsToWorkspace iterates one section's items and calls
+// the existing workspace mutation helpers in order. Append mode: each
+// new item lands at len(target_container_after_previous_inserts), so
+// the relative order from the template is preserved and existing
+// workspace items stay in front.
+//
+// On the first error this function returns; the caller is responsible
+// for rolling back the workspace because partial mutations are visible
+// in snap until restoration.
+func applyTemplateItemsToWorkspace(snap *editor.InventoryWorkspaceSnapshot, items []templates.TemplateItem, container editor.ContainerKind) error {
+	for _, t := range items {
+		var targetPos int
+		if container == editor.ContainerStorage {
+			targetPos = len(snap.StorageItems)
+		} else {
+			targetPos = len(snap.InventoryItems)
+		}
+
+		spec := editor.AddItemSpec{
+			BaseItemID: t.BaseItemID,
+			Quantity:   t.Quantity,
+		}
+		if err := editor.AddItem(snap, spec, container, targetPos); err != nil {
+			return fmt.Errorf("AddItem %q (baseItemID=0x%08X): %w", t.Name, t.BaseItemID, err)
+		}
+
+		var added *editor.EditableItem
+		if container == editor.ContainerStorage {
+			added = &snap.StorageItems[targetPos]
+		} else {
+			added = &snap.InventoryItems[targetPos]
+		}
+		if !added.IsWeapon {
+			continue
+		}
+
+		needsUpgrade := t.Upgrade > 0
+		needsInfusion := t.InfusionName != ""
+		needsAoW := t.AoWItemID != nil && *t.AoWItemID != 0
+		if !needsUpgrade && !needsInfusion && !needsAoW {
+			continue
+		}
+		patch := editor.WeaponPatch{}
+		if needsUpgrade {
+			patch.SetUpgrade = true
+			patch.Upgrade = t.Upgrade
+		}
+		if needsInfusion {
+			patch.SetInfusionName = true
+			patch.InfusionName = t.InfusionName
+		}
+		if needsAoW {
+			patch.SetAoWItemID = true
+			patch.AoWItemID = *t.AoWItemID
+		}
+		if err := editor.UpdateWeapon(snap, added.UID, patch); err != nil {
+			return fmt.Errorf("UpdateWeapon %q (uid=%s): %w", t.Name, added.UID, err)
+		}
+	}
+	return nil
+}
+
+// deepCopySnapshot returns a snapshot whose mutable slices are
+// independent from the source. EditableItem and RawInventoryRecord are
+// value structs, so a copy of the slice headers + element copies is a
+// full deep copy for rollback purposes. Validation carries its own
+// slices; we copy those too so a later editor.Validate() on the rolled
+// back snap does not see stale state.
+func deepCopySnapshot(snap editor.InventoryWorkspaceSnapshot) editor.InventoryWorkspaceSnapshot {
+	cp := snap
+	cp.InventoryItems = append([]editor.EditableItem{}, snap.InventoryItems...)
+	cp.StorageItems = append([]editor.EditableItem{}, snap.StorageItems...)
+	cp.UnsupportedInventoryRecords = append([]editor.RawInventoryRecord{}, snap.UnsupportedInventoryRecords...)
+	cp.UnsupportedStorageRecords = append([]editor.RawInventoryRecord{}, snap.UnsupportedStorageRecords...)
+	cp.Validation.Errors = append([]editor.WorkspaceValidationIssue{}, snap.Validation.Errors...)
+	cp.Validation.Warnings = append([]editor.WorkspaceValidationIssue{}, snap.Validation.Warnings...)
+	cp.Validation.DuplicateUIDs = append([]string{}, snap.Validation.DuplicateUIDs...)
+	cp.Validation.DuplicateHandles = append([]uint32{}, snap.Validation.DuplicateHandles...)
+	return cp
+}
+
+// capacityPreflight enforces the per-container slot caps. Phase D only
+// checks coarse container capacity (matches the in-save Inventory /
+// Storage record-array sizes); the much tighter GaItem-zone capacity
+// is still enforced later by SaveInventoryWorkspaceChanges where the
+// real handle allocator runs.
+func capacityPreflight(snap editor.InventoryWorkspaceSnapshot, sec *templates.InventoryWorkspaceSection) []templates.ImportPreviewIssue {
+	var issues []templates.ImportPreviewIssue
+	if sec == nil {
+		return issues
+	}
+	invTotal := len(snap.InventoryItems) + len(sec.InventoryItems) + len(snap.UnsupportedInventoryRecords)
+	if invTotal > core.CommonItemCount {
+		issues = append(issues, templates.ImportPreviewIssue{
+			Severity:  "error",
+			Code:      templates.IssueCodeCapacityExceeded,
+			Container: templates.ContainerInventory,
+			Message: fmt.Sprintf("inventory capacity exceeded: %d existing + %d unsupported + %d imported = %d, max %d",
+				len(snap.InventoryItems), len(snap.UnsupportedInventoryRecords), len(sec.InventoryItems), invTotal, core.CommonItemCount),
+		})
+	}
+	stoTotal := len(snap.StorageItems) + len(sec.StorageItems) + len(snap.UnsupportedStorageRecords)
+	if stoTotal > core.StorageCommonCount {
+		issues = append(issues, templates.ImportPreviewIssue{
+			Severity:  "error",
+			Code:      templates.IssueCodeCapacityExceeded,
+			Container: templates.ContainerStorage,
+			Message: fmt.Sprintf("storage capacity exceeded: %d existing + %d unsupported + %d imported = %d, max %d",
+				len(snap.StorageItems), len(snap.UnsupportedStorageRecords), len(sec.StorageItems), stoTotal, core.StorageCommonCount),
+		})
+	}
+	return issues
+}
+
+// buildApplyErrorReport tags a rollback-causing apply failure onto the
+// previously-OK preview report. The preview is still useful (the user
+// might want to see what would have happened); we just tack on the
+// stop-reason as an additional error.
+func buildApplyErrorReport(report templates.ImportPreviewReport, applyErr error) templates.ImportPreviewReport {
+	report.OK = false
+	report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+		Severity: "error",
+		Code:     templates.IssueCodeUnsupportedCategory,
+		Message:  fmt.Sprintf("apply failed mid-way and was rolled back: %s", applyErr.Error()),
+	})
+	return report
 }
 
 // filenameSanitizer strips anything that would be unsafe in a filename

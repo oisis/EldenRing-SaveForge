@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExportBuildTemplateToFile, GetItemList, PreviewBuildTemplateImportFromFile } from '../../wailsjs/go/main/App';
+import { ApplyBuildTemplateToWorkspaceJSON, ExportBuildTemplateToFile, GetItemList, PreviewBuildTemplateImportFromFile } from '../../wailsjs/go/main/App';
 import { db, editor, main, templates } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 import { useInventoryWorkspace, ContainerKind } from '../hooks/useInventoryWorkspace';
@@ -84,6 +84,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [exportMenuOpen, setExportMenuOpen] = useState(false);
     const [exportModalOpen, setExportModalOpen] = useState(false);
     const [importPreviewReport, setImportPreviewReport] = useState<templates.ImportPreviewReport | null>(null);
+    // The raw JSON text of the previewed template is kept alongside the
+    // report so the Apply button can re-use it without re-opening the
+    // file dialog. Empty string when nothing is loaded.
+    const [importPreviewJSON, setImportPreviewJSON] = useState<string>('');
+    const [applyingTemplate, setApplyingTemplate] = useState(false);
     const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
     const workspace = useInventoryWorkspace();
@@ -353,16 +358,54 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
 
     // Phase C: open dialog, run preview, render modal. No workspace
     // mutation. Cancelled dialog stays silent (no toast).
+    //
+    // The backend bundles the JSON text + path alongside the report so
+    // we can pass the same payload to ApplyBuildTemplateToWorkspaceJSON
+    // when the user clicks "Apply to workspace" inside the modal —
+    // without making them pick the file twice.
     const handleImportPreview = async () => {
         setExportMenuOpen(false);
         try {
-            const report = await PreviewBuildTemplateImportFromFile();
-            if (isCancelledPreview(report)) {
+            const loaded = await PreviewBuildTemplateImportFromFile();
+            if (isCancelledPreview(loaded.report)) {
                 return;
             }
-            setImportPreviewReport(report);
+            setImportPreviewReport(loaded.report);
+            setImportPreviewJSON(loaded.json ?? '');
         } catch (err) {
             toast.error(`Preview failed: ${String(err)}`);
+        }
+    };
+
+    // Phase D: apply the previewed template to the active workspace
+    // session. Pure RAM mutation — the save is untouched until the user
+    // clicks Save changes. The post-apply snapshot is swapped into the
+    // hook via replaceSnapshot so the grid re-renders without a backend
+    // round trip.
+    const handleApplyTemplate = async () => {
+        if (!sessionID || !importPreviewJSON) return;
+        setApplyingTemplate(true);
+        try {
+            const result = await ApplyBuildTemplateToWorkspaceJSON(
+                sessionID,
+                importPreviewJSON,
+                main.ApplyTemplateOptions.createFrom({ mode: 'append' }),
+            );
+            if (result.applied) {
+                workspace.replaceSnapshot(result.workspace);
+                setImportPreviewReport(null);
+                setImportPreviewJSON('');
+                toast.success('Template applied to workspace. Click Save changes to persist.');
+            } else {
+                // Apply blocked by preview (e.g. capacity overflow
+                // detected pre-flight). Surface the new report so the
+                // modal updates instead of silently closing.
+                setImportPreviewReport(result.preview);
+            }
+        } catch (err) {
+            toast.error(`Apply failed: ${String(err)}`);
+        } finally {
+            setApplyingTemplate(false);
         }
     };
 
@@ -484,7 +527,12 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
             {importPreviewReport && (
                 <ImportTemplatePreviewModal
                     report={importPreviewReport}
-                    onClose={() => setImportPreviewReport(null)}
+                    onClose={() => {
+                        setImportPreviewReport(null);
+                        setImportPreviewJSON('');
+                    }}
+                    onApply={importPreviewJSON ? handleApplyTemplate : undefined}
+                    applying={applyingTemplate}
                 />
             )}
 

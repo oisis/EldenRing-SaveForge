@@ -58,18 +58,20 @@ type ImportPreviewSummary struct {
 
 // Issue codes — stable strings. UI surfaces and tests assert on these.
 const (
-	IssueCodeSchemaInvalid     = "schema_invalid"
-	IssueCodeStructureInvalid  = "structure_invalid"
-	IssueCodeUnknownItem       = "unknown_item"
+	IssueCodeSchemaInvalid       = "schema_invalid"
+	IssueCodeStructureInvalid    = "structure_invalid"
+	IssueCodeUnknownItem         = "unknown_item"
 	IssueCodeQuantityNonPositive = "quantity_non_positive"
-	IssueCodeUpgradeOutOfRange = "upgrade_out_of_range"
-	IssueCodeUnknownInfusion   = "unknown_infusion"
-	IssueCodeAoWNotWeapon      = "aow_not_weapon_target"
-	IssueCodeAoWNotAshCategory = "aow_not_ash_category"
-	IssueCodeAoWIncompatible   = "aow_incompatible"
-	IssueCodeAoWCompatUnknown  = "aow_compat_unknown"
-	IssueCodeNameMismatch      = "name_mismatch_ignored"
-	IssueCodeUnknownMode       = "unknown_mode"
+	IssueCodeUpgradeOutOfRange   = "upgrade_out_of_range"
+	IssueCodeUnknownInfusion     = "unknown_infusion"
+	IssueCodeAoWNotWeapon        = "aow_not_weapon_target"
+	IssueCodeAoWNotAshCategory   = "aow_not_ash_category"
+	IssueCodeAoWIncompatible     = "aow_incompatible"
+	IssueCodeAoWCompatUnknown    = "aow_compat_unknown"
+	IssueCodeNameMismatch        = "name_mismatch_ignored"
+	IssueCodeUnknownMode         = "unknown_mode"
+	IssueCodeCapacityExceeded    = "capacity_exceeded"
+	IssueCodeUnsupportedCategory = "unsupported_category"
 )
 
 // ashCategory is the DB tag for an Ash of War item. Used to detect

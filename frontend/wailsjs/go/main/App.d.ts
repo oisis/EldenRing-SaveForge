@@ -12,6 +12,10 @@ export function AddInventoryWorkspaceItem(arg1:string,arg2:editor.AddItemSpec,ar
 
 export function AddItemsToCharacter(arg1:number,arg2:Array<number>,arg3:number,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<main.AddResult>;
 
+export function ApplyBuildTemplateToWorkspaceFromFile(arg1:string,arg2:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
+
+export function ApplyBuildTemplateToWorkspaceJSON(arg1:string,arg2:string,arg3:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
+
 export function ApplyBuiltinCharacterPresetInventory(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
 
 export function ApplyBuiltinCharacterPresetStats(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
@@ -156,7 +160,7 @@ export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,a
 
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
 
-export function PreviewBuildTemplateImportFromFile():Promise<templates.ImportPreviewReport>;
+export function PreviewBuildTemplateImportFromFile():Promise<main.LoadedTemplatePreview>;
 
 export function PreviewBuildTemplateImportJSON(arg1:string):Promise<templates.ImportPreviewReport>;
 

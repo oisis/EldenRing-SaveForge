@@ -1,7 +1,7 @@
 # 55 — Build Template
 
 > **Type**: Design doc
-> **Status**: 🔲 Planowany — Phase A + B + C zaimplementowane (`backend/templates/`, `app_templates.go`, UI SortOrderTab z export + preview modals), Phase D/E pending
+> **Status**: 🔲 Planowany — Phase A + B + C + D zaimplementowane (`backend/templates/`, `app_templates.go`, UI SortOrderTab z export + preview + apply), Phase E (lokalna biblioteka) pending
 > **Scope**: Przenośna reprezentacja JSON snapshotu Inventory Workspace. Definiuje schemat `saveforge.build-template` v1, kontrakt eksportu (`BuildTemplateFromSnapshot`), reguły obsługi Ash of War oraz zakres pól celowo wykluczonych z payloadu — tak by szablon można było zaaplikować na dowolnym save'ie bez kolizji z jego przestrzenią handle'i.
 
 ---
@@ -178,8 +178,8 @@ Sprawdzenia na poziomie DB (item istnieje, AoW kompatybilne z typem broni, quant
 | **A** | Schemat + eksporter (`backend/templates/`), spec doc, testy | ✅ |
 | **B** | Wails bindings `ExportBuildTemplateJSON` / `ExportBuildTemplateToFile`, dropdown + modal w SortOrderTab | ✅ |
 | **C** | Preview importu: `ParseBuildTemplateJSON`, `PreviewBuildTemplateImport`, endpointy App, `ImportTemplatePreviewModal` (read-only) | ✅ |
-| **D** | Lokalna biblioteka szablonów pod `UserConfigDir`/`templates/` | 🔲 pending |
-| **E** | `ApplyBuildTemplateToWorkspace` — re-use istniejącej ścieżki `AddInventoryWorkspaceItem` + `SaveInventoryWorkspaceChanges` | 🔲 pending |
+| **D** | Apply do workspace: `ApplyBuildTemplateToWorkspaceJSON/FromFile`, capacity preflight, RAM-only mutation z rollbackiem, przycisk Apply w preview modal | ✅ |
+| **E** | Lokalna biblioteka szablonów pod `UserConfigDir`/`templates/` | 🔲 pending |
 | 2+ | Sekcja `character.profile` (level, stats, talisman slots), opt-in via `$enabled` | 🔲 odroczone |
 
 ### 7.1. Kontrakt endpointów Phase B
@@ -262,9 +262,58 @@ Gdy `db.IsAshOfWarCompatibleWithWeapon` raportuje `known=false` (brak compat bit
 
 ---
 
-## 8. Ścieżka importu (apply design — Phase E)
+## 7.3. Kontrakt endpointów Phase D (Apply do Workspace)
 
-Phase A–C nie aplikują szablonów do workspace'a. Schemat jest tak zaprojektowany, by go wesprzeć bez zmian. Szkic:
+```go
+func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText string, opts ApplyTemplateOptions) (ApplyTemplateResult, error)
+func (a *App) ApplyBuildTemplateToWorkspaceFromFile(sessionID string, opts ApplyTemplateOptions) (ApplyTemplateResult, error)
+```
+
+Shape wyniku:
+
+```go
+type ApplyTemplateResult struct {
+    Preview   templates.ImportPreviewReport       `json:"preview"`
+    Workspace editor.InventoryWorkspaceSnapshot   `json:"workspace"`
+    Applied   bool                                `json:"applied"`
+}
+```
+
+### Invarianty
+
+- **Apply jest RAM-only.** Apply mutuje `sess.Workspace` (ustawia `Dirty=true`), ale **nigdy** nie wywołuje `SaveInventoryWorkspaceChanges`, **nigdy** nie pisze `slot.Data`, **nigdy** nie alokuje GaItem handle. Save file jest nietknięty dopóki user nie kliknie Save changes.
+- **Użycie istniejącej ścieżki mutacji.** Itemy są dopisywane do workspace przez `editor.AddItem` (ten sam call site który używa istniejący AddItem modal) a pola weapon-side są aplikowane przez `editor.UpdateWeapon` (ten sam call który używa WeaponEditModal). Brak alternatywnej ścieżki.
+- **Whitelist mode.** Phase D wypuszcza tylko `mode="append"` (pusty string normalizowany do append). Inne tryby (`"replace-inventory"`, `"replace-all"`) są reserved i odrzucają z errorem.
+
+### Kolejność walidacji
+
+1. Whitelist mode — `""` lub `"append"` only. Inne → Go error, brak mutacji.
+2. Existence sesji — nieznana sesja → Go error.
+3. `ParseBuildTemplateJSON` — check schema/struktura. Failures lądują na `Preview.Errors` jako `structure_invalid` (NIE Go error), z `Applied=false`.
+4. `PreviewBuildTemplateImport` — per-item DB resolution + AoW compat. Failures zwracają `Applied=false` z preview report niezmienionym, by UI mógł renderować ten sam panel dla parse i per-item issues.
+5. Capacity preflight — `len(existing) + len(unsupported) + len(imported)` musi zmieścić się pod `core.CommonItemCount` (2688) dla inventory i `core.StorageCommonCount` (1920) dla storage. Failures dopisują `capacity_exceeded` do `Preview.Errors` i zwracają `Applied=false`.
+6. RAM apply — dopisuje każdy `TemplateItem` przez `editor.AddItem(...)` a potem, dla weaponów z polami non-default, `editor.UpdateWeapon(...)` z `WeaponPatch` niosącym `SetUpgrade` / `SetInfusionName` / `SetAoWItemID` jak potrzebne.
+
+### Zachowanie apply
+
+- **Append mode ordering** — importowane inventory itemy lądują po istniejących inventory items w kolejności template. To samo dla storage. Istniejące itemy nie są reorderowane.
+- **Brak save-local handles** — każdy importowany item wchodzi z `Source: added`, `OriginalHandle: 0`. Docelowy Save krok minutuje fresh handles przez istniejący handle allocator w `core.AddItemsToSlotBatch`.
+- **AoW assignment** — wypełnia `PendingAoWItemID` / `PendingAoWName` + `HasPendingWeaponPatch=true`. Save resolvuje to do realnego GaItem entry przez istniejący flow Phase 1.7.
+- **Transactional rollback** — przed aplikacją jakichkolwiek itemów workspace jest snapshotowany w-pamięci przez `deepCopySnapshot`. Gdy `editor.AddItem` lub `editor.UpdateWeapon` zwróci error w środku (niespodziewany DB drift, unsupported category, etc.), snapshot jest przywracany a wpis `Preview.Errors` jest dopisywany wyjaśniający abort. Workspace `Dirty` sesji nie może być flippowany do true przez partial apply.
+- **Anulowanie file dialogu** — `ApplyBuildTemplateToWorkspaceFromFile` z pustą wybraną ścieżką zwraca `Applied=false`, pusty preview, bieżący workspace. Brak mutacji, brak toasta, brak errora.
+
+### Flow frontend
+
+- Preview modal akceptuje opcjonalny callback `onApply`. Gdy provided AND `report.OK==true`, przycisk "Apply to workspace" jest renderowany. Bez `onApply` (Phase C preview-only invocation), przycisk jest hidden.
+- `PreviewBuildTemplateImportFromFile` teraz zwraca `LoadedTemplatePreview { Report, JSON, Path }` żeby Apply flow mógł re-use loaded JSON content bez re-otwierania file dialog.
+- Na udane apply, frontend swappuje `result.Workspace` przez metodę `replaceSnapshot` hooka, zamyka modal i toastuje: "Template applied to workspace. Click Save changes to persist."
+- Na `Applied=false` (np. capacity overflow surfacing post-preview), modal pozostaje open i re-renderuje z nowym error report.
+
+---
+
+## 8. Ścieżka importu (apply design)
+
+Zaimplementowane w Phase D — patrz §7.3. Oryginalny szkic poniżej jest zachowany dla motywacji bazowej:
 
 1. `LoadBuildTemplateFromFile(path)` → `*BuildTemplate` + walidacja strukturalna.
 2. `PreviewBuildTemplateImport(sessionID, tpl, opts)` → raport diff względem bieżącego workspace:

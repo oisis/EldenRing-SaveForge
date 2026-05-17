@@ -17,6 +17,8 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     ExportBuildTemplateJSON: vi.fn(),
     PreviewBuildTemplateImportFromFile: vi.fn(),
     PreviewBuildTemplateImportJSON: vi.fn(),
+    ApplyBuildTemplateToWorkspaceJSON: vi.fn(),
+    ApplyBuildTemplateToWorkspaceFromFile: vi.fn(),
     GetItemList: vi.fn().mockResolvedValue([]),
 }));
 
@@ -311,15 +313,19 @@ describe('SortOrderTab — Import Template Preview (Phase C)', () => {
     });
 
     it('clicking the menu item calls PreviewBuildTemplateImportFromFile', async () => {
-        // Sentinel "cancelled" report — keeps modal closed.
+        // Sentinel "cancelled" preview — keeps modal closed.
         mocks.PreviewBuildTemplateImportFromFile.mockResolvedValue({
-            ok: false,
-            errors: [],
-            warnings: [],
-            summary: {
-                inventoryItems: 0, storageItems: 0, weapons: 0, armor: 0,
-                talismans: 0, stackables: 0, aowAssignments: 0,
+            report: {
+                ok: false,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0, storageItems: 0, weapons: 0, armor: 0,
+                    talismans: 0, stackables: 0, aowAssignments: 0,
+                },
             },
+            json: '',
+            path: '',
         });
         await mount(makeSnapshot({ sessionID: 'ses-imp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
         await act(async () => {
@@ -335,13 +341,17 @@ describe('SortOrderTab — Import Template Preview (Phase C)', () => {
 
     it('renders the preview modal when a non-cancelled report comes back', async () => {
         mocks.PreviewBuildTemplateImportFromFile.mockResolvedValue({
-            ok: true,
-            errors: [],
-            warnings: [],
-            summary: {
-                inventoryItems: 2, storageItems: 0, weapons: 2, armor: 0,
-                talismans: 0, stackables: 0, aowAssignments: 1,
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 2, storageItems: 0, weapons: 2, armor: 0,
+                    talismans: 0, stackables: 0, aowAssignments: 1,
+                },
             },
+            json: '{"schema":"saveforge.build-template"}',
+            path: '/tmp/x.json',
         });
         await mount(makeSnapshot({ sessionID: 'ses-imp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
         await act(async () => {
@@ -362,13 +372,17 @@ describe('SortOrderTab — Import Template Preview (Phase C)', () => {
             error: ReturnType<typeof vi.fn>;
         };
         mocks.PreviewBuildTemplateImportFromFile.mockResolvedValue({
-            ok: false,
-            errors: [],
-            warnings: [],
-            summary: {
-                inventoryItems: 0, storageItems: 0, weapons: 0, armor: 0,
-                talismans: 0, stackables: 0, aowAssignments: 0,
+            report: {
+                ok: false,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0, storageItems: 0, weapons: 0, armor: 0,
+                    talismans: 0, stackables: 0, aowAssignments: 0,
+                },
             },
+            json: '',
+            path: '',
         });
         await mount(makeSnapshot({ sessionID: 'ses-imp', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
         await act(async () => {
@@ -383,5 +397,120 @@ describe('SortOrderTab — Import Template Preview (Phase C)', () => {
         expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
         expect(toastMod.success).not.toHaveBeenCalled();
         expect(toastMod.error).not.toHaveBeenCalled();
+    });
+});
+
+describe('SortOrderTab — Apply Template (Phase D)', () => {
+    const okReport = {
+        ok: true,
+        errors: [],
+        warnings: [],
+        summary: {
+            inventoryItems: 1, storageItems: 0, weapons: 1, armor: 0,
+            talismans: 0, stackables: 0, aowAssignments: 0,
+        },
+    };
+
+    async function openPreviewWithApply() {
+        mocks.PreviewBuildTemplateImportFromFile.mockResolvedValue({
+            report: okReport,
+            json: '{"schema":"saveforge.build-template","version":1}',
+            path: '/tmp/x.json',
+        });
+        await mount(makeSnapshot({ sessionID: 'ses-app', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+        });
+    }
+
+    it('shows Apply button when preview ok=true and JSON was returned', async () => {
+        await openPreviewWithApply();
+        expect(screen.getByTestId('import-preview-apply')).toBeInTheDocument();
+        expect(screen.getByTestId('import-preview-apply-note')).toHaveTextContent(/Save changes/i);
+    });
+
+    it('clicking Apply calls ApplyBuildTemplateToWorkspaceJSON with append mode and stored JSON', async () => {
+        mocks.ApplyBuildTemplateToWorkspaceJSON.mockResolvedValue({
+            preview: okReport,
+            workspace: makeSnapshot({ sessionID: 'ses-app', dirty: true, inventory: [makeItem('hnd:0x80800001', 'inventory', 0), makeItem('new:1', 'inventory', 1)] }),
+            applied: true,
+        });
+        await openPreviewWithApply();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateToWorkspaceJSON).toHaveBeenCalledTimes(1);
+        });
+        const [sessionID, jsonText, opts] = mocks.ApplyBuildTemplateToWorkspaceJSON.mock.calls[0];
+        expect(sessionID).toBe('ses-app');
+        expect(jsonText).toContain('saveforge.build-template');
+        expect((opts as { mode: string }).mode).toBe('append');
+    });
+
+    it('successful apply swaps in the post-apply snapshot and toasts', async () => {
+        const toastMod = (await import('../lib/toast')).default as unknown as {
+            success: ReturnType<typeof vi.fn>;
+            error: ReturnType<typeof vi.fn>;
+        };
+        mocks.ApplyBuildTemplateToWorkspaceJSON.mockResolvedValue({
+            preview: okReport,
+            workspace: makeSnapshot({ sessionID: 'ses-app', dirty: true, inventory: [makeItem('hnd:0x80800001', 'inventory', 0), makeItem('new:1', 'inventory', 1)] }),
+            applied: true,
+        });
+        await openPreviewWithApply();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(toastMod.success).toHaveBeenCalledWith(expect.stringMatching(/applied to workspace/i));
+        });
+        // Modal closes after successful apply.
+        expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
+    });
+
+    it('apply returning applied=false (capacity reject) leaves modal open and updates the report', async () => {
+        mocks.ApplyBuildTemplateToWorkspaceJSON.mockResolvedValue({
+            preview: {
+                ok: false,
+                errors: [{ severity: 'error', code: 'capacity_exceeded', message: 'inventory full', position: 0 }],
+                warnings: [],
+                summary: okReport.summary,
+            },
+            workspace: makeSnapshot({ sessionID: 'ses-app' }),
+            applied: false,
+        });
+        await openPreviewWithApply();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            // Modal still present; error rendered.
+            expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+        });
+        const errors = screen.getAllByTestId('import-preview-error');
+        expect(errors[0]).toHaveAttribute('data-code', 'capacity_exceeded');
+    });
+
+    it('thrown apply error toasts and keeps modal open', async () => {
+        const toastMod = (await import('../lib/toast')).default as unknown as {
+            success: ReturnType<typeof vi.fn>;
+            error: ReturnType<typeof vi.fn>;
+        };
+        mocks.ApplyBuildTemplateToWorkspaceJSON.mockRejectedValue(new Error('session disappeared'));
+        await openPreviewWithApply();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(toastMod.error).toHaveBeenCalledWith(expect.stringMatching(/Apply failed/i));
+        });
+        expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
     });
 });

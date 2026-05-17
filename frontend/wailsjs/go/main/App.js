@@ -10,6 +10,14 @@ export function AddItemsToCharacter(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
   return window['go']['main']['App']['AddItemsToCharacter'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function ApplyBuildTemplateToWorkspaceFromFile(arg1, arg2) {
+  return window['go']['main']['App']['ApplyBuildTemplateToWorkspaceFromFile'](arg1, arg2);
+}
+
+export function ApplyBuildTemplateToWorkspaceJSON(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyBuildTemplateToWorkspaceJSON'](arg1, arg2, arg3);
+}
+
 export function ApplyBuiltinCharacterPresetInventory(arg1, arg2) {
   return window['go']['main']['App']['ApplyBuiltinCharacterPresetInventory'](arg1, arg2);
 }
