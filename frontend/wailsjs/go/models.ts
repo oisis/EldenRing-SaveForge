@@ -197,6 +197,134 @@ export namespace data {
 	        this.Poise = source["Poise"];
 	    }
 	}
+	export class WeaponStatsV1 {
+	    ItemID: number;
+	    WepType: number;
+	    SortGroupID: number;
+	    ReinforceTypeID: number;
+	    GemMountType: number;
+	    Weight: number;
+	    AttackPhysical: number;
+	    AttackMagic: number;
+	    AttackFire: number;
+	    AttackLightning: number;
+	    AttackHoly: number;
+	    AttackStamina: number;
+	    GuardPhysical: number;
+	    GuardMagic: number;
+	    GuardFire: number;
+	    GuardLightning: number;
+	    GuardHoly: number;
+	    GuardBoost: number;
+	    StatReqStr: number;
+	    StatReqDex: number;
+	    StatReqInt: number;
+	    StatReqFai: number;
+	    StatReqArc: number;
+	    ScalingStrRaw: number;
+	    ScalingDexRaw: number;
+	    ScalingIntRaw: number;
+	    ScalingFaiRaw: number;
+	    ScalingArcRaw: number;
+	    StatusPoison: number;
+	    StatusBleed: number;
+	    StatusFrost: number;
+	    StatusSleep: number;
+	    StatusMadness: number;
+	    StatusScarletRot: number;
+	    DefaultAoWID: number;
+	    IsInfusable: boolean;
+	    IsSomber: boolean;
+	    MaxUpgrade: number;
+	    SourceRowID: number;
+	    Warnings: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new WeaponStatsV1(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.ItemID = source["ItemID"];
+	        this.WepType = source["WepType"];
+	        this.SortGroupID = source["SortGroupID"];
+	        this.ReinforceTypeID = source["ReinforceTypeID"];
+	        this.GemMountType = source["GemMountType"];
+	        this.Weight = source["Weight"];
+	        this.AttackPhysical = source["AttackPhysical"];
+	        this.AttackMagic = source["AttackMagic"];
+	        this.AttackFire = source["AttackFire"];
+	        this.AttackLightning = source["AttackLightning"];
+	        this.AttackHoly = source["AttackHoly"];
+	        this.AttackStamina = source["AttackStamina"];
+	        this.GuardPhysical = source["GuardPhysical"];
+	        this.GuardMagic = source["GuardMagic"];
+	        this.GuardFire = source["GuardFire"];
+	        this.GuardLightning = source["GuardLightning"];
+	        this.GuardHoly = source["GuardHoly"];
+	        this.GuardBoost = source["GuardBoost"];
+	        this.StatReqStr = source["StatReqStr"];
+	        this.StatReqDex = source["StatReqDex"];
+	        this.StatReqInt = source["StatReqInt"];
+	        this.StatReqFai = source["StatReqFai"];
+	        this.StatReqArc = source["StatReqArc"];
+	        this.ScalingStrRaw = source["ScalingStrRaw"];
+	        this.ScalingDexRaw = source["ScalingDexRaw"];
+	        this.ScalingIntRaw = source["ScalingIntRaw"];
+	        this.ScalingFaiRaw = source["ScalingFaiRaw"];
+	        this.ScalingArcRaw = source["ScalingArcRaw"];
+	        this.StatusPoison = source["StatusPoison"];
+	        this.StatusBleed = source["StatusBleed"];
+	        this.StatusFrost = source["StatusFrost"];
+	        this.StatusSleep = source["StatusSleep"];
+	        this.StatusMadness = source["StatusMadness"];
+	        this.StatusScarletRot = source["StatusScarletRot"];
+	        this.DefaultAoWID = source["DefaultAoWID"];
+	        this.IsInfusable = source["IsInfusable"];
+	        this.IsSomber = source["IsSomber"];
+	        this.MaxUpgrade = source["MaxUpgrade"];
+	        this.SourceRowID = source["SourceRowID"];
+	        this.Warnings = source["Warnings"];
+	    }
+	}
+	export class ItemStatsData {
+	    kind: string;
+	    weapon?: WeaponStatsV1;
+	    sourceParam?: string;
+	    sourceRowId?: number;
+	    warnings?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ItemStatsData(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
+	        this.weapon = this.convertValues(source["weapon"], WeaponStatsV1);
+	        this.sourceParam = source["sourceParam"];
+	        this.sourceRowId = source["sourceRowId"];
+	        this.warnings = source["warnings"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class ItemTextData {
 	    DisplayName: string;
 	    CanonicalName: string;
@@ -494,6 +622,7 @@ export namespace db {
 	    spell?: data.SpellStats;
 	    aowCompatBitmask?: number;
 	    text?: data.ItemTextData;
+	    stats?: data.ItemStatsData;
 	
 	    static createFrom(source: any = {}) {
 	        return new ItemEntry(source);
@@ -518,6 +647,7 @@ export namespace db {
 	        this.spell = this.convertValues(source["spell"], data.SpellStats);
 	        this.aowCompatBitmask = source["aowCompatBitmask"];
 	        this.text = this.convertValues(source["text"], data.ItemTextData);
+	        this.stats = this.convertValues(source["stats"], data.ItemStatsData);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

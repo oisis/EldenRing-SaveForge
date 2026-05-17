@@ -258,3 +258,37 @@ type WeaponStatsV1 struct {
 // ranged_and_catalysts, arrows_and_bolts) to their generated V1 stats.
 // Populated by generated code in weapon_stats_generated.go.
 var WeaponStatsV1ByID map[uint32]WeaponStatsV1
+
+// ItemStatsKind tags an ItemStatsData payload with the category of stats
+// it carries. Phase 3C.3 only emits "weapon"; future sub-phases will
+// extend the enum (armor, spell, goods, ash_of_war) as their generators
+// land. The empty string is the absence sentinel and is never emitted
+// when ItemStatsData is non-nil at runtime.
+type ItemStatsKind string
+
+const (
+	ItemStatsKindNone   ItemStatsKind = ""
+	ItemStatsKindWeapon ItemStatsKind = "weapon"
+	ItemStatsKindArmor  ItemStatsKind = "armor"
+	ItemStatsKindSpell  ItemStatsKind = "spell"
+	ItemStatsKindGoods  ItemStatsKind = "goods"
+	ItemStatsKindAoW    ItemStatsKind = "ash_of_war"
+)
+
+// ItemStatsData is a Phase 3C.3 wrapper exposing generated stats payloads
+// (V1+) on ItemEntry without disturbing the legacy `Weapon` / `Armor` /
+// `Spell` pointers. The wrapper is intentionally minimal: only the
+// concrete payload pointers that are actually generated today appear as
+// fields, so the Wails TS bindings stay strongly typed (no `any` /
+// `interface{}` projections).
+//
+// Resolution rule (Phase 3C.3): set Kind=Weapon and Weapon=&copy(v) when
+// data.WeaponStatsV1ByID has an entry for the item ID. Future kinds will
+// add their own pointers as the corresponding generated tables land.
+type ItemStatsData struct {
+	Kind        ItemStatsKind  `json:"kind"`
+	Weapon      *WeaponStatsV1 `json:"weapon,omitempty"`
+	SourceParam string         `json:"sourceParam,omitempty"`
+	SourceRowID uint32         `json:"sourceRowId,omitempty"`
+	Warnings    []string       `json:"warnings,omitempty"`
+}

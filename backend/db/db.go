@@ -40,6 +40,13 @@ type ItemEntry struct {
 	// entry. Legacy Description / Location remain populated independently
 	// so existing UI bindings keep working unchanged.
 	Text *data.ItemTextData `json:"text,omitempty"`
+	// Stats is the generated Phase 3C.3 stats payload. For weapon-like
+	// items it wraps a copy of the WeaponStatsV1 record (kind="weapon");
+	// for non-weapon items, or weapon-like items without a V1 entry, it
+	// is nil. Legacy `Weapon` / `Armor` / `Spell` pointers remain
+	// populated independently so existing UI bindings keep working
+	// unchanged — Phase 3C.3 only adds a new payload field.
+	Stats *data.ItemStatsData `json:"stats,omitempty"`
 }
 
 // weightedCategory lists item categories that have physical weight from regulation.bin weapon/armor params.
@@ -307,9 +314,17 @@ func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (comp
 //     from V1.AttackHoly (← attackBaseDark) into legacy HolyDamage —
 //     R-STA-01 guarded by enrich_weapon_stats_test.go. Items without a
 //     V1 entry keep whatever step 1 supplied from descriptions.go.
+//  5. Phase 3C.3 attaches a generated stats payload at e.Stats for
+//     weapon-like items with a V1 entry. The payload wraps a copy of
+//     the WeaponStatsV1 record together with provenance fields
+//     (SourceParam / SourceRowID / Warnings) so the frontend can read
+//     V1-only fields (guard cuts, stamina attack, somber flags, ...)
+//     without touching the legacy projection. The legacy e.Weapon
+//     pointer set in step 4 stays exactly as before — Phase 3C.3 is
+//     additive, not a replacement.
 //
 // Armor and Spell pointers remain owned by data.Descriptions in Phase
-// 3C.2; their generated layers will arrive in later sub-phases.
+// 3C.3; their generated layers will arrive in later sub-phases.
 func enrichItemEntry(e *ItemEntry) {
 	if data.Descriptions != nil {
 		if desc, ok := data.Descriptions[e.ID]; ok {
@@ -350,6 +365,19 @@ func enrichItemEntry(e *ItemEntry) {
 			e.Weapon = weaponStatsV1ToLegacy(v)
 			if v.Weight > 0 {
 				e.Weight = v.Weight
+			}
+			// Phase 3C.3: surface the full V1 record as a typed
+			// payload alongside the legacy Weapon projection.
+			// Take a local copy because map values are not
+			// addressable — pointing at v keeps the payload safe
+			// from later map mutations.
+			weapon := v
+			e.Stats = &data.ItemStatsData{
+				Kind:        data.ItemStatsKindWeapon,
+				Weapon:      &weapon,
+				SourceParam: "EquipParamWeapon",
+				SourceRowID: v.SourceRowID,
+				Warnings:    v.Warnings,
 			}
 		}
 	}
