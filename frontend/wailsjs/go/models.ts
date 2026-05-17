@@ -197,6 +197,28 @@ export namespace data {
 	        this.Poise = source["Poise"];
 	    }
 	}
+	export class WeaponPassiveEffect {
+	    Kind: string;
+	    Source: string;
+	    SpEffectID: number;
+	    Label: string;
+	    Value: number;
+	    Known: boolean;
+
+	    static createFrom(source: any = {}) {
+	        return new WeaponPassiveEffect(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.Kind = source["Kind"];
+	        this.Source = source["Source"];
+	        this.SpEffectID = source["SpEffectID"];
+	        this.Label = source["Label"];
+	        this.Value = source["Value"];
+	        this.Known = source["Known"];
+	    }
+	}
 	export class WeaponStatsV1 {
 	    ItemID: number;
 	    WepType: number;
@@ -233,6 +255,7 @@ export namespace data {
 	    StatusSleep: number;
 	    StatusMadness: number;
 	    StatusScarletRot: number;
+	    PassiveEffects: WeaponPassiveEffect[];
 	    DefaultAoWID: number;
 	    IsInfusable: boolean;
 	    IsSomber: boolean;
@@ -281,6 +304,7 @@ export namespace data {
 	        this.StatusSleep = source["StatusSleep"];
 	        this.StatusMadness = source["StatusMadness"];
 	        this.StatusScarletRot = source["StatusScarletRot"];
+	        this.PassiveEffects = source["PassiveEffects"] || [];
 	        this.DefaultAoWID = source["DefaultAoWID"];
 	        this.IsInfusable = source["IsInfusable"];
 	        this.IsSomber = source["IsSomber"];

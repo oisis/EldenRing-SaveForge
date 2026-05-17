@@ -26,6 +26,7 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     const [brokenIcon, setBrokenIcon] = useState(false);
     const [iconPreview, setIconPreview] = useState(false);
     const [scalingHelp, setScalingHelp] = useState(false);
+    const [passiveHelp, setPassiveHelp] = useState(false);
 
     const V = (v: number | undefined) => v != null ? String(v) : 'N/A';
     const VF = (v: number | undefined) => v != null ? v.toFixed(1) : 'N/A';
@@ -114,6 +115,19 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
     ] as [string, number | undefined][])
         .filter(([, v]) => v != null && v > 0)
         .map(([label, v]) => [label, `${scalingLetter(v!)} (${v})`] as [string, string]);
+
+    // Passive effects: split by Kind into on-hit and resident groups so
+    // the UI can label them "On hit" / "While held". Unknown entries
+    // (Known=false) are kept but rendered with the SpEffect ID so users
+    // can tell something exists even without a label.
+    const passiveEffects = v1Weapon?.PassiveEffects ?? [];
+    const passiveOnHit = passiveEffects.filter(p => p.Kind === 'on_hit');
+    const passiveResident = passiveEffects.filter(p => p.Kind === 'resident');
+    const passiveLabel = (p: { Label: string; Value: number; Known: boolean; SpEffectID: number }) => {
+        if (!p.Known) return `${p.Label} (SpEffect ${p.SpEffectID})`;
+        if (p.Value > 0) return `${p.Label} (${p.Value})`;
+        return p.Label;
+    };
 
     const wWeight = v1Weapon?.Weight ?? legacyWeapon?.Weight ?? item.armor?.Weight ?? item.weight ?? 0;
 
@@ -332,6 +346,71 @@ export function ItemDetailPanel({item, onClose}: ItemDetailPanelProps) {
                                 )}
                             </div>
                         </div>
+                    </div>
+                )}
+
+                {/* Passive Effects — rendered only when V1 surfaced at least
+                    one on-hit or resident SpEffect. Most weapons have none
+                    so we skip the section (and the "None" fallback) to
+                    keep the panel quiet for plain weapons. */}
+                {showWeapon && passiveEffects.length > 0 && (
+                    <div className="space-y-1.5 relative">
+                        <div className="flex items-center gap-1">
+                            <h4 className="text-[8px] font-black uppercase tracking-widest text-muted-foreground">Passive Effects</h4>
+                            <button
+                                type="button"
+                                aria-label="What are passive effects?"
+                                onClick={() => setPassiveHelp(v => !v)}
+                                className="w-3 h-3 rounded-full border border-muted-foreground/50 text-[7px] font-black text-muted-foreground hover:border-foreground hover:text-foreground transition-colors flex items-center justify-center leading-none"
+                            >
+                                ?
+                            </button>
+                        </div>
+                        {passiveHelp && (
+                            <div className="absolute z-10 top-5 left-0 right-0 p-2.5 bg-popover border border-border rounded-md shadow-lg text-[9px] leading-relaxed text-foreground/80 space-y-1.5">
+                                <p>
+                                    Passive effects are special effects attached to a weapon.
+                                    <span className="font-bold"> On-hit</span> effects are applied when the weapon
+                                    hits an enemy, such as Blood Loss buildup.
+                                    <span className="font-bold"> While-held</span> effects are active when the
+                                    weapon is equipped or held, such as restoring FP after defeating enemies.
+                                </p>
+                                <p className="text-muted-foreground">
+                                    Unknown effects are shown with their SpEffect ID so they are not silently hidden.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setPassiveHelp(false)}
+                                    className="mt-1 text-[8px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        )}
+                        {passiveOnHit.length > 0 && (
+                            <div className="space-y-0.5">
+                                <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/70">On hit</p>
+                                <ul className="text-[10px] text-foreground/90 space-y-0.5 list-disc pl-4">
+                                    {passiveOnHit.map((p, i) => (
+                                        <li key={`oh-${i}`} className={p.Known ? '' : 'text-muted-foreground/70 italic'}>
+                                            {passiveLabel(p)}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                        {passiveResident.length > 0 && (
+                            <div className="space-y-0.5">
+                                <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground/70">While held</p>
+                                <ul className="text-[10px] text-foreground/90 space-y-0.5 list-disc pl-4">
+                                    {passiveResident.map((p, i) => (
+                                        <li key={`r-${i}`} className={p.Known ? '' : 'text-muted-foreground/70 italic'}>
+                                            {passiveLabel(p)}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
                     </div>
                 )}
 
