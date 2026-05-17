@@ -32,11 +32,11 @@ import (
 func weaponAoWEditorRemoveFixture() *App {
 	const (
 		wepHandle = uint32(0x80800001)
-		wepItemID = uint32(0x000F4240) // Standard Dagger +0
-		aowHandle = uint32(0xC0800001) // Sword Dance handle
-		aowItemID = uint32(0x80003070) // Sword Dance
-		gaStart   = core.GaItemsStart  // 32
-		gaAoWSize = core.GaRecordAoW   // 8
+		wepItemID = uint32(0x000F4240)  // Standard Dagger +0
+		aowHandle = uint32(0xC0800001)  // Sword Dance handle
+		aowItemID = uint32(0x80003070)  // Sword Dance
+		gaStart   = core.GaItemsStart   // 32
+		gaAoWSize = core.GaRecordAoW    // 8
 		gaWepSize = core.GaRecordWeapon // 21
 		bufSize   = 512
 	)
@@ -64,7 +64,7 @@ func weaponAoWEditorRemoveFixture() *App {
 	binary.LittleEndian.PutUint32(slot.Data[off+8:], 0xFFFFFFFF)  // Unk2
 	binary.LittleEndian.PutUint32(slot.Data[off+12:], 0xFFFFFFFF) // Unk3
 	binary.LittleEndian.PutUint32(slot.Data[off+16:], aowHandle)  // AoWGaItemHandle — attached
-	slot.Data[off+20] = 0                                          // Unk5
+	slot.Data[off+20] = 0                                         // Unk5
 
 	slot.InventoryEnd = gaStart + gaAoWSize + gaWepSize // 61
 	slot.GaItemDataOffset = 0
@@ -219,19 +219,19 @@ func TestApplyWeaponAoW_RemoveAoW(t *testing.T) {
 		t.Fatalf("ApplyWeaponAoW (remove): unexpected error: %v", err)
 	}
 
-	// Weapon (GaItems[1]) AoWGaItemHandle reset to 0xFFFFFFFF.
+	// Weapon (GaItems[1]) AoWGaItemHandle reset to canonical NoCustomAoWHandle (vanilla-aligned).
 	wepIdx := findGaItemByHandle(slot.GaItems, wepHandle)
 	if wepIdx == -1 {
 		t.Fatal("weapon not found in GaItems after remove")
 	}
-	if slot.GaItems[wepIdx].AoWGaItemHandle != 0xFFFFFFFF {
-		t.Errorf("GaItems[%d].AoWGaItemHandle = 0x%08X, want 0xFFFFFFFF", wepIdx, slot.GaItems[wepIdx].AoWGaItemHandle)
+	if slot.GaItems[wepIdx].AoWGaItemHandle != core.NoCustomAoWHandle {
+		t.Errorf("GaItems[%d].AoWGaItemHandle = 0x%08X, want 0x%08X", wepIdx, slot.GaItems[wepIdx].AoWGaItemHandle, core.NoCustomAoWHandle)
 	}
 
-	// slot.Data at weapon's AoWGaItemHandle offset reset to 0xFFFFFFFF.
+	// slot.Data at weapon's AoWGaItemHandle offset reset to canonical NoCustomAoWHandle.
 	weaponByteOff := gaStart + gaAoWSize // 40
-	if got := binary.LittleEndian.Uint32(slot.Data[weaponByteOff+16:]); got != 0xFFFFFFFF {
-		t.Errorf("slot.Data AoWHandle = 0x%08X, want 0xFFFFFFFF", got)
+	if got := binary.LittleEndian.Uint32(slot.Data[weaponByteOff+16:]); got != core.NoCustomAoWHandle {
+		t.Errorf("slot.Data AoWHandle = 0x%08X, want 0x%08X", got, core.NoCustomAoWHandle)
 	}
 
 	// AoW GaItem still present (orphaned — game tolerates unused entries).

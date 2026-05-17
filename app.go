@@ -1406,7 +1406,8 @@ func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error)
 }
 
 // ApplyWeaponAoWStrict sets or removes the AoW on a weapon using only pre-existing free copies.
-// newAoWItemID == 0: removes the AoW (patches AoWGaItemHandle to 0xFFFFFFFF in-place).
+// newAoWItemID == 0: removes the AoW (patches AoWGaItemHandle to the canonical
+// core.NoCustomAoWHandle (0x00000000) in-place).
 // newAoWItemID != 0: finds the first free copy of that AoW in the slot and attaches it.
 //   Returns an error if no free copy exists, if a shared-handle conflict is detected,
 //   or if any standard validation fails. Unlike ApplyWeaponAoW, never allocates new GaItem records.
@@ -1437,7 +1438,7 @@ func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemI
 
 	var newAoWHandle uint32
 	if newAoWItemID == 0 {
-		newAoWHandle = 0xFFFFFFFF
+		newAoWHandle = core.NoCustomAoWHandle
 	} else {
 		if newAoWItemID>>28 != 8 {
 			return fmt.Errorf("newAoWItemID 0x%08X is not an Ash of War item ID", newAoWItemID)

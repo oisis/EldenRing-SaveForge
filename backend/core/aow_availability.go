@@ -33,7 +33,7 @@ func ScanAoWAvailability(slot *SaveSlot) []AoWCopyRaw {
 		case ItemTypeAow:
 			copies = append(copies, AoWCopyRaw{ItemID: g.ItemID, Handle: g.Handle})
 		case ItemTypeWeapon:
-			if g.AoWGaItemHandle != 0xFFFFFFFF {
+			if !IsNoCustomAoWHandle(g.AoWGaItemHandle) {
 				weaponRefs[g.AoWGaItemHandle] = append(weaponRefs[g.AoWGaItemHandle], g.Handle)
 			}
 		}

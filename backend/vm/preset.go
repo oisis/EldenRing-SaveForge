@@ -576,10 +576,13 @@ func purgeOrphanedGaItems(slot *core.SaveSlot) {
 		}
 		h := slot.GaItems[i].Handle
 		if _, inMap := slot.GaMap[h]; !inMap {
+			// Empty-slot marker (ItemID==0); AoWGaItemHandle is not
+			// serialized for 8B records, but use the canonical sentinel
+			// for consistency with vanilla-aligned writer output.
 			slot.GaItems[i] = core.GaItemFull{
 				Unk2:            -1,
 				Unk3:            -1,
-				AoWGaItemHandle: 0xFFFFFFFF,
+				AoWGaItemHandle: core.NoCustomAoWHandle,
 			}
 		}
 	}

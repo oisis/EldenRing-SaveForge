@@ -141,18 +141,20 @@ func TestPatchWeaponAoWHandle_Remove(t *testing.T) {
 	addTestWeapon(slot, 1, wepHandle, 0x00001000, aowHandle)
 	flushTestGaItems(slot)
 
-	if err := PatchWeaponAoWHandle(slot, wepHandle, 0xFFFFFFFF); err != nil {
+	// Caller may still pass the legacy sentinel — writer must accept it
+	// and canonicalize to NoCustomAoWHandle on disk.
+	if err := PatchWeaponAoWHandle(slot, wepHandle, LegacyNoCustomAoWHandle); err != nil {
 		t.Fatalf("remove AoW: %v", err)
 	}
-	if slot.GaItems[1].AoWGaItemHandle != 0xFFFFFFFF {
-		t.Errorf("in-memory: expected AoWGaItemHandle=0xFFFFFFFF, got 0x%08X", slot.GaItems[1].AoWGaItemHandle)
+	if slot.GaItems[1].AoWGaItemHandle != NoCustomAoWHandle {
+		t.Errorf("in-memory: expected AoWGaItemHandle=0x%08X, got 0x%08X", NoCustomAoWHandle, slot.GaItems[1].AoWGaItemHandle)
 	}
 	// Verify byte patch in slot.Data.
 	// weapon is at GaItemsStart + (AoW 8 bytes) = GaItemsStart+8, AoWGaItemHandle at +16.
 	wepOff := GaItemsStart + 8 // AoW record is 8 bytes
 	got := binary.LittleEndian.Uint32(slot.Data[wepOff+16:])
-	if got != 0xFFFFFFFF {
-		t.Errorf("slot.Data: expected 0xFFFFFFFF at [%d+16], got 0x%08X", wepOff, got)
+	if got != NoCustomAoWHandle {
+		t.Errorf("slot.Data: expected 0x%08X at [%d+16], got 0x%08X", NoCustomAoWHandle, wepOff, got)
 	}
 }
 
@@ -197,5 +199,185 @@ func TestPatchWeaponAoWHandle_AttachFreeHandle(t *testing.T) {
 	}
 	if slot.GaItems[1].AoWGaItemHandle != aowHandle {
 		t.Errorf("expected AoWGaItemHandle=0x%08X, got 0x%08X", aowHandle, slot.GaItems[1].AoWGaItemHandle)
+	}
+}
+
+// --- vanilla-aligned sentinel regression tests ---
+
+// TestPatchWeaponAoWHandle_RemoveWritesZeroSentinel asserts that the strict
+// remove path emits the canonical vanilla sentinel (0x00000000) regardless
+// of whether the caller passes the legacy or canonical sentinel. This is
+// the load-bearing test that keeps SaveForge output matching what the
+// game itself writes for weapons without a custom Ash of War attached.
+func TestPatchWeaponAoWHandle_RemoveWritesZeroSentinel(t *testing.T) {
+	cases := []struct {
+		name  string
+		input uint32
+	}{
+		{"caller_passes_canonical", NoCustomAoWHandle},
+		{"caller_passes_legacy", LegacyNoCustomAoWHandle},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			slot := makeStrictTestSlot(10)
+			const aowHandle = uint32(0xC0800001)
+			const wepHandle = uint32(0x80800001)
+			const wepItemID = uint32(0x00001000)
+			addTestAoW(slot, 0, aowHandle, 0x80001000)
+			addTestWeapon(slot, 1, wepHandle, wepItemID, aowHandle)
+			flushTestGaItems(slot)
+
+			if err := PatchWeaponAoWHandle(slot, wepHandle, tc.input); err != nil {
+				t.Fatalf("remove AoW: %v", err)
+			}
+			if got := slot.GaItems[1].AoWGaItemHandle; got != NoCustomAoWHandle {
+				t.Errorf("in-memory: expected 0x%08X, got 0x%08X", NoCustomAoWHandle, got)
+			}
+			wepOff := GaItemsStart + 8 // AoW record is 8 bytes
+			got := binary.LittleEndian.Uint32(slot.Data[wepOff+16:])
+			if got != NoCustomAoWHandle {
+				t.Errorf("slot.Data: expected 0x%08X at [%d+16], got 0x%08X", NoCustomAoWHandle, wepOff, got)
+			}
+			// Default skill semantics: weapon ItemID must survive remove
+			// untouched so the game can fall back to EquipParamWeapon.swordArtsParamId.
+			if slot.GaItems[1].ItemID != wepItemID {
+				t.Errorf("weapon ItemID changed by remove: expected 0x%08X, got 0x%08X", wepItemID, slot.GaItems[1].ItemID)
+			}
+		})
+	}
+}
+
+// TestPatchWeaponAoWHandle_RemovePreservesWeaponItemID asserts the remove
+// path never touches the weapon's own ItemID — the default skill is
+// resolved from EquipParamWeapon.swordArtsParamId by Weapon.ItemID, so
+// corrupting it would break the game's fallback after remove.
+func TestPatchWeaponAoWHandle_RemovePreservesWeaponItemID(t *testing.T) {
+	slot := makeStrictTestSlot(10)
+	const aowHandle = uint32(0xC0800001)
+	const wepHandle = uint32(0x80800001)
+	const wepItemID = uint32(0x001F20C0) // Lordsworn's Straight Sword
+	addTestAoW(slot, 0, aowHandle, 0x80001000)
+	addTestWeapon(slot, 1, wepHandle, wepItemID, aowHandle)
+	flushTestGaItems(slot)
+
+	if err := PatchWeaponAoWHandle(slot, wepHandle, NoCustomAoWHandle); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	wepOff := GaItemsStart + 8
+	gotID := binary.LittleEndian.Uint32(slot.Data[wepOff+4:])
+	if gotID != wepItemID {
+		t.Errorf("slot.Data weapon ItemID: expected 0x%08X, got 0x%08X", wepItemID, gotID)
+	}
+	if slot.GaItems[1].ItemID != wepItemID {
+		t.Errorf("in-memory weapon ItemID: expected 0x%08X, got 0x%08X", wepItemID, slot.GaItems[1].ItemID)
+	}
+}
+
+// TestPatchWeaponAoW_LegacyRemoveWritesZeroSentinel covers the legacy
+// PatchWeaponAoW(slot, weaponHandle, 0) remove path.
+func TestPatchWeaponAoW_LegacyRemoveWritesZeroSentinel(t *testing.T) {
+	slot := makeStrictTestSlot(10)
+	const aowHandle = uint32(0xC0800001)
+	const wepHandle = uint32(0x80800001)
+	const wepItemID = uint32(0x00001000)
+	addTestAoW(slot, 0, aowHandle, 0x80001000)
+	addTestWeapon(slot, 1, wepHandle, wepItemID, aowHandle)
+	flushTestGaItems(slot)
+
+	if err := PatchWeaponAoW(slot, wepHandle, 0); err != nil {
+		t.Fatalf("PatchWeaponAoW remove: %v", err)
+	}
+	if got := slot.GaItems[1].AoWGaItemHandle; got != NoCustomAoWHandle {
+		t.Errorf("in-memory: expected 0x%08X, got 0x%08X", NoCustomAoWHandle, got)
+	}
+	wepOff := GaItemsStart + 8
+	got := binary.LittleEndian.Uint32(slot.Data[wepOff+16:])
+	if got != NoCustomAoWHandle {
+		t.Errorf("slot.Data: expected 0x%08X at [%d+16], got 0x%08X", NoCustomAoWHandle, wepOff, got)
+	}
+}
+
+// TestAllocateGaItem_NewWeaponUsesZeroSentinel pins down the new-weapon
+// path: every weapon GaItem that SaveForge allocates fresh starts with
+// the canonical NoCustomAoWHandle, matching vanilla saves.
+func TestAllocateGaItem_NewWeaponUsesZeroSentinel(t *testing.T) {
+	slot := makeTestSlot(20)
+	slot.NextAoWIndex = 0
+	slot.NextArmamentIndex = 0
+
+	const wepHandle = uint32(ItemTypeWeapon | 0x00800001)
+	const wepItemID = uint32(0x00100000)
+	if err := allocateGaItem(slot, wepHandle, wepItemID); err != nil {
+		t.Fatalf("allocateGaItem: %v", err)
+	}
+	g := slot.GaItems[0]
+	if g.Handle != wepHandle {
+		t.Fatalf("expected weapon at index 0, got handle 0x%08X", g.Handle)
+	}
+	if g.AoWGaItemHandle != NoCustomAoWHandle {
+		t.Errorf("new weapon AoWGaItemHandle: expected canonical 0x%08X, got 0x%08X",
+			NoCustomAoWHandle, g.AoWGaItemHandle)
+	}
+}
+
+// TestScanAoWAvailability_ZeroSentinelNotCounted asserts the canonical
+// sentinel doesn't accidentally appear as a weapon reference (which
+// would create a fake `weaponRefs[0]` entry).
+func TestScanAoWAvailability_ZeroSentinelNotCounted(t *testing.T) {
+	slot := makeStrictTestSlot(10)
+	const aowHandle = uint32(0xC0800001)
+	const aowItemID = uint32(0x80001000)
+	addTestAoW(slot, 0, aowHandle, aowItemID)
+	// Weapon with no custom AoW — vanilla sentinel.
+	addTestWeapon(slot, 1, 0x80800001, 0x00001000, NoCustomAoWHandle)
+	flushTestGaItems(slot)
+
+	copies := ScanAoWAvailability(slot)
+	if len(copies) != 1 {
+		t.Fatalf("expected 1 AoW copy, got %d", len(copies))
+	}
+	if copies[0].UsedByWeaponHandle != 0 {
+		t.Errorf("AoW copy should be free; got UsedByWeaponHandle=0x%08X", copies[0].UsedByWeaponHandle)
+	}
+	if copies[0].HasSharedHandleConflict {
+		t.Error("unexpected conflict flagged for zero-sentinel weapon")
+	}
+}
+
+// TestScanAoWAvailability_LegacyFFFFFFFFSentinelNotCounted asserts the
+// legacy sentinel is still recognized as "no custom AoW" so saves
+// produced by older SaveForge releases keep classifying correctly.
+func TestScanAoWAvailability_LegacyFFFFFFFFSentinelNotCounted(t *testing.T) {
+	slot := makeStrictTestSlot(10)
+	const aowHandle = uint32(0xC0800001)
+	addTestAoW(slot, 0, aowHandle, 0x80001000)
+	addTestWeapon(slot, 1, 0x80800001, 0x00001000, LegacyNoCustomAoWHandle)
+	flushTestGaItems(slot)
+
+	copies := ScanAoWAvailability(slot)
+	if len(copies) != 1 {
+		t.Fatalf("expected 1 AoW copy, got %d", len(copies))
+	}
+	if copies[0].UsedByWeaponHandle != 0 {
+		t.Errorf("AoW copy should be free; got UsedByWeaponHandle=0x%08X", copies[0].UsedByWeaponHandle)
+	}
+	if copies[0].HasSharedHandleConflict {
+		t.Error("unexpected conflict flagged for legacy-sentinel weapon")
+	}
+}
+
+// TestIsNoCustomAoWHandle covers the dual-sentinel helper directly.
+func TestIsNoCustomAoWHandle(t *testing.T) {
+	if !IsNoCustomAoWHandle(NoCustomAoWHandle) {
+		t.Error("NoCustomAoWHandle should be recognized")
+	}
+	if !IsNoCustomAoWHandle(LegacyNoCustomAoWHandle) {
+		t.Error("LegacyNoCustomAoWHandle should be recognized")
+	}
+	if IsNoCustomAoWHandle(0xC0800001) {
+		t.Error("valid AoW handle 0xC0800001 must NOT be classified as no-custom")
+	}
+	if IsNoCustomAoWHandle(0x80800001) {
+		t.Error("valid weapon handle 0x80800001 must NOT be classified as no-custom")
 	}
 }

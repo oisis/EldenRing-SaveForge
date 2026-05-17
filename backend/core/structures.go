@@ -24,6 +24,37 @@ const (
 	ItemTypeAow       = 0xC0000000
 )
 
+// AoWGaItemHandle sentinel values for "no custom Ash of War attached".
+//
+// Forensic comparison of in-game vanilla saves (ER0000-kro55-vanilla.sl2 and
+// fresh fields of ER0000.sl2) versus SaveForge-bulk-edited saves shows the
+// game writes 0x00000000 for weapons that have no external AoW gem
+// attached; SaveForge historically wrote 0xFFFFFFFF. The game tolerates
+// both values, but vanilla-aligned output minimizes anti-cheat/validation
+// risk so the writer canonicalizes to NoCustomAoWHandle.
+const (
+	// NoCustomAoWHandle is the canonical value emitted by writers when a
+	// weapon GaItem has no custom Ash of War attached. Matches the value
+	// the in-game save writes.
+	NoCustomAoWHandle uint32 = 0x00000000
+
+	// LegacyNoCustomAoWHandle is the value historical SaveForge releases
+	// (and the GaItemFull zero-value placeholder for empty slots) wrote
+	// for the same semantic state. Readers must continue to recognize it
+	// so previously edited saves keep working.
+	LegacyNoCustomAoWHandle uint32 = 0xFFFFFFFF
+)
+
+// IsNoCustomAoWHandle reports whether the given AoWGaItemHandle field
+// value means "no external Ash of War attached" — covering both the
+// canonical vanilla sentinel (0x00000000) and the legacy SaveForge
+// sentinel (0xFFFFFFFF). Use this in every reader and availability scan;
+// any check that compares against a single sentinel will misclassify
+// half of the save population.
+func IsNoCustomAoWHandle(h uint32) bool {
+	return h == NoCustomAoWHandle || h == LegacyNoCustomAoWHandle
+}
+
 type GaItem struct {
 	Handle uint32
 	ItemID uint32
@@ -37,7 +68,7 @@ type GaItemFull struct {
 	ItemID          uint32
 	Unk2            int32  // weapon/armor: default -1 (0xFFFFFFFF)
 	Unk3            int32  // weapon/armor: default -1 (0xFFFFFFFF)
-	AoWGaItemHandle uint32 // weapon only: default 0xFFFFFFFF ("no AoW attached")
+	AoWGaItemHandle uint32 // weapon only: NoCustomAoWHandle when no AoW attached (see IsNoCustomAoWHandle for compat)
 	Unk5            uint8  // weapon only: default 0
 }
 
