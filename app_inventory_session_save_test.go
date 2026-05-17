@@ -670,6 +670,97 @@ func TestSaveInventoryWorkspaceChanges_FullCombinedWorkflow(t *testing.T) {
 	assertNoDuplicateAcqIndices(t, updated)
 }
 
+// ─── Phase 4A: CurrentAoW snapshot field readback ─────────────────
+
+// After a no-AoW save (reorder only), the reparsed snapshot must still
+// report the same CurrentAoW* state for any weapon that had a custom
+// AoW pre-save. Asserts the read-side AoW pipeline survives the full
+// rebuild path.
+func TestSaveInventoryWorkspaceChanges_PreservesCurrentAoWAfterReparse(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Find any weapon with CurrentAoWStatus set — if the fixture has
+	// no custom AoW, fall back to checking AoWStatusNone preservation.
+	preWeapons := map[uint32]string{}
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon && it.CurrentAoWStatus != "" {
+			preWeapons[it.OriginalHandle] = it.CurrentAoWStatus
+		}
+	}
+	for _, it := range snap.StorageItems {
+		if it.IsWeapon && it.CurrentAoWStatus != "" {
+			preWeapons[it.OriginalHandle] = it.CurrentAoWStatus
+		}
+	}
+	if len(preWeapons) == 0 {
+		t.Skip("fixture has no weapons with AoW status to verify")
+	}
+	// Trigger a reorder so Save actually runs (no AoW change).
+	if len(snap.InventoryItems) > 0 {
+		first := snap.InventoryItems[0].UID
+		if _, err := app.MoveInventoryWorkspaceItem(snap.SessionID, first, "inventory", 0); err != nil {
+			t.Fatalf("Move: %v", err)
+		}
+	}
+	updated, err := app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// Every pre-save (handle → status) must reappear post-save.
+	check := func(items []editor.EditableItem) {
+		for _, it := range items {
+			pre, tracked := preWeapons[it.OriginalHandle]
+			if !tracked {
+				continue
+			}
+			if it.CurrentAoWStatus != pre {
+				t.Errorf("weapon 0x%08X status: pre=%q post=%q (handle stable across save)",
+					it.OriginalHandle, pre, it.CurrentAoWStatus)
+			}
+		}
+	}
+	check(updated.InventoryItems)
+	check(updated.StorageItems)
+}
+
+// Save with PendingAoWItemID != 0 must still reject byte-for-byte.
+// Phase 4A does not implement the write path — it only adds read-side
+// surface area.
+func TestSaveInventoryWorkspaceChanges_PendingAoWStillRejectedInPhase4A(t *testing.T) {
+	app, idx := realSaveAppForSave(t)
+	snap, err := app.StartInventoryEditSession(idx)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	weaponUID := ""
+	for _, it := range snap.InventoryItems {
+		if it.IsWeapon {
+			weaponUID = it.UID
+			break
+		}
+	}
+	if weaponUID == "" {
+		t.Skip("no weapon in inventory")
+	}
+	if _, err := app.UpdateInventoryWorkspaceWeapon(snap.SessionID, weaponUID, editor.WeaponPatch{
+		SetAoWItemID: true, AoWItemID: 0x80002710, // Lion's Claw
+	}); err != nil {
+		t.Fatalf("UpdateWeapon: %v", err)
+	}
+	slot := &app.save.Slots[idx]
+	before := snapshotSlotBytes(slot)
+	_, err = app.SaveInventoryWorkspaceChanges(snap.SessionID)
+	if err == nil {
+		t.Fatal("expected error for pending AoW")
+	}
+	if !bytes.Equal(slot.Data, before) {
+		t.Error("slot.Data mutated after Phase 4A pending-AoW rejection")
+	}
+}
+
 // ─── Phase 3B: baseline regeneration ──────────────────────────────
 
 // After a successful save, the session's baseline must be refreshed so

@@ -58,6 +58,16 @@ const (
 	ReasonDuplicateHandle      = "duplicate_handle"
 )
 
+// CurrentAoWStatus values surface read-side AoW state on editable
+// weapons. Empty means the field is not relevant (non-weapon or never
+// populated). All others apply only to weapon-editable items.
+const (
+	AoWStatusNone    = "none"    // weapon has no custom AoW (sentinel handle)
+	AoWStatusCustom  = "custom"  // weapon has a custom AoW that resolves to a known ashes_of_war DB entry
+	AoWStatusMissing = "missing" // weapon's AoW handle is non-sentinel but cannot be resolved (orphan / dangling)
+	AoWStatusShared  = "shared"  // weapon's AoW handle is referenced by another weapon (save corruption)
+)
+
 // invUnarmedBaseID mirrors the legacy ReorderInventory constant — the
 // "Unarmed" placeholder weapon kept by the game as a technical slot.
 const invUnarmedBaseID = uint32(0x0001ADB0)
@@ -86,6 +96,13 @@ type InventoryWorkspaceSnapshot struct {
 // existing ItemID/CurrentUpgrade/InfusionName fields, which DO get
 // updated in place by UpdateWeapon when upgrade/infusion change (because
 // those are pure ItemID re-encodings and don't need a handle).
+//
+// CurrentAoW* fields (Phase 4A) are READ-ONLY mirrors of the AoW that is
+// currently encoded into the weapon's GaItem.AoWGaItemHandle. They are
+// populated by BuildSnapshot for editable weapons and never mutated by
+// editor mutations — they describe slot state at snapshot time, not the
+// user's pending edit. Use Pending* fields to express an unsaved AoW
+// swap; the two coexist until Save resolves the pending request.
 type EditableItem struct {
 	UID                   string        `json:"uid"`
 	Source                ItemSource    `json:"source"`
@@ -106,6 +123,12 @@ type EditableItem struct {
 	IsWeapon              bool          `json:"isWeapon"`
 	IsArmor               bool          `json:"isArmor"`
 	IsTalisman            bool          `json:"isTalisman"`
+	CurrentAoWHandle      uint32        `json:"currentAoWHandle,omitempty"`
+	CurrentAoWItemID      uint32        `json:"currentAoWItemID,omitempty"`
+	CurrentAoWName        string        `json:"currentAoWName,omitempty"`
+	HasCurrentAoW         bool          `json:"hasCurrentAoW,omitempty"`
+	CurrentAoWShared      bool          `json:"currentAoWShared,omitempty"`
+	CurrentAoWStatus      string        `json:"currentAoWStatus,omitempty"`
 	PendingAoWItemID      uint32        `json:"pendingAoWItemID,omitempty"`
 	PendingAoWName        string        `json:"pendingAoWName,omitempty"`
 	HasPendingWeaponPatch bool          `json:"hasPendingWeaponPatch,omitempty"`
@@ -162,6 +185,12 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 	invSeen := make(map[uint32]int)
 	stoSeen := make(map[uint32]int)
 
+	// Precompute weapon → AoW handle references and shared-handle
+	// counts in one pass over slot.GaItems. classifyRecord uses these
+	// to populate CurrentAoW* fields on weapon-editable items without
+	// rescanning GaItems per record.
+	weaponAoWRefs, aowSharedCount := buildWeaponAoWMaps(slot)
+
 	// Inventory scan.
 	invStart := slot.MagicOffset + core.InvStartFromMagic
 	for i := 0; i < core.CommonItemCount; i++ {
@@ -175,7 +204,7 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 		}
 		qty := binary.LittleEndian.Uint32(slot.Data[off+4:])
 		acq := binary.LittleEndian.Uint32(slot.Data[off+8:])
-		c := classifyRecord(slot, ContainerInventory, i, h, qty, acq, invSeen)
+		c := classifyRecord(slot, ContainerInventory, i, h, qty, acq, invSeen, weaponAoWRefs, aowSharedCount)
 		if c.editable != nil {
 			snap.InventoryItems = append(snap.InventoryItems, *c.editable)
 		}
@@ -198,7 +227,7 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 			}
 			qty := binary.LittleEndian.Uint32(slot.Data[off+4:])
 			acq := binary.LittleEndian.Uint32(slot.Data[off+8:])
-			c := classifyRecord(slot, ContainerStorage, i, h, qty, acq, stoSeen)
+			c := classifyRecord(slot, ContainerStorage, i, h, qty, acq, stoSeen, weaponAoWRefs, aowSharedCount)
 			if c.editable != nil {
 				snap.StorageItems = append(snap.StorageItems, *c.editable)
 			}
@@ -236,7 +265,11 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 // a container; a second appearance is forced to pass-through with
 // ReasonDuplicateHandle so the editable list never carries duplicate
 // handles (validator catches it separately).
-func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, handle, qty, acq uint32, seen map[uint32]int) classified {
+//
+// weaponAoWRefs / aowSharedCount carry pre-computed AoW state for
+// editable weapons. They are produced once per BuildSnapshot by
+// buildWeaponAoWMaps.
+func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, handle, qty, acq uint32, seen map[uint32]int, weaponAoWRefs map[uint32]uint32, aowSharedCount map[uint32]int) classified {
 	hasGa := false
 	itemID, ok := slot.GaMap[handle]
 	if ok {
@@ -288,7 +321,7 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 
 	uid := fmt.Sprintf("hnd:0x%08X", handle)
 
-	return classified{editable: &EditableItem{
+	editable := &EditableItem{
 		UID:              uid,
 		Source:           ItemSourceOriginal,
 		Container:        container,
@@ -307,7 +340,88 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 		IsWeapon:         isWeapon,
 		IsArmor:          isArmor,
 		IsTalisman:       isTalisman,
-	}}
+	}
+	if isWeapon {
+		populateCurrentAoW(slot, editable, weaponAoWRefs, aowSharedCount)
+	}
+	return classified{editable: editable}
+}
+
+// buildWeaponAoWMaps walks slot.GaItems once and produces:
+//   - weaponAoWRefs: weaponHandle → AoWGaItemHandle (only for weapons
+//     whose AoWGaItemHandle is NOT the no-custom sentinel)
+//   - aowSharedCount: aowHandle → number of weapons referencing it.
+//     A count > 1 is a save-corruption indicator (game expects each AoW
+//     copy to attach to at most one weapon).
+//
+// Empty GaItems entries are skipped. Returns nil maps if slot.GaItems
+// is empty so callers can safely range over the results.
+func buildWeaponAoWMaps(slot *core.SaveSlot) (map[uint32]uint32, map[uint32]int) {
+	weaponAoWRefs := map[uint32]uint32{}
+	aowSharedCount := map[uint32]int{}
+	if slot == nil {
+		return weaponAoWRefs, aowSharedCount
+	}
+	for i := range slot.GaItems {
+		g := &slot.GaItems[i]
+		if g.IsEmpty() {
+			continue
+		}
+		if (g.Handle & core.GaHandleTypeMask) != core.ItemTypeWeapon {
+			continue
+		}
+		if core.IsNoCustomAoWHandle(g.AoWGaItemHandle) {
+			continue
+		}
+		weaponAoWRefs[g.Handle] = g.AoWGaItemHandle
+		aowSharedCount[g.AoWGaItemHandle]++
+	}
+	return weaponAoWRefs, aowSharedCount
+}
+
+// populateCurrentAoW fills the CurrentAoW* fields on an editable weapon
+// from precomputed slot scans. No-op for non-weapons.
+//
+// Resolution:
+//   - No entry in weaponAoWRefs → the GaItem either lacks an
+//     AoWGaItemHandle (impossible for a weapon — every weapon GaItem has
+//     one) or that handle is the no-custom sentinel. Status = "none".
+//   - Entry present → look up the AoW itemID via slot.GaMap[aowHandle].
+//     If the lookup fails the handle is dangling → status = "missing".
+//     Otherwise the DB is queried for the AoW's name/category and:
+//       * count > 1 in aowSharedCount → status = "shared" (corruption)
+//       * otherwise status = "custom"
+//
+// The function never errors; it sets enough fields for Validate to emit
+// a warning if state is anomalous (missing / shared / non-AoW category).
+func populateCurrentAoW(slot *core.SaveSlot, item *EditableItem, weaponAoWRefs map[uint32]uint32, aowSharedCount map[uint32]int) {
+	if item == nil || !item.IsWeapon {
+		return
+	}
+	aowHandle, hasRef := weaponAoWRefs[item.OriginalHandle]
+	if !hasRef {
+		item.CurrentAoWStatus = AoWStatusNone
+		return
+	}
+	item.CurrentAoWHandle = aowHandle
+	item.HasCurrentAoW = true
+	aowItemID, mapped := uint32(0), false
+	if slot != nil {
+		aowItemID, mapped = slot.GaMap[aowHandle]
+	}
+	if !mapped || aowItemID == 0 {
+		item.CurrentAoWStatus = AoWStatusMissing
+		return
+	}
+	item.CurrentAoWItemID = aowItemID
+	aowData, _ := db.GetItemDataFuzzy(aowItemID)
+	item.CurrentAoWName = aowData.Name
+	if aowSharedCount[aowHandle] > 1 {
+		item.CurrentAoWShared = true
+		item.CurrentAoWStatus = AoWStatusShared
+		return
+	}
+	item.CurrentAoWStatus = AoWStatusCustom
 }
 
 // decodeWeaponUpgradeInfusion mirrors the legacy helper in

@@ -40,16 +40,19 @@ const (
 
 // Validation issue codes. Frontend / tests use these as stable keys.
 const (
-	CodeDuplicateUID         = "duplicate_uid"
-	CodeDuplicateHandle      = "duplicate_handle"
-	CodeUnknownItemID        = "unknown_item_id"
-	CodeQuantityZero         = "quantity_zero"
-	CodeUpgradeOutOfRange    = "upgrade_out_of_range"
-	CodeCategoryUnsupported  = "category_unsupported"
-	CodePassThroughRecords   = "pass_through_records"
-	CodeSharedAoWConflict    = "shared_aow_conflict"
-	CodeSharedAoWNotChecked  = "shared_aow_not_checked"
-	CodePendingAoWUnknown    = "pending_aow_unknown"
+	CodeDuplicateUID            = "duplicate_uid"
+	CodeDuplicateHandle         = "duplicate_handle"
+	CodeUnknownItemID           = "unknown_item_id"
+	CodeQuantityZero            = "quantity_zero"
+	CodeUpgradeOutOfRange       = "upgrade_out_of_range"
+	CodeCategoryUnsupported     = "category_unsupported"
+	CodePassThroughRecords      = "pass_through_records"
+	CodeSharedAoWConflict       = "shared_aow_conflict"
+	CodeSharedAoWNotChecked     = "shared_aow_not_checked"
+	CodePendingAoWUnknown       = "pending_aow_unknown"
+	CodeCurrentAoWMissing       = "current_aow_missing"
+	CodeCurrentAoWShared        = "current_aow_shared"
+	CodeCurrentAoWNonAoWCategory = "current_aow_non_aow_category"
 )
 
 // Validate runs Phase 1 dry-run checks. It does not touch the slot.
@@ -175,6 +178,45 @@ func Validate(snap InventoryWorkspaceSnapshot) WorkspaceValidationReport {
 						UID:    it.UID,
 						Handle: it.OriginalHandle,
 					})
+				}
+			}
+
+			// Current AoW (Phase 4A): read-side anomalies surface as
+			// warnings only. Existing saves may carry these states; we
+			// want the UI to display them without blocking save. A later
+			// phase (4B) will decide whether to repair or refuse.
+			switch it.CurrentAoWStatus {
+			case AoWStatusMissing:
+				rep.Warnings = append(rep.Warnings, WorkspaceValidationIssue{
+					Severity: SeverityWarning,
+					Code:     CodeCurrentAoWMissing,
+					Message: fmt.Sprintf("weapon %s references AoW handle 0x%08X but no GaItem maps to it (dangling AoW)",
+						it.Name, it.CurrentAoWHandle),
+					UID:    it.UID,
+					Handle: it.OriginalHandle,
+				})
+			case AoWStatusShared:
+				rep.Warnings = append(rep.Warnings, WorkspaceValidationIssue{
+					Severity: SeverityWarning,
+					Code:     CodeCurrentAoWShared,
+					Message: fmt.Sprintf("weapon %s shares AoW handle 0x%08X with another weapon (save corruption indicator)",
+						it.Name, it.CurrentAoWHandle),
+					UID:    it.UID,
+					Handle: it.OriginalHandle,
+				})
+			case AoWStatusCustom:
+				if it.CurrentAoWItemID != 0 {
+					aow, _ := db.GetItemDataFuzzy(it.CurrentAoWItemID)
+					if aow.Name != "" && aow.Category != "ashes_of_war" {
+						rep.Warnings = append(rep.Warnings, WorkspaceValidationIssue{
+							Severity: SeverityWarning,
+							Code:     CodeCurrentAoWNonAoWCategory,
+							Message: fmt.Sprintf("weapon %s current AoW 0x%08X resolves to %q (category %q, not ashes_of_war)",
+								it.Name, it.CurrentAoWItemID, aow.Name, aow.Category),
+							UID:    it.UID,
+							Handle: it.OriginalHandle,
+						})
+					}
 				}
 			}
 		}
