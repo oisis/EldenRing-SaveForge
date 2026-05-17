@@ -286,7 +286,10 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
             const patch = editor.WeaponPatch.createFrom({ setUpgrade: true, upgrade: selectedLevel });
             workspace!.updateWeapon(workspaceItem!.uid, patch)
                 .then(updated => {
-                    if (!updated) return;
+                    if (!updated) {
+                        setError('Failed to update upgrade — see notification.');
+                        return;
+                    }
                     setCurrentItemId(updated.itemID);
                     setCurrentLevel(updated.currentUpgrade);
                     setCurrentInfusionName(updated.infusionName ?? '');
@@ -328,7 +331,10 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
             const patch = editor.WeaponPatch.createFrom({ setInfusionName: true, infusionName: storedName });
             workspace!.updateWeapon(workspaceItem!.uid, patch)
                 .then(updated => {
-                    if (!updated) return;
+                    if (!updated) {
+                        setError('Failed to update infusion — see notification.');
+                        return;
+                    }
                     setCurrentItemId(updated.itemID);
                     setCurrentLevel(updated.currentUpgrade);
                     setCurrentInfusionName(updated.infusionName ?? '');
@@ -369,13 +375,15 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
                 : editor.WeaponPatch.createFrom({ setAoWItemID: true, aowItemID: newAoWItemID });
             workspace!.updateWeapon(workspaceItem!.uid, patch)
                 .then(updated => {
+                    if (!updated) {
+                        setError('Failed to update Ash of War — see notification.');
+                        return;
+                    }
                     setSelectedAoW(null);
                     setSuccess(`${label} (pending save)`);
-                    if (updated) {
-                        setPendingAoWName(updated.pendingAoWName ?? '');
-                        setPendingAoWClear(updated.pendingAoWClear ?? false);
-                        setPendingAoWItemID(updated.pendingAoWItemID ?? 0);
-                    }
+                    setPendingAoWName(updated.pendingAoWName ?? '');
+                    setPendingAoWClear(updated.pendingAoWClear ?? false);
+                    setPendingAoWItemID(updated.pendingAoWItemID ?? 0);
                 })
                 .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
                 .finally(() => setApplying(false));

@@ -113,7 +113,10 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
             // Dirty workspace from previous save would be replaced silently. Surface this.
             toast('Inventory changes were not saved — they are being discarded.');
         }
-        workspace.start(charIndex).then(() => onMutate?.()).catch(() => { /* surfaced via lastError */ });
+        // Starting a session is a read-only op (no slot mutation); do NOT call
+        // onMutate here — it would spuriously refresh undo depth on every
+        // character switch or inventoryVersion bump.
+        workspace.start(charIndex).catch(() => { /* surfaced via lastError */ });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [charIndex, inventoryVersion]);
 
@@ -142,12 +145,13 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         });
     }, [activeSortTab, inventoryView, storageView]);
 
+    const clearWorkspaceError = workspace.clearError;
     useEffect(() => {
         if (lastError) {
             toast.error(lastError);
-            workspace.clearError();
+            clearWorkspaceError();
         }
-    }, [lastError, workspace]);
+    }, [lastError, clearWorkspaceError]);
 
     // ── Position translation ──────────────────────────────────────────────────
     // Per-tab indices map to global container positions by reading the source

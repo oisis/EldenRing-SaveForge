@@ -136,7 +136,14 @@ export function useInventoryWorkspace(): UseInventoryWorkspaceResult {
         if (!id) return null;
         try {
             const beforeUIDs = new Set((snapshot?.inventoryItems ?? []).concat(snapshot?.storageItems ?? []).map(it => it.uid));
-            const next = await AddInventoryWorkspaceItem(id, spec, target, targetPosition);
+            // Backend AddItem clamps negative targetPosition to 0 (prepend), so
+            // translate "-1 means append" at the boundary by computing the
+            // current destination length from the active snapshot.
+            const dstLen = target === 'inventory'
+                ? (snapshot?.inventoryItems.length ?? 0)
+                : (snapshot?.storageItems.length ?? 0);
+            const effectivePos = targetPosition < 0 ? dstLen : targetPosition;
+            const next = await AddInventoryWorkspaceItem(id, spec, target, effectivePos);
             applySnapshot(next);
             const pool = target === 'inventory' ? next.inventoryItems : next.storageItems;
             const newOnes = pool.filter(it => !beforeUIDs.has(it.uid));
