@@ -13,6 +13,7 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 	"github.com/oisis/EldenRing-SaveForge/backend/deploy"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -56,11 +57,23 @@ type App struct {
 	deploySSH    *deploy.SSHManager
 	deployLocal  *deploy.LocalManager
 	favSlotNames map[int]string // preset name written to each Favorites slot; empty = loaded from save (unknown)
+
+	// Phase 1 inventory edit session state. One active session per character.
+	// editSessions is keyed by session ID; editSessionByChar maps charIdx → ID
+	// so callers can look up the current session for a character without
+	// scanning. Sessions are pure RAM — never persisted, never carry mutations
+	// in Phase 1.
+	editSessions      map[string]*editor.InventoryEditSession
+	editSessionByChar map[int]string
 }
 
 // NewApp creates a new App struct
 func NewApp() *App {
-	return &App{favSlotNames: make(map[int]string)}
+	return &App{
+		favSlotNames:      make(map[int]string),
+		editSessions:      make(map[string]*editor.InventoryEditSession),
+		editSessionByChar: make(map[int]string),
+	}
 }
 
 // startup is called when the app starts. The context is saved
