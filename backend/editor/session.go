@@ -12,15 +12,17 @@ import (
 
 // InventoryEditSession owns a single workspace snapshot for a character.
 //
-// Phase 1 sessions are immutable after Start — mutating APIs land in
-// later phases. The session is held in-memory on App and never persisted
-// to disk.
+// The session is held in-memory on App and never persisted to disk.
+// BaselineEditableHandles captures the (handle → container) state at
+// Start time and is consumed by Phase 3A save to detect out-of-scope
+// changes (transfer / remove) before any mutation reaches slot.Data.
 type InventoryEditSession struct {
-	ID             string                     `json:"id"`
-	CharacterIndex int                        `json:"characterIndex"`
-	CreatedAt      time.Time                  `json:"createdAt"`
-	BaseRevision   string                     `json:"baseRevision"`
-	Workspace      InventoryWorkspaceSnapshot `json:"workspace"`
+	ID                      string                   `json:"id"`
+	CharacterIndex          int                      `json:"characterIndex"`
+	CreatedAt               time.Time                `json:"createdAt"`
+	BaseRevision            string                   `json:"baseRevision"`
+	Workspace               InventoryWorkspaceSnapshot `json:"workspace"`
+	BaselineEditableHandles map[uint32]ContainerKind `json:"-"`
 }
 
 // NewSessionID returns a short random hex token used as session identifier.
@@ -67,12 +69,24 @@ func StartSession(slot *core.SaveSlot, charIdx int) (*InventoryEditSession, erro
 	// Run validation immediately so the snapshot ships with a current
 	// report — callers that only Start without Validate still see issues.
 	snap.Validation = Validate(snap)
+	baseline := make(map[uint32]ContainerKind, len(snap.InventoryItems)+len(snap.StorageItems))
+	for _, it := range snap.InventoryItems {
+		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
+			baseline[it.OriginalHandle] = ContainerInventory
+		}
+	}
+	for _, it := range snap.StorageItems {
+		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
+			baseline[it.OriginalHandle] = ContainerStorage
+		}
+	}
 	sess := &InventoryEditSession{
-		ID:             id,
-		CharacterIndex: charIdx,
-		CreatedAt:      time.Now().UTC(),
-		BaseRevision:   ComputeBaseRevision(slot),
-		Workspace:      snap,
+		ID:                      id,
+		CharacterIndex:          charIdx,
+		CreatedAt:               time.Now().UTC(),
+		BaseRevision:            ComputeBaseRevision(slot),
+		Workspace:               snap,
+		BaselineEditableHandles: baseline,
 	}
 	return sess, nil
 }

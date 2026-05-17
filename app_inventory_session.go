@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 )
 
@@ -167,6 +168,83 @@ func parseContainerKind(s string) (editor.ContainerKind, error) {
 		return editor.ContainerStorage, nil
 	}
 	return "", fmt.Errorf("invalid container %q (want 'inventory' or 'storage')", s)
+}
+
+// SaveInventoryWorkspaceChanges commits the workspace's RAM-only edits
+// into slot.Data via editor.ApplyWorkspaceSave (Phase 3A — supports
+// reorder + add + weapon upgrade/infusion + pass-through preservation).
+//
+// Failure / rejection contract:
+//   - Validation errors, pending AoW, transfer, remove, or capacity
+//     overflow → return error WITHOUT mutating slot.Data; session
+//     stays Dirty=true so the user can revise the workspace.
+//   - Mutation error after writes begin → roll back via
+//     core.RestoreSlot; session stays Dirty=true.
+//
+// Success contract:
+//   - slot.Data, slot.GaMap, slot.GaItems updated atomically.
+//   - A fresh snapshot is built from the reparsed slot and replaces
+//     sess.Workspace; Dirty=false; BaseRevision refreshed; baseline
+//     handle map regenerated.
+//   - pushUndo runs first so the user can revert via the existing undo
+//     stack.
+func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryWorkspaceSnapshot, error) {
+	sess, ok := a.editSessions[sessionID]
+	if !ok {
+		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	}
+	if a.save == nil {
+		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("no save loaded")
+	}
+	if sess.CharacterIndex < 0 || sess.CharacterIndex >= len(a.save.Slots) {
+		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("session character index %d out of range", sess.CharacterIndex)
+	}
+	slot := &a.save.Slots[sess.CharacterIndex]
+
+	// Atomic snapshot for partial-mutation rollback. Separate from
+	// pushUndo (user-facing) so a mid-save failure doesn't bloat the
+	// undo stack with a half-mutated state.
+	rollback := core.SnapshotSlot(slot)
+
+	// User-visible undo: push BEFORE any mutation so the user can
+	// revert the entire save via the existing undo button.
+	a.pushUndo(sess.CharacterIndex)
+
+	_, err := editor.ApplyWorkspaceSave(slot, &sess.Workspace, sess.BaselineEditableHandles)
+	if err != nil {
+		// Determine whether to rollback. Rejection errors return
+		// before any mutation; mutation errors may have partially
+		// changed slot. Restore unconditionally to be safe — it's a
+		// no-op for byte-identical data.
+		core.RestoreSlot(slot, rollback)
+		return editor.InventoryWorkspaceSnapshot{}, err
+	}
+
+	// Build a fresh snapshot from the reparsed slot.
+	fresh, err := editor.BuildSnapshot(slot, sess.ID, sess.CharacterIndex)
+	if err != nil {
+		core.RestoreSlot(slot, rollback)
+		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("SaveInventoryWorkspaceChanges: rebuild snapshot: %w", err)
+	}
+	fresh.Validation = editor.Validate(fresh)
+	sess.Workspace = fresh
+	sess.BaseRevision = editor.ComputeBaseRevision(slot)
+
+	// Regenerate baseline from the post-save state — subsequent edits
+	// in the same session detect transfer/remove relative to NOW.
+	sess.BaselineEditableHandles = make(map[uint32]editor.ContainerKind, len(fresh.InventoryItems)+len(fresh.StorageItems))
+	for _, it := range fresh.InventoryItems {
+		if it.Source == editor.ItemSourceOriginal && it.OriginalHandle != 0 {
+			sess.BaselineEditableHandles[it.OriginalHandle] = editor.ContainerInventory
+		}
+	}
+	for _, it := range fresh.StorageItems {
+		if it.Source == editor.ItemSourceOriginal && it.OriginalHandle != 0 {
+			sess.BaselineEditableHandles[it.OriginalHandle] = editor.ContainerStorage
+		}
+	}
+
+	return sess.Workspace, nil
 }
 
 // DiscardInventoryEditSession deletes the session by ID. It is a no-op
