@@ -284,7 +284,7 @@ func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (comp
 // enrichItemEntry populates Description, Location, Weight, and stat fields
 // on an ItemEntry from the curated data tables.
 //
-// Resolution order for text:
+// Resolution order:
 //  1. Legacy data.Descriptions seeds Description / Location / Weight and
 //     the legacy stat pointers (Weapon / Armor / Spell). This preserves
 //     fallback coverage for IDs that pre-date the Phase 3B.1 ItemTexts
@@ -299,10 +299,17 @@ func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (comp
 //     the frontend can read DisplayName / CanonicalName / Caption /
 //     per-field provenance without re-querying the backend. e.Text is
 //     nil for IDs without an ItemTexts entry.
+//  4. Phase 3C.2 overrides e.Weapon and e.Weight with values mapped from
+//     data.WeaponStatsV1ByID when an entry exists. The V1 table covers
+//     all four weapon-like categories (melee_armaments, shields,
+//     ranged_and_catalysts, arrows_and_bolts) with stats sourced
+//     directly from EquipParamWeapon. Holy damage in particular flows
+//     from V1.AttackHoly (← attackBaseDark) into legacy HolyDamage —
+//     R-STA-01 guarded by enrich_weapon_stats_test.go. Items without a
+//     V1 entry keep whatever step 1 supplied from descriptions.go.
 //
-// Stats and Weight are unaffected by ItemTexts in Phase 3B.2; they remain
-// owned by data.Descriptions / data.ItemWeights until Phase 3C ships
-// dedicated stats tables.
+// Armor and Spell pointers remain owned by data.Descriptions in Phase
+// 3C.2; their generated layers will arrive in later sub-phases.
 func enrichItemEntry(e *ItemEntry) {
 	if data.Descriptions != nil {
 		if desc, ok := data.Descriptions[e.ID]; ok {
@@ -331,12 +338,72 @@ func enrichItemEntry(e *ItemEntry) {
 			e.Text = &text
 		}
 	}
+	// Phase 3C.2: prefer the generated WeaponStatsV1 table for weapon-like
+	// items. The mapper preserves the legacy data.WeaponStats shape (and
+	// therefore the existing ItemEntry payload) so the frontend renders
+	// from item.weapon exactly as before — but with EquipParamWeapon as
+	// the source of truth instead of partial descriptions.go entries.
+	// Holy damage flows through V1.AttackHoly → legacy HolyDamage; the
+	// R-STA-01 Dark→Holy rename happened entirely in the V1 generator.
+	if data.WeaponStatsV1ByID != nil {
+		if v, ok := data.WeaponStatsV1ByID[e.ID]; ok {
+			e.Weapon = weaponStatsV1ToLegacy(v)
+			if v.Weight > 0 {
+				e.Weight = v.Weight
+			}
+		}
+	}
 	// Only physical items carry weight — spells, consumables, key items etc. share ID space with weapon/armor params.
 	if e.Weight == 0 && weightedCategory[e.Category] {
 		if w, ok := data.ItemWeights[e.ID]; ok {
 			e.Weight = w
 		}
 	}
+}
+
+// weaponStatsV1ToLegacy projects the Phase 3C.1 WeaponStatsV1 record
+// onto the legacy data.WeaponStats shape consumed by the frontend.
+//
+// Field mapping is intentionally explicit (no reflection, no name-based
+// auto-copy). Fields not present in legacy WeaponStats (AttackStamina,
+// Guard*, ScalingArcRaw, WepType, IsInfusable/IsSomber/MaxUpgrade,
+// Status*, DefaultAoWID, SourceRowID, Warnings) stay on the V1 record
+// and will be exposed in Phase 3C.3 via a new payload field. They are
+// NOT folded into unrelated legacy fields.
+//
+// CRITICAL — R-STA-01: V1.AttackHoly originates from
+// EquipParamWeapon.attackBaseDark (Elden Ring's CSV keeps the legacy
+// Dark naming) and is mapped here to legacy WeaponStats.HolyDamage —
+// not to any Dark-named legacy field, of which there is none.
+//
+// Int32 → uint32 conversion clamps negative values to zero. V1 emits
+// non-negative numbers in practice (CSV sources are non-negative),
+// but the guard keeps the projection safe against future regressions.
+func weaponStatsV1ToLegacy(v data.WeaponStatsV1) *data.WeaponStats {
+	return &data.WeaponStats{
+		Weight:     v.Weight,
+		PhysDamage: nonNegU32(v.AttackPhysical),
+		MagDamage:  nonNegU32(v.AttackMagic),
+		FireDamage: nonNegU32(v.AttackFire),
+		LitDamage:  nonNegU32(v.AttackLightning),
+		HolyDamage: nonNegU32(v.AttackHoly),
+		ScaleStr:   nonNegU32(v.ScalingStrRaw),
+		ScaleDex:   nonNegU32(v.ScalingDexRaw),
+		ScaleInt:   nonNegU32(v.ScalingIntRaw),
+		ScaleFai:   nonNegU32(v.ScalingFaiRaw),
+		ReqStr:     nonNegU32(v.StatReqStr),
+		ReqDex:     nonNegU32(v.StatReqDex),
+		ReqInt:     nonNegU32(v.StatReqInt),
+		ReqFai:     nonNegU32(v.StatReqFai),
+		ReqArc:     nonNegU32(v.StatReqArc),
+	}
+}
+
+func nonNegU32(v int32) uint32 {
+	if v <= 0 {
+		return 0
+	}
+	return uint32(v)
 }
 
 // GetItemEntryByID returns a fully enriched ItemEntry for the given base item ID, or nil if not found.

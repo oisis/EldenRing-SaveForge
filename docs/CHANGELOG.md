@@ -4,6 +4,86 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(db): enrich legacy weapon stats from generated data
+
+Wires the Phase 3C.1 `WeaponStatsV1ByID` table into runtime enrichment.
+`enrichItemEntry` now applies a new step after the existing
+descriptions.go / ItemTexts seeds: when the item ID has a V1 entry, the
+legacy `ItemEntry.Weapon` pointer is rebuilt from V1 data via a small
+explicit mapper, and `e.Weight` is overridden when V1 carries a
+non-zero weight.
+
+The change is payload-shape-preserving — `ItemEntry` still exposes the
+legacy `Weapon *data.WeaponStats` field with the same JSON tag, so the
+frontend renders item details exactly as before. Phase 3C.3 will add a
+new payload field for the V1-only fields (stamina attack, guard cuts,
+arcane scaling, somber/upgrade flags, etc.) without disturbing the
+legacy projection.
+
+**R-STA-01 mapping (critical, runtime layer)**. `V1.AttackHoly` —
+sourced from `EquipParamWeapon.attackBaseDark` in Phase 3C.1 — is
+projected onto legacy `WeaponStats.HolyDamage`. Legacy
+`data.WeaponStats` has no Dark-named field; the Dark→Holy rename
+happens entirely inside the V1 generator and the runtime mapper.
+Sacred Relic Sword anchor: V1 `AttackHoly=76` → enriched
+`Weapon.HolyDamage=76`.
+
+**Mapping table (V1 → legacy)**:
+
+| V1 field          | Legacy `WeaponStats` field |
+| ----------------- | -------------------------- |
+| `Weight`          | `Weight`                   |
+| `AttackPhysical`  | `PhysDamage`               |
+| `AttackMagic`     | `MagDamage`                |
+| `AttackFire`      | `FireDamage`               |
+| `AttackLightning` | `LitDamage`                |
+| `AttackHoly`      | `HolyDamage`               |
+| `ScalingStrRaw`   | `ScaleStr`                 |
+| `ScalingDexRaw`   | `ScaleDex`                 |
+| `ScalingIntRaw`   | `ScaleInt`                 |
+| `ScalingFaiRaw`   | `ScaleFai`                 |
+| `StatReqStr`      | `ReqStr`                   |
+| `StatReqDex`      | `ReqDex`                   |
+| `StatReqInt`      | `ReqInt`                   |
+| `StatReqFai`      | `ReqFai`                   |
+| `StatReqArc`      | `ReqArc`                   |
+
+V1-only fields (`AttackStamina`, `Guard*`, `ScalingArcRaw`, `WepType`,
+`IsInfusable`, `IsSomber`, `MaxUpgrade`, `Status*`, `DefaultAoWID`,
+`SourceRowID`, `Warnings`) intentionally stay on the V1 record — they
+are NOT folded into unrelated legacy fields, and will be surfaced
+through a new payload field in Phase 3C.3.
+
+Mapper is explicit (no reflection, no name-based auto-copy). Int32 →
+uint32 conversion clamps negatives to zero via `nonNegU32`; V1 currently
+emits non-negative numbers but the guard keeps the projection safe.
+
+Items without a V1 entry continue to use the legacy `data.Descriptions`
+fallback for `Weapon`. `Armor`, `Spell`, `Description`, `Location`, and
+`Text` are unaffected — Phase 3C.2 is scoped strictly to weapon stats.
+
+New tests in `backend/db/enrich_weapon_stats_test.go`:
+
+- `TestEnrichItemEntryUsesWeaponStatsV1` — Lance `0x010450A0`: every
+  legacy `WeaponStats` field matches the V1-mapped value.
+- `TestEnrichItemEntryWeaponStatsV1HolyMapping` — R-STA-01 runtime
+  guard on Sacred Relic Sword `0x002F4D60`.
+- `TestEnrichItemEntryWeaponStatsV1SomberAndStandardAnchors` — V1
+  IsSomber/MaxUpgrade flags lock down on Longsword / Great Épée /
+  Fire Knight's Greatsword (standard +25) and Sacred Relic Sword /
+  Icon Shield (somber +10); enriched `Weapon.PhysDamage` /
+  `HolyDamage` confirm V1 drove enrichment.
+- `TestEnrichItemEntryWeaponStatsV1Ammo` — Fire Arrow / Lightning
+  Bolt enrich from V1 (legacy `descriptions.go` historically had no
+  ammo stats).
+- `TestEnrichItemEntryWeaponStatsFallbackToDescriptions` — dynamic
+  discovery of a descriptions.go orphan outside V1 coverage.
+- `TestEnrichItemEntryPreservesArmorSpellStats` — Armor and Spell
+  pointers untouched by the Phase 3C.2 hookup.
+- `TestEnrichItemEntryWeaponStatsDoesNotAffectText` — Phase 3B.3
+  Text payload + Description / Location regression guard.
+- `TestNonNegU32` — clamp helper contract.
+
 ### feat(db): add generated weapon stats table
 
 Adds `WeaponStatsV1` — a new generated Go map at
