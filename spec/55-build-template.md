@@ -1,7 +1,7 @@
 # 55 — Build Template
 
 > **Type**: Design doc
-> **Status**: 🔲 Planned — Phase A + B + C + D implemented (`backend/templates/`, `app_templates.go`, SortOrderTab UI with export + preview + apply), Phase E (local library) pending
+> **Status**: ✅ Implemented — Phase A + B + C + D + E (local library) shipped (`backend/templates/`, `app_templates.go`, `TemplateLibraryModal`).
 > **Scope**: Portable JSON representation of an Inventory Workspace snapshot. Defines the `saveforge.build-template` schema v1, the export contract (`BuildTemplateFromSnapshot`), Ash of War handling rules, and what is deliberately excluded from the payload so a template can be applied to any save without colliding with its handle space.
 
 ---
@@ -311,18 +311,81 @@ type ApplyTemplateResult struct {
 
 ---
 
-## 8. Import path (apply design)
+## 8. Local Build Template Library (Phase E)
 
-Implemented in Phase D — see §7.3. The original sketch below is retained for the underlying motivation:
+Implemented in Phase E. The library is a per-user store of build templates
+on the local filesystem so users can save, list, preview, apply, rename,
+delete, and export templates without picking a file path every time.
 
-1. `LoadBuildTemplateFromFile(path)` → `*BuildTemplate` + structural validation.
-2. `PreviewBuildTemplateImport(sessionID, tpl, opts)` → diff report against current workspace:
-   - Resolve each `baseItemID` via `db.GetItemDataFuzzy`. Unknown → error per item.
-   - For weapons with `aowItemID`: check `db.IsAoWCompatibleWithWepType` against the weapon's `wepType`. Incompatible → warning per item.
-   - Cap `quantity` to `MaxInventory * (ClearCount + 1)` of the destination save (warning when clamped).
-3. `ApplyBuildTemplateToWorkspace(sessionID, tpl, mode)` translates each `TemplateItem` to `editor.AddItemSpec` and calls the existing `AddInventoryWorkspaceItem` mutation. The workspace is left dirty in RAM; nothing is written to the save until the user clicks **Save Changes**, which routes through the existing `SaveInventoryWorkspaceChanges` and reuses the proven handle allocator in `core.AddItemsToSlotBatch`.
+### 8.1. Storage layout
 
-Critical invariant: import **never** auto-saves and **never** reads `originalHandle` from the template — the template does not carry one.
+- **Root directory**: `$UserConfigDir/EldenRing-SaveEditor/templates/`
+  (macOS: `~/Library/Application Support/EldenRing-SaveEditor/templates/`,
+  Linux: `~/.config/EldenRing-SaveEditor/templates/`,
+  Windows: `%APPDATA%\EldenRing-SaveEditor\templates\`).
+- **Directory mode** 0700 (created on first library use).
+- **One template per file**, named `<sanitized-name>-<id-tail>.json`,
+  mode 0644. Templates are not secrets; they are designed to be shareable.
+- **Index file** `_index.json` (`LibraryIndexVersion=1`) carries metadata
+  only (id, name, description, tags, filename, timestamps, item counts).
+  Never raw save data. Never GaItem handles.
+- **Atomic writes** — every file (templates and the index) is written
+  as `.saveforge-tmp-*` next to the destination, fsynced, then renamed.
+  A crash mid-write leaves the prior file (if any) intact.
+- The library directory must **not** be reused for settings or any
+  other non-template data.
+
+### 8.2. Recovery semantics
+
+- **Missing `_index.json`** is not an error; an empty index is returned.
+  Users who manually drop JSON files into the directory must invoke
+  `RebuildIndex` explicitly.
+- **Corrupt `_index.json`** triggers an automatic rebuild from the
+  directory contents. Files that fail to parse or validate are skipped
+  but remain on disk.
+- **Rebuild preserves IDs and CreatedAt** when a file is matched by
+  filename to an entry in the prior index, so UIs keying off ID stay
+  stable across recovery.
+
+### 8.3. App endpoints
+
+| Method | Purpose |
+|---|---|
+| `SaveBuildTemplateToLibrary(sessionID, opts)` → `LibraryTemplateEntry` | Build from active workspace + store. Reuses the export codepath; never mutates workspace/save. |
+| `ListBuildTemplateLibrary()` → `[]LibraryTemplateEntry` | Index entries sorted newest-first. |
+| `PreviewBuildTemplateFromLibrary(id)` → `LoadedTemplatePreview` | Load template + run the same dry-run validator as the file-based preview. Returns JSON for Apply round-trip. |
+| `ApplyBuildTemplateFromLibrary(sessionID, id, opts)` → `ApplyTemplateResult` | Delegates to `ApplyBuildTemplateToWorkspaceJSON`. RAM-only. |
+| `DeleteBuildTemplateFromLibrary(id)` | Remove file + index entry. |
+| `RenameBuildTemplateInLibrary(id, name, description, tags)` → `LibraryTemplateEntry` | Update metadata in the file and the index; bump `updatedAt`. |
+| `ExportLibraryBuildTemplateToFile(id)` → `BuildTemplateExportResult` | Save-file dialog + copy chosen template to a user-picked path. Cancellation returns empty Path. |
+
+### 8.4. Invariants
+
+- **Apply from library is RAM-only**, same path as `ApplyBuildTemplateToWorkspaceJSON`.
+- **`SaveInventoryWorkspaceChanges` is never invoked from library actions.**
+  The user must still click Save changes to persist.
+- **Delete and Rename touch the library only** — workspace and save are
+  not affected.
+- **Library is lazily initialised** via `App.ensureTemplateLibrary` so
+  unit tests can inject a temp directory without going through
+  `DefaultTemplateLibraryDir`.
+- **Settings export is not included** — that is a separate, future
+  feature and must not share this directory.
+
+### 8.5. Frontend
+
+- `Export Template ▾` dropdown gains a `Template Library…` item that
+  opens `TemplateLibraryModal`.
+- `ExportTemplateModal` gains an optional `onSavedToLibrary` callback
+  and a second action button **Save to local library**; the existing
+  **Export JSON file** button is preserved unchanged.
+- Library row actions: Preview, Apply, Export, Rename (inline form),
+  Delete (custom React confirm row — no native Wails dialog, so tests
+  can drive the flow under jsdom and the UI stays consistent with the
+  rest of SortOrderTab).
+- Successful Apply from library swaps `result.Workspace` in via
+  `useInventoryWorkspace.replaceSnapshot` and toasts:
+  *"Template applied to workspace. Click Save changes to persist."*
 
 ---
 

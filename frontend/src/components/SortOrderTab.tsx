@@ -6,6 +6,7 @@ import { useInventoryWorkspace, ContainerKind } from '../hooks/useInventoryWorks
 import { WeaponEditModal } from './WeaponEditModal';
 import { ExportTemplateModal, formatWarningsSummary } from './templates/ExportTemplateModal';
 import { ImportTemplatePreviewModal, isCancelledPreview } from './templates/ImportTemplatePreviewModal';
+import { TemplateLibraryModal } from './templates/TemplateLibraryModal';
 
 // Build a main.InventoryOrderItem-shaped adapter from a workspace EditableItem,
 // so the legacy WeaponEditModal can render without changes. Workspace dispatch
@@ -89,6 +90,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     // file dialog. Empty string when nothing is loaded.
     const [importPreviewJSON, setImportPreviewJSON] = useState<string>('');
     const [applyingTemplate, setApplyingTemplate] = useState(false);
+    const [libraryOpen, setLibraryOpen] = useState(false);
     const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
     const workspace = useInventoryWorkspace();
@@ -409,6 +411,31 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         }
     };
 
+    // Phase E: Library-side handlers. Library actions go through the
+    // dedicated library endpoints rather than the file-based path, so
+    // there is no save-dialog hop and the workspace mutation runs the
+    // same RAM-only apply codepath as the file Apply does.
+    const handleLibraryApplied = (result: main.ApplyTemplateResult, entry: templates.LibraryTemplateEntry) => {
+        if (result.applied) {
+            workspace.replaceSnapshot(result.workspace);
+            toast.success(`Template "${entry.name || entry.id}" applied to workspace. Click Save changes to persist.`);
+            setLibraryOpen(false);
+        } else {
+            setImportPreviewReport(result.preview);
+            setImportPreviewJSON('');
+        }
+    };
+
+    const handleLibraryPreviewed = (preview: main.LoadedTemplatePreview) => {
+        setImportPreviewReport(preview.report);
+        setImportPreviewJSON(preview.json ?? '');
+    };
+
+    const handleSavedToLibrary = (entry: templates.LibraryTemplateEntry) => {
+        setExportModalOpen(false);
+        toast.success(`Template "${entry.name || entry.id}" saved to local library.`);
+    };
+
     const handleExportResult = (result: main.BuildTemplateExportResult) => {
         if (!result.path) {
             // User cancelled the save dialog. Stay silent to match the
@@ -517,10 +544,27 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         setExportModalOpen(false);
                         handleExportResult(result);
                     }}
+                    onSavedToLibrary={handleSavedToLibrary}
                     onError={(err) => {
                         setExportModalOpen(false);
                         toast.error(`Export failed: ${String(err)}`);
                     }}
+                />
+            )}
+
+            {libraryOpen && (
+                <TemplateLibraryModal
+                    sessionID={sessionID}
+                    onClose={() => setLibraryOpen(false)}
+                    onApplied={handleLibraryApplied}
+                    onPreviewed={handleLibraryPreviewed}
+                    onExportedToFile={(result, entry) => {
+                        if (result.path) {
+                            toast.success(`Template "${entry.name || entry.id}" exported to ${result.path}`);
+                        }
+                    }}
+                    onDeleted={(id) => toast.success(`Template ${id} deleted from library.`)}
+                    onError={(err) => toast.error(`Library: ${String(err)}`)}
                 />
             )}
 
@@ -676,6 +720,19 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                         className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
                                     >
                                         Import Template Preview…
+                                    </button>
+                                    <div className="my-0.5 border-t border-border/40" />
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        data-testid="open-library"
+                                        onClick={() => {
+                                            setExportMenuOpen(false);
+                                            setLibraryOpen(true);
+                                        }}
+                                        className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
+                                    >
+                                        Template Library…
                                     </button>
                                 </div>
                             )}

@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { ExportBuildTemplateToFile } from '../../../wailsjs/go/main/App';
+import { ExportBuildTemplateToFile, SaveBuildTemplateToLibrary } from '../../../wailsjs/go/main/App';
 import { main, templates } from '../../../wailsjs/go/models';
 
 // ExportTemplateModal is the user-facing form for exporting an active
@@ -24,6 +24,11 @@ interface Props {
     onClose: () => void;
     onSuccess: (result: main.BuildTemplateExportResult) => void;
     onError: (err: unknown) => void;
+    // onSavedToLibrary is optional — when provided the modal shows a
+    // second action button that stores the template in the local
+    // library instead of writing to a user-chosen file. The callback
+    // receives the new index entry so the parent can refresh its list.
+    onSavedToLibrary?: (entry: templates.LibraryTemplateEntry) => void;
 }
 
 export function ExportTemplateModal({
@@ -34,6 +39,7 @@ export function ExportTemplateModal({
     onClose,
     onSuccess,
     onError,
+    onSavedToLibrary,
 }: Props) {
     const nameId = useId();
     const descId = useId();
@@ -67,20 +73,35 @@ export function ExportTemplateModal({
         [tagsInput],
     );
 
+    const buildOpts = () =>
+        main.BuildTemplateExportOptions.createFrom({
+            includeInventory,
+            includeStorage,
+            name,
+            description,
+            author,
+            tags,
+        });
+
     const onSubmit = async () => {
         if (!canSubmit) return;
         setSubmitting(true);
         try {
-            const opts = main.BuildTemplateExportOptions.createFrom({
-                includeInventory,
-                includeStorage,
-                name,
-                description,
-                author,
-                tags,
-            });
-            const result = await ExportBuildTemplateToFile(sessionID, opts);
+            const result = await ExportBuildTemplateToFile(sessionID, buildOpts());
             onSuccess(result);
+        } catch (err) {
+            onError(err);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const onSaveToLibrary = async () => {
+        if (!canSubmit || !onSavedToLibrary) return;
+        setSubmitting(true);
+        try {
+            const entry = await SaveBuildTemplateToLibrary(sessionID, buildOpts());
+            onSavedToLibrary(entry);
         } catch (err) {
             onError(err);
         } finally {
@@ -204,6 +225,21 @@ export function ExportTemplateModal({
                     >
                         Cancel
                     </button>
+                    {onSavedToLibrary && (
+                        <button
+                            type="button"
+                            data-testid="export-save-to-library"
+                            onClick={onSaveToLibrary}
+                            disabled={!canSubmit}
+                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                                canSubmit
+                                    ? 'bg-blue-700/80 text-white hover:bg-blue-700 shadow-sm'
+                                    : 'opacity-40 cursor-not-allowed bg-muted/20 text-muted-foreground'
+                            }`}
+                        >
+                            {submitting ? 'Saving…' : 'Save to local library'}
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={onSubmit}

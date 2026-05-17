@@ -43,6 +43,16 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.ApplyBuildTemplateToWorkspaceJSON).toBe('function');
         expect(typeof App.ApplyBuildTemplateToWorkspaceFromFile).toBe('function');
     });
+
+    it('exposes Phase E local build template library endpoints', () => {
+        expect(typeof App.SaveBuildTemplateToLibrary).toBe('function');
+        expect(typeof App.ListBuildTemplateLibrary).toBe('function');
+        expect(typeof App.PreviewBuildTemplateFromLibrary).toBe('function');
+        expect(typeof App.ApplyBuildTemplateFromLibrary).toBe('function');
+        expect(typeof App.DeleteBuildTemplateFromLibrary).toBe('function');
+        expect(typeof App.RenameBuildTemplateInLibrary).toBe('function');
+        expect(typeof App.ExportLibraryBuildTemplateToFile).toBe('function');
+    });
 });
 
 describe('Wails binding contract: editor.EditableItem', () => {
@@ -224,5 +234,21 @@ describe('Wails binding contract: apply DTOs (Phase D)', () => {
         expect('report' in sample).toBe(true);
         expect('json' in sample).toBe(true);
         expect('path' in sample).toBe(true);
+    });
+});
+
+describe('Wails binding contract: template library DTOs (Phase E)', () => {
+    it('exposes LibraryTemplateEntry fields the UI list renders', () => {
+        const sample = templates.LibraryTemplateEntry.createFrom({});
+        expect('id' in sample).toBe(true);
+        expect('name' in sample).toBe(true);
+        expect('description' in sample).toBe(true);
+        expect('tags' in sample).toBe(true);
+        expect('filename' in sample).toBe(true);
+        expect('createdAt' in sample).toBe(true);
+        expect('updatedAt' in sample).toBe(true);
+        expect('inventoryItems' in sample).toBe(true);
+        expect('storageItems' in sample).toBe(true);
+        expect('warnings' in sample).toBe(true);
     });
 });

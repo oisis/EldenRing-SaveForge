@@ -569,6 +569,149 @@ func buildApplyErrorReport(report templates.ImportPreviewReport, applyErr error)
 	return report
 }
 
+// ─── Phase E — Local Build Template Library ─────────────────────────────
+
+// ensureTemplateLibrary lazily creates the on-disk library handle. The
+// default rootDir is $UserConfigDir/EldenRing-SaveEditor/templates;
+// tests may inject an alternate library by setting a.templateLibrary
+// directly before invoking endpoints.
+func (a *App) ensureTemplateLibrary() (*templates.TemplateLibrary, error) {
+	if a.templateLibrary != nil {
+		return a.templateLibrary, nil
+	}
+	dir, err := templates.DefaultTemplateLibraryDir()
+	if err != nil {
+		return nil, fmt.Errorf("template library: %w", err)
+	}
+	a.templateLibrary = templates.NewTemplateLibrary(dir)
+	return a.templateLibrary, nil
+}
+
+// SaveBuildTemplateToLibrary builds a template from the active workspace
+// session (same code path as ExportBuildTemplateJSON) and stores it in
+// the local library. Returns the new index entry. Workspace and save
+// are untouched.
+func (a *App) SaveBuildTemplateToLibrary(sessionID string, opts BuildTemplateExportOptions) (templates.LibraryTemplateEntry, error) {
+	tpl, _, err := a.buildAndValidateTemplate(sessionID, opts)
+	if err != nil {
+		return templates.LibraryTemplateEntry{}, err
+	}
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return templates.LibraryTemplateEntry{}, err
+	}
+	return lib.SaveTemplate(tpl)
+}
+
+// ListBuildTemplateLibrary returns the index entries sorted newest-first.
+func (a *App) ListBuildTemplateLibrary() ([]templates.LibraryTemplateEntry, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return nil, err
+	}
+	return lib.ListTemplates()
+}
+
+// PreviewBuildTemplateFromLibrary loads a stored template by ID and
+// runs the same dry-run validator as PreviewBuildTemplateImportJSON.
+// The JSON payload is included so the Apply flow can re-use it without
+// a second library read. Path is the on-disk filename relative to the
+// library root.
+func (a *App) PreviewBuildTemplateFromLibrary(id string) (LoadedTemplatePreview, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return LoadedTemplatePreview{}, err
+	}
+	tpl, err := lib.LoadTemplate(id)
+	if err != nil {
+		return LoadedTemplatePreview{}, fmt.Errorf("PreviewBuildTemplateFromLibrary: %w", err)
+	}
+	data, err := json.MarshalIndent(tpl, "", "  ")
+	if err != nil {
+		return LoadedTemplatePreview{}, fmt.Errorf("PreviewBuildTemplateFromLibrary: marshal: %w", err)
+	}
+	report := templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: "append"})
+	return LoadedTemplatePreview{
+		Report: report,
+		JSON:   string(data),
+		Path:   id,
+	}, nil
+}
+
+// ApplyBuildTemplateFromLibrary loads a stored template and applies it
+// to the active workspace via the existing JSON-based apply path.
+// RAM-only — save state is not touched. The caller still has to invoke
+// SaveInventoryWorkspaceChanges separately to persist.
+func (a *App) ApplyBuildTemplateFromLibrary(sessionID, id string, opts ApplyTemplateOptions) (ApplyTemplateResult, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return ApplyTemplateResult{}, err
+	}
+	tpl, err := lib.LoadTemplate(id)
+	if err != nil {
+		return ApplyTemplateResult{}, fmt.Errorf("ApplyBuildTemplateFromLibrary: %w", err)
+	}
+	data, err := json.MarshalIndent(tpl, "", "  ")
+	if err != nil {
+		return ApplyTemplateResult{}, fmt.Errorf("ApplyBuildTemplateFromLibrary: marshal: %w", err)
+	}
+	return a.ApplyBuildTemplateToWorkspaceJSON(sessionID, string(data), opts)
+}
+
+// DeleteBuildTemplateFromLibrary removes a template from the library.
+// Workspace and save are not touched.
+func (a *App) DeleteBuildTemplateFromLibrary(id string) error {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return err
+	}
+	return lib.DeleteTemplate(id)
+}
+
+// RenameBuildTemplateInLibrary updates Name/Description/Tags on a stored
+// template's metadata + index entry. Returns the updated entry.
+func (a *App) RenameBuildTemplateInLibrary(id, name, description string, tags []string) (templates.LibraryTemplateEntry, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return templates.LibraryTemplateEntry{}, err
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+	return lib.RenameTemplate(id, name, description, tags)
+}
+
+// ExportLibraryBuildTemplateToFile loads a stored template, opens a
+// native save-file dialog, and writes the chosen path. Cancellation
+// surfaces as an empty Path + nil error (mirrors ExportBuildTemplateToFile).
+func (a *App) ExportLibraryBuildTemplateToFile(id string) (BuildTemplateExportResult, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return BuildTemplateExportResult{}, err
+	}
+	tpl, err := lib.LoadTemplate(id)
+	if err != nil {
+		return BuildTemplateExportResult{}, fmt.Errorf("ExportLibraryBuildTemplateToFile: %w", err)
+	}
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export Build Template",
+		DefaultFilename: defaultTemplateFilename(tpl),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Build Template (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return BuildTemplateExportResult{}, err
+	}
+	if path == "" {
+		return BuildTemplateExportResult{}, nil
+	}
+	if err := lib.ExportTemplateToFile(id, path); err != nil {
+		return BuildTemplateExportResult{}, err
+	}
+	return BuildTemplateExportResult{Path: path}, nil
+}
+
 // filenameSanitizer strips anything that would be unsafe in a filename
 // across the three desktop OSes. Sequences of unsafe characters collapse
 // to a single dash, and surrounding dashes/whitespace are trimmed.

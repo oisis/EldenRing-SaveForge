@@ -1647,6 +1647,37 @@ export namespace templates {
 		    return a;
 		}
 	}
+	
+	export class LibraryTemplateEntry {
+	    id: string;
+	    name: string;
+	    description?: string;
+	    tags?: string[];
+	    filename: string;
+	    createdAt: string;
+	    updatedAt: string;
+	    inventoryItems: number;
+	    storageItems: number;
+	    warnings: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new LibraryTemplateEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.tags = source["tags"];
+	        this.filename = source["filename"];
+	        this.createdAt = source["createdAt"];
+	        this.updatedAt = source["updatedAt"];
+	        this.inventoryItems = source["inventoryItems"];
+	        this.storageItems = source["storageItems"];
+	        this.warnings = source["warnings"];
+	    }
+	}
 
 }
 

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../../../wailsjs/go/main/App', () => ({
     ExportBuildTemplateToFile: vi.fn(),
+    SaveBuildTemplateToLibrary: vi.fn(),
 }));
 
 import * as App from '../../../../wailsjs/go/main/App';
@@ -89,6 +90,33 @@ describe('ExportTemplateModal', () => {
         fireEvent.click(screen.getByLabelText(/^Include storage$/));
         const btn = screen.getByRole('button', { name: /Export JSON file/i });
         expect(btn).toBeDisabled();
+    });
+
+    it('hides "Save to local library" button when onSavedToLibrary is omitted', () => {
+        render(<ExportTemplateModal {...defaultProps()} />);
+        expect(screen.queryByTestId('export-save-to-library')).not.toBeInTheDocument();
+    });
+
+    it('shows "Save to local library" button when onSavedToLibrary is provided', () => {
+        render(<ExportTemplateModal {...defaultProps({ onSavedToLibrary: vi.fn() })} />);
+        expect(screen.getByTestId('export-save-to-library')).toBeInTheDocument();
+    });
+
+    it('calls SaveBuildTemplateToLibrary when the library button is clicked', async () => {
+        mocks.SaveBuildTemplateToLibrary.mockResolvedValue({ id: 'lib-1', name: 'My Build' });
+        const onSavedToLibrary = vi.fn();
+        render(<ExportTemplateModal {...defaultProps({ onSavedToLibrary })} />);
+        fireEvent.change(screen.getByLabelText(/^Name$/), { target: { value: 'My Build' } });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('export-save-to-library'));
+        });
+        await waitFor(() => {
+            expect(mocks.SaveBuildTemplateToLibrary).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.SaveBuildTemplateToLibrary.mock.calls[0];
+        expect(call[0]).toBe('ses-test');
+        expect((call[1] as { name: string }).name).toBe('My Build');
+        expect(onSavedToLibrary).toHaveBeenCalledWith(expect.objectContaining({ id: 'lib-1' }));
     });
 
     it('routes thrown errors through onError', async () => {

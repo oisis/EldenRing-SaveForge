@@ -1,7 +1,7 @@
 # 55 — Build Template
 
 > **Type**: Design doc
-> **Status**: 🔲 Planowany — Phase A + B + C + D zaimplementowane (`backend/templates/`, `app_templates.go`, UI SortOrderTab z export + preview + apply), Phase E (lokalna biblioteka) pending
+> **Status**: ✅ Zaimplementowane — Phase A + B + C + D + E (lokalna biblioteka) shipped (`backend/templates/`, `app_templates.go`, `TemplateLibraryModal`).
 > **Scope**: Przenośna reprezentacja JSON snapshotu Inventory Workspace. Definiuje schemat `saveforge.build-template` v1, kontrakt eksportu (`BuildTemplateFromSnapshot`), reguły obsługi Ash of War oraz zakres pól celowo wykluczonych z payloadu — tak by szablon można było zaaplikować na dowolnym save'ie bez kolizji z jego przestrzenią handle'i.
 
 ---
@@ -311,18 +311,84 @@ type ApplyTemplateResult struct {
 
 ---
 
-## 8. Ścieżka importu (apply design)
+## 8. Lokalna biblioteka Build Templates (Phase E)
 
-Zaimplementowane w Phase D — patrz §7.3. Oryginalny szkic poniżej jest zachowany dla motywacji bazowej:
+Zaimplementowane w Phase E. Biblioteka to per-user lokalny store
+szablonów buildów na dysku — pozwala zapisać, listować, podglądnąć,
+zaaplikować, zmienić nazwę, usunąć i wyeksportować szablon bez
+każdorazowego wybierania ścieżki pliku.
 
-1. `LoadBuildTemplateFromFile(path)` → `*BuildTemplate` + walidacja strukturalna.
-2. `PreviewBuildTemplateImport(sessionID, tpl, opts)` → raport diff względem bieżącego workspace:
-   - Resolve każdego `baseItemID` przez `db.GetItemDataFuzzy`. Nieznany → error per item.
-   - Dla broni z `aowItemID`: sprawdź `db.IsAoWCompatibleWithWepType` względem `wepType` broni. Niekompatybilne → warning per item.
-   - Clamp `quantity` do `MaxInventory * (ClearCount + 1)` docelowego save'a (warning gdy clampowano).
-3. `ApplyBuildTemplateToWorkspace(sessionID, tpl, mode)` tłumaczy każdy `TemplateItem` na `editor.AddItemSpec` i woła istniejącą mutację `AddInventoryWorkspaceItem`. Workspace zostaje dirty w RAM; nic nie idzie do save'a dopóki user nie kliknie **Save Changes**, które idzie przez istniejące `SaveInventoryWorkspaceChanges` i reuse'uje sprawdzony alokator handle'i w `core.AddItemsToSlotBatch`.
+### 8.1. Układ na dysku
 
-Krytyczny invariant: import **nigdy** nie robi auto-save i **nigdy** nie czyta `originalHandle` z szablonu — szablon żadnego nie niesie.
+- **Katalog root**: `$UserConfigDir/EldenRing-SaveEditor/templates/`
+  (macOS: `~/Library/Application Support/EldenRing-SaveEditor/templates/`,
+  Linux: `~/.config/EldenRing-SaveEditor/templates/`,
+  Windows: `%APPDATA%\EldenRing-SaveEditor\templates\`).
+- **Tryb katalogu** 0700 (tworzony przy pierwszym użyciu biblioteki).
+- **Jeden szablon = jeden plik** o nazwie `<sanitized-name>-<id-tail>.json`,
+  tryb 0644. Szablony nie są sekretami — są zaprojektowane do
+  współdzielenia.
+- **Plik indeksu** `_index.json` (`LibraryIndexVersion=1`) trzyma
+  wyłącznie metadane (id, name, description, tags, filename,
+  timestampy, liczniki itemów). Nigdy surowych danych save. Nigdy
+  handle'i GaItem.
+- **Atomowe zapisy** — każdy plik (szablony i indeks) jest pisany jako
+  `.saveforge-tmp-*` obok docelowego, fsync, rename. Crash w trakcie
+  zapisu zostawia poprzedni plik (jeśli był) nienaruszony.
+- Katalog biblioteki **nie może** być reużyty dla settings ani innych
+  danych nie-templateowych.
+
+### 8.2. Semantyka recovery
+
+- **Brakujący `_index.json`** to nie błąd; zwracany jest pusty indeks.
+  Użytkownicy, którzy ręcznie wrzucają pliki JSON do katalogu, muszą
+  explicit wywołać `RebuildIndex`.
+- **Uszkodzony `_index.json`** wyzwala automatyczny rebuild ze
+  zawartości katalogu. Pliki które nie sparsują się lub nie walidują
+  są pomijane, ale zostają na dysku.
+- **Rebuild zachowuje ID i CreatedAt** gdy plik daje się dopasować po
+  nazwie do wpisu z poprzedniego indeksu, więc UI keyowane po ID
+  zostaje stabilne między recovery.
+
+### 8.3. Endpointy App
+
+| Metoda | Cel |
+|---|---|
+| `SaveBuildTemplateToLibrary(sessionID, opts)` → `LibraryTemplateEntry` | Zbuduj z aktywnego workspace + zapisz. Ten sam codepath co eksport; nigdy nie mutuje workspace/save. |
+| `ListBuildTemplateLibrary()` → `[]LibraryTemplateEntry` | Wpisy z indeksu sortowane newest-first. |
+| `PreviewBuildTemplateFromLibrary(id)` → `LoadedTemplatePreview` | Wczytaj szablon + uruchom ten sam walidator dry-run co file-based. Zwraca JSON do round-tripu Apply. |
+| `ApplyBuildTemplateFromLibrary(sessionID, id, opts)` → `ApplyTemplateResult` | Deleguje do `ApplyBuildTemplateToWorkspaceJSON`. RAM-only. |
+| `DeleteBuildTemplateFromLibrary(id)` | Usuń plik + wpis w indeksie. |
+| `RenameBuildTemplateInLibrary(id, name, description, tags)` → `LibraryTemplateEntry` | Update metadanych w pliku i indeksie; bump `updatedAt`. |
+| `ExportLibraryBuildTemplateToFile(id)` → `BuildTemplateExportResult` | Save-file dialog + kopia wybranego szablonu do ścieżki użytkownika. Anulowanie → pusty Path. |
+
+### 8.4. Invarianty
+
+- **Apply z biblioteki jest RAM-only**, ten sam path co `ApplyBuildTemplateToWorkspaceJSON`.
+- **`SaveInventoryWorkspaceChanges` nigdy nie jest wywoływane z akcji biblioteki.**
+  Użytkownik musi nadal kliknąć Save changes żeby persisted.
+- **Delete i Rename dotykają wyłącznie biblioteki** — workspace i save
+  nie są ruszane.
+- **Biblioteka jest lazy-inicjalizowana** przez `App.ensureTemplateLibrary`
+  żeby testy jednostkowe mogły wstrzyknąć tymczasowy katalog bez
+  chodzenia przez `DefaultTemplateLibraryDir`.
+- **Settings export nie jest w zakresie** — to osobny, przyszły feature
+  i nie może współdzielić tego katalogu.
+
+### 8.5. Frontend
+
+- Dropdown `Export Template ▾` zyskuje pozycję `Template Library…`
+  która otwiera `TemplateLibraryModal`.
+- `ExportTemplateModal` zyskuje opcjonalny callback `onSavedToLibrary`
+  oraz drugi przycisk akcji **Save to local library**; istniejący
+  **Export JSON file** pozostaje niezmieniony.
+- Akcje w wierszu biblioteki: Preview, Apply, Export, Rename (inline
+  form), Delete (custom React confirm row — bez natywnego dialogu
+  Wails, żeby testy mogły prowadzić flow pod jsdom i UI było spójne z
+  resztą SortOrderTab).
+- Udany Apply z biblioteki podmienia `result.Workspace` przez
+  `useInventoryWorkspace.replaceSnapshot` i toast'uje:
+  *"Template applied to workspace. Click Save changes to persist."*
 
 ---
 

@@ -14,6 +14,7 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 	"github.com/oisis/EldenRing-SaveForge/backend/deploy"
 	"github.com/oisis/EldenRing-SaveForge/backend/editor"
+	"github.com/oisis/EldenRing-SaveForge/backend/templates"
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -65,6 +66,12 @@ type App struct {
 	// in Phase 1.
 	editSessions      map[string]*editor.InventoryEditSession
 	editSessionByChar map[int]string
+
+	// templateLibrary is the lazily-initialised handle to the per-user
+	// build template store on disk. nil until the first endpoint that
+	// needs it calls ensureTemplateLibrary. Tests may pre-populate this
+	// field via a non-default rootDir.
+	templateLibrary *templates.TemplateLibrary
 }
 
 // NewApp creates a new App struct
