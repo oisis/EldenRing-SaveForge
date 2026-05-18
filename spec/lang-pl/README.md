@@ -1,9 +1,36 @@
-# Elden Ring Save File Format — Specyfikacja
+# Elden Ring Save File Format — Podręcznik dla moderów
 
-> **Cel**: Kompletna dokumentacja formatu binarnego pliku zapisu Elden Ring (.sl2 / memory.dat).
-> Wystarczająca do implementacji edytora save od zera bez dostępu do kodu źródłowego gry.
+> **Cel**: Kompletna dokumentacja formatu binarnego pliku zapisu Elden Ring (`.sl2` / `memory.dat`) oraz systemów edytora SaveForge. Wystarczająca do implementacji niezależnego edytora save od zera.
 >
-> **Stan**: W trakcie tworzenia. Każda sekcja jest weryfikowana binarnie na prawdziwych plikach save.
+> **Stan**: 🚧 **Work in progress — book cleanup (Phase 1)**.
+> Dokumentacja jest właśnie reorganizowana w układ książkowy (Part I-IV + Appendix). Treść merytoryczna rozdziałów pozostaje nietknięta — zmieniła się tylko lokalizacja plików i taksonomia.
+>
+> **Plan dalszych prac**: zobacz [`BOOK_PLAN.md`](BOOK_PLAN.md). Wynik audytu źródłowego: [`tmp/docs-book-audit.md`](../../tmp/docs-book-audit.md) (lokalny, gitignored).
+
+---
+
+## Jak czytać tę dokumentację
+
+Dokumenty w głównym katalogu `spec/lang-pl/` to **kanoniczne rozdziały podręcznika** — zweryfikowana wiedza o formacie binarnym i zaimplementowanych systemach edytora. Trzy podkatalogi zawierają materiały, które nie należą do głównej narracji:
+
+| Katalog | Zawartość | Status |
+|---|---|---|
+| `spec/lang-pl/` (root) | Kanoniczne rozdziały — aktualna wiedza referencyjna | source of truth |
+| `spec/lang-pl/research/` | Historyczne badania, negatywne wyniki, wstrzymane investigacje | nie aktualny stan |
+| `spec/lang-pl/planned/` | Design doci bez (pełnej) implementacji | nie odzwierciedla kodu |
+| `spec/lang-pl/archive/` | Dokumenty zastąpione nowszymi rozdziałami — zachowane dla historii | historyczne |
+
+**Legenda statusów** używana w spisie treści poniżej:
+
+| Status | Znaczenie |
+|---|---|
+| `canonical` | Aktualny, zgodny z kodem, kandydat na finalny rozdział książki |
+| `implemented, needs rewrite` | Kod istnieje i działa, ale dokument wymaga przepisania w canonical template |
+| `partial` | Częściowo zweryfikowane / częściowo zaimplementowane — wymaga uzupełnień |
+| `needs verification` | Konflikt doc vs code — wymaga manualnej weryfikacji per sekcja |
+| `research` | Negatywny wynik lub wstrzymane badanie — `research/` |
+| `planned` | Design bez implementacji — `planned/` |
+| `archived` | Zastąpione nowszym dokumentem — `archive/` |
 
 ---
 
@@ -57,64 +84,108 @@ Plik save składa się z następujących głównych bloków (w kolejności sekwe
 
 ---
 
-## Sekcje dokumentacji
+## Spis treści książki
 
-| # | Plik | Opis |
-|---|---|---|
-| 01 | [Header i layout pliku](01-header.md) | Magic bytes, detekcja platformy, BND4 container, offsety slotów, checksumy MD5 |
-| 02 | [Slot — struktura ogólna](02-slot-structure.md) | Rozmiar slotu, wersja, sekwencyjny parsing, sekcje zmiennej długości |
-| 03 | [GaItem Map](03-gaitem-map.md) | Mapa handle→itemID, typy przedmiotów, rozmiary rekordów per typ |
-| 04 | [PlayerGameData](04-player-game-data.md) | Statystyki postaci: HP/FP/SP, atrybuty, level, runy, imię, płeć, klasa, hasła, ustawienia online |
-| 05 | [SP Effects](05-sp-effects.md) | Aktywne efekty statusu (buffy/debuffy), buildup values |
-| 06 | [Equipment](06-equipment.md) | Ekwipunek: 22 sloty (bronie, zbroja, talizmany), active weapon slots, arm style |
-| 07 | [Inventory](07-inventory.md) | Inwentarz postaci: common items + key items, format rekordu, indeksy |
-| 08 | [Spells & Gestures](08-spells-gestures.md) | Zapamiętane zaklęcia, gesty, pociski |
-| 09 | [Face Data](09-face-data.md) | Kreator postaci — parametry wyglądu (303 bajty) |
-| 10 | [Storage Box](10-storage.md) | Skrzynia w grace: common + key items, countery |
-| 11 | [Regions](11-regions.md) | Lista `unlocked_regions` (fast travel) — format binarny + `core.SetUnlockedRegions` |
-| 12 | [Torrent](12-torrent.md) | Dane konia: pozycja, HP, stan (żywy/martwy/nieaktywny) |
-| 13 | [Blood Stain](13-blood-stain.md) | Plama krwi po śmierci: pozycja, runy, mapa |
-| 14 | [Game State](14-game-state.md) | Menu profile, tutorial data, GameMan bytes, death count, character type, last grace |
-| 15 | [Event Flags](15-event-flags.md) | 1.8 MB flag bitowych: progresja, bossy, questy, przedmioty, mapa — BST lookup |
-| 16 | [World State](16-world-state.md) | FieldArea, WorldArea, WorldGeomMan, RendMan — geometria i stan świata |
-| 17 | [Player Coordinates](17-player-coordinates.md) | Pozycja gracza 3D + mapa + kąt obrotu |
-| 18 | [Network Manager](18-network.md) | Dane multiplayer (131 KB) |
-| 19 | [Weather & Time](19-weather-time.md) | Pogoda i czas w świecie gry |
-| 20 | [Version & Platform](20-version-platform.md) | Wersja save, Steam ID, PS5 Activity |
-| 21 | [DLC](21-dlc.md) | Flagi DLC: pre-order gesty, Shadow of the Erdtree entry |
-| 22 | [Player Data Hash](22-player-hash.md) | Hash końcowy danych gracza |
-| 23 | [UserData10](23-user-data-10.md) | Profil konta: ProfileSummary ×10, SteamID, active slots |
-| 24 | [UserData11](24-user-data-11.md) | regulation.bin — parametry gry (params) |
-| 25 | [Runtime vs Save](25-runtime-vs-save.md) | Mapowanie offsetów pamięć↔plik, ostrzeżenia |
-| 26 | [Parameter Reference](26-parameter-reference.md) | **Kompletna referencja** wszystkich edytowalnych parametrów |
-| 27 | [Map Reveal](27-map-reveal.md) | 4-warstwowy model odkrywania mapy: regions / event flags 62xxx + Map Fragments / DLC Cover Layer / FoW bitfield |
-| 29 | [DLC Black Tiles](29-dlc-black-tiles.md) | Cover Layer SoE — koordynaty discovery w sekcji BloodStain (`afterRegs+0x0088..0x0110`) |
-| 30 | [Slot Rebuild Research](30-slot-rebuild-research.md) | Analiza slack + przejście od byte-shift do `RebuildSlot` (R-1 Step 13–14) |
-| 31 | [Appearance Presets](31-appearance-presets.md) | Layout slotu presetu Mirror Favorites (0x130 bajtów), algorytm apply preset → FaceData, obsługa cross-gender M↔F — RE z prawdziwych save'ów |
-| 32 | [Ban-Risk System](32-ban-risk-system.md) | Architektura UI: Tier 0/1/2 + Online Safety Mode + słownik `RISK_INFO` + komponenty `Risk*` (Faza 6) |
-| 33 | [DB Categorization Audit](33-db-categorization-audit.md) | Wyciągnięcie zakładki Information + reklasyfikacja Multiplayer/Remembrances/Crystal Tears/Materials wg Fextralife per-item breadcrumb |
-| 34 | [Item Caps Enforcement](34-item-caps.md) | Vanilla-realistic MaxInventory/MaxStorage + flaga `scales_with_ng` (effective_cap = base × (ClearCount+1)) + tryb Full Chaos Mode |
-| 36 | [Inventory Categories — Game Order](36-inventory-categories-game-order.md) | Kanoniczna kolejność 18 zakładek + sub-grupowanie (Tools/Key Items/Melee/etc.) + reklasyfikacje (Larval Tears, Torches, Region Maps, Golden Runes) — rozszerza spec/33 |
-| 37 | [Character Presets](37-character-presets.md) | **Design doc** — format JSON export/import, struktury Go, fazy 1-5 (stats + inventory + appearance + world flags) |
-| 38 | [Boss Kill Multi-Flag](38-boss-multiflag.md) | **Design doc** — podejście multi-flag dla poprawnego kill/respawn bossa (arena state + quest + grace flags) |
-| 39 | [Inventory Reorder](39-inventory-reorder.md) | **Design doc** — drag & drop siatka z reordering przez manipulację `acquisition_index`, fazy 0-4, biblioteka DnD |
-| 40 | [DB Cleanup Plan](40-db-cleanup-plan.md) | **Design doc** — rejestr cut-content, dedup multiplayer, usunięcie pustych flasków, fazy A-G |
-| 41 | [Info-Tab Ground Drop](41-info-tab-ground-drop.md) | **Investigacja** — flagi world pickup + TutorialDataChunk zbadane, gating EMEVD nieznany |
-| 42 | [Summoning Pools Bug](42-summoning-pools-bug.md) | **Investigacja** — UI działa, brak efektu in-game; checklista diagnostyczna + hipotezy |
-| 43 | [Transactional Item Adding](43-transactional-item-adding.md) | **Design doc** (✅ zaimplementowany v0.7.2) — architektura ALL-OR-NOTHING, pre-flight + snapshot/rollback |
-| 44 | [NetworkParam PvP Tuning](44-network-param-tuning.md) | **Design doc** (✅ częściowo) — pełna referencja pól NETWORK_PARAM_ST: offsety, wartości vanilla, ryzyko bana, presety |
-| 45 | [Dokumentacja Ryzyka Bana](45-ban-risk-reference.md) | Community-reportowane triggery banów, poziomy kar (mechanika 180-dniowego softbana, flaga zapisana w save), zasady bezpiecznej edycji — podstawa dla tiers ryzyka w spec/32 |
-| 46 | [Badanie Szybszych Inwazji](46-faster-invasions-research.md) | **Badanie** (zakończone) — pełny skan UD10/NetMan/EventFlags/regulation.bin pod kątem parametrów czasowania inwazji; porównanie DS3; mod Wex Dust; werdykt: niemożliwe do zrealizowania przez plik save |
-| 47 | [Aktywacja Sites of Grace](47-site-of-grace-activation.md) | **Investigacja** (✅ rozwiązana) — Hipoteza D potwierdzona; edytor ustawia identyczną EventFlag co gra; `LastRestedGrace` ustawiany automatycznie przez grę; stan obiektu gracji runtime-only; rekomendacja: Model 3 (notka UI) |
-| 48 | [Modularne Presety PvP-Ready](48-pvp-ready-modular-presets.md) | **Design doc** — dekompozycja monolitycznego presetu pvp-ready na 6 modułów (Core/Regiony/Dostęp/QoL/Coop/Badania) z poziomami ryzyka per moduł, tabelą właściciela zakresów flag, 5 walidatorami i propozycją UI |
-| 49 | [PS4 ZSTD Raw-Block Patch](49-ps4-zstd-rawblock-patch.md) | **Design doc** (✅ zaimplementowany) — naprawa crashu PS4: strategia zastępowania bloków Raw w strumieniu ZSTD, unikająca pełnej rekompresji odrzucanej przez PS4 |
-| 50 | [Item Companion Flags](50-item-companion-flags.md) | **Design doc** (✅ zaimplementowany v0.14.0) — Mechanizm ustawiania zależnych od przedmiotu EventFlag przy dodawaniu; obsługuje Spectral Steed Whistle (odblokowanie Torrenta + stan questa Meliny) |
-| 51 | [Advanced Save Editor](51-advanced-save-editor.md) | **Design doc** (🔲 planowany) — Zakładka "Advanced → Save Editor": znane EventFlags, regulation snapshot params (NetworkParam), makra aplikacji, ręczna flaga po ID, lista pending changes, edytor raw offsets (Faza 2+) |
-| 52 | [Sortowanie Acquisition: Stride-2](52-acquisition-sort-stride2.md) | **Design doc** (✅ zaimplementowany) — Dlaczego ReorderInventory używa stride-2; odkrycie klucza `acqIdx>>1` przez testy sentinel; algorytm, dowód, bezpieczny zakres |
-| 53 | [Transfer Inventory ↔ Storage](53-inventory-storage-transfer.md) | **Design doc** (✅ zaimplementowany) — Dwukolumnowy Sort Order, dwukierunkowy single/multi drag-and-drop transfer, ścieżka rehandle dla duplikowanej instancji, osobny Storage Apply Order ze stride-2, guardy preview/apply per strona |
-| 54 | [Ash of War](54-ash-of-war.md) | **Design doc** (✅ zaimplementowany) — Semantyka wbudowanej i zewnętrznej umiejętności broni, sentinele braku custom AoW (canonical `0x00000000`, legacy `0xFFFFFFFF`), invariant unikalności handle, reguły writera/readera |
-| 55 | [Build Template](55-build-template.md) | **Design doc** — Schemat `saveforge.build-template` v1, przenośny eksport Inventory Workspace (bez handle'ów save-local), obsługa AoW dla statusów custom/none/missing/shared, scope eksportera Phase A |
-| 99 | [Verification Methodology](99-verification-methodology.md) | Metody testowania, checklista weryfikacji, plan odkryć |
+### Part I — Save File Format Fundamentals
+
+Format binarny pliku save — kontener, sloty, layout sekcji.
+
+| Dok | Tytuł | Status | Notatka |
+|---|---|---|---|
+| 01 | [Header i layout pliku](01-header.md) | `canonical` | Magic bytes, detekcja platformy, BND4, MD5 |
+| 02 | [Slot — struktura ogólna](02-slot-structure.md) | `canonical` | Rozmiar slotu, sekwencyjny parsing |
+| 03 | [GaItem Map](03-gaitem-map.md) | `implemented, needs rewrite` | Layout 21/16/8B; semantyka AoW zdubluje 54 → planowany merge |
+| 04 | [PlayerGameData](04-player-game-data.md) | `canonical` | 432 B, atrybuty, runy, online settings |
+| 05 | [SP Effects](05-sp-effects.md) | `needs verification` | Sekcja krótka, „wymaga weryfikacji" w treści; brak parsera w `backend/core/` |
+| 06 | [Equipment](06-equipment.md) | `canonical` | 22 sloty, active weapon slots, arm style |
+| 07 | [Inventory](07-inventory.md) | `implemented, needs rewrite` | Reconciler działa; layout chaotyczny — kandydat do canonical template |
+| 08 | [Spells & Gestures](08-spells-gestures.md) | `canonical` | 14 attunement + 8B gesture stride |
+| 09 | [Face Data](09-face-data.md) | `partial` | 303 B, pola 0x20-0x5F „przybliżone" — kod (`app_appearance.go`) zna więcej |
+| 10 | [Storage Box](10-storage.md) | `canonical` (merge candidate) | Format identyczny jak Inventory, inne countery |
+| 11 | [Regions](11-regions.md) | `canonical` | `core.SetUnlockedRegions`, cross-link do 27 |
+| 12 | [Torrent](12-torrent.md) | `canonical` | State enum 1/3/13; bug HP=0+State=13 |
+| 13 | [Blood Stain](13-blood-stain.md) | `partial` | unk_0x1c..0x40 — w spec/29 te offsety to DLC Cover Layer (konflikt do rozwiązania) |
+| 14 | [Game State](14-game-state.md) | `canonical` | LastRestedGrace, ClearCount, GaItem Game Data |
+| 15 | [Event Flags](15-event-flags.md) | `canonical` | BST + bit-order big-endian, kanon dla flag |
+| 16 | [World State](16-world-state.md) | `partial` | Container hex-verified, content uncertain |
+| 17 | [Player Coordinates](17-player-coordinates.md) | `canonical` | 57 B, mapa decompose ⚠️ orientacyjne |
+| 18 | [Network Manager](18-network.md) | `partial` (merge candidate) | 131 KB opaque — slot-local, nie regulation NetworkParam |
+| 19 | [Weather & Time](19-weather-time.md) | `canonical` | 12+12 B, trivial |
+| 20 | [Version & Platform](20-version-platform.md) | `canonical` | Steam ID + BaseVersion + PS5Activity |
+| 21 | [DLC](21-dlc.md) | `canonical` | 50 B, invariant bytes 3-49 = 0 |
+| 22 | [Player Data Hash](22-player-hash.md) | `canonical` | „Gra ignoruje hash" — `backend/core/hash.go` potwierdza |
+| 23 | [UserData10](23-user-data-10.md) | `canonical` | PC + PS4 offsety zweryfikowane Apr 2026 |
+| 24 | [UserData11](24-user-data-11.md) | `canonical` (read-only) | TWARDA REGUŁA — nie modyfikujemy |
+| 25 | [Runtime vs Save](25-runtime-vs-save.md) | `canonical` | CT memory vs save offsety — wartość edukacyjna |
+| 26 | [Parameter Reference](26-parameter-reference.md) | `partial` (needs rewrite) | Tytuł obiecuje więcej niż dostarcza — atrybuty + softcaps |
+
+### Part II — Implemented SaveForge Systems
+
+Zaimplementowane mechanizmy edytora — działają w aktualnym kodzie.
+
+| Dok | Tytuł | Status | Notatka |
+|---|---|---|---|
+| 32 | [Ban-Risk System (UI)](32-ban-risk-system.md) | `canonical` | SafetyMode, RISK_INFO, komponenty `Risk*` |
+| 34 | [Item Caps Enforcement](34-item-caps.md) | `canonical` | `scales_with_ng` + NG+ scaling — TODO o ClearCount otwarte |
+| 36 | [Inventory Categories — Game Order](36-inventory-categories-game-order.md) | `canonical` | Kanonicza taksonomia 18 zakładek (nadpisuje 33) |
+| 39 | [Inventory Reorder](39-inventory-reorder.md) | `implemented, needs rewrite` | ⚠️ Status w doc deklaruje „Planowany", ale `ReorderInventory` + stride-2 działają (patrz konflikt F2 w audycie) |
+| 43 | [Transactional Item Adding](43-transactional-item-adding.md) | `canonical` | Pre-flight + snapshot/rollback (v0.7.2) |
+| 44 | [NetworkParam Tuning](44-network-param-tuning.md) | `canonical` | `regulation.go::PatchNetworkParams` |
+| 50 | [Item Companion Flags](50-item-companion-flags.md) | `canonical` | SET+CLEAR mechanism (v0.14.0) |
+| 52 | [Acquisition Sort — Stride-2](52-acquisition-sort-stride2.md) | `canonical` | Dlaczego klucz to `acqIdx>>1` |
+| 53 | [Inventory ↔ Storage Transfer](53-inventory-storage-transfer.md) | `canonical` | Two-way drag-and-drop, rehandle path |
+| 54 | [Ash of War](54-ash-of-war.md) | `canonical` | Sentinele 0x00/0xFFFFFFFF + invariant unikalności + AoW guard (commit `6881cb9`) |
+| 55 | [Build Template](55-build-template.md) | `canonical` | JSON v1, portable export bez save-local handles |
+
+### Part III — Verified Game Mechanics
+
+Mechaniki gry zweryfikowane przez RE / testy in-game.
+
+| Dok | Tytuł | Status | Notatka |
+|---|---|---|---|
+| 27 | [Map Reveal](27-map-reveal.md) | `canonical` | 4-warstwowy model; `revealBaseMap/revealDLCMap/RemoveFogOfWar` |
+| 29 | [DLC Black Tiles](29-dlc-black-tiles.md) | `implemented, needs rewrite` | Split planowany: layout (do Ch.11) + research log (do Appendix E) |
+| 31 | [Appearance Presets](31-appearance-presets.md) | `canonical` | Apply algorithm + Mirror Favorites; PC verified |
+| 47 | [Sites of Grace — Activation](47-site-of-grace-activation.md) | `canonical` | Hipoteza D potwierdzona, Model 3 (UI nota) |
+| 48 | [PvP Modular Presets](48-pvp-ready-modular-presets.md) | `partial` (needs rewrite) | ⚠️ Faza 1 częściowo wdrożona — `app_pvp.go:109` mówi „Sites of Grace module planned but not enabled" (konflikt F9) |
+| 49 | [PS4 ZSTD Raw-Block Patch](49-ps4-zstd-rawblock-patch.md) | `canonical` | Krytyczna wiedza PS4 — `regulation.go:604` |
+
+### Part IV — Research Archive / Negative Results
+
+Historia badań, wstrzymane investigacje, negatywne wyniki.
+
+| Dok | Tytuł | Status | Notatka |
+|---|---|---|---|
+| 30 | [Slot Rebuild — Research](research/30-slot-rebuild-research.md) | `research` | Dziennik pomiarów slack 11 slotów; finalna implementacja: `RebuildSlot` |
+| 41 | [Info-Tab Ground Drop](research/41-info-tab-ground-drop.md) | `research` | 🐛 Wstrzymane — wymagana dekompilacja EMEVD |
+| 42 | [Summoning Pools Bug](research/42-summoning-pools-bug.md) | `research` | 🐛 Wstrzymane — UI działa, brak efektu in-game |
+| 46 | [Faster Invasions](research/46-faster-invasions-research.md) | `research` (negative) | Werdykt: niemożliwe przez plik save |
+
+### Planowane
+
+Design doci bez implementacji w kodzie.
+
+| Dok | Tytuł | Status | Notatka |
+|---|---|---|---|
+| 37 | [Character Presets (JSON)](37-character-presets.md) | `needs verification` ⚠️ | **Pozostaje w głównym katalogu** — `backend/vm/preset.go` ma `CharacterPreset/VMToPreset/PresetToVM/ValidatePreset`, ale doc deklaruje „Planowany". Wymaga weryfikacji per faza przed przesunięciem do `planned/`. |
+| 38 | [Boss Multi-Flag](planned/38-boss-multiflag.md) | `planned` | Kod ma 1-flag model; design wymaga `EventFlags []uint32` (nie wdrożone) |
+| 40 | [DB Cleanup Plan](planned/40-db-cleanup-plan.md) | `planned` | Fazy A-G; weryfikacja per faza wymagana |
+| 51 | [Advanced Save Editor](planned/51-advanced-save-editor.md) | `planned` | Brak `AdvancedSaveEditor` w kodzie |
+
+### Archiwum
+
+Dokumenty zastąpione nowszymi rozdziałami — zachowane dla historii.
+
+| Dok | Tytuł | Status | Notatka |
+|---|---|---|---|
+| 33 | [DB Categorization Audit](archive/33-db-categorization-audit.md) | `archived` | Post-mortem migracji DB; zastąpione przez 36 |
+
+### Appendix (planowany)
+
+| Dok | Tytuł | Status | Notatka |
+|---|---|---|---|
+| 45 | [Dokumentacja Ryzyka Bana](45-ban-risk-reference.md) | `canonical` (App. A) | Community triggers — knowledge base, podstawa dla tiers w 32 |
+| 99 | [Verification Methodology](99-verification-methodology.md) | `canonical` (App. B) | Metodyka research |
 
 ---
 
@@ -176,4 +247,4 @@ Plik save składa się z następujących głównych bloków (w kolejności sekwe
 
 ## Tłumaczenia
 
-Angielskie wersje wszystkich dokumentów specyfikacji znajdują się w [`spec/`](../) (katalog nadrzędny).
+Angielskie wersje wszystkich dokumentów specyfikacji znajdują się w [`spec/`](../) (katalog nadrzędny). **Uwaga**: reorganizacja Phase 1 dotyczy tylko `spec/lang-pl/` — wersja angielska zostanie zsynchronizowana w późniejszej fazie.
