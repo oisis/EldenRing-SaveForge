@@ -113,6 +113,7 @@ The save file consists of the following main blocks (in sequential order):
 | 52 | [Acquisition Sort: Stride-2](52-acquisition-sort-stride2.md) | **Design doc** (✅ implemented) — Why ReorderInventory uses stride-2 index assignment; in-game `acqIdx>>1` bucket key discovery via sentinel tests; algorithm, proof, safe range |
 | 53 | [Inventory ↔ Storage Transfer](53-inventory-storage-transfer.md) | **Design doc** (✅ implemented) — Dual-grid Sort Order tab, bidirectional single/multi drag-and-drop transfer, duplicate-instance rehandle path, separate Storage Apply Order with stride-2, per-side preview/apply guards |
 | 54 | [Ash of War](54-ash-of-war.md) | **Design doc** (✅ implemented) — Built-in vs custom Ash of War semantics, no-custom AoW sentinels (canonical `0x00000000`, legacy `0xFFFFFFFF`), shared-handle invariant, writer/reader rules |
+| 55 | [Build Template](55-build-template.md) | **Design doc** — `saveforge.build-template` v1 schema, portable inventory workspace export (no save-local handles), AoW handling for custom/none/missing/shared, Phase A exporter scope |
 | 99 | [Verification Methodology](99-verification-methodology.md) | Testing methods, verification checklist, discovery plan |
 
 ---

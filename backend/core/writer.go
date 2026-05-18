@@ -447,6 +447,20 @@ func allocateGaItem(slot *SaveSlot, handle, itemID uint32) error {
 		if idx >= maxEntries {
 			return fmt.Errorf("allocateGaItem: AoW array full (index %d >= %d)", idx, maxEntries)
 		}
+		// AoW insertion unconditionally advances NextArmamentIndex (the
+		// armament zone's right edge bookkeeping). If that edge is already
+		// at the array limit, advancing it would push it past maxEntries
+		// and trip ValidatePostMutation's "NextArmamentIndex > len(GaItems)"
+		// check at commit time. Reject early with a clear, allocator-level
+		// message instead of letting the post-mutation validator surface a
+		// numeric-looking violation to the user. Saves with a non-empty
+		// entry pinned at array position maxEntries-1 (observed on PS4
+		// saves that reach this state via in-game placement) end up with
+		// NextArmamentIndex == maxEntries on load, so any AoW add would
+		// otherwise corrupt the index.
+		if slot.NextArmamentIndex >= maxEntries {
+			return fmt.Errorf("allocateGaItem: cannot insert AoW — armament zone at capacity (NextArmamentIndex %d == %d)", slot.NextArmamentIndex, maxEntries)
+		}
 		// If position is occupied, shift entries right to make room
 		if !slot.GaItems[idx].IsEmpty() {
 			// Find the end of used entries to shift into

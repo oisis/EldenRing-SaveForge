@@ -17,7 +17,12 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const appVersion = "0.8.0"
+// appVersion is the SaveForge version stamped into exported artifacts
+// (character presets, build templates). Overridden at build time via
+// `-ldflags "-X 'main.appVersion=$(VERSION)'"` from the Makefile; the
+// literal default below is what `go test` and `go run` see and should
+// track the current release.
+var appVersion = "0.15.0-beta"
 
 // PresetInfo is the frontend-facing summary of an appearance preset.
 type PresetInfo struct {

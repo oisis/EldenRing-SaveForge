@@ -312,6 +312,54 @@ func TestAllocateGaItem_ReturnsFullErrorAtCapacity(t *testing.T) {
 	})
 }
 
+// TestAllocateGaItem_AoWRejectsWhenArmamentZoneAtCapacity locks the fix for the
+// "NextArmamentIndex N > len(GaItems) N" rollback that fires when an AoW is
+// added to a slot whose armament zone is already pinned to the last array
+// index (e.g. an in-game entry placed at maxEntries-1). The AoW branch must
+// reject upfront instead of incrementing NextArmamentIndex past maxEntries —
+// the post-mutation validator would otherwise surface a confusing numeric
+// violation. Observed on a real PS4 save's slot 1 ("Bydlaczka") where vanilla
+// state has NextAoWIndex=3 with room, but NextArmamentIndex==len(GaItems)
+// because the highest-counter entry sits at array index maxEntries-1.
+func TestAllocateGaItem_AoWRejectsWhenArmamentZoneAtCapacity(t *testing.T) {
+	slot := makeTestSlot(8)
+	// AoW zone has room (NextAoW=3 < 8), but armament zone is "logically
+	// full": some non-empty entry sits at the last array index, forcing
+	// NextArmamentIndex to maxEntries on load.
+	slot.GaItems[7] = GaItemFull{
+		Handle:          uint32(ItemTypeWeapon | 0x00800007),
+		ItemID:          uint32(0x00100007),
+		Unk2:            -1,
+		Unk3:            -1,
+		AoWGaItemHandle: NoCustomAoWHandle,
+	}
+	slot.NextAoWIndex = 3
+	slot.NextArmamentIndex = 8 // == len(GaItems)
+	slot.NextGaItemHandle = 9
+
+	err := allocateGaItem(slot, uint32(ItemTypeAow|0x00800009), 0x40000099)
+	if err == nil {
+		t.Fatal("allocateGaItem (AoW) must reject when NextArmamentIndex == len(GaItems); got nil")
+	}
+	if !contains(err.Error(), "armament zone at capacity") {
+		t.Errorf("expected 'armament zone at capacity' error, got: %v", err)
+	}
+	// Critical: state must not be mutated.
+	if slot.NextAoWIndex != 3 {
+		t.Errorf("NextAoWIndex must stay 3 on rejection, got %d", slot.NextAoWIndex)
+	}
+	if slot.NextArmamentIndex != 8 {
+		t.Errorf("NextArmamentIndex must stay 8 on rejection (no overflow past maxEntries=8), got %d", slot.NextArmamentIndex)
+	}
+	if !slot.GaItems[3].IsEmpty() {
+		t.Error("index 3 (NextAoW slot) must remain empty on rejection")
+	}
+	// Validator must be happy with this (pre-mutation) state.
+	if v := ValidatePostMutation(slot); len(v) > 0 {
+		t.Errorf("ValidatePostMutation expected OK after rejection; got %d violations: %v", len(v), v)
+	}
+}
+
 func contains(s, substr string) bool {
 	for i := 0; i+len(substr) <= len(s); i++ {
 		if s[i:i+len(substr)] == substr {

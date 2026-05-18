@@ -10,6 +10,18 @@ export function AddItemsToCharacter(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
   return window['go']['main']['App']['AddItemsToCharacter'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function ApplyBuildTemplateFromLibrary(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyBuildTemplateFromLibrary'](arg1, arg2, arg3);
+}
+
+export function ApplyBuildTemplateToWorkspaceFromFile(arg1, arg2) {
+  return window['go']['main']['App']['ApplyBuildTemplateToWorkspaceFromFile'](arg1, arg2);
+}
+
+export function ApplyBuildTemplateToWorkspaceJSON(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyBuildTemplateToWorkspaceJSON'](arg1, arg2, arg3);
+}
+
 export function ApplyBuiltinCharacterPresetInventory(arg1, arg2) {
   return window['go']['main']['App']['ApplyBuiltinCharacterPresetInventory'](arg1, arg2);
 }
@@ -82,6 +94,10 @@ export function CloseRemoteGame(arg1) {
   return window['go']['main']['App']['CloseRemoteGame'](arg1);
 }
 
+export function DeleteBuildTemplateFromLibrary(arg1) {
+  return window['go']['main']['App']['DeleteBuildTemplateFromLibrary'](arg1);
+}
+
 export function DeleteDeployTarget(arg1) {
   return window['go']['main']['App']['DeleteDeployTarget'](arg1);
 }
@@ -106,8 +122,20 @@ export function DownloadRemoteSave(arg1) {
   return window['go']['main']['App']['DownloadRemoteSave'](arg1);
 }
 
+export function ExportBuildTemplateJSON(arg1, arg2) {
+  return window['go']['main']['App']['ExportBuildTemplateJSON'](arg1, arg2);
+}
+
+export function ExportBuildTemplateToFile(arg1, arg2) {
+  return window['go']['main']['App']['ExportBuildTemplateToFile'](arg1, arg2);
+}
+
 export function ExportCharacterPresetToFile(arg1, arg2) {
   return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1, arg2);
+}
+
+export function ExportLibraryBuildTemplateToFile(arg1) {
+  return window['go']['main']['App']['ExportLibraryBuildTemplateToFile'](arg1);
 }
 
 export function GetActiveSlots() {
@@ -128,6 +156,10 @@ export function GetBellBearings(arg1) {
 
 export function GetBosses(arg1) {
   return window['go']['main']['App']['GetBosses'](arg1);
+}
+
+export function GetBuildTemplateLibraryPath() {
+  return window['go']['main']['App']['GetBuildTemplateLibraryPath']();
 }
 
 export function GetBuiltinCharacterPreset(arg1) {
@@ -270,6 +302,10 @@ export function ListAppearancePresets() {
   return window['go']['main']['App']['ListAppearancePresets']();
 }
 
+export function ListBuildTemplateLibrary() {
+  return window['go']['main']['App']['ListBuildTemplateLibrary']();
+}
+
 export function ListBuiltinCharacterPresets() {
   return window['go']['main']['App']['ListBuiltinCharacterPresets']();
 }
@@ -290,6 +326,22 @@ export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
   return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
 }
 
+export function PreviewBuildTemplateFromLibrary(arg1) {
+  return window['go']['main']['App']['PreviewBuildTemplateFromLibrary'](arg1);
+}
+
+export function PreviewBuildTemplateImportFromFile() {
+  return window['go']['main']['App']['PreviewBuildTemplateImportFromFile']();
+}
+
+export function PreviewBuildTemplateImportJSON(arg1) {
+  return window['go']['main']['App']['PreviewBuildTemplateImportJSON'](arg1);
+}
+
+export function RebuildBuildTemplateLibraryIndex() {
+  return window['go']['main']['App']['RebuildBuildTemplateLibraryIndex']();
+}
+
 export function RemoveFavoritePreset(arg1) {
   return window['go']['main']['App']['RemoveFavoritePreset'](arg1);
 }
@@ -304,6 +356,10 @@ export function RemoveInventoryWorkspaceItem(arg1, arg2) {
 
 export function RemoveItemsFromCharacter(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['RemoveItemsFromCharacter'](arg1, arg2, arg3, arg4);
+}
+
+export function RenameBuildTemplateInLibrary(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['RenameBuildTemplateInLibrary'](arg1, arg2, arg3, arg4);
 }
 
 export function ReorderInventory(arg1, arg2, arg3) {
@@ -336,6 +392,10 @@ export function RevealAllMap(arg1) {
 
 export function RevertSlot(arg1) {
   return window['go']['main']['App']['RevertSlot'](arg1);
+}
+
+export function SaveBuildTemplateToLibrary(arg1, arg2) {
+  return window['go']['main']['App']['SaveBuildTemplateToLibrary'](arg1, arg2);
 }
 
 export function SaveCharacter(arg1, arg2) {

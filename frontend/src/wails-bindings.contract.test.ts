@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as App from '../wailsjs/go/main/App';
-import { editor } from '../wailsjs/go/models';
+import { editor, main, templates } from '../wailsjs/go/models';
 
 // This is a contract test that locks the Wails-generated binding surface
 // the inventory workspace UI depends on. Any unintentional rename or
@@ -27,6 +27,36 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.RemoveInventoryWorkspaceItem).toBe('function');
         expect(typeof App.SaveInventoryWorkspaceChanges).toBe('function');
         expect(typeof App.DiscardInventoryEditSession).toBe('function');
+    });
+
+    it('exposes Phase B build template export endpoints', () => {
+        expect(typeof App.ExportBuildTemplateJSON).toBe('function');
+        expect(typeof App.ExportBuildTemplateToFile).toBe('function');
+    });
+
+    it('exposes Phase C build template preview endpoints', () => {
+        expect(typeof App.PreviewBuildTemplateImportJSON).toBe('function');
+        expect(typeof App.PreviewBuildTemplateImportFromFile).toBe('function');
+    });
+
+    it('exposes Phase D build template apply endpoints', () => {
+        expect(typeof App.ApplyBuildTemplateToWorkspaceJSON).toBe('function');
+        expect(typeof App.ApplyBuildTemplateToWorkspaceFromFile).toBe('function');
+    });
+
+    it('exposes Phase E local build template library endpoints', () => {
+        expect(typeof App.SaveBuildTemplateToLibrary).toBe('function');
+        expect(typeof App.ListBuildTemplateLibrary).toBe('function');
+        expect(typeof App.PreviewBuildTemplateFromLibrary).toBe('function');
+        expect(typeof App.ApplyBuildTemplateFromLibrary).toBe('function');
+        expect(typeof App.DeleteBuildTemplateFromLibrary).toBe('function');
+        expect(typeof App.RenameBuildTemplateInLibrary).toBe('function');
+        expect(typeof App.ExportLibraryBuildTemplateToFile).toBe('function');
+    });
+
+    it('exposes Phase F library refresh / path endpoints', () => {
+        expect(typeof App.RebuildBuildTemplateLibraryIndex).toBe('function');
+        expect(typeof App.GetBuildTemplateLibraryPath).toBe('function');
     });
 });
 
@@ -128,5 +158,102 @@ describe('Wails binding contract: editor.WorkspaceValidationReport', () => {
         expect('warnings' in sample).toBe(true);
         expect('inventoryItemCount' in sample).toBe(true);
         expect('storageItemCount' in sample).toBe(true);
+    });
+});
+
+describe('Wails binding contract: build template export DTOs', () => {
+    it('exposes BuildTemplateExportOptions fields the modal sends', () => {
+        const sample = main.BuildTemplateExportOptions.createFrom({});
+        expect('includeInventory' in sample).toBe(true);
+        expect('includeStorage' in sample).toBe(true);
+        expect('name' in sample).toBe(true);
+        expect('description' in sample).toBe(true);
+        expect('author' in sample).toBe(true);
+        expect('tags' in sample).toBe(true);
+    });
+
+    it('exposes BuildTemplateExportResult fields the UI reads back', () => {
+        const sample = main.BuildTemplateExportResult.createFrom({});
+        expect('path' in sample).toBe(true);
+        expect('json' in sample).toBe(true);
+        expect('warnings' in sample).toBe(true);
+        expect('skippedItems' in sample).toBe(true);
+    });
+
+    it('exposes templates.ExportWarning fields for surface in toasts', () => {
+        const sample = templates.ExportWarning.createFrom({});
+        expect('code' in sample).toBe(true);
+        expect('message' in sample).toBe(true);
+        expect('container' in sample).toBe(true);
+        expect('position' in sample).toBe(true);
+    });
+});
+
+describe('Wails binding contract: import preview DTOs (Phase C)', () => {
+    it('exposes ImportPreviewReport top-level fields', () => {
+        const sample = templates.ImportPreviewReport.createFrom({});
+        expect('ok' in sample).toBe(true);
+        expect('errors' in sample).toBe(true);
+        expect('warnings' in sample).toBe(true);
+        expect('summary' in sample).toBe(true);
+    });
+
+    it('exposes ImportPreviewIssue positional fields', () => {
+        const sample = templates.ImportPreviewIssue.createFrom({});
+        expect('severity' in sample).toBe(true);
+        expect('code' in sample).toBe(true);
+        expect('message' in sample).toBe(true);
+        expect('container' in sample).toBe(true);
+        expect('position' in sample).toBe(true);
+        expect('baseItemID' in sample).toBe(true);
+        expect('aowItemID' in sample).toBe(true);
+    });
+
+    it('exposes ImportPreviewSummary bucket counters', () => {
+        const sample = templates.ImportPreviewSummary.createFrom({});
+        expect('inventoryItems' in sample).toBe(true);
+        expect('storageItems' in sample).toBe(true);
+        expect('weapons' in sample).toBe(true);
+        expect('armor' in sample).toBe(true);
+        expect('talismans' in sample).toBe(true);
+        expect('stackables' in sample).toBe(true);
+        expect('aowAssignments' in sample).toBe(true);
+    });
+});
+
+describe('Wails binding contract: apply DTOs (Phase D)', () => {
+    it('exposes ApplyTemplateOptions fields', () => {
+        const sample = main.ApplyTemplateOptions.createFrom({});
+        expect('mode' in sample).toBe(true);
+    });
+
+    it('exposes ApplyTemplateResult fields the hook reads back', () => {
+        const sample = main.ApplyTemplateResult.createFrom({});
+        expect('preview' in sample).toBe(true);
+        expect('workspace' in sample).toBe(true);
+        expect('applied' in sample).toBe(true);
+    });
+
+    it('exposes LoadedTemplatePreview fields the preview flow reads', () => {
+        const sample = main.LoadedTemplatePreview.createFrom({});
+        expect('report' in sample).toBe(true);
+        expect('json' in sample).toBe(true);
+        expect('path' in sample).toBe(true);
+    });
+});
+
+describe('Wails binding contract: template library DTOs (Phase E)', () => {
+    it('exposes LibraryTemplateEntry fields the UI list renders', () => {
+        const sample = templates.LibraryTemplateEntry.createFrom({});
+        expect('id' in sample).toBe(true);
+        expect('name' in sample).toBe(true);
+        expect('description' in sample).toBe(true);
+        expect('tags' in sample).toBe(true);
+        expect('filename' in sample).toBe(true);
+        expect('createdAt' in sample).toBe(true);
+        expect('updatedAt' in sample).toBe(true);
+        expect('inventoryItems' in sample).toBe(true);
+        expect('storageItems' in sample).toBe(true);
+        expect('warnings' in sample).toBe(true);
     });
 });

@@ -17,7 +17,7 @@ deps:
 # Build the application for the current platform
 build:
 	@echo "🔨 Building $(BINARY_NAME) v$(VERSION)..."
-	$(WAILS) build -o "$(BINARY_NAME)"
+	$(WAILS) build -ldflags "-X 'main.appVersion=$(VERSION)'" -o "$(BINARY_NAME)"
 
 # Run Wails in development mode (hot reload)
 dev:

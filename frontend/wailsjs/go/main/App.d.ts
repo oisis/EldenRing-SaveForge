@@ -6,10 +6,17 @@ import {vm} from '../models';
 import {db} from '../models';
 import {deploy} from '../models';
 import {core} from '../models';
+import {templates} from '../models';
 
 export function AddInventoryWorkspaceItem(arg1:string,arg2:editor.AddItemSpec,arg3:string,arg4:number):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function AddItemsToCharacter(arg1:number,arg2:Array<number>,arg3:number,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<main.AddResult>;
+
+export function ApplyBuildTemplateFromLibrary(arg1:string,arg2:string,arg3:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
+
+export function ApplyBuildTemplateToWorkspaceFromFile(arg1:string,arg2:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
+
+export function ApplyBuildTemplateToWorkspaceJSON(arg1:string,arg2:string,arg3:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
 
 export function ApplyBuiltinCharacterPresetInventory(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
 
@@ -47,6 +54,8 @@ export function CloseAndDownload(arg1:string):Promise<string>;
 
 export function CloseRemoteGame(arg1:string):Promise<string>;
 
+export function DeleteBuildTemplateFromLibrary(arg1:string):Promise<void>;
+
 export function DeleteDeployTarget(arg1:string):Promise<void>;
 
 export function DeleteSlot(arg1:number):Promise<void>;
@@ -59,7 +68,13 @@ export function DiscardInventoryEditSession(arg1:string):Promise<void>;
 
 export function DownloadRemoteSave(arg1:string):Promise<string>;
 
+export function ExportBuildTemplateJSON(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<main.BuildTemplateExportResult>;
+
+export function ExportBuildTemplateToFile(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<main.BuildTemplateExportResult>;
+
 export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSettings):Promise<string>;
+
+export function ExportLibraryBuildTemplateToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
 
 export function GetActiveSlots():Promise<Array<boolean>>;
 
@@ -70,6 +85,8 @@ export function GetAshOfWarFlags(arg1:number):Promise<Array<db.AshOfWarFlagEntry
 export function GetBellBearings(arg1:number):Promise<Array<db.BellBearingEntry>>;
 
 export function GetBosses(arg1:number):Promise<Array<db.BossEntry>>;
+
+export function GetBuildTemplateLibraryPath():Promise<string>;
 
 export function GetBuiltinCharacterPreset(arg1:string):Promise<vm.CharacterPreset>;
 
@@ -141,6 +158,8 @@ export function LaunchRemoteGame(arg1:string):Promise<string>;
 
 export function ListAppearancePresets():Promise<Array<main.PresetInfo>>;
 
+export function ListBuildTemplateLibrary():Promise<Array<templates.LibraryTemplateEntry>>;
+
 export function ListBuiltinCharacterPresets():Promise<Array<main.BuiltinCharacterPresetInfo>>;
 
 export function LoadCharacterPresetFromFile():Promise<vm.CharacterPreset>;
@@ -151,6 +170,14 @@ export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,a
 
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
 
+export function PreviewBuildTemplateFromLibrary(arg1:string):Promise<main.LoadedTemplatePreview>;
+
+export function PreviewBuildTemplateImportFromFile():Promise<main.LoadedTemplatePreview>;
+
+export function PreviewBuildTemplateImportJSON(arg1:string):Promise<templates.ImportPreviewReport>;
+
+export function RebuildBuildTemplateLibraryIndex():Promise<Array<templates.LibraryTemplateEntry>>;
+
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
 
 export function RemoveFogOfWar(arg1:number):Promise<void>;
@@ -158,6 +185,8 @@ export function RemoveFogOfWar(arg1:number):Promise<void>;
 export function RemoveInventoryWorkspaceItem(arg1:string,arg2:string):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function RemoveItemsFromCharacter(arg1:number,arg2:Array<number>,arg3:boolean,arg4:boolean):Promise<void>;
+
+export function RenameBuildTemplateInLibrary(arg1:string,arg2:string,arg3:string,arg4:Array<string>):Promise<templates.LibraryTemplateEntry>;
 
 export function ReorderInventory(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
 
@@ -174,6 +203,8 @@ export function ResetNetworkParams():Promise<void>;
 export function RevealAllMap(arg1:number):Promise<void>;
 
 export function RevertSlot(arg1:number):Promise<void>;
+
+export function SaveBuildTemplateToLibrary(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<templates.LibraryTemplateEntry>;
 
 export function SaveCharacter(arg1:number,arg2:vm.CharacterViewModel):Promise<void>;
 

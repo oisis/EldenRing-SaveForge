@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GetItemList } from '../../wailsjs/go/main/App';
-import { db, editor, main } from '../../wailsjs/go/models';
+import { ApplyBuildTemplateToWorkspaceJSON, ExportBuildTemplateToFile, GetItemList, PreviewBuildTemplateImportFromFile } from '../../wailsjs/go/main/App';
+import { db, editor, main, templates } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 import { useInventoryWorkspace, ContainerKind } from '../hooks/useInventoryWorkspace';
 import { WeaponEditModal } from './WeaponEditModal';
+import { ExportTemplateModal, formatWarningsSummary } from './templates/ExportTemplateModal';
+import { ImportTemplatePreviewModal, isCancelledPreview } from './templates/ImportTemplatePreviewModal';
+import { TemplateLibraryModal } from './templates/TemplateLibraryModal';
 
 // Build a main.InventoryOrderItem-shaped adapter from a workspace EditableItem,
 // so the legacy WeaponEditModal can render without changes. Workspace dispatch
@@ -79,6 +82,16 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [helpOpen, setHelpOpen] = useState(false);
     const [confirmSaveOpen, setConfirmSaveOpen] = useState(false);
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
+    const [exportMenuOpen, setExportMenuOpen] = useState(false);
+    const [exportModalOpen, setExportModalOpen] = useState(false);
+    const [importPreviewReport, setImportPreviewReport] = useState<templates.ImportPreviewReport | null>(null);
+    // The raw JSON text of the previewed template is kept alongside the
+    // report so the Apply button can re-use it without re-opening the
+    // file dialog. Empty string when nothing is loaded.
+    const [importPreviewJSON, setImportPreviewJSON] = useState<string>('');
+    const [applyingTemplate, setApplyingTemplate] = useState(false);
+    const [libraryOpen, setLibraryOpen] = useState(false);
+    const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
     const workspace = useInventoryWorkspace();
     const { sessionID, inventoryItems, storageItems, dirty, loading, saving, lastError, validation } = workspace;
@@ -315,6 +328,140 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         await workspace.discard();
     };
 
+    // ── Build template export ────────────────────────────────────────────────
+    // Quick path: one of "inventory / storage / both" is exported with
+    // empty metadata. The full modal handles named templates.
+    //
+    // The handler never throws; errors are surfaced through toast.error so
+    // the workspace UI never falls into an error boundary because the user
+    // clicked Export. dirty / saving state is untouched on purpose — the
+    // export pulls a read-only snapshot from the active session.
+    const handleQuickExport = async (kind: 'inventory' | 'storage' | 'both') => {
+        setExportMenuOpen(false);
+        if (!sessionID) {
+            toast.error('No active inventory workspace session.');
+            return;
+        }
+        const opts = main.BuildTemplateExportOptions.createFrom({
+            includeInventory: kind === 'inventory' || kind === 'both',
+            includeStorage: kind === 'storage' || kind === 'both',
+            name: '',
+            description: '',
+            author: '',
+            tags: [],
+        });
+        try {
+            const result = await ExportBuildTemplateToFile(sessionID, opts);
+            handleExportResult(result);
+        } catch (err) {
+            toast.error(`Export failed: ${String(err)}`);
+        }
+    };
+
+    // Phase C: open dialog, run preview, render modal. No workspace
+    // mutation. Cancelled dialog stays silent (no toast).
+    //
+    // The backend bundles the JSON text + path alongside the report so
+    // we can pass the same payload to ApplyBuildTemplateToWorkspaceJSON
+    // when the user clicks "Apply to workspace" inside the modal —
+    // without making them pick the file twice.
+    const handleImportPreview = async () => {
+        setExportMenuOpen(false);
+        try {
+            const loaded = await PreviewBuildTemplateImportFromFile();
+            if (isCancelledPreview(loaded.report)) {
+                return;
+            }
+            setImportPreviewReport(loaded.report);
+            setImportPreviewJSON(loaded.json ?? '');
+        } catch (err) {
+            toast.error(`Preview failed: ${String(err)}`);
+        }
+    };
+
+    // Phase D: apply the previewed template to the active workspace
+    // session. Pure RAM mutation — the save is untouched until the user
+    // clicks Save changes. The post-apply snapshot is swapped into the
+    // hook via replaceSnapshot so the grid re-renders without a backend
+    // round trip.
+    const handleApplyTemplate = async () => {
+        if (!sessionID || !importPreviewJSON) return;
+        setApplyingTemplate(true);
+        try {
+            const result = await ApplyBuildTemplateToWorkspaceJSON(
+                sessionID,
+                importPreviewJSON,
+                main.ApplyTemplateOptions.createFrom({ mode: 'append' }),
+            );
+            if (result.applied) {
+                workspace.replaceSnapshot(result.workspace);
+                setImportPreviewReport(null);
+                setImportPreviewJSON('');
+                toast.success('Template applied to workspace. Click Save changes to persist.');
+            } else {
+                // Apply blocked by preview (e.g. capacity overflow
+                // detected pre-flight). Surface the new report so the
+                // modal updates instead of silently closing.
+                setImportPreviewReport(result.preview);
+            }
+        } catch (err) {
+            toast.error(`Apply failed: ${String(err)}`);
+        } finally {
+            setApplyingTemplate(false);
+        }
+    };
+
+    // Phase E: Library-side handlers. Library actions go through the
+    // dedicated library endpoints rather than the file-based path, so
+    // there is no save-dialog hop and the workspace mutation runs the
+    // same RAM-only apply codepath as the file Apply does.
+    const handleLibraryApplied = (result: main.ApplyTemplateResult, entry: templates.LibraryTemplateEntry) => {
+        if (result.applied) {
+            workspace.replaceSnapshot(result.workspace);
+            toast.success(`Template "${entry.name || entry.id}" applied to workspace. Click Save changes to persist.`);
+            setLibraryOpen(false);
+        } else {
+            setImportPreviewReport(result.preview);
+            setImportPreviewJSON('');
+        }
+    };
+
+    const handleLibraryPreviewed = (preview: main.LoadedTemplatePreview) => {
+        setImportPreviewReport(preview.report);
+        setImportPreviewJSON(preview.json ?? '');
+    };
+
+    const handleSavedToLibrary = (entry: templates.LibraryTemplateEntry) => {
+        setExportModalOpen(false);
+        toast.success(`Template "${entry.name || entry.id}" saved to local library.`);
+    };
+
+    const handleExportResult = (result: main.BuildTemplateExportResult) => {
+        if (!result.path) {
+            // User cancelled the save dialog. Stay silent to match the
+            // existing preset-export UX.
+            return;
+        }
+        toast.success(`Build template saved to ${result.path}`);
+        const summary = formatWarningsSummary(result.warnings);
+        if (summary) {
+            toast(summary);
+        }
+    };
+
+    // Close the dropdown when clicking outside its anchor.
+    useEffect(() => {
+        if (!exportMenuOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (!exportMenuRef.current) return;
+            if (!exportMenuRef.current.contains(e.target as Node)) {
+                setExportMenuOpen(false);
+            }
+        };
+        window.addEventListener('mousedown', handler);
+        return () => window.removeEventListener('mousedown', handler);
+    }, [exportMenuOpen]);
+
     // ── Validation summary ───────────────────────────────────────────────────
     const errorCount = validation?.errors?.length ?? 0;
     const warningCount = validation?.warnings?.length ?? 0;
@@ -385,6 +532,52 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                     onConfirm={onDiscard}
                     onCancel={() => setConfirmDiscardOpen(false)}
                     confirmTone="red"
+                />
+            )}
+
+            {exportModalOpen && sessionID && (
+                <ExportTemplateModal
+                    sessionID={sessionID}
+                    dirty={dirty}
+                    onClose={() => setExportModalOpen(false)}
+                    onSuccess={(result) => {
+                        setExportModalOpen(false);
+                        handleExportResult(result);
+                    }}
+                    onSavedToLibrary={handleSavedToLibrary}
+                    onError={(err) => {
+                        setExportModalOpen(false);
+                        toast.error(`Export failed: ${String(err)}`);
+                    }}
+                />
+            )}
+
+            {libraryOpen && (
+                <TemplateLibraryModal
+                    sessionID={sessionID}
+                    onClose={() => setLibraryOpen(false)}
+                    onApplied={handleLibraryApplied}
+                    onPreviewed={handleLibraryPreviewed}
+                    onExportedToFile={(result, entry) => {
+                        if (result.path) {
+                            toast.success(`Template "${entry.name || entry.id}" exported to ${result.path}`);
+                        }
+                    }}
+                    onDeleted={(id) => toast.success(`Template ${id} deleted from library.`)}
+                    onRefreshed={(list) => toast.success(`Template library refreshed (${list.length} entries).`)}
+                    onError={(err) => toast.error(`Library: ${String(err)}`)}
+                />
+            )}
+
+            {importPreviewReport && (
+                <ImportTemplatePreviewModal
+                    report={importPreviewReport}
+                    onClose={() => {
+                        setImportPreviewReport(null);
+                        setImportPreviewJSON('');
+                    }}
+                    onApply={importPreviewJSON ? handleApplyTemplate : undefined}
+                    applying={applyingTemplate}
                 />
             )}
 
@@ -468,6 +661,83 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         >
                             Add Item…
                         </button>
+                        <div ref={exportMenuRef} className="relative">
+                            <button
+                                type="button"
+                                disabled={!sessionID || saving || loading}
+                                onClick={() => setExportMenuOpen((v) => !v)}
+                                aria-haspopup="menu"
+                                aria-expanded={exportMenuOpen}
+                                className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded text-foreground/80 hover:text-foreground hover:bg-primary/20 border border-primary/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                            >
+                                Export Template ▾
+                            </button>
+                            {exportMenuOpen && (
+                                <div
+                                    role="menu"
+                                    className="absolute right-0 mt-1 z-20 min-w-[200px] rounded border border-border/60 bg-card shadow-xl text-[11px]"
+                                >
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => handleQuickExport('inventory')}
+                                        className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
+                                    >
+                                        Export Inventory only
+                                    </button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => handleQuickExport('storage')}
+                                        className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
+                                    >
+                                        Export Storage only
+                                    </button>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => handleQuickExport('both')}
+                                        className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
+                                    >
+                                        Export Both
+                                    </button>
+                                    <div className="my-0.5 border-t border-border/40" />
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => {
+                                            setExportMenuOpen(false);
+                                            setExportModalOpen(true);
+                                        }}
+                                        className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
+                                    >
+                                        Export with options…
+                                    </button>
+                                    <div className="my-0.5 border-t border-border/40" />
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={handleImportPreview}
+                                        className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
+                                    >
+                                        Import Template Preview…
+                                    </button>
+                                    <div className="my-0.5 border-t border-border/40" />
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        data-testid="open-library"
+                                        onClick={() => {
+                                            setExportMenuOpen(false);
+                                            setLibraryOpen(true);
+                                        }}
+                                        className="block w-full px-3 py-1.5 text-left hover:bg-primary/20"
+                                    >
+                                        Template Library…
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                         <button
                             disabled={!dirty || saving || loading || errorCount > 0}
                             onClick={() => setConfirmSaveOpen(true)}

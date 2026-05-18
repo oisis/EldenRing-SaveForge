@@ -32,7 +32,7 @@ var KeyItems = map[uint32]ItemData{
 	0x401EA3CD: {Name: "Storeroom Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/storeroom_key.png", Flags: []string{"dlc"}},
 	0x401EA3CE: {Name: "Secret Rite Scroll", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/secret_rite_scroll.png", Flags: []string{"dlc"}},
 	0x401EA3D7: {Name: "Keep Wall Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/keep_wall_key.png", Flags: []string{"cut_content", "ban_risk", "dlc"}},
-	0x401EA3E4: {Name: "Prayer Room Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "", Flags: []string{"dlc"}},
+	0x401EA3E4: {Name: "Prayer Room Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/prayer_room_key.png", Flags: []string{"dlc"}},
 	0x40001FEE: {Name: "Academy Glintstone Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/academy_glintstone_key.png"},
 	0x4000218E: {Name: "Whetstone Knife", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/whetstone_knife.png"},
 	0x4000230D: {Name: "Glintstone Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/glintstone_whetblade.png", Flags: []string{"no_database"}},
