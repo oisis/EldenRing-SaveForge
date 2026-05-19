@@ -2,8 +2,8 @@
 
 > **Cel**: Kompletna dokumentacja formatu binarnego pliku zapisu Elden Ring (`.sl2` / `memory.dat`) oraz systemów edytora SaveForge. Wystarczająca do implementacji niezależnego edytora save od zera.
 >
-> **Stan**: 🚧 **Work in progress — book cleanup (Phase 1)**.
-> Dokumentacja jest właśnie reorganizowana w układ książkowy (Part I-IV + Appendix). Treść merytoryczna rozdziałów pozostaje nietknięta — zmieniła się tylko lokalizacja plików i taksonomia.
+> **Stan**: 🚧 **Work in progress — book cleanup**.
+> Phase 1 (reorganizacja katalogowa) ✅ ukończona. Phase 2 (GaItem + Inventory + Storage + Transfer + Sort Order + Categories + Equipment) ✅ ukończona dla głównych rozdziałów (03, 06, 07, 10, 35, 36, 39, 43, 52, 53). Dalsze fazy (3–6) — patrz `BOOK_PLAN.md`.
 >
 > **Plan dalszych prac**: zobacz [`BOOK_PLAN.md`](BOOK_PLAN.md). Wynik audytu źródłowego: [`tmp/docs-book-audit.md`](../../tmp/docs-book-audit.md) (lokalny, gitignored).
 
@@ -84,6 +84,21 @@ Plik save składa się z następujących głównych bloków (w kolejności sekwe
 
 ---
 
+## Phase 2 — cross-cutting gaps
+
+Po ukończeniu Phase 2 (canonical rewrites: 03, 06, 07, 10, 35, 36, 39, 43, 52, 53) pozostają następujące `needs verification` rozproszone po rozdziałach. Są to **nie**-blockery dla Phase 3+, ale powinny być adresowane w przyszłych iteracjach:
+
+- **Storage Apply in-game / Steam Deck verification** — wspólny gap dla [52](52-acquisition-sort-stride2.md) i [53](53-inventory-storage-transfer.md). Brak świeżego raportu z fixtura PS4 po reorder/transfer.
+- **Workspace path equipped guard** — `editor.ApplyWorkspaceSave` nie ma explicit `IsHandleEquipped` check (zob. [53](53-inventory-storage-transfer.md) "Equipped guard / Workspace path", [06](06-equipment.md) "Workspace path gap").
+- **Workspace post-mutation validation** — w odróżnieniu od [43](43-transactional-item-adding.md), workspace save nie ma `ValidatePostMutation` (zob. [53](53-inventory-storage-transfer.md) "Validation and rollback caveats").
+- **UI counters vs allocator capacity** — `SortOrderTab` counter per zakładka jest `view.length`, nie total kontenera; allocator capacity ([35](35-gaitem-allocator-invariants.md)) operuje na innym poziomie. Brak end-to-end testu cross-check.
+- **DLC sub-mapping completeness** — czy każdy DLC item w DB ma assigned sub-group (zob. [36](36-inventory-categories-game-order.md) "DLC flag mechanism"). Best-effort `melee_subcat.go` curated lookup.
+- **Equipment write API not implemented** — edytor jest read-only dla ChrAsmEquipment (zob. [06](06-equipment.md) "What SaveForge does not implement"). `EquippedGreatRune` round-tripuje, ale brak public setter z UI.
+- **Hash recompute discipline** — `RecalculateSlotHash` wywoływany **tylko w testach** (zob. [06](06-equipment.md) "Hash recompute discipline"). `needs verification` całościowe.
+- **Game order in-game verification dla bieżącej wersji gry** — ostatnia weryfikacja kwiecień 2026 (zob. [36](36-inventory-categories-game-order.md) "Status"). Patche FromSoftware mogą reorganizować menu.
+
+---
+
 ## Spis treści książki
 
 ### Part I — Save File Format Fundamentals
@@ -94,14 +109,14 @@ Format binarny pliku save — kontener, sloty, layout sekcji.
 |---|---|---|---|
 | 01 | [Header i layout pliku](01-header.md) | `canonical` | Magic bytes, detekcja platformy, BND4, MD5 |
 | 02 | [Slot — struktura ogólna](02-slot-structure.md) | `canonical` | Rozmiar slotu, sekwencyjny parsing |
-| 03 | [GaItem Map](03-gaitem-map.md) | `implemented, needs rewrite` | Layout 21/16/8B; semantyka AoW zdubluje 54 → planowany merge |
+| 03 | [GaItem Map](03-gaitem-map.md) | `canonical` | GaItem layout + GaMap; AoW semantyka w 54 (cross-ref, no duplication) — Phase 2 Step 2 |
 | 04 | [PlayerGameData](04-player-game-data.md) | `canonical` | 432 B, atrybuty, runy, online settings |
 | 05 | [SP Effects](05-sp-effects.md) | `needs verification` | Sekcja krótka, „wymaga weryfikacji" w treści; brak parsera w `backend/core/` |
-| 06 | [Equipment](06-equipment.md) | `canonical` | 22 sloty, active weapon slots, arm style |
-| 07 | [Inventory](07-inventory.md) | `implemented, needs rewrite` | Reconciler działa; layout chaotyczny — kandydat do canonical template |
+| 06 | [Equipment](06-equipment.md) | `canonical` (read-only) | `EquippedItemsItemIds` (88B) + `EquippedGreatRune`; **brak publicznego write API** dla equipment — Phase 2 Step 8 |
+| 07 | [Inventory](07-inventory.md) | `canonical` | Read-side rekord 12B + offsety CommonItems — Phase 2 Step 3 |
 | 08 | [Spells & Gestures](08-spells-gestures.md) | `canonical` | 14 attunement + 8B gesture stride |
 | 09 | [Face Data](09-face-data.md) | `partial` | 303 B, pola 0x20-0x5F „przybliżone" — kod (`app_appearance.go`) zna więcej |
-| 10 | [Storage Box](10-storage.md) | `canonical` (merge candidate) | Format identyczny jak Inventory, inne countery |
+| 10 | [Storage Box](10-storage.md) | `canonical` | Read-side: `StorageBoxOffset` + `StorageHeaderSkip`, sparse list — Phase 2 Step 3 |
 | 11 | [Regions](11-regions.md) | `canonical` | `core.SetUnlockedRegions`, cross-link do 27 |
 | 12 | [Torrent](12-torrent.md) | `canonical` | State enum 1/3/13; bug HP=0+State=13 |
 | 13 | [Blood Stain](13-blood-stain.md) | `partial` | unk_0x1c..0x40 — w spec/29 te offsety to DLC Cover Layer (konflikt do rozwiązania) |
@@ -127,13 +142,14 @@ Zaimplementowane mechanizmy edytora — działają w aktualnym kodzie.
 |---|---|---|---|
 | 32 | [Ban-Risk System (UI)](32-ban-risk-system.md) | `canonical` | SafetyMode, RISK_INFO, komponenty `Risk*` |
 | 34 | [Item Caps Enforcement](34-item-caps.md) | `canonical` | `scales_with_ng` + NG+ scaling — TODO o ClearCount otwarte |
-| 36 | [Inventory Categories — Game Order](36-inventory-categories-game-order.md) | `canonical` | Kanonicza taksonomia 18 zakładek (nadpisuje 33) |
-| 39 | [Inventory Reorder](39-inventory-reorder.md) | `implemented, needs rewrite` | ⚠️ Status w doc deklaruje „Planowany", ale `ReorderInventory` + stride-2 działają (patrz konflikt F2 w audycie) |
-| 43 | [Transactional Item Adding](43-transactional-item-adding.md) | `canonical` | Pre-flight + snapshot/rollback (v0.7.2) |
+| 35 | [GaItem Allocator & Invariants](35-gaitem-allocator-invariants.md) | `canonical` | Alokacja handle, capacity invariants, `generateUniqueHandle`/`allocateGaItem` — Phase 2 Step 1 |
+| 36 | [Inventory Categories — Game Order](36-inventory-categories-game-order.md) | `canonical` | 18 DB tabs + handle prefix bridge + sub-categories (76) + DLC flag mechanism — Phase 2 Step 7 (nadpisuje 33) |
+| 39 | [Inventory Reorder](39-inventory-reorder.md) | `historical / superseded` | Design note z fazy projektowej; **superseded by 52** dla acquisition/stride mechanics, **covered by 53** dla transfer UX — Phase 2 Step 5 |
+| 43 | [Transactional Item Adding](43-transactional-item-adding.md) | `canonical` | Pre-flight + `SnapshotSlot`/`RestoreSlot` + `ValidatePostMutation` — Phase 2 Step 4 |
 | 44 | [NetworkParam Tuning](44-network-param-tuning.md) | `canonical` | `regulation.go::PatchNetworkParams` |
 | 50 | [Item Companion Flags](50-item-companion-flags.md) | `canonical` | SET+CLEAR mechanism (v0.14.0) |
-| 52 | [Acquisition Sort — Stride-2](52-acquisition-sort-stride2.md) | `canonical` | Dlaczego klucz to `acqIdx>>1` |
-| 53 | [Inventory ↔ Storage Transfer](53-inventory-storage-transfer.md) | `canonical` | Two-way drag-and-drop, rehandle path |
+| 52 | [Acquisition Sort — Stride-2](52-acquisition-sort-stride2.md) | `canonical` | Stride-2 algorytm, bucket-collision guard, 3 ścieżki write (`ReorderInventory`/`ReorderStorage`/`writeContainerLayout`) — Phase 2 Step 5 |
+| 53 | [Inventory ↔ Storage Transfer](53-inventory-storage-transfer.md) | `canonical` | Dwie ścieżki transferu (legacy core + workspace), rehandle, equipped guard, SortOrderTab workspace UI — Phase 2 Step 6 |
 | 54 | [Ash of War](54-ash-of-war.md) | `canonical` | Sentinele 0x00/0xFFFFFFFF + invariant unikalności + AoW guard (commit `6881cb9`) |
 | 55 | [Build Template](55-build-template.md) | `canonical` | JSON v1, portable export bez save-local handles |
 
