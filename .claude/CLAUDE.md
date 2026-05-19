@@ -192,18 +192,6 @@ Przy edycji `spec/NN-*.md` — zaktualizuj również `spec/lang-pl/NN-*.md` (lub
 
 ---
 
-## TWARDA REGUŁA — regulation.bin (UserData11)
-
-**NIE MODYFIKUJEMY REGULATION.BIN.** Żadnych wyjątków.
-
-- `regulation.bin` (UserData11) = plik serwera FromSoftware. Na PS4/PS5 konsola **zawsze pobiera go z serwera** przy połączeniu online — lokalna kopia jest natychmiast nadpisywana.
-- Używamy go **wyłącznie do odczytu** — jako szablon domyślnych wartości parametrów (np. do tworzenia nowych postaci).
-- Wartości wyciągnięte z regulation.bin **nie są miarodajne dla trybu online** — traktuj je jako dane tymczasowe / punkt startowy.
-- Wszelka praca nad "szybkimi najazadami" lub innymi zmianami sieciowymi **musi** być realizowana przez UserData0–9 (sloty postaci) lub UserData10 (dane systemowe). Nigdy przez UserData11.
-- Jeśli znajdziesz się w sytuacji gdzie "jedyne wyjście to zmiana regulation.bin" — zatrzymaj się i powiedz o tym użytkownikowi, bo to znaczy że szukasz w złym miejscu.
-
----
-
 ## Pułapki i ograniczenia
 
 - `wails dev` wymaga środowiska GUI (uruchamia Cocoa window) — nie uruchamiaj w headless.
