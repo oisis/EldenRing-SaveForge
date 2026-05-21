@@ -3,7 +3,7 @@
 > **Cel**: Kompletna dokumentacja formatu binarnego pliku zapisu Elden Ring (`.sl2` / `memory.dat`) oraz systemów edytora SaveForge. Wystarczająca do implementacji niezależnego edytora save od zera.
 >
 > **Stan**: 🚧 **Work in progress — book cleanup**.
-> Phase 1 (reorganizacja katalogowa) ✅ ukończona. Phase 2 (GaItem + Inventory + Storage + Transfer + Sort Order + Categories + Equipment) ✅ ukończona dla głównych rozdziałów (03, 06, 07, 10, 35, 36, 39, 43, 52, 53). Phase 3 (Ash of War + Build Template) ✅ ukończona dla głównych rozdziałów (54, 55). Następna: Phase 4 (Map / World / Event Flags). Dalsze fazy (4–6) — patrz `BOOK_PLAN.md`.
+> Phase 1 (reorganizacja katalogowa) ✅ ukończona. Phase 2 (GaItem + Inventory + Storage + Transfer + Sort Order + Categories + Equipment) ✅ ukończona dla głównych rozdziałów (03, 06, 07, 10, 35, 36, 39, 43, 52, 53). Phase 3 (Ash of War + Build Template) ✅ ukończona dla głównych rozdziałów (54, 55). Phase 4 (Map / World / Event Flags / Game State) ✅ ukończona dla głównych rozdziałów (11, 14, 15, 16, 17, 19, 27, 29, 47, 48, 50). Następna: Phase 5 — Ban-risk / unsafe edits / validation / safety consolidation. Dalsze fazy (5–6) — patrz `BOOK_PLAN.md`.
 >
 > **Plan dalszych prac**: zobacz [`BOOK_PLAN.md`](BOOK_PLAN.md). Wynik audytu źródłowego: [`tmp/docs-book-audit.md`](../../tmp/docs-book-audit.md) (lokalny, gitignored).
 
@@ -117,6 +117,27 @@ Po ukończeniu Phase 3 (canonical rewrites: 54, 55) pozostają następujące `ne
 
 ---
 
+## Phase 4 — cross-cutting gaps
+
+Po ukończeniu Phase 4 (canonical rewrites i refresh: 11, 14, 15, 16, 17, 19, 27, 29, 47, 48, 50) pozostają następujące `needs verification` rozproszone po rozdziałach. Są to **nie**-blockery dla Phase 5+, ale powinny być adresowane w przyszłych iteracjach:
+
+- **Stale generated snapshots po patchu gry / regulation.bin** — `data.Graces` (419), `data.Regions` (104), `data.MapVisible` (263), `data.SummoningPools` (~213), `data.ColosseumFlagSets` (3), `itemCompanionEventFlags` (6) są statycznymi snapshotami; brak auto-detection „regulation.bin newer than snapshot" (zob. [11 §16](11-regions.md), [15](15-event-flags.md), [27 §13](27-map-reveal.md), [47 §16.1](47-site-of-grace-activation.md), [50 §12.1](50-item-companion-flags.md)).
+- **PS4 ↔ PC parity tests** — `tests/roundtrip_test.go` pokrywa I/O round-trip, ale brak per-endpoint platform parity (np. `SetGraceVisited` PC vs PS4 effect identyczny). `needs verification` w [11](11-regions.md), [16 §18.6](16-world-state.md), [14 §16.5](14-game-state.md).
+- **Brak cross-subsystem atomic transaction** — orchestratory (`RevealAllMap`, `ApplyPvPPreparation`, `SaveCharacter`) używają single `pushUndo`, ale per-fazowy / per-modular rollback nie istnieje (zob. [16 §17](16-world-state.md), [27 §12](27-map-reveal.md), [48 §14](48-pvp-ready-modular-presets.md), [14 §15](14-game-state.md)).
+- **Manual undo / rollback limits** — undo stack depth limit jest nieznany (`needs verification`); bulk operations (UI Promise.all) tworzą N osobnych snapshotów; po `WriteSave` jedyna ścieżka rollback to backup `.sl2.YYYYMMDD_HHMMSS.bkp` (zob. [47 §15.2](47-site-of-grace-activation.md), [50 §11](50-item-companion-flags.md), [16 §18.5](16-world-state.md)).
+- **In-game runtime verification gaps** — większość helperów ma ad-hoc CHANGELOG entries, brak automated in-game loop w CI dla map reveal / DLC tiles / Sites of Grace / PvP matchmaking / NG+ flag sync (zob. [27 §13](27-map-reveal.md), [29 §13.6](29-dlc-black-tiles.md), [47 §16](47-site-of-grace-activation.md), [48 §16.7](48-pvp-ready-modular-presets.md), [14 §16.6](14-game-state.md)).
+- **Event flag ID correctness / stale precomputed caches** — 3-tier resolver (precomputed → BST → fallback formula) jest snapshotem; nowe flagi z patchy mogą fallback'ować w nieprzewidziane miejsca (zob. [15](15-event-flags.md)).
+- **Map reveal visual vs gameplay/progression effects** — UI nota `WorldTab.tsx:406` mówi „Some graces may still play their in-world activation sequence"; brak izolowanego testu czy zdjęcie L2 wpływa na trofea / achievementy (zob. [27 §13](27-map-reveal.md), [29 §13.5](29-dlc-black-tiles.md), [47 §7](47-site-of-grace-activation.md)).
+- **DLC black tile coordinates stale-after-patch risk** — wartości syntetyczne `9648/9124` i `3037/1869/7880/7803` są empiryczne (snapshot z 2 slotów); nie game-guaranteed (zob. [29 §13.1](29-dlc-black-tiles.md)).
+- **Sites of Grace SET-only intent + PvP module E placeholder** — companion flag SET-only contract w grace lifecycle jest celowy; PvP module E (`opts.SitesOfGrace`) jest placeholder bez mutation (zob. [47 §9](47-site-of-grace-activation.md), [48 §7](48-pvp-ready-modular-presets.md)).
+- **Item companion flag IDs stale-after-patch** — 6 wpisów `itemCompanionEventFlags` z hardcoded literałami; brak mechanizmu detection (zob. [50 §12.1](50-item-companion-flags.md)).
+- **PvP "ready" scope ograniczony** — Matchmaking Regions ✅; Colosseums z fizycznymi bramami w `WorldGeomMan` blob (nieedytowalne); Summoning Pools impact „Bloody Finger invasion impact is unconfirmed"; Sites of Grace module **disabled** (zob. [48 §16.1](48-pvp-ready-modular-presets.md)).
+- **Player Coordinates / Weather-Time read-only** — brak publicznych setterów; `grep "Set..." → 0`; każda mutacja przez direct hex edit jest na odpowiedzialności użytkownika (zob. [17 §6](17-player-coordinates.md), [19 §6](19-weather-time.md)).
+- **Game State: LastRestedGrace read-only, ClearCount jako jedyny write path** — `LastRestedGrace` BonfireId jest read-only (gra zarządza runtime); `ClearCount` ma write przez `SaveCharacter` + event flag sync 50-57, ale brak progression consistency validator (zob. [14 §8.3](14-game-state.md), [14 §9.2](14-game-state.md)).
+- **Boss multi-flag editor pozostaje planned** — aktualny `SetBossDefeated` jest single-flag; multi-flag design w [planned/38-boss-multiflag.md](planned/38-boss-multiflag.md) (zob. [14 §12](14-game-state.md)).
+
+---
+
 ## Spis treści książki
 
 ### Part I — Save File Format Fundamentals
@@ -135,15 +156,15 @@ Format binarny pliku save — kontener, sloty, layout sekcji.
 | 08 | [Spells & Gestures](08-spells-gestures.md) | `canonical` | 14 attunement + 8B gesture stride |
 | 09 | [Face Data](09-face-data.md) | `partial` | 303 B, pola 0x20-0x5F „przybliżone" — kod (`app_appearance.go`) zna więcej |
 | 10 | [Storage Box](10-storage.md) | `canonical` | Read-side: `StorageBoxOffset` + `StorageHeaderSkip`, sparse list — Phase 2 Step 3 |
-| 11 | [Regions](11-regions.md) | `canonical` | `core.SetUnlockedRegions`, cross-link do 27 |
+| 11 | [Regions](11-regions.md) | `canonical` | `core.SetUnlockedRegions`, L0 Map Reveal detail (cross-link do 27) — Phase 4 Step 3 |
 | 12 | [Torrent](12-torrent.md) | `canonical` | State enum 1/3/13; bug HP=0+State=13 |
 | 13 | [Blood Stain](13-blood-stain.md) | `partial` | unk_0x1c..0x40 — w spec/29 te offsety to DLC Cover Layer (konflikt do rozwiązania) |
-| 14 | [Game State](14-game-state.md) | `canonical` | LastRestedGrace, ClearCount, GaItem Game Data |
-| 15 | [Event Flags](15-event-flags.md) | `canonical` | BST + bit-order big-endian, kanon dla flag |
-| 16 | [World State](16-world-state.md) | `partial` | Container hex-verified, content uncertain |
-| 17 | [Player Coordinates](17-player-coordinates.md) | `canonical` | 57 B, mapa decompose ⚠️ orientacyjne |
+| 14 | [Game State](14-game-state.md) | `canonical` | `PreEventFlagsScalars` (29 B), ClearCount/NG+ write path, LastRestedGrace read-only — Phase 4 Step 10 |
+| 15 | [Event Flags](15-event-flags.md) | `canonical` | 3-tier resolver (precomputed → BST → fallback), helper API — Phase 4 Step 1 |
+| 16 | [World State](16-world-state.md) | `canonical` (overview/index) | Subsystem map, read-only vs write-capable; linkuje 11/15/27/29/47/48/50/14 — Phase 4 Step 8 |
+| 17 | [Player Coordinates](17-player-coordinates.md) | `canonical` (read-only) | `PlayerCoordinates` (**61 B**, NIE 57 B), `SpawnPointBlock` version-gated, brak setterów — Phase 4 Step 9 |
 | 18 | [Network Manager](18-network.md) | `partial` (merge candidate) | 131 KB opaque — slot-local, nie regulation NetworkParam |
-| 19 | [Weather & Time](19-weather-time.md) | `canonical` | 12+12 B, trivial |
+| 19 | [Weather & Time](19-weather-time.md) | `canonical` (read-only) | `WorldAreaWeather` + `WorldAreaTime` (12+12 B), brak setterów — Phase 4 Step 9 |
 | 20 | [Version & Platform](20-version-platform.md) | `canonical` | Steam ID + BaseVersion + PS5Activity |
 | 21 | [DLC](21-dlc.md) | `canonical` | 50 B, invariant bytes 3-49 = 0 |
 | 22 | [Player Data Hash](22-player-hash.md) | `canonical` | „Gra ignoruje hash" — `backend/core/hash.go` potwierdza |
@@ -165,7 +186,7 @@ Zaimplementowane mechanizmy edytora — działają w aktualnym kodzie.
 | 39 | [Inventory Reorder](39-inventory-reorder.md) | `historical / superseded` | Design note z fazy projektowej; **superseded by 52** dla acquisition/stride mechanics, **covered by 53** dla transfer UX — Phase 2 Step 5 |
 | 43 | [Transactional Item Adding](43-transactional-item-adding.md) | `canonical` | Pre-flight + `SnapshotSlot`/`RestoreSlot` + `ValidatePostMutation` — Phase 2 Step 4 |
 | 44 | [NetworkParam Tuning](44-network-param-tuning.md) | `canonical` | `regulation.go::PatchNetworkParams` |
-| 50 | [Item Companion Flags](50-item-companion-flags.md) | `canonical` | SET+CLEAR mechanism (v0.14.0) |
+| 50 | [Item Companion Flags](50-item-companion-flags.md) | `canonical` | SET+CLEAR symmetric mechanism, 6 wpisów (Whistle + 5 multiplayer items); osobny od grace SET-only ([47](47-site-of-grace-activation.md)) i `MapFragmentItems` ([27](27-map-reveal.md)) — Phase 4 Step 6 |
 | 52 | [Acquisition Sort — Stride-2](52-acquisition-sort-stride2.md) | `canonical` | Stride-2 algorytm, bucket-collision guard, 3 ścieżki write (`ReorderInventory`/`ReorderStorage`/`writeContainerLayout`) — Phase 2 Step 5 |
 | 53 | [Inventory ↔ Storage Transfer](53-inventory-storage-transfer.md) | `canonical` | Dwie ścieżki transferu (legacy core + workspace), rehandle, equipped guard, SortOrderTab workspace UI — Phase 2 Step 6 |
 | 54 | [Ash of War](54-ash-of-war.md) | `canonical` | Sentinele 0x00/0xFFFFFFFF + invariant unikalności + AoW guard (commit `6881cb9`), workspace/strict write paths, fail-closed compat — Phase 3 Step 1 |
@@ -177,11 +198,11 @@ Mechaniki gry zweryfikowane przez RE / testy in-game.
 
 | Dok | Tytuł | Status | Notatka |
 |---|---|---|---|
-| 27 | [Map Reveal](27-map-reveal.md) | `canonical` | 4-warstwowy model; `revealBaseMap/revealDLCMap/RemoveFogOfWar` |
-| 29 | [DLC Black Tiles](29-dlc-black-tiles.md) | `implemented, needs rewrite` | Split planowany: layout (do Ch.11) + research log (do Appendix E) |
+| 27 | [Map Reveal](27-map-reveal.md) | `canonical` | 4-warstwowy model (L0–L3); `RevealAllMap` / `revealBaseMap` / `revealDLCMap` / `RemoveFogOfWar` / `ResetMapExploration` — Phase 4 Step 2 |
+| 29 | [DLC Black Tiles](29-dlc-black-tiles.md) | `canonical` (detail) | L2 DLC Cover Layer w `BloodStain`; `DLCTile*` constants + syntetyczne koordy + `revealDLCMap` Phase 3 — Phase 4 Step 4 |
 | 31 | [Appearance Presets](31-appearance-presets.md) | `canonical` | Apply algorithm + Mirror Favorites; PC verified |
-| 47 | [Sites of Grace — Activation](47-site-of-grace-activation.md) | `canonical` | Hipoteza D potwierdzona, Model 3 (UI nota) |
-| 48 | [PvP Modular Presets](48-pvp-ready-modular-presets.md) | `partial` (needs rewrite) | ⚠️ Faza 1 częściowo wdrożona — `app_pvp.go:109` mówi „Sites of Grace module planned but not enabled" (konflikt F9) |
+| 47 | [Sites of Grace — Activation](47-site-of-grace-activation.md) | `canonical` | Grace EventFlag 71xxx-76xxx + DoorFlag + companion flags SET-only (Gatefront); 419 entries — Phase 4 Step 5 |
+| 48 | [PvP Modular Presets](48-pvp-ready-modular-presets.md) | `current reference` | `ApplyPvPPreparation` z 5 modułami (4 active + 1 placeholder); Sites of Grace module E zwraca warning bez mutacji (`app_pvp.go:109`) — Phase 4 Step 7 |
 | 49 | [PS4 ZSTD Raw-Block Patch](49-ps4-zstd-rawblock-patch.md) | `canonical` | Krytyczna wiedza PS4 — `regulation.go:604` |
 
 ### Part IV — Research Archive / Negative Results
