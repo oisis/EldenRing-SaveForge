@@ -2,7 +2,7 @@
 
 > **Cel**: roadmapa konsolidacji `spec/lang-pl/` w spójną książkę. Źródłem prawdy są: kod w `backend/`, `app*.go`, `frontend/src/` oraz aktualny audyt `tmp/docs-book-audit.md` (lokalny, gitignored).
 >
-> **Aktualna faza**: Phase 2 ✅ ukończona dla głównych rozdziałów (GaItem + Inventory + Storage + Sort Order + Transfer + Categories + Equipment). Phase 3 (Ash of War + Build Template) — następna.
+> **Aktualna faza**: Phase 3 ✅ ukończona dla głównych rozdziałów (Ash of War + Build Template — canonical rewrite 54, 55). Phase 4 (Map / World / Event Flags) — następna.
 >
 > **Format**: każdy planowany rozdział otrzyma docelowo template z sekcji [Template rozdziału](#template-rozdziału) (na końcu pliku).
 
@@ -120,16 +120,30 @@ Po wszystkich fazach `spec/lang-pl/` ma się składać z 30 rozdziałów + 7 za�
 - Hash recompute discipline — `RecalculateSlotHash` wywoływany tylko w testach.
 - Game order in-game verification dla bieżącej wersji gry (ostatnia weryfikacja kwiecień 2026).
 
-### Phase 3 — Ash of War + Build Template (Ch.7, Ch.25) — NASTĘPNA
+### Phase 3 — Ash of War + Build Template (Ch.7, Ch.25) ✅ UKOŃCZONA (główne rozdziały)
 
 - **Cel**: zamknąć temat AoW (54 + AoW guard z commit `6881cb9` + invariant z 03/35 + UI z `WeaponEditModal.tsx`) oraz udokumentować Build Template (55).
-- **Pliki**: 54 (dodać sekcję o guard, sprawdzić zgodność z aktualnymi 03/35), 55 (refresh dla workspace integration).
-- **Kod**: `aow_availability.go`, `editor/weapon.go`, `writer.go::allocateGaItem` (guard), `gaitem_placement_test.go::TestAllocateGaItem_AoWRejectsWhenArmamentZoneAtCapacity`, `backend/templates/*.go`, `app_templates.go`, `frontend/src/components/templates/*`.
-- **Akceptacja**: Ch.7 zawiera tabelę „what happens when allocateGaItem returns error"; Ch.25 ma kompletny schemat JSON v1 + przykład eksportu/importu.
-- **Stan wejściowy**: 03 i 35 po Phase 2 zawierają cross-refs do 54 zamiast duplikacji — Phase 3 dokończa konsolidację po stronie 54.
-- **Effort**: 6–8 h.
+- **Wykonane**:
+  - **Step 1**: `54-ash-of-war.md` — canonical rewrite (sentinele 0x00/0xFFFFFFFF, strict vs allocate+rebuild write paths, AoW Allocation Safety guard z commit `6881cb9`, shared-handle invariant, ScanAoWAvailability 2-pass, workspace/WeaponEditModal state, fail-closed compat na unknown wepType, DLC wepType 69/94/95 allow-passthrough, frontend `WEP_TYPE_TO_BIT` mirror drift, 8 explicit needs-verification items). Commit `e3a634f docs(lang-pl): rewrite ash of war reference`.
+  - **Step 2**: `55-build-template.md` — canonical rewrite (Build Template JSON v1 schema, portable payload rule bez save-local handles, AoW relation z fail-closed compat, capacity preflight `CommonItemCount=2688` / `StorageCommonCount=1920`, RAM-only apply z `deepCopySnapshot` rollback, Phase E local library `$UserConfigDir/EldenRing-SaveEditor/templates/` z atomic writes + `_index.json` z `LibraryIndexVersion=1`, 110 testów Go, 12 needs-verification items). Commit `a2e455c docs(lang-pl): rewrite build template reference`.
+- **Akceptacja**: 54 zawiera tabelę „what happens when allocateGaItem returns error" (§15 AoW Allocation Safety) + cross-ref do 55 dla Build Template apply; 55 ma kompletny schemat JSON v1 + portable payload rule + przykład export/import/apply + cross-ref do 54 dla AoW relation. Oba rozdziały bez duplikacji semantyki AoW.
+- **Effort rzeczywisty**: 2 commity na branchu `docs/lang-pl-book-cleanup`.
 
-### Phase 4 — Map / World / Event Flags (Ch.9, Ch.10, Ch.11, Ch.12, Ch.13, Ch.30)
+#### Cross-cutting gaps z Phase 3 (do adresowania w przyszłości)
+
+- **AoW affinity gating** — `EquipParamWeapon.defaultWepAttr` / `configurableWepAttr00..23` nie są zaimportowane do `WeaponGemMounts`. Preview Build Template waliduje compat tylko po `wepType`, nie po infusion variant. (54 §22.L1, 55 §21.L1)
+- **DLC wepType gaps (69/94/95)** — backend allow-passthrough; UI fail-closes widoczność sekcji AoW; brak user-facing informacji „DLC, kompatybilność nieznana". (54 §22.L2)
+- **`gemMountType == 1` semantyka** — `CanMountAoW = false` wyłącza sekcję AoW, ale brak placeholdera/wyjaśnienia w UI. (54 §22.L3)
+- **`AoWCompatMasks` completeness po regulation update** — bitmask generowany z `EquipParamGem`; nowe DLC rows mogą nie być re-imported. (54 §22.L5)
+- **Orphan AoW GaItem GC / save bloat** — alokator nie zwalnia handle po reset AoW; save rośnie liniowo z liczbą AoW edits. (54 §22.L6)
+- **Build Template equipment write API** — ❌ nie zaimplementowane; apply zostawia bronie unequipped. (55 §12, §21.L3)
+- **Build Template spell loadout / character stats** — schema v1 nie eksportuje attunement slotów ani statystyk PlayerGameData. (55 §6)
+- **Build Template forward-compat `version=2` testy** — `SchemaVersion=1` jedyny akceptowany; brak testów scenariuszy unknown-future-fields. (55 §18, §21.L8)
+- **Cross-platform PS4 vs PC portability dla Build Template** — schema portable z założenia, ale brak E2E testu PS4↔PC roundtrip.
+- **Frontend/backend `WEP_TYPE_TO_BIT` drift** — dwa frontend mirrory bez guardu CI / generatora. (54 §17, §22.L4)
+- **`replace-*` modes nie zaimplementowane** — `replace-weapons`, `replace-armors` itd. zarezerwowane w schemacie; v1 obsługuje tylko `merge`. (55 §6)
+
+### Phase 4 — Map / World / Event Flags (Ch.9, Ch.10, Ch.11, Ch.12, Ch.13, Ch.30) — NASTĘPNA
 
 - **Cel**: zebrać wszystko o mapie i flagach w spójną sekcję.
 - **Pliki**: 15 (kanon), 27 (kanon), 29 (split — layout do Ch.11, research do App. E), 11 (merge do Ch.11 §Layer 0), 16, 17, 47, 50.
@@ -164,8 +178,10 @@ Lista dokumentów, które po Phase 1 zostały w głównym katalogu, ale wymagaj�
 
 | Doc | Target chapter | Powód | Status |
 |---|---|---|---|
-| ~~03 §AoW~~ | Ch.7 (z 54) | duplikacja semantyki AoW | ✅ Phase 2 Step 2: cross-ref do 54, no duplication |
+| ~~03 §AoW~~ | Ch.7 (z 54) | duplikacja semantyki AoW | ✅ Phase 2 Step 2 + Phase 3 Step 1: cross-ref do 54, no duplication; konsolidacja AoW domknięta po stronie 54 |
 | ~~10~~ | Ch.4 §4.2 (z 07) | identyczny format jak 07, inne countery | ✅ Phase 2 Step 3: 10 zachowane jako osobny canonical (oba przepisane) |
+| ~~54 §AoW write paths / availability / compat~~ | Ch.7 | scattered between 03/06/35/UI komponenty | ✅ Phase 3 Step 1: 54 jest single source of truth dla strict vs allocate+rebuild write paths, ScanAoWAvailability, fail-closed compat, AoW guard |
+| ~~55 §Build Template portable payload + Phase E library~~ | Ch.25 | rozproszone w backend/templates + app_templates + frontend templates | ✅ Phase 3 Step 2: 55 obejmuje JSON v1 schema, portable rule, capacity preflight, RAM-only apply + Phase E local library |
 | 18 | Ch.14 (z disclaimerem) | jeden krótki opaque blob, nie wart własnego rozdziału | nadal otwarte |
 
 ### Rewrite candidates (do przepisania w canonical template)
@@ -191,7 +207,7 @@ Pełna lista w `tmp/docs-book-audit.md` § F. Skrót:
 | F1 | 38 | `BossData{ EventFlags []uint32 }` + multi-flag boss kill | `backend/db/data/bosses.go:4` — tylko `Name/Region/Type/Remembrance`; `app_world.go:113 SetBossDefeated` przyjmuje pojedynczy `bossID` |
 | F2 | 39 | Status: `🔲 Planowany — zablokowany w Fazie 0` | ✅ **Rozwiązany w Phase 2 Step 5**: 39 jest historical/superseded design note; canonical mechanika w 52, transfer UX w 53. |
 | F3 | 37 | Status: `🔲 Planowany` | `backend/vm/preset.go` ma `CharacterPreset/VMToPreset/PresetToVM/ValidatePreset` — `needs verification` per Phase |
-| F4 | 03/54 | Sentinele AoW + invariant unikalności handle | ✅ **Częściowo rozwiązany w Phase 2 Step 2**: 03 (canonical) ma cross-ref do 54 zamiast duplikacji; pełna konsolidacja po stronie 54 w Phase 3. |
+| F4 | 03/54 | Sentinele AoW + invariant unikalności handle | ✅ **Rozwiązany w Phase 2 Step 2 + Phase 3 Step 1**: 03 ma cross-ref do 54, 54 jest single source of truth dla obu sentineli (`NoCustomAoWHandle = 0x00000000` canonical, `LegacyNoCustomAoWHandle = 0xFFFFFFFF`) + shared-handle invariant + AoW Allocation Safety guard. |
 | F5 | 33/36 | 33 deklaruje reklasyfikację Information tab | ✅ **Rozwiązany w Phase 1 + Phase 2 Step 7**: 33 w `archive/`, 36 canonical (handle prefix bridge + sub-categories + DLC flag mechanism). |
 | F6 | 27/11 | Obie sekcje cytują `core.SetUnlockedRegions` | Po reorganizacji jeden powinien tylko linkować |
 | F7 | 13/29 | 13: pola `unk_0x1c..0x40` jako Unknown | 29: ten zakres (`afterRegs+0x88..0x110`) to DLC Cover Layer (8 floats × 2 rekordy) — wiedza nie zaimportowana do 13 |

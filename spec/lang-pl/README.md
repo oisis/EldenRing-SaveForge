@@ -3,7 +3,7 @@
 > **Cel**: Kompletna dokumentacja formatu binarnego pliku zapisu Elden Ring (`.sl2` / `memory.dat`) oraz systemów edytora SaveForge. Wystarczająca do implementacji niezależnego edytora save od zera.
 >
 > **Stan**: 🚧 **Work in progress — book cleanup**.
-> Phase 1 (reorganizacja katalogowa) ✅ ukończona. Phase 2 (GaItem + Inventory + Storage + Transfer + Sort Order + Categories + Equipment) ✅ ukończona dla głównych rozdziałów (03, 06, 07, 10, 35, 36, 39, 43, 52, 53). Dalsze fazy (3–6) — patrz `BOOK_PLAN.md`.
+> Phase 1 (reorganizacja katalogowa) ✅ ukończona. Phase 2 (GaItem + Inventory + Storage + Transfer + Sort Order + Categories + Equipment) ✅ ukończona dla głównych rozdziałów (03, 06, 07, 10, 35, 36, 39, 43, 52, 53). Phase 3 (Ash of War + Build Template) ✅ ukończona dla głównych rozdziałów (54, 55). Następna: Phase 4 (Map / World / Event Flags). Dalsze fazy (4–6) — patrz `BOOK_PLAN.md`.
 >
 > **Plan dalszych prac**: zobacz [`BOOK_PLAN.md`](BOOK_PLAN.md). Wynik audytu źródłowego: [`tmp/docs-book-audit.md`](../../tmp/docs-book-audit.md) (lokalny, gitignored).
 
@@ -99,6 +99,24 @@ Po ukończeniu Phase 2 (canonical rewrites: 03, 06, 07, 10, 35, 36, 39, 43, 52, 
 
 ---
 
+## Phase 3 — cross-cutting gaps
+
+Po ukończeniu Phase 3 (canonical rewrites: 54, 55) pozostają następujące `needs verification` rozproszone po rozdziałach. Są to **nie**-blockery dla Phase 4+, ale powinny być adresowane w przyszłych iteracjach:
+
+- **AoW affinity gating** — `EquipParamWeapon.defaultWepAttr` / `configurableWepAttr00..23` nie są zaimportowane do `WeaponGemMounts`; preview Build Template waliduje compat tylko po `wepType`. `needs verification` w [54 §22.L1](54-ash-of-war.md) i [55 §21.L1](55-build-template.md).
+- **DLC wepType 69/94/95 user-facing behavior** — backend allow-passthrough, UI traktuje jako `unknown` i fail-closes widoczność sekcji AoW; brak informacji dla użytkownika, że to DLC z nieznaną kompatybilnością. `needs verification` w [54 §22.L2](54-ash-of-war.md).
+- **Frontend/backend `WEP_TYPE_TO_BIT` drift** — dwa frontend mirrory (`WeaponEditModal.tsx`, `WeaponEditTab.tsx`), oba ręcznie podtrzymywane; identyczne z backendem ale brak guardu CI / generatora. `needs verification` przy każdej zmianie backendu. Zob. [54 §17 / §22.L4](54-ash-of-war.md).
+- **`gemMountType == 1` (somber) edge cases w UI** — `CanMountAoW = false` wyłącza sekcję AoW, ale dokumentacja nie potwierdza placeholdera/wyjaśnienia. `needs verification` w [54 §22.L3](54-ash-of-war.md).
+- **`AoWCompatMasks` completeness po update'cie regulation** — bitmask generowany z `EquipParamGem`; nowe DLC rows mogą nie być re-imported. `needs verification` w [54 §22.L5](54-ash-of-war.md).
+- **Orphan AoW GaItem GC / save bloat** — alokator nie zwalnia handle po reset AoW; save rośnie liniowo z liczbą AoW edits. `needs verification` w [54 §22.L6](54-ash-of-war.md).
+- **Build Template equipment write API** — ❌ nie zaimplementowane; apply zostawia bronie unequipped. `needs verification` dla future Phase w [55 §12 / §21.L3](55-build-template.md).
+- **Build Template spell loadout / character stats / affinity / DLC presence cross-check** — schema v1 nie eksportuje attunement slotów ani statystyk; DLC presence przy apply flaguje pojedyncze itemy bez globalnego "needs DLC X" warning. `needs verification` w [55 §6 / §21.L6](55-build-template.md).
+- **Build Template `replace-*` modes** — `replace-weapons`, `replace-armors` itd. są zarezerwowane w schemacie ale nie zaimplementowane; v1 obsługuje tylko `merge`. Zob. [55 §6](55-build-template.md).
+- **Build Template forward-compat `version=2` testy** — `SchemaVersion=1` jedyny akceptowany; brak testów scenariuszy unknown-future-fields. `needs verification` w [55 §18 / §21.L8](55-build-template.md).
+- **Cross-platform PS4 vs PC portability dla Build Template** — schema jest portable z założenia (no save-local handles), ale brak E2E testu eksportu PS4 → import PC i odwrotnie. `needs verification`.
+
+---
+
 ## Spis treści książki
 
 ### Part I — Save File Format Fundamentals
@@ -150,8 +168,8 @@ Zaimplementowane mechanizmy edytora — działają w aktualnym kodzie.
 | 50 | [Item Companion Flags](50-item-companion-flags.md) | `canonical` | SET+CLEAR mechanism (v0.14.0) |
 | 52 | [Acquisition Sort — Stride-2](52-acquisition-sort-stride2.md) | `canonical` | Stride-2 algorytm, bucket-collision guard, 3 ścieżki write (`ReorderInventory`/`ReorderStorage`/`writeContainerLayout`) — Phase 2 Step 5 |
 | 53 | [Inventory ↔ Storage Transfer](53-inventory-storage-transfer.md) | `canonical` | Dwie ścieżki transferu (legacy core + workspace), rehandle, equipped guard, SortOrderTab workspace UI — Phase 2 Step 6 |
-| 54 | [Ash of War](54-ash-of-war.md) | `canonical` | Sentinele 0x00/0xFFFFFFFF + invariant unikalności + AoW guard (commit `6881cb9`) |
-| 55 | [Build Template](55-build-template.md) | `canonical` | JSON v1, portable export bez save-local handles |
+| 54 | [Ash of War](54-ash-of-war.md) | `canonical` | Sentinele 0x00/0xFFFFFFFF + invariant unikalności + AoW guard (commit `6881cb9`), workspace/strict write paths, fail-closed compat — Phase 3 Step 1 |
+| 55 | [Build Template](55-build-template.md) | `canonical` | JSON v1, portable export bez save-local handles, capacity preflight, RAM-only apply z rollback, Phase E local library — Phase 3 Step 2 |
 
 ### Part III — Verified Game Mechanics
 
