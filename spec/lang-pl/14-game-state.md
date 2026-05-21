@@ -15,7 +15,7 @@ Zdefiniować jednoznacznie:
 - które pola są write-capable przez `SaveCharacter` / `CharacterViewModel`,
 - które pola są read-only (parse + roundtrip verbatim bez settera),
 - jaka jest relacja do World State ([16](16-world-state.md)) i Event Flags ([15](15-event-flags.md)),
-- co jest planned/research-only (boss multi-flag → [38](38-boss-multiflag.md)).
+- co jest planned lub research-only (boss multi-flag → [38](38-boss-multiflag.md)).
 
 Nie powiela szczegółów event flag helper API (patrz [15](15-event-flags.md)), World State subsystem map (patrz [16](16-world-state.md)), ani Sites of Grace activation flow (patrz [47](47-site-of-grace-activation.md)).
 

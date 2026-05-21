@@ -147,4 +147,4 @@ Tabela szacunkowych nakładów pracy (oryginalna):
 - **Rola obecna**: historical project decision log.
 - **Aktualizacje**: dokument nie jest aktywnie utrzymywany. Wszelkie zmiany write-path / algorytm / UI idą do canonical chapter ([52](52-acquisition-sort-stride2.md), [53](53-inventory-storage-transfer.md), [07](07-inventory.md), [10](10-storage.md)).
 - **Wartość**: log decyzji projektowych dla implementatorów chcących zrozumieć **dlaczego** Sort Order wygląda tak jak wygląda i **co** zostało odrzucone (stride-1, `InventoryGrid.tsx` toggle, preset persistence).
-- **Status w księdze**: pozostaje w głównym katalogu `spec/lang-pl/`. Nie przenoszony do `archive/` ani `planned/` w Phase 2.
+- **Status w księdze**: pozostaje w głównym katalogu `spec/lang-pl/` jako historical design note (superseded by 52/53).

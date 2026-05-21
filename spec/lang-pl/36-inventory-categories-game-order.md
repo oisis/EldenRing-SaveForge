@@ -322,10 +322,10 @@ Kanoniczne mechanizmy — w [52](52-acquisition-sort-stride2.md) (algorytm) i [5
 
 Aktualna taksonomia powstała w dwóch fazach:
 
-1. **archive/33** — [DB Categorization Audit](archive/33-db-categorization-audit.md): wprowadzenie kategorii `info` (Information tab), reklasyfikacja Multiplayer Items / Remembrances / Crystal Tears, audyt flag `cut_content` / `ban_risk`. Source-of-truth przesunięty z `er-save-manager/Goods/*.txt` (community taxonomy) na Fextralife per-item breadcrumb + in-game observation.
+1. **DB Categorization Audit (2025)**: wprowadzenie kategorii `info` (Information tab), reklasyfikacja Multiplayer Items / Remembrances / Crystal Tears, audyt flag `cut_content` / `ban_risk`. Source-of-truth przesunięty z `er-save-manager/Goods/*.txt` (community taxonomy) na Fextralife per-item breadcrumb + in-game observation. Pełny post-mortem zachowany w git history (dawne `33-db-categorization-audit.md` z podkatalogu archive, usunięte w Phase 4+ cleanup).
 2. **Phase 36** (kwiecień 2026, `feat/inventory-game-accurate-categories`, zmergowany): finalizacja game-order alignment — 18 zakładek w kolejności gry, sub-grupy per zakładka, drobne reklasyfikacje (Larval Tears → Key Items / Larval Tears + Deathroot; Torches → Shields; Region Maps → Key Items / World Maps; Golden Runes → Tools; Perfume Bottles → Melee / Perfume Bottles (DLC); Bastard Sword → Greatswords). Rename plików: `weapons.go` → `melee_armaments.go`, `aows.go` → `ashes_of_war.go`, `helms.go` → `head.go` (var names `Weapons`, `Aows`, `Helms` zachowane bez zmian).
 
-Szczegóły migracji z fazy 1 — w [archive/33](archive/33-db-categorization-audit.md). Bieżący stan kodu jest source-of-truth; powyższe pozostaje wyłącznie kontekstem decyzji projektowych.
+Bieżący stan kodu jest source-of-truth; powyższe pozostaje wyłącznie kontekstem decyzji projektowych.
 
 ---
 
@@ -375,7 +375,6 @@ Testy DB-level dotykające category:
 - [43 — Transactional item adding](43-transactional-item-adding.md) — `AddItemsToCharacter`, walidacja per category (np. `weaponCategorySupportsInfusion`).
 - [52 — Acquisition stride-2 sort order](52-acquisition-sort-stride2.md) — stride-2 reorder per Sort Order tab.
 - [53 — Inventory ↔ Storage transfer](53-inventory-storage-transfer.md) — SortOrderTab workspace UI, transfer mechanics.
-- [archive/33 — DB Categorization Audit](archive/33-db-categorization-audit.md) — historyczny audit, wprowadzenie kategorii `info`.
 
 ---
 
@@ -392,4 +391,3 @@ Testy DB-level dotykające category:
 - `backend/db/data/tools.go` — inline SubCategory dla wszystkich Tools.
 - `backend/core/structures.go:20-24` — `ItemTypeWeapon/Armor/Accessory/Item/Aow` konstanty.
 - `docs/CHANGELOG.md` — wpisy `feat(database): 18 in-game category tabs` i `feat(db): info category extraction`.
-- [archive/33 — DB Categorization Audit](archive/33-db-categorization-audit.md) — wcześniejszy audit jako kontekst historyczny.

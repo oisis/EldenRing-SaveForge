@@ -11,14 +11,7 @@
 
 ## Jak czytać tę dokumentację
 
-Dokumenty w głównym katalogu `spec/lang-pl/` to **kanoniczne rozdziały podręcznika** — zweryfikowana wiedza o formacie binarnym i zaimplementowanych systemach edytora. Trzy podkatalogi zawierają materiały, które nie należą do głównej narracji:
-
-| Katalog | Zawartość | Status |
-|---|---|---|
-| `spec/lang-pl/` (root) | Kanoniczne rozdziały — aktualna wiedza referencyjna | source of truth |
-| `spec/lang-pl/research/` | Historyczne badania, negatywne wyniki, wstrzymane investigacje | nie aktualny stan |
-| `spec/lang-pl/planned/` | Design doci bez (pełnej) implementacji | nie odzwierciedla kodu |
-| `spec/lang-pl/archive/` | Dokumenty zastąpione nowszymi rozdziałami — zachowane dla historii | historyczne |
+Wszystkie dokumenty żyją bezpośrednio w `spec/lang-pl/`. Większość to **kanoniczne rozdziały podręcznika** — zweryfikowana wiedza o formacie binarnym i zaimplementowanych systemach edytora. Kilka dokumentów ma status `research` lub `planned` — wyraźnie oznaczone w spisie treści — i pozostają w głównym katalogu jako pomocniczy materiał referencyjny.
 
 **Legenda statusów** używana w spisie treści poniżej:
 
@@ -28,9 +21,8 @@ Dokumenty w głównym katalogu `spec/lang-pl/` to **kanoniczne rozdziały podrę
 | `implemented, needs rewrite` | Kod istnieje i działa, ale dokument wymaga przepisania w canonical template |
 | `partial` | Częściowo zweryfikowane / częściowo zaimplementowane — wymaga uzupełnień |
 | `needs verification` | Konflikt doc vs code — wymaga manualnej weryfikacji per sekcja |
-| `research` | Negatywny wynik lub wstrzymane badanie — `research/` |
-| `planned` | Design bez implementacji — `planned/` |
-| `archived` | Zastąpione nowszym dokumentem — `archive/` |
+| `research` | Negatywny wynik lub wstrzymane badanie |
+| `planned` | Design bez implementacji w kodzie |
 
 ---
 
@@ -212,9 +204,7 @@ Historia badań, wstrzymane investigacje, negatywne wyniki.
 | Dok | Tytuł | Status | Notatka |
 |---|---|---|---|
 | 30 | [Slot Rebuild — Research](30-slot-rebuild-research.md) | `research` | Dziennik pomiarów slack 11 slotów; finalna implementacja: `RebuildSlot` |
-| 41 | [Info-Tab Ground Drop](research/41-info-tab-ground-drop.md) | `research` | 🐛 Wstrzymane — wymagana dekompilacja EMEVD |
 | 42 | [Summoning Pools Bug](42-summoning-pools-bug.md) | `research` | 🐛 Wstrzymane — UI działa, brak efektu in-game |
-| 46 | [Faster Invasions](research/46-faster-invasions-research.md) | `research` (negative) | Werdykt: niemożliwe przez plik save |
 
 ### Planowane
 
@@ -222,18 +212,8 @@ Design doci bez implementacji w kodzie.
 
 | Dok | Tytuł | Status | Notatka |
 |---|---|---|---|
-| 37 | [Character Presets (JSON)](37-character-presets.md) | `needs verification` ⚠️ | **Pozostaje w głównym katalogu** — `backend/vm/preset.go` ma `CharacterPreset/VMToPreset/PresetToVM/ValidatePreset`, ale doc deklaruje „Planowany". Wymaga weryfikacji per faza przed przesunięciem do `planned/`. |
+| 37 | [Character Presets (JSON)](37-character-presets.md) | `needs verification` ⚠️ | `backend/vm/preset.go` ma `CharacterPreset/VMToPreset/PresetToVM/ValidatePreset`, ale doc deklaruje „Planowany". Wymaga weryfikacji per faza. |
 | 38 | [Boss Multi-Flag](38-boss-multiflag.md) | `planned` | Kod ma 1-flag model; design wymaga `EventFlags []uint32` (nie wdrożone) |
-| 40 | [DB Cleanup Plan](planned/40-db-cleanup-plan.md) | `planned` | Fazy A-G; weryfikacja per faza wymagana |
-| 51 | [Advanced Save Editor](planned/51-advanced-save-editor.md) | `planned` | Brak `AdvancedSaveEditor` w kodzie |
-
-### Archiwum
-
-Dokumenty zastąpione nowszymi rozdziałami — zachowane dla historii.
-
-| Dok | Tytuł | Status | Notatka |
-|---|---|---|---|
-| 33 | [DB Categorization Audit](archive/33-db-categorization-audit.md) | `archived` | Post-mortem migracji DB; zastąpione przez 36 |
 
 ### Appendix (planowany)
 
@@ -302,4 +282,4 @@ Dokumenty zastąpione nowszymi rozdziałami — zachowane dla historii.
 
 ## Tłumaczenia
 
-Angielskie wersje wszystkich dokumentów specyfikacji znajdują się w [`spec/`](../) (katalog nadrzędny). **Uwaga**: reorganizacja Phase 1 dotyczy tylko `spec/lang-pl/` — wersja angielska zostanie zsynchronizowana w późniejszej fazie.
+Angielskie wersje wszystkich dokumentów specyfikacji znajdują się w [`spec/`](../) (katalog nadrzędny). **Uwaga**: reorganizacja i cleanup Phase 1–4 dotyczy tylko `spec/lang-pl/` — wersja angielska zostanie zsynchronizowana w późniejszej fazie.
