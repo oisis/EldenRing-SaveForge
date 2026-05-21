@@ -134,7 +134,7 @@ Po ukończeniu Phase 4 (canonical rewrites i refresh: 11, 14, 15, 16, 17, 19, 27
 - **PvP "ready" scope ograniczony** — Matchmaking Regions ✅; Colosseums z fizycznymi bramami w `WorldGeomMan` blob (nieedytowalne); Summoning Pools impact „Bloody Finger invasion impact is unconfirmed"; Sites of Grace module **disabled** (zob. [48 §16.1](48-pvp-ready-modular-presets.md)).
 - **Player Coordinates / Weather-Time read-only** — brak publicznych setterów; `grep "Set..." → 0`; każda mutacja przez direct hex edit jest na odpowiedzialności użytkownika (zob. [17 §6](17-player-coordinates.md), [19 §6](19-weather-time.md)).
 - **Game State: LastRestedGrace read-only, ClearCount jako jedyny write path** — `LastRestedGrace` BonfireId jest read-only (gra zarządza runtime); `ClearCount` ma write przez `SaveCharacter` + event flag sync 50-57, ale brak progression consistency validator (zob. [14 §8.3](14-game-state.md), [14 §9.2](14-game-state.md)).
-- **Boss multi-flag editor pozostaje planned** — aktualny `SetBossDefeated` jest single-flag; multi-flag design w [planned/38-boss-multiflag.md](planned/38-boss-multiflag.md) (zob. [14 §12](14-game-state.md)).
+- **Boss multi-flag editor pozostaje planned** — aktualny `SetBossDefeated` jest single-flag; multi-flag design w [38-boss-multiflag.md](38-boss-multiflag.md) (zob. [14 §12](14-game-state.md)).
 
 ---
 
@@ -211,9 +211,9 @@ Historia badań, wstrzymane investigacje, negatywne wyniki.
 
 | Dok | Tytuł | Status | Notatka |
 |---|---|---|---|
-| 30 | [Slot Rebuild — Research](research/30-slot-rebuild-research.md) | `research` | Dziennik pomiarów slack 11 slotów; finalna implementacja: `RebuildSlot` |
+| 30 | [Slot Rebuild — Research](30-slot-rebuild-research.md) | `research` | Dziennik pomiarów slack 11 slotów; finalna implementacja: `RebuildSlot` |
 | 41 | [Info-Tab Ground Drop](research/41-info-tab-ground-drop.md) | `research` | 🐛 Wstrzymane — wymagana dekompilacja EMEVD |
-| 42 | [Summoning Pools Bug](research/42-summoning-pools-bug.md) | `research` | 🐛 Wstrzymane — UI działa, brak efektu in-game |
+| 42 | [Summoning Pools Bug](42-summoning-pools-bug.md) | `research` | 🐛 Wstrzymane — UI działa, brak efektu in-game |
 | 46 | [Faster Invasions](research/46-faster-invasions-research.md) | `research` (negative) | Werdykt: niemożliwe przez plik save |
 
 ### Planowane
@@ -223,7 +223,7 @@ Design doci bez implementacji w kodzie.
 | Dok | Tytuł | Status | Notatka |
 |---|---|---|---|
 | 37 | [Character Presets (JSON)](37-character-presets.md) | `needs verification` ⚠️ | **Pozostaje w głównym katalogu** — `backend/vm/preset.go` ma `CharacterPreset/VMToPreset/PresetToVM/ValidatePreset`, ale doc deklaruje „Planowany". Wymaga weryfikacji per faza przed przesunięciem do `planned/`. |
-| 38 | [Boss Multi-Flag](planned/38-boss-multiflag.md) | `planned` | Kod ma 1-flag model; design wymaga `EventFlags []uint32` (nie wdrożone) |
+| 38 | [Boss Multi-Flag](38-boss-multiflag.md) | `planned` | Kod ma 1-flag model; design wymaga `EventFlags []uint32` (nie wdrożone) |
 | 40 | [DB Cleanup Plan](planned/40-db-cleanup-plan.md) | `planned` | Fazy A-G; weryfikacja per faza wymagana |
 | 51 | [Advanced Save Editor](planned/51-advanced-save-editor.md) | `planned` | Brak `AdvancedSaveEditor` w kodzie |
 

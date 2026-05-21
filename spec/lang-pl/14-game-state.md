@@ -3,7 +3,7 @@
 > **Type**: Binary format spec + canonical chapter
 > **Scope**: Game / profile / progression state w SaveForge — `PreEventFlagsScalars` (29 B), `ClearCount` (NG+ cycle), powiązane write paths przez `CharacterViewModel`, oraz wyraźny rozgraniczenie od World State ([16](16-world-state.md)).
 
-Cross-refs: [01-header.md](01-header.md), [15-event-flags.md](15-event-flags.md), [16-world-state.md](16-world-state.md), [17-player-coordinates.md](17-player-coordinates.md), [19-weather-time.md](19-weather-time.md), [47-site-of-grace-activation.md](47-site-of-grace-activation.md), [48-pvp-ready-modular-presets.md](48-pvp-ready-modular-presets.md), [50-item-companion-flags.md](50-item-companion-flags.md), [planned/38-boss-multiflag.md](planned/38-boss-multiflag.md).
+Cross-refs: [01-header.md](01-header.md), [15-event-flags.md](15-event-flags.md), [16-world-state.md](16-world-state.md), [17-player-coordinates.md](17-player-coordinates.md), [19-weather-time.md](19-weather-time.md), [47-site-of-grace-activation.md](47-site-of-grace-activation.md), [48-pvp-ready-modular-presets.md](48-pvp-ready-modular-presets.md), [50-item-companion-flags.md](50-item-companion-flags.md), [38-boss-multiflag.md](38-boss-multiflag.md).
 
 ---
 
@@ -15,7 +15,7 @@ Zdefiniować jednoznacznie:
 - które pola są write-capable przez `SaveCharacter` / `CharacterViewModel`,
 - które pola są read-only (parse + roundtrip verbatim bez settera),
 - jaka jest relacja do World State ([16](16-world-state.md)) i Event Flags ([15](15-event-flags.md)),
-- co jest planned/research-only (boss multi-flag → [planned/38](planned/38-boss-multiflag.md)).
+- co jest planned/research-only (boss multi-flag → [38](38-boss-multiflag.md)).
 
 Nie powiela szczegółów event flag helper API (patrz [15](15-event-flags.md)), World State subsystem map (patrz [16](16-world-state.md)), ani Sites of Grace activation flow (patrz [47](47-site-of-grace-activation.md)).
 
@@ -31,7 +31,7 @@ Nie powiela szczegółów event flag helper API (patrz [15](15-event-flags.md)),
 | `LastRestedGrace` write endpoint | ❌ **brak** — explicit komentarz w `app_world.go:41` „Does not touch LastRestedGrace — the game updates that automatically on arrival” |
 | `TotalDeathsCount` write endpoint | ❌ brak — read-only (verbatim roundtrip) |
 | `CharacterType`, `InOnlineSessionFlag`, itp. | ❌ brak — read-only verbatim |
-| Boss multi-flag editor | ❌ **planned only** — patrz [planned/38](planned/38-boss-multiflag.md) |
+| Boss multi-flag editor | ❌ **planned only** — patrz [38](38-boss-multiflag.md) |
 | Frontend UI dla NG+ (`clearCount`) | ✅ `DatabaseTab.tsx` (item caps scaling) — read-only display, NIE editor |
 | Test coverage | ✅ `section_eventflags_test.go`, `section_world_geom_test.go`, `pvp_test.go`, `tests/map_flags_test.go` (round-trip + EventFlagsOffset correctness) |
 
@@ -220,7 +220,7 @@ To utrzymuje **inwariant**: dokładnie jedna flaga z `50..57` jest SET w danym m
 
 Edycja `ClearCount` z 0 → N (lub N → M) **nie odwraca**:
 
-- Pokonanych bossów (event flags w pasmach bossowych — patrz [planned/38](planned/38-boss-multiflag.md)).
+- Pokonanych bossów (event flags w pasmach bossowych — patrz [38](38-boss-multiflag.md)).
 - Ukończonych questów.
 - Pozyskanych Map Fragmentów.
 - Aktywowanych Sites of Grace.
@@ -299,7 +299,7 @@ To jest **single-flag editor** — działa na pojedynczych event flagach per bos
 
 **Boss multi-flag editor** (kompleksowa sync wielu flag per boss, np. cutscene flags + memory flags + reward flags) jest **planned only**:
 
-- Patrz [planned/38-boss-multiflag.md](planned/38-boss-multiflag.md).
+- Patrz [38-boss-multiflag.md](38-boss-multiflag.md).
 - Aktualny kod NIE ma implementacji multi-flag sync.
 - UI w `WorldTab.tsx` używa wyłącznie single-flag `SetBossDefeated`.
 
@@ -335,7 +335,7 @@ To jest **single-flag editor** — działa na pojedynczych event flagach per bos
 
 | Obszar | Status | Lokalizacja |
 |---|---|---|
-| Boss multi-flag editor | planned | [planned/38-boss-multiflag.md](planned/38-boss-multiflag.md) |
+| Boss multi-flag editor | planned | [38-boss-multiflag.md](38-boss-multiflag.md) |
 | `LastRestedGrace` write endpoint | brak — gra zarządza runtime, brak planowanej zmiany | n/d |
 | `TotalDeathsCount` / `CharacterType` / inne `PreEventFlagsScalars` write | brak — read-only | n/d |
 | BonfireId ↔ Grace EventFlag mapping | brak — nie sparsowane z `regulation.bin` | `needs verification` |
@@ -447,7 +447,7 @@ Subsequent `WriteSave` zapisuje plik na dysk (z backupem `.sl2.YYYYMMDD_HHMMSS.b
 3. **`NotAloneFlag` boolean ranges** — `needs verification` co ustawia (co-op, invasion, NPC summon?).
 4. **`UnkGameDataMan0x124`** — kompletnie nieznane.
 5. **Drugie wystąpienie BonfireId w NetworkManager** — empiryczne, nie parsowane jako field.
-6. **Boss multi-flag editor** — planned, patrz [planned/38](planned/38-boss-multiflag.md).
+6. **Boss multi-flag editor** — planned, patrz [38](38-boss-multiflag.md).
 7. **BonfireId ↔ Grace EventFlag mapping** — brak w SaveForge.
 8. **ClearCount progression validator** — brak; możliwe boss/quest desync.
 9. **NG+ event flags 50-57 jako single source of truth** — `needs verification` czy gra używa flag czy `ClearCount` field.
@@ -465,7 +465,7 @@ Subsequent `WriteSave` zapisuje plik na dysk (z backupem `.sl2.YYYYMMDD_HHMMSS.b
 - [47-site-of-grace-activation.md](47-site-of-grace-activation.md) — Grace EventFlag (71xxx-76xxx) NS, rozłączny z BonfireId.
 - [48-pvp-ready-modular-presets.md](48-pvp-ready-modular-presets.md) — PvP modular presets (orchestrator world state, nie Game State).
 - [50-item-companion-flags.md](50-item-companion-flags.md) — item lifecycle hooks, side-effect na event flagi.
-- [planned/38-boss-multiflag.md](planned/38-boss-multiflag.md) — planowany boss multi-flag editor.
+- [38-boss-multiflag.md](38-boss-multiflag.md) — planowany boss multi-flag editor.
 
 ## 20. Sources
 

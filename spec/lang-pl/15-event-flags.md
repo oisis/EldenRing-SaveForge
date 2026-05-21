@@ -34,9 +34,9 @@ Ten rozdział **nie** zawiera:
 - ✅ Helper API (`GetEventFlag`/`SetEventFlag`) — round-trip stable, używany przez 20+ callsites w `app_world.go`.
 - ✅ BST embed (`eventflag_bst.txt`, 11 919 wpisów — snapshot 2026-05-21) — generowany offline ze skryptu, embedded via `//go:embed`.
 - ✅ Precomputed lookup (`event_flags.go`, 865 wpisów `EventFlagInfo{Byte, Bit}` — snapshot 2026-05-21).
-- ⚠️ Boss multi-flag editing — **nie zaimplementowany** (`SetEventFlag` ustawia pojedynczy bit; multi-flag jest planowany w `planned/38`).
+- ⚠️ Boss multi-flag editing — **nie zaimplementowany** (`SetEventFlag` ustawia pojedynczy bit; multi-flag jest planowany w `38-boss-multiflag.md`).
 - ⚠️ PvP modular preset moduł E (Sites of Grace) — **nie aktywny** (warning „planned but not enabled" w `app_pvp.go:109`).
-- ⚠️ Summoning pools moduł D — flagi się ustawiają, ale gra runtime nie honoruje (patrz `research/42`).
+- ⚠️ Summoning pools moduł D — flagi się ustawiają, ale gra runtime nie honoruje (patrz `42-summoning-pools-bug.md`).
 
 **Ostatnia weryfikacja**: 2026-05-21 na `tmp/save/ER0000.sl2` (PC) + `tmp/save/oisis_pl-org.txt` (PS4) via round-trip tests.
 
@@ -313,11 +313,11 @@ Side effects (companion flags, door flags, region flags itd.) są realizowane pr
 | Grace companion flags (Gatefront 76111 → te same 4 ID-y) | **SET-only asymmetric** — SET przy visit, NIGDY nie CLEAR | [47](47-site-of-grace-activation.md) |
 | Site of Grace `visited` flag (71xxx–76xxx) | Symmetric — caller toggluje swobodnie | [47](47-site-of-grace-activation.md) |
 | DoorFlag (auto-open przy SetGraceVisited) | Set razem z grace; CLEAR razem z grace | [47](47-site-of-grace-activation.md) |
-| Boss defeat flag (9xxx) | Symmetric pojedynczy bit; ⚠️ pełne defeat wymagałoby multi-flag (planned/38) | [14](14-game-state.md), [planned/38](planned/38-boss-multiflag.md) |
+| Boss defeat flag (9xxx) | Symmetric pojedynczy bit; ⚠️ pełne defeat wymagałoby multi-flag (38-boss-multiflag.md) | [14](14-game-state.md), [38](38-boss-multiflag.md) |
 | Map visible flag (62xxx) | Symmetric; revealBaseMap robi SET dla całej grupy | [27](27-map-reveal.md) |
 | Map fragment item-pickup flag (63xxx, 66xxx) | SET-only w aktualnym kodzie (brak CLEAR-on-remove dla container pickup flags) — `needs verification` czy ten brak jest intencjonalny | [27](27-map-reveal.md), [50](50-item-companion-flags.md) |
 | Colosseum unlock (60xxx + global 6080/60100/69480) | Symmetric, ale globalne flagi są shared między colosseums | [48](48-pvp-ready-modular-presets.md) |
-| Summoning pool activation (670xxx) | Symmetric w save'ie, ale **runtime nie honoruje** | [48](48-pvp-ready-modular-presets.md), [research/42](research/42-summoning-pools-bug.md) |
+| Summoning pool activation (670xxx) | Symmetric w save'ie, ale **runtime nie honoruje** | [48](48-pvp-ready-modular-presets.md), [42](42-summoning-pools-bug.md) |
 | Ash of War menu unlock (`AoWMenuUnlockedFlag` = 65800) | Symmetric, auto-managed przy whetblade unlocks | (zob. `app_world.go::SetWhetbladeUnlocked`) |
 
 **Zasada**: w `15` nie rozstrzygamy poszczególnych polityk. Każdy domenowy rozdział (47/50/48/27/14) jest source of truth dla swojej polityki.
@@ -333,8 +333,8 @@ Wybrane callsity `db.SetEventFlag` / `db.GetEventFlag` w aktualnym kodzie (`app_
 | Caller | Rola | Typowe ID range | Cross-ref |
 |---|---|---|---|
 | `GetGraces`/`SetGraceVisited` | Read+write grace visited; auto door flag + companion flags | 71000–76960 | [47](47-site-of-grace-activation.md) |
-| `GetBosses`/`SetBossDefeated` | Read+write boss defeat (single flag) | 9xxx (+DLC) | [14](14-game-state.md), [planned/38](planned/38-boss-multiflag.md) |
-| `GetSummoningPools`/`SetSummoningPoolActivated` | Read+write pool activation | 670xxx | [48](48-pvp-ready-modular-presets.md), [research/42](research/42-summoning-pools-bug.md) |
+| `GetBosses`/`SetBossDefeated` | Read+write boss defeat (single flag) | 9xxx (+DLC) | [14](14-game-state.md), [38](38-boss-multiflag.md) |
+| `GetSummoningPools`/`SetSummoningPoolActivated` | Read+write pool activation | 670xxx | [48](48-pvp-ready-modular-presets.md), [42](42-summoning-pools-bug.md) |
 | `GetColosseums`/`SetColosseumUnlocked` | Read+write colosseum + global flags | 60xxx + 6080/60100/69480 | [48](48-pvp-ready-modular-presets.md) |
 | `GetCookbooks`/`SetCookbookUnlocked` | Read+write recipe unlock | 67xxx, 68xxx | — |
 | `revealBaseMap`/`revealDLCMap`/`ResetMapExploration` | Set map visible / clear; add map fragment items | 62xxx, 63xxx, 82xxx | [27](27-map-reveal.md) |
@@ -420,12 +420,12 @@ Resolver tier-3 (fallback) **nie waliduje** czy ID jest znane. Każdy `uint32` j
 
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
-| S1 | Ustawienie boss-defeat flag bez powiązanych flag (arena, quest, drop, world) = inconsistent state (Tier 1 ban-risk) | 🔴 high | Multi-flag planned w [planned/38](planned/38-boss-multiflag.md); current single-flag = best effort. UI ostrzega via `RISK_INFO` „Kill All Bosses". |
+| S1 | Ustawienie boss-defeat flag bez powiązanych flag (arena, quest, drop, world) = inconsistent state (Tier 1 ban-risk) | 🔴 high | Multi-flag planned w [38](38-boss-multiflag.md); current single-flag = best effort. UI ostrzega via `RISK_INFO` „Kill All Bosses". |
 | S2 | CLEAR grace companion flag (np. ręcznie wyczyszczenie 60100) gdy gracz posiada Whistle przez quest = quest regression | 🔴 high | Grace companion flags są SET-only by design (zob. [47](47-site-of-grace-activation.md)). Nigdy nie wywołuj `SetEventFlag(60100, false)` manualnie. |
 | S3 | Ustawienie nieznanego ID (poza precomputed + BST) → fallback formula trafia w przypadkowy bit | 🔴 high | Nie wywołuj `SetEventFlag` dla raw uint32 z UI; zawsze przez domenowe API (`SetGraceVisited` itp.). |
 | S4 | Bulk unlock (np. `Unlock All Graces`) bez snapshot-undo → user może nie być w stanie cofnąć | ⚠️ medium | UI ma Tier 1 confirmation (zob. [32](32-ban-risk-system.md)) + save level snapshot przed Apply. |
 | S5 | Map visible flag set bez fragmentu item → mapa widoczna ale gra może próbować re-trigger pickup cutscene | ⚠️ medium | `revealBaseMap` robi BOTH (flag + item) atomic — używaj jego, nie raw flag. Patrz [27](27-map-reveal.md). |
-| S6 | Summoning pool flag set, ale gra runtime nie honoruje → user thinks pool aktywny, ale invasion nie działa | ⚠️ low | `app_pvp.go` zwraca warning „Bloody Finger invasion impact is unconfirmed". Patrz [research/42](research/42-summoning-pools-bug.md). |
+| S6 | Summoning pool flag set, ale gra runtime nie honoruje → user thinks pool aktywny, ale invasion nie działa | ⚠️ low | `app_pvp.go` zwraca warning „Bloody Finger invasion impact is unconfirmed". Patrz [42](42-summoning-pools-bug.md). |
 | S7 | Slot offset 0 (chain unreachable) → SetEventFlag na bajt 0 slotu = corrupted other section | 🔴 high | Parser emituje warning `EventFlagsOffset 0x... >= SlotSize` → caller musi to wykryć. Test `TestEventFlagsOffsetCorrectness` weryfikuje offset. |
 
 ---
@@ -460,9 +460,9 @@ Brak dedicated test:
 
 | # | Limit / gap | Status | Notatka |
 |---|---|---|---|
-| L1 | Boss multi-flag editing | ❌ not implemented | Patrz [planned/38](planned/38-boss-multiflag.md). Current = pojedyncza flaga 9xxx. |
+| L1 | Boss multi-flag editing | ❌ not implemented | Patrz [38](38-boss-multiflag.md). Current = pojedyncza flaga 9xxx. |
 | L2 | PvP modular preset moduł E (Sites of Grace) | ❌ placeholder | `app_pvp.go:109` warning „planned but not enabled". Patrz [48](48-pvp-ready-modular-presets.md). |
-| L3 | Summoning pool runtime honor | ⚠️ flag set, ale gra nie honoruje | Patrz [research/42](research/42-summoning-pools-bug.md). |
+| L3 | Summoning pool runtime honor | ⚠️ flag set, ale gra nie honoruje | Patrz [42](42-summoning-pools-bug.md). |
 | L4 | Walidacja unknown ID w `SetEventFlag` | ❌ brak | Tier-3 fallback trafia w przypadkowy bit. `needs verification` przy każdej zmianie zewnętrznego ID. |
 | L5 | BST coverage po update'cie regulation | ⚠️ `eventflag_bst.txt` może wymagać re-extracji po patchu gry | Brak automatycznego diff vs regulation. |
 | L6 | Multi-flag atomic rollback | ❌ brak | Multi-flag ops nie są atomic. Caller-level snapshot wymagany. |
@@ -483,9 +483,9 @@ Brak dedicated test:
 | Sites of Grace activation + companion flags (SET-only) | [47 — Sites of Grace Activation](47-site-of-grace-activation.md) |
 | Item companion flags (SET + CLEAR symmetric) | [50 — Item Companion Flags](50-item-companion-flags.md) |
 | Boss defeat flag + LastRestedGrace + ClearCount | [14 — Game State](14-game-state.md) |
-| Boss multi-flag design (planowane) | [planned/38 — Boss Multi-Flag](planned/38-boss-multiflag.md) |
+| Boss multi-flag design (planowane) | [38 — Boss Multi-Flag](38-boss-multiflag.md) |
 | PvP modular presets (regions/colosseums/map/pools/graces) | [48 — PvP Modular Presets](48-pvp-ready-modular-presets.md) |
-| Summoning pools runtime gap | [research/42 — Summoning Pools Bug](research/42-summoning-pools-bug.md) |
+| Summoning pools runtime gap | [42 — Summoning Pools Bug](42-summoning-pools-bug.md) |
 | World state (FieldArea, WorldArea, WorldGeomMan, RendMan — read-only) | [16 — World State](16-world-state.md) |
 | Ban-risk Tier 1 UI for bulk flag operations | [32 — Ban-Risk System](32-ban-risk-system.md) |
 

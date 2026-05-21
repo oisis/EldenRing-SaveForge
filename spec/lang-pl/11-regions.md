@@ -33,7 +33,7 @@ Ten rozdział **nie** powiela:
 - event flag bit/byte indexing → [15 — Event Flags](15-event-flags.md)
 - DLC Cover Layer detail → [29 — DLC Black Tiles](29-dlc-black-tiles.md)
 - item companion semantics → [50 — Item Companion Flags](50-item-companion-flags.md)
-- pełnego slot rebuild research → [research/30](research/30-slot-rebuild-research.md)
+- pełnego slot rebuild research → [30](30-slot-rebuild-research.md)
 
 ---
 
@@ -288,7 +288,7 @@ Generic event flag fundament (bit/byte indexing, BST resolver, helper API, bound
 | Funkcja | Sygnatura | Notatka |
 |---|---|---|
 | `SetUnlockedRegions(slot, ids)` | `error` | Dedup + sort + `RebuildSlot` + rollback |
-| `RebuildSlot(slot)` | `([]byte, error)` | Pełny sekwencyjny serializer slotu (zob. [research/30](research/30-slot-rebuild-research.md)) |
+| `RebuildSlot(slot)` | `([]byte, error)` | Pełny sekwencyjny serializer slotu (zob. [30](30-slot-rebuild-research.md)) |
 
 ### 9.3 PvP integration
 
@@ -450,7 +450,7 @@ Brak dedicated test:
 | Sites of Grace (related — fast travel between graces) | [47 — Sites of Grace](47-site-of-grace-activation.md) |
 | World state (FieldArea, WorldArea — read-only, brak związku z L0) | [16 — World State](16-world-state.md) |
 | PvP modular MatchmakingRegions module | [48 — PvP Modular Presets](48-pvp-ready-modular-presets.md) |
-| Slot rebuild research (`RebuildSlot` design) | [research/30 — Slot Rebuild Research](research/30-slot-rebuild-research.md) |
+| Slot rebuild research (`RebuildSlot` design) | [30 — Slot Rebuild Research](30-slot-rebuild-research.md) |
 | Ban-risk Tier 1 UI (Invasion Regions risk banner) | [32 — Ban-Risk System](32-ban-risk-system.md) |
 
 ---

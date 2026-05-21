@@ -25,7 +25,7 @@ Ten rozdział **nie** powiela:
 - binary layout `UnlockedRegions` array → [11](11-regions.md)
 - DLC tile coordinate detail → [29](29-dlc-black-tiles.md)
 - companion item / fragment add-pickup semantics → [50](50-item-companion-flags.md)
-- pełny slot rebuild research → `research/30-slot-rebuild-research.md`
+- pełny slot rebuild research → `30-slot-rebuild-research.md`
 
 ---
 
@@ -527,7 +527,7 @@ Brak dedicated test:
 | World state (FieldArea, WorldArea, WorldGeomMan — read-only, not map) | [16 — World State](16-world-state.md) |
 | Game state (LastRestedGrace, ClearCount, GaItem Game Data) | [14 — Game State](14-game-state.md) |
 | PvP modular RevealMap module (uses `revealBaseMap` + `revealDLCMap` internally) | [48 — PvP Modular Presets](48-pvp-ready-modular-presets.md) |
-| Slot rebuild research (full sequential serializer) | [research/30 — Slot Rebuild Research](research/30-slot-rebuild-research.md) |
+| Slot rebuild research (full sequential serializer) | [30 — Slot Rebuild Research](30-slot-rebuild-research.md) |
 | Ban-risk Tier 1 UI confirmation (`map_reveal_full`) | [32 — Ban-Risk System](32-ban-risk-system.md) |
 
 ---

@@ -156,7 +156,7 @@ Po wszystkich fazach `spec/lang-pl/` ma się składać z 30 rozdziałów + 7 za�
   - **Step 7**: `48-pvp-ready-modular-presets.md` — current reference rewrite (5 modułów: 4 active + 1 placeholder, single pushUndo, fail-fast bez auto-restore, Sites of Grace module E placeholder explicit). Commit `b25fbd2 docs(lang-pl): rewrite pvp modular presets reference`.
   - **Step 8**: `16-world-state.md` — overview/index rewrite (subsystem map 11 wierszy, read-only verbatim blobs vs write-capable via bitfield, WorldGeomBlock corruption risk). Commit `5a00cdd docs(lang-pl): rewrite world state overview`.
   - **Step 9**: `17-player-coordinates.md` + `19-weather-time.md` — read-only refresh (**17 fix: 57→61 B z `12+4+16+1+12+16`**, brak setterów; 19 brak setterów, usunięte stare heurystyki korupcji). Commit `d7228a5 docs(lang-pl): refresh coordinates weather and time references`.
-  - **Step 10**: `14-game-state.md` — canonical rewrite (PreEventFlagsScalars 29 B z 11 polami, ClearCount write path z SaveCharacter + NG+ event flag sync 50-57, LastRestedGrace read-only, boss multi-flag → planned/38). Commit `5c729a7 docs(lang-pl): rewrite game state reference`.
+  - **Step 10**: `14-game-state.md` — canonical rewrite (PreEventFlagsScalars 29 B z 11 polami, ClearCount write path z SaveCharacter + NG+ event flag sync 50-57, LastRestedGrace read-only, boss multi-flag → 38-boss-multiflag.md). Commit `5c729a7 docs(lang-pl): rewrite game state reference`.
 - **Akceptacja**: wszystkie 10 rozdziałów ma canonical template, cross-refs między sobą bez duplikacji, source-of-truth w kodzie z liniami, `needs verification` markers gdzie kod nie potwierdza w 100%, brak overclaimów (najważniejsze poprawki: `PlayerCoordinatesSize 57→61 B` w 17, "Faza 1 kompletna" → "4 active + 1 placeholder" w 48, "SaveCharacter nie ma pushUndo" → "SaveCharacter ma pushUndo" w 14).
 - **Effort rzeczywisty**: 10 commitów na branchu `docs/lang-pl-book-cleanup`.
 
@@ -175,7 +175,7 @@ Po wszystkich fazach `spec/lang-pl/` ma się składać z 30 rozdziałów + 7 za�
 - **PvP "ready" scope ograniczony** — physical colosseum gates w WorldGeomMan blob nieedytowalne; Summoning Pools "Bloody Finger impact unconfirmed".
 - **Player Coordinates / Weather-Time read-only** — brak publicznych setterów, każda mutacja przez direct hex edit.
 - **Game State: LastRestedGrace read-only** — ClearCount jedyny write path z `SaveCharacter` + flag sync 50-57; brak progression consistency validator.
-- **Boss multi-flag editor pozostaje planned** — single-flag `SetBossDefeated` aktualnie; multi-flag w `planned/38`.
+- **Boss multi-flag editor pozostaje planned** — single-flag `SetBossDefeated` aktualnie; multi-flag w `38-boss-multiflag.md`.
 
 ### Phase 4 Step 11 — index update (bieżący)
 
