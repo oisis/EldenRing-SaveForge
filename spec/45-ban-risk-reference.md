@@ -1,100 +1,98 @@
-# 45 — Ban Risk Reference
+# 45 — Ban Risk Documentation
 
-> **Type**: Reference doc
-> **Status**: ✅ Current (last reviewed 2026-05)
-> **Scope**: Community-reported ban triggers, penalty tiers, and safe-editing practices for Elden Ring online play. Informs the risk tier system documented in spec/32.
+> **Type**: Reference document
+> **Status**: ✅ Current (last verification 2026-05)
+> **Scope**: Community-reported ban triggers, penalty levels, and safe-editing rules for the online mode in Elden Ring. The basis for the risk tier system described in spec/32.
 
-**Important disclaimer**: FromSoftware and Bandai Namco have not published the exact detection rules. Sections labeled **[Official]** are from primary sources. Sections labeled **[RE/verified]** were confirmed from Elden Ring's own game data files (regulation.bin dump in `tmp/regulation-bin-dump/`). Sections labeled **[Community-technical]** are from technically credible community RE reports. Sections labeled **[Community]** are unverified player reports.
+**Important disclaimer**: FromSoftware and Bandai Namco have not published the exact detection rules. Sections marked **[Official]** come from official primary sources. **[RE/verified]** sections were confirmed from our own game data files (the regulation.bin dump in `tmp/regulation-bin-dump/`). **[Community-technical]** sections are technically credible community RE reports. **[Community]** sections are unverified player reports.
 
 ---
 
-## 1. Detection Architecture
+## 1. Detection system architecture
 
 ### 1.1 Easy Anti-Cheat (EAC)
 
-**[Community-technical]** — Runs locally in **user-mode** (not kernel-level; Elden Ring uses user-mode EAC unlike Nightreign 2025 which uses kernel-level EAC). At game launch, EAC:
+**[Community-technical]** — Runs locally in **user-mode** (not kernel-level; Elden Ring uses user-mode EAC, unlike Nightreign 2025, which uses kernel-level EAC). On game start EAC:
 
-1. Detects processes hooking or manipulating game memory (e.g. Cheat Engine running alongside).
-2. Verifies integrity of game binaries on disk before allowing the game to start.
+1. Detects processes hooking or manipulating game memory (e.g., Cheat Engine running alongside the game).
+2. Verifies the integrity of the game binaries on disk before launch.
 3. Scans memory regions reserved by the game process at runtime.
 
-EAC does **not** read the `.sl2` save file — it inspects only the live game process and binaries.
+EAC does **not** read the `.sl2` file — it verifies only the live game process and the binary on disk.
 
-**[Official]** — In June 2024, FromSoftware officially acknowledged that "Inappropriate activity detected" can appear as a **false positive** without any actual cheating, caused by corrupted game files. The official recommendation was to use Steam's "Verify integrity of game files".
+**[Official]** — In June 2024 FromSoftware officially acknowledged that "Inappropriate activity detected" can appear as a **false positive** without any cheat, caused by corrupted game files. The official recommendation was to use "Verify integrity of game files" in Steam.
 > Source: [ELDENRING on X, June 2024](https://x.com/ELDENRING/status/1806689176449855497)
 
-**EAC bypass methods** — documented on SoulsSpeedruns Wiki:
-- **`steam_appid.txt` method** (does NOT block online): create `steam_appid.txt` containing `1245620` in the `Game/` directory, then launch `eldenring.exe` directly. EAC does not load; online still accessible via Steam.
-- **`start_protected_game.exe` rename method** (blocks online): rename `start_protected_game.exe` + replace with a copy of `eldenring.exe`. Online disabled until restored.
+**EAC bypass methods** — documented on the SoulsSpeedruns Wiki:
+- **The `steam_appid.txt` method** (does not block online): create `steam_appid.txt` with the value `1245620` in the `Game/` directory, run `eldenring.exe` directly. EAC does not load; online is still available through Steam.
+- **The `start_protected_game.exe` rename method** (blocks online): rename `start_protected_game.exe` + replace it with a copy of `eldenring.exe`. Online disabled until restored.
 > Source: [SoulsSpeedruns — EAC Bypass](https://soulsspeedruns.com/eldenring/eac-bypass)
 
-Bypassing EAC only prevents the client-side scan — it does **not** bypass server-side save validation.
+Bypassing EAC disables only the local scan — it does **not** bypass the server-side save file validation.
 
-### 1.2 Server-Side Save Validation
+### 1.2 Server-side save file validation
 
-**[Community-technical]** — Runs on FromSoftware servers during online synchronization. When a player connects online, the server loads their uploaded character state and checks it against what is achievable in a legitimate playthrough. Detection is triggered by:
+**[Community-technical]** — Runs on FromSoftware's servers during online synchronization. On an online connection the server loads the uploaded character state and checks it against what can be achieved in legitimate gameplay. Detection is triggered by:
 
-- Item IDs not present in the retail item tables.
-- Stat combinations outside the achievable range (see §3.2 for the Soul Memory check).
-- Inventory counts exceeding vanilla maximums.
-- Quest/world flag states inconsistent with prerequisite flags.
-- Boss drop items present without the corresponding boss kill event flags.
+- Item IDs that do not exist in the retail item tables.
+- Stat combinations outside the achievable range (see §3.2 — Soul Memory check).
+- Inventory quantities exceeding the vanilla maxima.
+- Quest/world flag states inconsistent with the flags required as a prerequisite.
+- Items from boss drops without the corresponding boss-kill flags.
 
-Bans originate here, not from EAC. A player can run offline with a modified save and EAC active — the penalty only triggers on the next online sync. A confirmed case showed a 5-month delay between violation (October 2022) and penalty (March 2023).
+Bans for save file editing come from here, not from EAC. A player can play offline with a modified save while EAC is active — the penalty triggers only at the next online synchronization. A confirmed case: ~5 months of delay between the violation and the penalty.
 
-**[Community-technical]** — The server does **not** validate a hash of the client's `regulation.bin`. EAC validates the binary on disk before launch; the server checks the resulting character state at connection time. Editing `regulation.bin` values (e.g. `NetworkParam`) is not caught by a server-side file hash comparison because FromSoftware does not appear to implement one — EAC catches a modified binary on the client side before it can connect with EAC active. With EAC bypassed offline, modified `regulation.bin` loads successfully; whether modified NetworkParam values cause detectable character state anomalies at online sync is unconfirmed.
-> Source: FearlessRevolution modding Discord consensus; [waygate-server RE project](https://github.com/vswarte/waygate-server)
+**[Community-technical]** — The server does **not** validate the client's `regulation.bin` hash. EAC verifies the binary file on disk before launch; the server checks the resulting character state on connection. Editing `regulation.bin` values (e.g., `NetworkParam`) is not detected by a server-side hash comparison, because FromSoftware does not implement one — EAC catches a modified client-side file before connection (when EAC is active). With EAC disabled offline, a modified `regulation.bin` loads normally; whether changed NetworkParam values cause detectable character-state anomalies on online synchronization — unconfirmed.
+> Source: FearlessRevolution community RE consensus; [waygate-server RE project](https://github.com/vswarte/waygate-server)
 
-**[Official]** — The in-game penalty message reads:
+**[Official]** — The text of the in-game ban message:
 > *"Unauthorized tampering with the game detected. A quarantine penalty of 180 days will be imposed."*
 
-### 1.3 "Inappropriate activity detected" vs "Your account has been penalized" — two distinct systems
+### 1.3 "Inappropriate activity detected" vs "Your account has been penalized" — two separate systems
 
 These are definitively **two separate messages** from two separate systems:
 
 | Message | System | Meaning |
 | :--- | :--- | :--- |
-| "Inappropriate activity detected" (yellow banner at launch) | Local — EAC or game binary check | Save or binary flagged as suspicious, OR false positive (corrupted files). Still able to play online. |
-| "Your account has been penalized" (red screen at launch) | Server-side — FromSoftware server response | Active 180-day quarantine. Matchmaking restricted to penalized-player pool. |
-
-A player can receive the yellow warning without ever receiving the red penalty — false positive confirmed officially. The escalation path from warning to penalty is community-inferred; FromSoftware has not published the exact threshold.
+| "Inappropriate activity detected" (yellow banner on start) | Local — EAC or binary check | The save or binary is flagged as suspicious, OR a false positive (corrupted files). Playing online is still possible. |
+| "Your account has been penalized" (red screen on start) | Server-side — FromSoftware server response | An active 180-day quarantine. Matchmaking restricted to the pool of penalized players. |
 
 ---
 
-## 2. Penalty Tiers (Community-Inferred)
+## 2. Penalty levels (inferred by the community)
 
 **[Community]** FromSoftware has not published a formal penalty ladder.
 
 | Step | In-game message | Community description |
 | :--- | :--- | :--- |
-| **1 — Warning** | "Inappropriate activity detected" (yellow banner) | Save or binary flagged. Still able to play online. May be a false positive. |
-| **2 — Softban (180 days)** | "Your account has been penalized" (red screen) | Moved to restricted matchmaking pool with other flagged players. |
-| **3 — Repeat softban** | Same red screen | Additional 180-day cycles. See §2.1 for mechanism. |
-| **4 — Permanent ban** | Permanent exclusion | Community-reported, usually after repeated violations or malicious acts. |
+| **1 — Warning** | "Inappropriate activity detected" (yellow banner) | The save is flagged. Playing online is still possible. May be a false positive. |
+| **2 — Softban (180 days)** | "Your account has been penalized" (red screen) | Moved to a restricted matchmaking pool. |
+| **3 — Another softban** | The same red screen | Further 180-day cycles. See §2.1. |
+| **4 — Permanent ban** | Permanent exclusion | Community-reported, usually after repeated violations or malicious actions. |
 
-### 2.1 Why loading the same save causes repeated bans — mechanism clarified
+### 2.1 Why loading the same save causes further bans — the mechanism explained
 
-**[RE/verified + Community-technical]** — The 180-day quarantine state is **server-side**, not stored inside the `.sl2` file. Exhaustive reverse-engineering of all major save editors (ClayAmore/ER-Save-Editor, Ariescyn/EldenRing-Save-Manager, Jeius/er-save-manager) found no "ban flag" field in the save format. The `unk0x*` fields in UserData10 remain undocumented in all public RE sources.
+**[RE/verified + Community-technical]** — The 180-day quarantine state is **server-side**, not in the `.sl2` file. An exhaustive RE of all known save editors found no "ban flag" field in the file format. The `unk0x*` fields in UserData10 remain undocumented across all public RE sources.
 
-The reason loading the same save after 180 days triggers a new ban: the **flagged content** (illegal item IDs, impossible stat sums, etc.) is still present in the save. At the next online sync, the server detects the same violation and issues a new quarantine.
+The reason for further bans after the same save: the **flagged content** (illegal IDs, impossible stat sums, etc.) is still in the save. At the next synchronization the server detects the same violation and issues a new quarantine.
 
-Safe recovery: restore a clean backup predating the flagged edits.
+The safe recovery path: restore a clean backup from before the flagged edits.
 
-### 2.2 "Tuesday ban waves" — Unverified
+### 2.2 "Ban Tuesdays" — Unconfirmed
 
-**[Unverified rumor]** — Bans are processed in **waves**, not in real time (confirmed by 5-month delay case). A specific day-of-week pattern has not been substantiated. The "every Tuesday" claim has no confirmed primary source.
+**[Unverified rumor]** — Bans are processed in waves, not in real time (a confirmed case of a 5-month delay). A specific day-of-the-week pattern has no confirmed source.
 
 ---
 
-## 3. Known Ban Triggers
+## 3. Known ban triggers
 
-### 3.1 Illegal Items — `disableMultiDropShare` mechanism
+### 3.1 Illegal items — the `disableMultiDropShare` mechanism
 
-**[Official + RE/verified]** — The primary mechanism for flagging items as illegal for multiplayer sharing is the `disableMultiDropShare` bit field, present in all equipment param tables in `regulation.bin`.
+**[Official + RE/verified]** — The main mechanism for flagging items as illegal to share in multiplayer mode is the bit field `disableMultiDropShare`, present in all equipment param tables in `regulation.bin`.
 
 **Verified from `tmp/regulation-bin-dump/` (our own regulation.bin dump):**
 
-| Param table | Field | Japanese display name | Items flagged in current regulation.bin |
+| Param table | Field | Japanese name | Items flagged in the current regulation.bin |
 | :--- | :--- | :--- | :--- |
 | `EquipParamWeapon` | `u8 disableMultiDropShare:1` | マルチドロップ共有禁止か | **1** (ID 24590000 — isDrop=1, isDiscard=1) |
 | `EquipParamGoods` | `u8 disableMultiDropShare:1` | マルチドロップ共有禁止か | **306** (mostly key items/runes with isDrop=0; 7 with isDrop=1) |
@@ -102,151 +100,140 @@ Safe recovery: restore a clean backup predating the flagged edits.
 | `EquipParamAccessory` | `u8 disableMultiDropShare:1` | マルチドロップ共有禁止か | **0** |
 | `EquipParamGem` | `u8 disableMultiDropShare:1` | マルチドロップ共有禁止か | **0** |
 
-Field translation: `マルチドロップ共有禁止か` = "Is multi-drop sharing prohibited?"
+Translation: `マルチドロップ共有禁止か` = "Is multi-drop sharing forbidden?"
 
-Note: `EquipParamGoods` also contains `u8 isUseMultiPenaltyOnly:1` (Japanese: `クライアント切断ペナルティが発生しているときのみ使用可能` = "Item usable only when client disconnect penalty is active"). **No items** currently have this set in regulation.bin, suggesting it is reserved functionality.
+`EquipParamGoods` also contains `u8 isUseMultiPenaltyOnly:1` (Japanese: `クライアント切断ペナルティが発生しているときのみ使用可能` = "Item available only when a client disconnect penalty is active"). **No item** has this flag set in the current regulation.bin.
 
-**[Official]** — **Deathbed Smalls** (April 2022): Cut content underwear item distributed via in-game drops. The `disableMultiDropShare` flag was not set for this item before patch 1.04 (or was in a state allowing distribution). FromSoftware patched the drop mechanism in **Patch 1.04**:
+**[Official]** — **Deathbed Smalls** (April 2022): cut-content underwear distributed via a drop. Patch 1.04:
 > *"Fixed a bug that allowed unauthorized items to be passed to other players."*
 
-Deathbed Smalls is cut content — it does not appear in current `EquipParamProtector` at all (no row with `disableMultiDropShare=1` for protectors in the current dump). The item was never in the retail item tables, so its ID fails the server's item legitimacy check regardless of any flag.
+Deathbed Smalls is cut content — it does not appear in the current `EquipParamProtector` (no row). The item ID does not pass the server-side item legality check regardless of the flags.
 
 > Source: [Elden Ring Patch Notes 1.04 — Bandai Namco Europe (Official)](https://en.bandainamcoent.eu/elden-ring/news/elden-ring-patch-notes-104)
 
-**Sources**:
-- [Automaton Media: Deathbed Smalls incident](https://automaton-media.com/en/news/20220416-11617/)
-- [Comicbook.com: Deathbed Smalls ban coverage](https://comicbook.com/gaming/news/elden-ring-players-banned-underwear-deathbed-smalls-cut-from-the-game/)
-- [Steam: Deathbed Smalls ban wave thread](https://steamcommunity.com/app/1245620/discussions/0/3278065083958673810/)
+### 3.2 Impossible stat values — Soul Memory check
 
-### 3.2 Impossible Stat Values — Soul Memory check
-
-**[Community-technical]** — The server detects stat combinations that cannot be achieved through normal gameplay. Based on analysis of FromSoftware's prior games (Dark Souls 3 uses the same studio), the server likely implements a **Soul Memory check**: the sum of `current_runes + total_runes_spent` must equal `total_runes_earned`. Directly editing `current_runes` without updating `total_runes_earned` creates a detectable mismatch. This is the reason adding rune consumables and spending them in-game is reported as safer — it updates all three counters normally.
+**[Community-technical]** — The server detects stat combinations impossible to achieve through normal play. Based on the analysis of previous FromSoftware games (Dark Souls 3 uses the same mechanism), the server likely implements a **Soul Memory check**: the sum `current_runes + total_runes_spent` must equal `total_runes_earned`. Editing `current_runes` directly without updating `total_runes_earned` creates a detectable discrepancy. That is why adding rune consumables and spending them in-game is safer — it updates all three counters normally.
 
 > Source: [FearLess Cheat Engine forum, "InfiniteWant" (DS3/ER anti-cheat analysis)](https://fearlessrevolution.com/viewtopic.php?t=19320)
 
 | Edit type | Risk | Notes |
 | :--- | :--- | :--- |
-| **Direct `souls` field write** | High | Creates Soul Memory mismatch (current+spent ≠ earned). |
-| **Any attribute above 99** | High | Hard cap in vanilla. Impossible legitimately. |
-| **Character level above 713** | N/A | Level 713 = all 8 attributes at 99 = actual maximum. |
+| **Direct write of the `souls` field** | High | Creates a Soul Memory discrepancy. |
+| **Any attribute above 99** | High | A hard cap in the vanilla game. |
+| **Character level above 713** | N/A | Level 713 = all 8 attributes at 99 = the actual maximum. |
 
-**Sources**:
-- [Steam: Can I get banned for cheating levels?](https://steamcommunity.com/app/1245620/discussions/0/4526764179303674425/?l=english)
-- [Fextralife: Stats page (max values)](https://eldenring.wiki.fextralife.com/Stats)
+### 3.3 Boss items without kill flags
 
-### 3.3 Boss Items Without Kill Flags
+**[Community-technical]** — Adding boss drops (remembrances, boss weapons) to the inventory without the corresponding boss-kill flags is a confirmed ban trigger. The server knows the player's event flag state; boss loot without a kill flag is a detectable inconsistency.
 
-**[Community-technical]** — Adding boss-drop items (remembrances, boss weapons) to inventory without the corresponding boss kill event flags being set is a confirmed ban trigger. The server knows the player's event flag state, and boss loot without the kill flag is a detectable inconsistency. This was documented in controlled tests on FearLess CE forum.
+> Source: [FearLess CE forum, controlled test "duducasarotto"](https://fearlessrevolution.com/viewtopic.php?t=19320)
 
-> Source: [FearLess CE forum, "duducasarotto" controlled test](https://fearlessrevolution.com/viewtopic.php?t=19320)
+### 3.4 Weapon upgrade level violations
 
-### 3.4 Upgrade-Level Violations
+**[Community — plausible, unconfirmed as a separate rule]** — A weapon upgraded above the vanilla maximum represents values impossible to achieve legitimately.
 
-**[Community-plausible, unconfirmed as explicit rule]** — Weapons upgraded beyond the vanilla maximum represent values impossible to achieve legitimately. Detection mechanism same as §3.1: values outside the achievable range.
+Upgrade caps:
+- Standard weapons: +0 to +25
+- Special/Somber: +0 to +10
 
-Vanilla upgrade caps:
-- Standard weapons: +0 to +25 (Smithing Stones 1-8 + Ancient Dragon Smithing Stone)
-- Special/Somber: +0 to +10 (Somber Smithing Stones 1-9 + Ancient Dragon Somber Smithing Stone)
+### 3.5 Save file rollback
 
-### 3.5 Save Rollback
-
-**[Community-verified]** — Restoring a save to an earlier state is detectable. The server tracks player state progression. Confirmed case: Bandai Namco Support acknowledged a ban caused by restoring a save that was months old. Delay between violation and penalty: approximately 5 months.
+**[Community-verified]** — Restoring a save to an earlier state is detectable. A confirmed case: Bandai Namco Support acknowledged a ban for restoring a save from several months ago. Delay ~5 months.
 
 > Source: [Steam: Prohibited Activity PSA](https://steamcommunity.com/app/1245620/discussions/0/3820780968128167841/)
 
-### 3.6 SteamID Mismatch
+### 3.6 SteamID mismatch
 
-**[Community-verified]** — Each `.sl2` file is tied to a Steam ID. Loading another player's save under your own account creates a detectable mismatch between the SteamID in the save and the authenticated account.
+**[Community-verified]** — Each `.sl2` is tied to a Steam ID. Loading someone else's save under your own account = a detectable mismatch.
 
-### 3.7 Custom Gesture / Animation Mods
+### 3.7 Custom gesture/animation mods
 
-**[Community-verified, April 2024]** — A cosmetic gesture mod replacing retail animations with non-retail content triggered a penalty warning. Indicates the server validates animation/gesture IDs in addition to item IDs.
+**[Community-verified, April 2024]** — A cosmetic gesture mod replacing animations with content outside the retail set caused a penalty warning. This indicates that the server validates gesture/animation IDs in addition to item IDs.
 
-### 3.8 NetworkParam Edits (Disconnect Penalty System)
+### 3.8 NetworkParam editing (disconnect penalty system)
 
-**[RE/verified]** — `NetworkParam` in `regulation.bin` contains a **session disconnect penalty scoring system**, distinct from the save-file ban system. Verified values from our regulation.bin dump:
+**[RE/verified]** — `NetworkParam` in `regulation.bin` contains a **session disconnect penalty scoring system**, separate from the save file banning system. Values verified from our regulation.bin dump:
 
 | Field | Value | Meaning |
 | :--- | :--- | :--- |
-| `penaltyPointLanDisconnect` | 10 | Points added for LAN disconnect |
-| `penaltyPointSignout` | 0 | Points added for sign-out |
-| `penaltyPointReboot` | 10 | Points added for power-off |
-| `penaltyPointBeginPenalize` | 100 | Score threshold to activate penalty |
-| `penaltyForgiveItemLimitTime` | 36000.0 sec | Time limit for Seedbed Curse forgiveness |
+| `penaltyPointLanDisconnect` | 10 | Points for a LAN disconnect |
+| `penaltyPointSignout` | 0 | Points for a sign-out |
+| `penaltyPointReboot` | 10 | Points for a reboot/shutdown |
+| `penaltyPointBeginPenalize` | 100 | Penalty activation threshold |
+| `penaltyForgiveItemLimitTime` | 36000.0 sec | Forgiveness time for "Seedbed Curse" |
 
-This system penalizes DC-quitting in multiplayer sessions. It is **separate** from the save-file content ban system.
+The system penalizes DC-quitting in multiplayer sessions. It is **separate** from the save file content banning system.
 
-**Risk of editing NetworkParam**: EAC validates `regulation.bin` on disk before launch (with EAC active, a modified file would be caught). With EAC bypassed offline, modified `NetworkParam` loads; whether changed values cause server-side anomalies at online sync is unconfirmed — no public report of a ban solely from NetworkParam edits exists. Ban-risk icons in the editor (spec/32) on NetworkParam fields reflect theoretical risk, not confirmed cases.
-
----
-
-## 4. regulation.bin debug rows
-
-**[RE/verified]** — All equip param tables contain a `u8 disableParam_NT` field. Rows with this set to `1` are debug/internal placeholders (e.g. weapon IDs 1000, 1100, 1200–1260, 1400). Adding items with these IDs to a character save would be detected as non-retail content.
+**Risk of editing NetworkParam**: EAC verifies `regulation.bin` on disk before launch (with EAC active, a modified file would be detected). With EAC disabled offline, a modified `NetworkParam` loads; whether the changed values cause server-side anomalies on online sync — unconfirmed. There is no public report of a ban solely from NetworkParam editing.
 
 ---
 
-## 5. Network Protocol RE
+## 4. Debug rows in regulation.bin
 
-**[RE]** — The matchmaking protocol has been partially reverse-engineered by the community. Key findings:
-- Protocol uses **NaCl key exchange** (libsodium KX) with fixed client/server keypairs hard-coded in the game binary.
-- The RE covers: bloodstains, ghosts, player messages, summon signs, invasions, quickmatches, group passwords.
-- **No documented endpoint for penalty/quarantine checking.** The mechanism by which the server issues or checks penalty state has not been publicly reverse-engineered.
+**[RE/verified]** — All equipment param tables contain a `u8 disableParam_NT` field. Rows with this flag set to `1` are debug/internal placeholders (e.g., weapon IDs 1000, 1100, 1200–1260, 1400). Adding items with these IDs to a save would be detected as content outside the retail set.
+
+---
+
+## 5. Network protocol RE
+
+**[RE]** — The matchmaking protocol has been partially reverse-engineered by the community:
+- The protocol uses **NaCl key exchange** (libsodium KX) with hardcoded keypairs in the game binary.
+- The RE covers: blood stains, ghosts, messages, summon signs, invasions, quickmatches, group passwords.
+- **No documented penalty/quarantine endpoint.** The mechanism for the server checking a penalty has not been publicly reverse-engineered.
 
 > Source: [waygate-server — open-source ER matchmaking server (Rust)](https://github.com/vswarte/waygate-server)
 
 ---
 
-## 6. Risk Assessment Table
+## 6. Risk assessment table
 
 | Category | Example — High risk | Example — Lower risk |
 | :--- | :--- | :--- |
-| **Items** | Cut content / debug items (no retail param row) | Legitimate items with retail IDs |
-| **Stats** | Direct `souls` field write (Soul Memory mismatch); any attribute >99 | Adding rune consumables and spending in-game |
-| **Equipment** | Weapon above +25/+10 cap | Any weapon within standard upgrade caps |
-| **Event flags** | Boss loot without corresponding kill flags | — |
-| **Save state** | Restoring backup from weeks/months prior | Restoring backup from same session |
-| **Level** | N/A (713 = hard maximum) | Adding consumable runes to reach high levels |
-| **Identity** | Loading another player's `.sl2` | — |
+| **Items** | Cut content / debug items (no row in retail param) | Legitimate items with retail IDs |
+| **Stats** | Direct write of the `souls` field (Soul Memory discrepancy); attribute >99 | Adding rune consumables and spending in-game |
+| **Equipment** | Weapon above the cap +25/+10 | Any weapon within the standard limits |
+| **Event flags** | Boss loot without kill flags | — |
+| **Save state** | Restoring a backup from weeks/months ago | Restoring a backup from the same session |
+| **Level** | N/A (713 = hard maximum) | Adding rune consumables |
+| **Identity** | Someone else's `.sl2` under your own account | — |
 
 ---
 
-## 7. Safe-Editing Practices
+## 7. Safe-editing rules
 
-These are community-reported mitigations, not guaranteed protections.
-
-1. **Offline only during edits**: Disconnect from the internet or use the Anti-Cheat Toggler before opening a modified save. Reconnect only after verifying the state is clean.
-2. **Keep a clean backup**: Maintain a backup before any risky edit. If "Inappropriate activity detected" appears, first try "Verify integrity of game files" in Steam (may be a false positive). If the warning persists — restore the clean backup before the next online sync.
-3. **Prefer indirect edits**: Add rune consumables and spend them in-game rather than writing the `souls` field directly. The server sees a normal Soul Memory progression.
-4. **Use legitimate item IDs only**: Never add items with IDs that have no retail param row. The editor's `cut_content` / `ban_risk` flags in `backend/db/db.go` identify known-risky items.
-5. **Do not add boss loot without kill flags**: The server checks event flag consistency. Add boss items only after the kill flag is set.
-6. **Do not load flagged content after ban expires**: The quarantine is server-side, but the flagged content is still in the save. Load a clean backup to prevent re-triggering on next sync.
-7. **Do not load another player's save**: SteamID mismatch is a confirmed trigger.
+1. **Offline only while editing**: Disconnect or use the Anti-Cheat Toggler before opening a modified save.
+2. **Keep a clean backup**: On "Inappropriate activity detected", first "Verify integrity of game files" (may be a false positive). If that does not help — restore a backup before the next synchronization.
+3. **Prefer indirect edits**: Add rune consumables and spend them in-game instead of writing directly to the `souls` field.
+4. **Use only legitimate IDs**: The `cut_content` / `ban_risk` flags in `backend/db/db.go` identify known risky items.
+5. **Do not add boss loot without kill flags**: The server checks event flag consistency.
+6. **Do not load flagged content after a ban**: Load a clean backup — the quarantine is server-side, but the content is still in the file.
+7. **Do not load someone else's save**: A SteamID mismatch is a confirmed trigger.
 
 ---
 
-## 8. PS4 Platform
+## 8. PS4 platform
 
 **[Community-verified, no official confirmation]**
 
-- PS4 does **not** use EAC — it is PC-only technology.
-- Sony does not implement game-level anti-cheat on PlayStation.
-- FromSoftware's servers handle all platforms — server-side validation applies to saves from any platform.
-- **No public RE** confirms a ban flag stored locally in `memory.dat`. Given that the ban state is server-side on PC (not in `.sl2`), the same architecture almost certainly applies to PS4.
-- **No confirmed PS4-specific ban cases** with technical documentation in public sources.
+- PS4 does not use EAC — a PC-only technology.
+- Sony does not implement its own game-level anti-cheat.
+- FromSoftware's servers serve all platforms — server-side validation applies to saves from every platform.
+- **No RE** confirming a ban flag in `memory.dat`. Since the penalty state is server-side on PC, the same architecture almost certainly applies on PS4.
+- No confirmed PS4-specific ban cases with technical documentation.
 
 ---
 
-## 9. Relationship to This Editor
+## 9. Relation to this editor
 
-| This doc | spec/32 implementation |
+| This document | spec/32 implementation |
 | :--- | :--- |
-| §3.1 — Illegal items / `disableMultiDropShare` | `cut_content`, `ban_risk` item flags + `RiskBadge` |
-| §3.2 — Soul Memory mismatch / stat >99 | `stat_above_99` risk key + `RiskInfoIcon` on attribute inputs |
-| §3.2 — Direct stat edit | `derived_stat_manual` risk key |
-| §3.4 — Upgrade cap | Covered by `quantity_above_max` + item flags |
-| §3.8 — NetworkParam edits | Tier 1 ban-risk labels on Networking tab fields |
-| §4 — debug rows | `cut_content` flag on items with debug-range IDs |
+| §3.1 — Illegal items / `disableMultiDropShare` | `cut_content`, `ban_risk` flags + `RiskBadge` |
+| §3.2 — Soul Memory / attribute >99 | Risk key `stat_above_99` + `RiskInfoIcon` on attributes |
+| §3.2 — Direct stat editing | Risk key `derived_stat_manual` |
+| §3.4 — Upgrade cap | `quantity_above_max` + item flags |
+| §3.8 — NetworkParam editing | Tier 1 ban-risk labels in the Networking tab |
+| §4 — Debug rows | The `cut_content` flag on items with a debug ID range |
 
 ---
 
@@ -255,7 +242,7 @@ These are community-reported mitigations, not guaranteed protections.
 | Source | URL | Type |
 | :--- | :--- | :--- |
 | Elden Ring Patch Notes 1.04 | https://en.bandainamcoent.eu/elden-ring/news/elden-ring-patch-notes-104 | **Official** |
-| ELDENRING on X — false positive acknowledgment | https://x.com/ELDENRING/status/1806689176449855497 | **Official** |
+| ELDENRING on X — false positive | https://x.com/ELDENRING/status/1806689176449855497 | **Official** |
 | Elden Ring EULA (Steam) | https://store.steampowered.com/eula/1245620_eula_0 | **Official** |
 | regulation.bin dump (local) | `tmp/regulation-bin-dump/defs/` + `csv/` | **RE/verified** |
 | waygate-server — ER protocol RE | https://github.com/vswarte/waygate-server | RE |
