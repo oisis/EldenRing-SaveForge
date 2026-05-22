@@ -1,79 +1,46 @@
-# 42 — Summoning Pools: UI Works, No In-Game Effect
+# 42 — Summoning Pools: UI works, no in-game effect
 
 > **Type**: Investigation / Bug
-> **Extracted from**: docs/ROADMAP.md (2026-05-03 cleanup)
-> **Status**: ✅ Fixed — `summoning_pools.go` updated to v1.12+ IDs (`670xxx`)
+> **Extracted from**: docs/ROADMAP.md (cleanup 2026-05-03)
+> **Status**: 🐛 Paused (since 2026-04-25)
 
 ---
 
 ## Symptom
 
-UI toggles summoning pools correctly (no errors), but toggled pools are NOT active in-game (tested offline to avoid bans). All pools affected, not specific ones.
+The UI toggles summoning pools correctly (no errors), but the toggled pools are NOT active in the game (tested offline to avoid bans). It affects all pools, not specific ones.
 
 ## Diagnostic checklist (all passed ✅)
 
-- [x] Database covers all pool IDs (165 pools, more than ClayAmore/ER-Save-Editor reference of 162)
-- [x] Lookup table `event_flags.go` includes pool IDs with byte/bit offsets bit-for-bit identical to ER-Save-Editor
-- [x] BST resolver produces identical offsets (verified `1037530040`, `1051570840`, `1060440040`)
-- [x] `SetEventFlag` flips the correct bit in `slot.Data[EventFlagsOffset:]` slice (backing array — modifications propagate)
-- [x] `SaveSlot.Write()` does NOT overwrite event flag region (only writes level/stats/name/runes)
-- [x] `SaveFile()` serializes `slot.Data` directly without rebuild from parsed structs
+- [x] The database covers all pool IDs (165 pools, more than the ClayAmore/ER-Save-Editor reference of 162)
+- [x] The `event_flags.go` lookup table contains the pool IDs with byte/bit offsets identical bit-for-bit with ER-Save-Editor
+- [x] The BST resolver produces identical offsets (verified `1037530040`, `1051570840`, `1060440040`)
+- [x] `SetEventFlag` flips the correct bit in the slice `slot.Data[EventFlagsOffset:]` (backing array — modifications propagate)
+- [x] `SaveSlot.Write()` does NOT overwrite the event flag region (it writes only level/stats/name/runes)
+- [x] `SaveFile()` serializes `slot.Data` directly without rebuilding from parsed structures
 
-## Root Cause (identified 2026-05-07)
+## Remaining hypotheses
 
-**Patch v1.12 (released ~March 2025) changed all summoning pool flag IDs.**
+1. **No persistence test** — write an integration test: `LoadSave → Set → SaveFile → LoadSave → Get` to verify whether the bit survives the round-trip. If it does not survive, look in `core/writer.go` or the encryption pipeline.
 
-- Flags `10000040`, `1035530040`, etc. worked only in game versions `< v1.12`.
-- Current game (`>= v1.12`) uses IDs in the `670xxx` range (e.g., Stormveil Castle: `670130–670135`).
-- Reference: `Elden-Ring-CT-TGA/Event Flags/Unlock all/Unlock all Summoning Pools.cea` — contains the deprecated block with old IDs and the current active block with new IDs.
+2. **The game requires secondary state** — the bit may be set in event_flags, but the game may also check:
+   - `unlocked_regions` for the pool's map area (dependency on the Invasion Regions feature)
+   - the trophy data section (`trophy_data` 52 bytes)
+   - cross-references `world_area` / `gaitem_game`
 
-Verified through diagnostics:
-- `EventFlagsOffset` is correct (static + dynamic match on PC and PS4) ✅
-- Bit survives `Save → Load` round-trip on both platforms ✅
-- BST block `670` already present in `eventflag_bst.txt` (position 107) — no lookup table changes needed ✅
-- Root cause confirmed: `summoning_pools.go` uses old IDs which the game ignores ❌
+3. **Region hash (`CSPlayerGameDataHash`, the last 0x80 bytes of the slot)** — currently preserved verbatim. The game may validate it against the runtime state when the DLC is installed.
 
-## Fix plan
+4. **PS4-specific** — PS4 saves are unencrypted, but the PC encryption tied to the SteamID may interact with our flag write.
 
-1. Replace all 165 IDs in `backend/db/data/summoning_pools.go` with new `670xxx` IDs from CT-TGA
-   - Base game: 162 IDs (`flagsBase` in CT-TGA)
-   - DLC (Shadow of the Erdtree): remaining entries from `flagsDLC1`
-   - Names mapped sequentially by region (CT-TGA preserves region order; per-pool names from our existing data)
-2. `event_flags.go` and `eventflag_bst.txt` — **no changes needed** (BST block 670 handles new IDs)
-3. Same root cause likely applies to Colosseums (`60350`, `60360`, `60370` may also need a post-v1.12 audit)
+## Action plan (after resuming)
 
-## Preset JSON drift (identified 2026-05-09)
-
-After `summoning_pools.go` was updated to `670xxx` IDs, a secondary issue was found: existing
-preset JSON files (e.g. `Vagabond_150-preset_v2.json` in `tmp/save/`) still contained the old
-pre-v1.12 IDs in their `world.summoningPools` array.
-
-**Root cause**: The preset JSON was created before the DB fix; it contains IDs like `10000040`
-and `1035530040` (pre-v1.12 format). The `ApplyWorldState()` function faithfully sets whatever
-IDs the preset provides — it had no awareness of the ID-generation epoch.
-
-**Fix applied**: `ValidatePreset()` in `backend/vm/preset.go` now inspects
-`World.SummoningPools` and emits warnings for:
-
-- IDs `>= 1_000_000` → "pre-v1.12 flag — ignored by current game; update to 670xxx IDs"
-- IDs `< 1_000_000` not in the current database → "not found in current database (670xxx range)"
-
-Helper added: `db.IsKnownSummoningPoolID(id uint32) bool` — O(1) map lookup in
-`data.SummoningPools`.
-
-**Tests** added in `backend/vm/preset_test.go`:
-- `TestValidatePreset_SummoningPools_ValidIDs` — 670xxx IDs produce no warnings
-- `TestValidatePreset_SummoningPools_OldPreDLCID` — `10000040` triggers "pre-v1.12" warning
-- `TestValidatePreset_SummoningPools_OldPreDLCID_Large` — `1035530040` triggers same warning
-- `TestValidatePreset_SummoningPools_UnknownID` — unknown low ID triggers "not found" warning
-- `TestValidatePreset_SummoningPools_NilWorld` — nil World skips validation silently
-
-**Preset JSON files in `tmp/` are not migrated** (they are not tracked by git). Users importing
-old presets will see warnings at import time; the `670xxx` IDs from `summoning_pools.go` should
-be used for any new pvp-ready preset.
+1. Write `tests/event_flag_persistence_test.go` covering the round-trip Set → Save → Load → Get
+2. If the round-trip holds → investigate the game-side requirements (compare with a reference save where the pools are activated)
+3. If the round-trip fails → trace where the bit is lost in the writer/encryption pipeline
+4. Cross-check with Invasion Regions — pool activation may require unlocking the matching region
 
 ## Related
 
-- Colosseum toggle — same symptom, same probable cause (flag IDs may have changed in v1.12)
-- Sites of Grace toggle — partially works (map visible, not fast-travel) — unrelated, different mechanism
-- Diagnostic scripts in `tmp/scripts/diag/`: `eventflags_offset_check.go`, `eventflags_persist_check.go`
+- The Colosseum toggle has the same symptom (flags set, no effect in the game)
+- The Sites of Grace toggle works partially (map visible but fast-travel not activated)
+- All may share a common cause (game-side secondary validation beyond event flags)
