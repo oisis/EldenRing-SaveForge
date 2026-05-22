@@ -1,15 +1,14 @@
 # 09 — Face Data (Character Creator)
 
-> **Type**: Binary format spec  
 > **Scope**: Character appearance parameters from the creator — face, body, colors, proportions.
 
 ---
 
 ## Overview
 
-Face Data is a 303-byte block (0x12F) containing all character appearance parameters set in the creator. It exists in two variants:
-- **In slot**: 0x12F (303 bytes) — full data
-- **In ProfileSummary (UserData10)**: 0x120 (288 bytes) — truncated (missing last 15 bytes)
+Face Data is a 303-byte block (0x12F) containing all the character appearance parameters set in the creator. It appears in two variants:
+- **In a slot**: 0x12F (303 bytes) — full data
+- **In ProfileSummary (UserData10)**: 0x120 (288 bytes) — truncated (without the last 15 bytes)
 
 ---
 
@@ -31,7 +30,7 @@ Face Data is a 303-byte block (0x12F) containing all character appearance parame
 └─────────────────────────────────────────────┘
 ```
 
-**NOTE**: Offsets below are from Cheat Engine (runtime memory), where Face Data starts at PlayerGameData+0x754. In the save file, offsets within the Face Data block may differ — requires hex dump verification. Field order and names are confirmed.
+**NOTE**: The offsets below come from Cheat Engine (runtime memory), where Face Data starts at PlayerGameData+0x754. In the save file, the offsets inside the Face Data block may differ — needs verification via hex dump. Field order and names are confirmed.
 
 ---
 
@@ -40,7 +39,7 @@ Face Data is a 303-byte block (0x12F) containing all character appearance parame
 | Offset (CT) | Type | Field | Description |
 |---|---|---|---|
 | +0x00 | u32 | Face_Model_Id | Base face model |
-| +0x04 | u32 | Hair_Model_Id | Hairstyle (values = IDs from database) |
+| +0x04 | u32 | Hair_Model_Id | Hairstyle (values = IDs from the database) |
 | +0x08 | u32 | Eye_Model_Id | Eye model |
 | +0x0C | u32 | Eyebrow_Model_Id | Eyebrow model |
 | +0x10 | u32 | Beard_Model_Id | Beard model |
@@ -52,18 +51,18 @@ Face Data is a 303-byte block (0x12F) containing all character appearance parame
 
 ## Face Shape Parameters (u8 each, range 0–255)
 
-Value `128` = neutral/center slider position. Values below/above shift in opposite directions.
+The value `128` = neutral/center slider position. Values below/above push in opposite directions.
 
 ### General face proportions
 
 | Offset (CT: base 0x740) | Field | Description |
 |---|---|---|
 | +0x34 | Apparent Age | Apparent age (0=young, 255=old) |
-| +0x35 | Facial Aesthetic | Facial aesthetics (overall "attractiveness") |
-| +0x36 | Form Emphasis | Feature definition (sharper vs softer) |
-| +0x37 | Unk (Numen = 128) | Unknown — default value 128, related to Numen race? |
+| +0x35 | Facial Aesthetic | Facial aesthetic (general "attractiveness") |
+| +0x36 | Form Emphasis | Feature emphasis (sharper vs softer) |
+| +0x37 | Unk (Numen = 128) | Unknown — default 128, possibly tied to the Numen race? |
 
-### Brow Ridge
+### Brows (Brow Ridge)
 
 | Offset | Field | Description |
 |---|---|---|
@@ -76,10 +75,10 @@ Value `128` = neutral/center slider position. Values below/above shift in opposi
 | Offset | Field | Description |
 |---|---|---|
 | +0x3B | Cheekbone Height | Cheekbone height |
-| +0x3C | Cheekbone Depth | Depth (front-back) |
+| +0x3C | Cheekbone Depth | Depth (front–back) |
 | +0x3D | Cheekbone Width | Width |
 | +0x3E | Cheekbone Protrusion | Cheekbone protrusion |
-| +0x3F | Cheeks | Cheeks (fullness/concavity) |
+| +0x3F | Cheeks | Cheeks (fullness/hollowness) |
 
 ### Chin
 
@@ -99,7 +98,7 @@ Value `128` = neutral/center slider position. Values below/above shift in opposi
 |---|---|---|
 | +0x47 | Eye Position | Eye position (height) |
 | +0x48 | Eye Size | Eye size |
-| +0x49 | Eye Slant | Eye slant (up-down at edges) |
+| +0x49 | Eye Slant | Eye slant (up–down at the edges) |
 | +0x4A | Eye Spacing | Eye spacing |
 
 ### Nose — 14 parameters
@@ -107,7 +106,7 @@ Value `128` = neutral/center slider position. Values below/above shift in opposi
 | Offset | Field | Description |
 |---|---|---|
 | +0x4B | Nose Size | Overall nose size |
-| +0x4C | Nose/Forehead Ratio | Nose-forehead ratio |
+| +0x4C | Nose/Forehead Ratio | Nose–forehead ratio |
 | +0x4D | Unk | Unknown nose parameter |
 | +0x66 | Nose Ridge Depth | Nose ridge depth |
 | +0x67 | Nose Ridge Length | Ridge length |
@@ -130,7 +129,7 @@ Value `128` = neutral/center slider position. Values below/above shift in opposi
 |---|---|---|
 | +0x4E | Face Protrusion | Face protrusion (profile) |
 | +0x4F | Vertical Face Ratio | Vertical face ratio |
-| +0x50 | Facial Feature Slant | Facial feature slant |
+| +0x50 | Facial Feature Slant | Feature slant |
 | +0x51 | Horizontal Face Ratio | Horizontal ratio |
 | +0x52 | Unk | Unknown |
 | +0x53 | Forehead Depth | Forehead depth |
@@ -158,10 +157,10 @@ Value `128` = neutral/center slider position. Values below/above shift in opposi
 | +0x5F | Lip Thickness | Lip thickness |
 | +0x60 | Mouth Protrusion | Mouth area protrusion |
 | +0x61 | Mouth Slant | Mouth slant |
-| +0x62 | Mouth Occlusion | Mouth open/close |
+| +0x62 | Mouth Occlusion | Mouth closure/openness |
 | +0x63 | Mouth Position | Mouth position (vertical) |
 | +0x64 | Mouth Width | Mouth width |
-| +0x65 | Mouth-Chin Distance | Mouth-chin distance |
+| +0x65 | Mouth-Chin Distance | Mouth–chin distance |
 
 ---
 
@@ -175,29 +174,29 @@ Value `128` = neutral/center slider position. Values below/above shift in opposi
 | Skin_Color_A | Skin color — Alpha/Intensity | 0–255 |
 | Skin_Pores | Skin pore visibility | 0–255 |
 | Beard_Stubble | Stubble overlay | 0–255 |
-| Skin_Dark_Circle | Under-eye shadow intensity | 0–255 |
+| Skin_Dark_Circle | Under-eye shadows (intensity) | 0–255 |
 | Skin_Dark_Circle_Color_R/G/B | Under-eye shadow color | 0–255 |
 | Cheeks | Cheek blush | 0–255 |
 | Cheeks_Color_R/G/B | Blush color | 0–255 |
-| Eyeliner | Eyeliner intensity | 0–255 |
+| Eyeliner | Eyeliner (intensity) | 0–255 |
 | Eyeliner_Color_R/G/B | Eyeliner color | 0–255 |
-| Eyeshadow_Lower | Lower eyeshadow intensity | 0–255 |
+| Eyeshadow_Lower | Lower eyeshadow (intensity) | 0–255 |
 | Eyeshadow_Lower_Color_R/G/B | Lower eyeshadow color | 0–255 |
-| Eyeshadow_Upper | Upper eyeshadow intensity | 0–255 |
+| Eyeshadow_Upper | Upper eyeshadow (intensity) | 0–255 |
 | Eyeshadow_Upper_Color_R/G/B | Upper eyeshadow color | 0–255 |
-| Lipstick | Lipstick intensity | 0–255 |
+| Lipstick | Lipstick (intensity) | 0–255 |
 | Lipstick_Color_R/G/B | Lipstick color | 0–255 |
-| Decal_Position_X | Decal/tattoo position X | 0–255 |
-| Decal_Position_Y | Decal/tattoo position Y | 0–255 |
-| Body_Hair | Body hair intensity | 0–255 |
+| Decal_Position_X | Decal/tattoo X position | 0–255 |
+| Decal_Position_Y | Decal/tattoo Y position | 0–255 |
+| Body_Hair | Body hair (intensity) | 0–255 |
 | Body_Hair_Color_R/G/B | Body hair color | 0–255 |
 
 ---
 
 ## Body Scale (7 parameters)
 
-In memory (CT): float (4B each) at offsets 0x870–0x888 from PlayerGameData base.
-In save file: likely also float or u8 (to verify).
+In memory (CT): float (4B each) at offsets 0x870–0x888 from the PlayerGameData base.
+In the save file: probably also float or u8 (needs verification).
 
 | Field | Description | Default value |
 |---|---|---|
@@ -213,21 +212,21 @@ In save file: likely also float or u8 (to verify).
 
 ## Usage context
 
-- Copying face data between characters = exact copy of 0x12F bytes
-- Editing Model IDs changes hairstyle/beard/eyebrows without needing to know shape parameters
-- Face Data in ProfileSummary is used for displaying the character in menu — should be synchronized
-- 0x120 vs 0x12F variant — when copying to ProfileSummary, truncate the last 15 bytes
+- Copying face data between characters = an exact copy of 0x12F bytes
+- Editing Model IDs changes hair/beard/brow without needing to know the shape parameters
+- Face Data in ProfileSummary is used to display the character in the menu — it should be kept in sync
+- Variant 0x120 vs 0x12F — when copying to ProfileSummary, trim the last 15 bytes
 
 ---
 
 ## Editing implications
 
 - **Safe to copy** blob-to-blob between characters
-- **Model IDs**: changing Hair_Model_Id = hairstyle change (values from game database)
-- **Shape parameters**: value 128 = neutral; change ±1 = minimal slider movement
-- **Colors**: simple RGBA (0–255 per channel)
-- **Body Scale**: in memory float; in save may be u8 (128=1.0) — to verify
-- **Trailing 15 bytes** (slot-only): likely additional parameters not available in creator or internal flags
+- **Model IDs**: changing Hair_Model_Id = changes hairstyle (values from the game database)
+- **Shape parameters**: value 128 = neutral; change of ±1 = minimal slider movement
+- **Colors**: plain RGBA (0–255 per channel)
+- **Body Scale**: float in memory; in the save it may be u8 (128=1.0) — needs verification
+- **Trailing 15 bytes** (slot-only): probably additional parameters not exposed in the creator, or internal flags
 
 ---
 

@@ -1,53 +1,52 @@
 # 05 — SP Effects (Status Effects)
 
-> **Type**: Binary format spec  
-> **Scope**: Active effects on the character — buffs, debuffs, special statuses
+> **Scope**: Active effects on the character — buffs, debuffs, special statuses.
 
 ---
 
-## Description
+## Overview
 
-The SP Effects (SpEffect) section follows directly after PlayerGameData. It contains a list of active status effects on the character at the moment of saving.
+The SP Effects (SpEffect) section follows immediately after PlayerGameData. It contains the list of status effects active on the character at the moment of saving.
 
-SpEffect in Elden Ring is a universal mechanism — it covers everything from antidotes through Great Rune bonuses to boss attack effects.
+In Elden Ring, SpEffect is a universal mechanism — it covers everything from poisons through Great Rune bonuses to boss-attack effects.
 
 ---
 
 ## Structure
 
-### SPEffect Entry Format
+### SPEffect entry format
 
 | Offset | Type | Description |
 |---|---|---|
-| 0x00 | u32 | SpEffect ID (from SpEffectParam table) |
+| 0x00 | u32 | SpEffect ID (from the SpEffectParam table) |
 | 0x04 | f32 | Remaining duration (seconds, -1.0 = permanent) |
 | 0x08 | u32 | Unknown field 1 |
 | 0x0C | u32 | Unknown field 2 |
 
-### Entry Count
+### Entry count
 
-The exact number of entries is given as a prefix or constant (requires verification):
+The exact entry count is provided as a prefix or fixed value (needs verification):
 - er-save-manager parses SPEffect as a structure with `param_id` + `remaining_time` + unknown fields
 - ER-Save-Editor (Rust) does not parse this section in detail
 
 ---
 
-## SpEffect ID Examples
+## Example SpEffect IDs
 
-SpEffect IDs refer to the `SpEffectParam` table in regulation.bin. Some known categories:
+SpEffect IDs reference the `SpEffectParam` table in regulation.bin. A few known categories:
 
-- **Great Runes**: activated great rune effects
-- **Buffs**: Wondrous Physick mixes, consumables
+- **Great Runes**: activated Great Rune effects
+- **Buffs**: Wonderous Physick mixtures, consumables
 - **Debuffs**: poison, rot, frostbite ticking damage
 - **Passive**: equipment bonuses (some talismans)
 
 ---
 
-## Editing Implications
+## Editing implications
 
 - Removing all SpEffects is safe — effects will be reapplied on login
-- Modifying duration allows permanent buffs (setting -1.0f)
-- SpEffect IDs must exist in SpEffectParam — non-existent IDs may crash the game
+- Modifying duration allows permanent buffs (set to -1.0f)
+- SpEffect IDs must exist in SpEffectParam — non-existent IDs can crash the game
 
 ---
 

@@ -1,26 +1,25 @@
 # 02 — Slot — General Structure
 
-> **Type**: Binary format spec  
-> **Scope**: General layout of a single character slot (SaveSlot / UserDataX). Section order, fixed vs variable sections.
+> **Scope**: General layout of a single character slot (SaveSlot / UserDataX). Section ordering, fixed vs variable-length sections.
 
 ---
 
-## Basic Facts
+## Basic facts
 
-- **Slot size**: 0x280000 bytes (2,621,440 bytes) — fixed, independent of contents
+- **Slot size**: 0x280000 bytes (2,621,440 bytes) — fixed, independent of content
 - **Endianness**: Little-endian
 - **Parsing**: Sequential — sections follow one after another, many have variable length
-- **Version**: First u32 of the slot. Determines parsing variant (e.g. 5118 vs 5120 GaItems, additional fields in newer versions)
+- **Version**: The first u32 of the slot. Determines the parsing variant (e.g., 5118 vs 5120 GaItems, additional fields in newer versions)
 
 ---
 
-## Section Order Within a Slot
+## Section order within a slot
 
-The following list shows the **exact sequence** in which data is stored in the slot.
+The list below shows the **exact sequence** in which data is stored in the slot.
 Sections marked `[VARIABLE]` have variable length — subsequent sections do not have fixed offsets.
 
 ```
-Offset (approximate)   Section                             Size
+Offset (approximate)   Section                              Size
 ──────────────────────────────────────────────────────────────────────────
 0x00                    Slot Header (version + map + unk)    32 bytes
 0x20                    GaItem Map                           [VARIABLE: 5118×var or 5120×var]
@@ -66,7 +65,7 @@ Offset (approximate)   Section                             Size
 (dynamic)               Steam ID                             0x08 (8 bytes)
 (dynamic)               PS5 Activity                         0x20 (32 bytes)
 (dynamic)               DLC                                  0x32 (50 bytes)
-(dynamic)               PlayerGameData Hash                  [remainder to end of slot]
+(dynamic)               PlayerGameData Hash                  [remainder until slot end]
 ──────────────────────────────────────────────────────────────────────────
 ```
 
@@ -77,11 +76,11 @@ Offset (approximate)   Section                             Size
 | Offset | Type | Description |
 |---|---|---|
 | 0x00 | u32 | Version — save format version number |
-| 0x04 | u8[4] | Map ID — current map identifier |
+| 0x04 | u8[4] | Map ID — identifier of the current map |
 | 0x08 | u8[8] | Unknown |
 | 0x10 | u8[16] | Unknown |
 
-### Slot Version
+### Slot version
 
 - `version == 0` → slot is empty
 - `version <= 81` → old format (5118 GaItems)
@@ -91,29 +90,29 @@ Offset (approximate)   Section                             Size
 
 ---
 
-## Variable-Length Sections — Key Challenge
+## Variable-length sections — the key problem
 
-Many sections have sizes dependent on character state. This means **fixed offsets cannot be used** for sections after the GaItem Map. Sequential parsing is required.
+Many sections have a size that depends on character state. This means **you cannot use fixed offsets** for sections after GaItem Map. They must be parsed sequentially.
 
 Main sources of variability:
-1. **GaItem Map** — record size depends on item type (weapon=21B, armor=16B, other=8B)
+1. **GaItem Map** — record size depends on item type (weapon=21B, armor=16B, others=8B)
 2. **Acquired Projectiles** — count × 8 bytes
 3. **Unlocked Regions** — count × 4 bytes
-4. **Inventory** — fixed number of slots, but associated counters
+4. **Inventory** — fixed slot count, but related counters
 5. **World areas** — size-prefixed, variable
-6. **GaItem Game Data** — 7000 entries but 8-byte header
+6. **GaItem Game Data** — 7000 entries but an 8-byte header
 
 ---
 
-## Editing Implications
+## Editing implications
 
-1. **Modifying a fixed section** (e.g. PlayerGameData) — just write new bytes in the same location
-2. **Modifying a variable section** (e.g. Regions) — size change requires shifting ALL subsequent sections
-3. **Checksum** (PC) — after any modification the MD5 of the entire slot MUST be recalculated
+1. **Modifying a fixed section** (e.g., PlayerGameData) — it is enough to write the new bytes in the same place
+2. **Modifying a variable section** (e.g., Regions) — a size change requires shifting ALL subsequent sections
+3. **Checksum** (PC) — after every modification the MD5 of the whole slot MUST be recomputed
 
 ---
 
-## Starting Classes — Base Stats Reference
+## Starting classes — Base Stats Reference
 
 | ID | Class | Start Lvl | Vig | Mnd | End | Str | Dex | Int | Fai | Arc | Sum |
 |---|---|---|---|---|---|---|---|---|---|---|---|
@@ -130,14 +129,14 @@ Main sources of variability:
 
 **Formula**: `Level = Sum(all_attributes) - 79`
 
-Values confirmed from two independent Cheat Engine tables (Hexinton + TGA).
+Values confirmed against two independent Cheat Engine tables (Hexinton + TGA).
 
 ---
 
 ## Sources
 
-- er-save-manager: `parser/user_data_x.py` — class `UserDataX` with full field sequence (lines 54-198)
-- ER-Save-Editor (Rust): `src/save/common/save_slot.rs` — structures in parsing order
+- er-save-manager: `parser/user_data_x.py` — class `UserDataX` with the full sequence of fields (lines 54-198)
+- ER-Save-Editor (Rust): `src/save/common/save_slot.rs` — structs in parsing order
 - Cheat Engine: `ER_all-in-one_Hexinton_v3.10` — Class reset scripts (base stats)
 - Cheat Engine: `ER_TGA_v1.9.0` — Class definitions
 - Souls Modding Wiki: https://www.soulsmodding.com/doku.php?id=format:sl2
