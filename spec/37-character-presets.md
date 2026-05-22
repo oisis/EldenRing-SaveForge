@@ -8,21 +8,21 @@
 
 ## Goal
 
-Human-readable JSON dump of a character profile (stats + inventory + storage + opcjonalnie wygląd / world flags) z możliwością re-importu na inny slot, oraz edycja presetu offline (bez ładowania save'a).
+A human-readable JSON dump of a character profile (stats + inventory + storage + optionally appearance / world flags) with the ability to re-import it onto another slot, plus offline preset editing (without loading a save).
 
 **Why:**
-- Share builds — gracze wymieniają się buildami w community bez kopiowania całych `.sl2`
-- Backup przed eksperymentami — szybki snapshot postaci do JSON, restore w 1 kliku
-- Replace dla aktualnie wyłączonego `App.ImportCharacter` (`app.go:1719`, "temporarily disabled during architecture refactor") — nowa ścieżka jest cleaner (po BaseID, nie po surowych bajtach)
-- Standalone editing — power-user planuje build w aplikacji bez load'owania save'a, później aplikuje jednym kliknięciem
+- Share builds — players exchange builds in the community without copying entire `.sl2` files
+- Backup before experiments — quick character snapshot to JSON, restore in 1 click
+- Replacement for the currently disabled `App.ImportCharacter` (`app.go:1719`, "temporarily disabled during architecture refactor") — the new path is cleaner (by BaseID, not by raw bytes)
+- Standalone editing — a power user plans a build in the app without loading a save, then applies it with a single click
 
-**Source of truth:** istniejący `vm.CharacterViewModel` (już ma `json:` tagi) + spec/31 (FaceData layout) + spec/34 (item caps + NG+ scaling, walidacja przy apply).
+**Source of truth:** the existing `vm.CharacterViewModel` (already has `json:` tags) + spec/31 (FaceData layout) + spec/34 (item caps + NG+ scaling, validation on apply).
 
 ---
 
-## Format pliku
+## File format
 
-JSON z `formatVersion: 1` i `appVersion` w nagłówku — versioned dla backward-compat. **Nie YAML** (nowa zależność), **nie TXT** (nieparsowalny w drugą stronę). Items identyfikowane po `BaseID + upgrade + infuse + quantity` (NIE po runtime handle — handles są re-generowane przy apply).
+JSON with `formatVersion: 1` and `appVersion` in the header — versioned for backward compatibility. **Not YAML** (a new dependency), **not TXT** (not parseable in the reverse direction). Items are identified by `BaseID + upgrade + infuse + quantity` (NOT by runtime handle — handles are re-generated on apply).
 
 ```json
 {
@@ -50,7 +50,7 @@ JSON z `formatVersion: 1` i `appVersion` w nagłówku — versioned dla backward
 
 ## Phase 1 — Export MVP (stats + inventory + storage) — ~4-6h
 
-**Backend** (~80 linii, nowy plik `backend/vm/preset.go`):
+**Backend** (~80 lines, new file `backend/vm/preset.go`):
 ```go
 type CharacterPreset struct {
     FormatVersion int                 `json:"formatVersion"`
@@ -93,11 +93,11 @@ type PresetItem struct {
 ```
 
 **App methods** (`app.go`):
-- `ExportCharacterPreset(charIdx int) (*vm.CharacterPreset, error)` — zwraca strukturę (Wails serializuje do JS auto)
-- `ExportCharacterPresetToFile(charIdx int) (string, error)` — `runtime.SaveFileDialog` + `os.WriteFile` z `json.MarshalIndent`. Default filename: `<CharacterName>_<level>_<className>.preset.json`
+- `ExportCharacterPreset(charIdx int) (*vm.CharacterPreset, error)` — returns the struct (Wails serializes it to JS automatically)
+- `ExportCharacterPresetToFile(charIdx int) (string, error)` — `runtime.SaveFileDialog` + `os.WriteFile` with `json.MarshalIndent`. Default filename: `<CharacterName>_<level>_<className>.preset.json`
 
-**Frontend** (~30 linii, `CharacterTab.tsx`):
-- Przycisk "Export Preset" w sekcji Profile (obok Add to Mirror)
+**Frontend** (~30 lines, `CharacterTab.tsx`):
+- "Export Preset" button in the Profile section (next to Add to Mirror)
 - Toast: "Preset exported to: {path}"
 
 **Tests** (`backend/vm/preset_test.go`):
@@ -107,9 +107,9 @@ type PresetItem struct {
 
 ---
 
-## Phase 2 — Import / Apply do slotu — ~6-8h
+## Phase 2 — Import / Apply to slot — ~6-8h
 
-**Backend** (`backend/vm/preset.go` + `app.go`, ~150 linii):
+**Backend** (`backend/vm/preset.go` + `app.go`, ~150 lines):
 
 ```go
 type ApplyOptions struct {
@@ -129,30 +129,30 @@ type ApplyResult struct {
 ```
 
 **App methods:**
-- `LoadCharacterPresetFromFile() (*vm.CharacterPreset, error)` — `runtime.OpenFileDialog` + `json.Unmarshal` + walidacja `FormatVersion == 1`
-- `ValidateCharacterPreset(preset vm.CharacterPreset) []string` — pre-flight: unknown BaseIDs, qty > cap per spec/34, stat floor klasy mismatch
+- `LoadCharacterPresetFromFile() (*vm.CharacterPreset, error)` — `runtime.OpenFileDialog` + `json.Unmarshal` + validation of `FormatVersion == 1`
+- `ValidateCharacterPreset(preset vm.CharacterPreset) []string` — pre-flight: unknown BaseIDs, qty > cap per spec/34, class stat-floor mismatch
 - `ApplyCharacterPreset(charIdx int, preset vm.CharacterPreset, opts ApplyOptions) (*ApplyResult, error)`:
   1. `pushUndo(charIdx)`
   2. Stats → `ApplyVMToParsedSlot` (skip Name/Class per opts)
   3. Inventory clear → `RemoveItemsFromCharacter`
   4. Inventory add → `core.AddItemsToSlot(slot, finalID, qty, 0, forceStackable)`
-  5. Storage analogicznie
+  5. Storage analogously
   6. Reuse AoW flag / world pickup flag / container logic
 
-**Frontend** (~120 linii, `PresetImporter.tsx` w `ToolsTab`):
+**Frontend** (~120 lines, `PresetImporter.tsx` in `ToolsTab`):
 - "Import Preset" button → preview card → checkboxes → slot dropdown → warnings → apply
-- `RiskActionButton` z `riskKey="character_import"` (Tier 1)
+- `RiskActionButton` with `riskKey="character_import"` (Tier 1)
 
 **Tests** (`tests/preset_apply_test.go`):
-- Apply on clean slot — stats + items match
+- Apply on a clean slot — stats + items match
 - Round-trip Export → Apply → Export → diff zero
-- Qty cap clamp: preset `qty: 999` on item MaxInventory=10 → apply qty=10 + warning
+- Qty cap clamp: preset `qty: 999` on an item with MaxInventory=10 → apply qty=10 + warning
 
 ---
 
-## Phase 3 — Standalone preset editor (offline, bez save'a) — ~10h
+## Phase 3 — Standalone preset editor (offline, without a save) — ~10h
 
-Frontend-heavy. Backend already supports stateless queries (`GetItemList`, `GetInfuseTypes`, `GetClassStats`).
+Mostly frontend. The backend already supports stateless queries (`GetItemList`, `GetInfuseTypes`, `GetClassStats`).
 
 **State management** (`App.tsx`):
 ```ts
@@ -161,10 +161,10 @@ const [editorMode, setEditorMode] = useState<EditorMode>('save');
 const [editingPreset, setEditingPreset] = useState<CharacterPreset | null>(null);
 ```
 
-- Toggle "Save / Preset Workspace" in top bar
+- "Save / Preset Workspace" toggle in the top bar
 - Preset mode: sidebar with [New] [Load] [Save] [Apply to Slot]
 - Character + Inventory + Database tabs work normally; World/Tools/Settings hidden
-- `useCurrentVM()` hook abstracts slot vs preset source
+- The `useCurrentVM()` hook abstracts the slot vs preset source
 
 ---
 
@@ -180,7 +180,7 @@ type CharacterPresetCore struct {
 ```
 
 - Export: FaceData slice → base64
-- Apply: same as `ApplyMirrorFavoriteToCharacter` (5 segments copy)
+- Apply: same as `ApplyMirrorFavoriteToCharacter` (copying 5 segments)
 - Cross-gender caveat: UI warning when `preset.gender != slot.gender`
 
 ---
@@ -213,8 +213,8 @@ Scope creep risk — deferred to user feedback after Phase 1+2.
 |---|---|---|
 | **1** Export MVP | 4-6h | Snapshot character → JSON |
 | **2** Import / Apply | 6-8h | Bidirectional preset workflow |
-| **1+2 (recommended start)** | **10-14h** | 80% of feature value |
-| 3 Standalone editor | +10h | Offline editing without save |
+| **1+2 (recommended start)** | **10-14h** | 80% of the feature's value |
+| 3 Standalone editor | +10h | Offline editing without a save |
 | 4 Appearance blob | +3-4h | Full visual transfer |
 | 5 World flags | +12-16h | Full character clone |
 
@@ -222,8 +222,8 @@ Scope creep risk — deferred to user feedback after Phase 1+2.
 
 ## Open questions
 
-1. **Equipped items in MVP**: skip (player re-equips from inventory after apply) or add `equipped` section? — suggest skip in v1.
-2. **Class change on apply**: default `KeepClass=true` (class affects stat floor validation per spec/34).
-3. **NG+ scaling on validation**: use slot's ClearCount (not preset's) for effective cap calculation.
+1. **Equipped items in the MVP**: skip them (the player re-equips from inventory after apply) or add an `equipped` section? — suggestion: skip in v1.
+2. **Class change on apply**: default `KeepClass=true` (the class affects stat-floor validation per spec/34).
+3. **NG+ scaling during validation**: use the slot's ClearCount (not the preset's) to compute the effective cap.
 4. **Fail-fast vs best-effort**: best-effort with warnings in `ApplyResult` (precedent: `AddItemsToCharacter` returns `[]SkippedAdd`).
-5. **Backup before apply**: auto-export current character to `.preset.bak.json` before overwrite (quick rollback beyond undo stack limit).
+5. **Backup before apply**: auto-export the current character to `.preset.bak.json` before overwriting (quick rollback beyond the undo stack limit).
