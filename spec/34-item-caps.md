@@ -1,19 +1,10 @@
 # 34 — Item Caps Enforcement (NG+ Scaling + Full Chaos Mode)
 
-> **Type**: Design doc  
-> **Scope**: `MaxInventory` / `MaxStorage` cap system with NG+ scaling and Full Chaos Mode bypass.
+## Purpose
 
-> **Status**: ✅ Deployed (Apr 2026).
+The `MaxInventory` / `MaxStorage` limit in the item database reflects the **actual number of pieces obtainable in a single playthrough**. For items that carry over to NG+ and respawn, the cap scales linearly with the NG+ cycle counter (`ClearCount`). A power-user can disable the whole mechanism in Settings (Full Chaos Mode).
 
----
-
-## Goal
-
-The `MaxInventory` / `MaxStorage` limit in the item database reflects the **realistic number of items obtainable in a single playthrough**. For items that carry over to NG+ and respawn, the cap scales linearly with the NG+ cycle counter (`ClearCount`). Power users can disable the entire mechanism in Settings (Full Chaos Mode).
-
-**Primary goal:** reduce EAC detection risk by keeping item quantities within statistically vanilla-consistent ranges. Secondary: consistency with in-game UI (e.g. cookbook = 1 copy, physically impossible to have 2).
-
----
+**Primary goal:** reduce EAC detection risk by keeping item counts in a range statistically consistent with vanilla. Secondary: consistency with in-game UI (e.g. cookbook = 1 piece, physically impossible to have 2).
 
 ## Scaling mechanism
 
@@ -23,7 +14,7 @@ effective_cap = MaxInventory                      otherwise
 effective_cap = 999                               if Full Chaos Mode is ON
 ```
 
-`ClearCount` (uint32, 0..7+) is located in the save in the dynamic offset chain after BloodStain — see `backend/core/structures.go:178` and `offset_defs.go:101`. Exposed to frontend as `CharacterViewModel.clearCount` (`backend/vm/character_vm.go:44,72`).
+`ClearCount` (uint32, 0..7+) sits in the save in a dynamic offset chain after BloodStain — see `backend/core/structures.go:178` and `offset_defs.go:101`. Exposed to the frontend as `CharacterViewModel.clearCount` (`backend/vm/character_vm.go:44,72`).
 
 | ClearCount | Game cycle | Multiplier |
 |---|---|---|
@@ -33,11 +24,9 @@ effective_cap = 999                               if Full Chaos Mode is ON
 | ... | ... | ... |
 | 7 | NG+7 | ×8 |
 
-**TODO**: verify on a real save when the game increments `ClearCount` — upon killing Elden Beast or upon entering the NG+ menu? Currently assuming 0 = pre-Elden-Beast of first cycle.
+**TODO**: verify on a real save when the game increments `ClearCount` — on killing Elden Beast or on entering the NG+ menu? Currently we assume 0 = pre-Elden-Beast of the first cycle.
 
----
-
-## Items with `scales_with_ng` flag
+## Items with the `scales_with_ng` flag
 
 All with a base per single playthrough per Fextralife (v1.16):
 
@@ -47,11 +36,9 @@ All with a base per single playthrough per Fextralife (v1.16):
 | Dragon Heart | `key_items.go` | 22 | ~16 base (Greyoll 5 + named dragons) + ~6 DLC; NG+ respawns dragons |
 | Larval Tear | `key_items.go` | 24 | 18 base + 6 DLC; NG+ respawns Albinaurics and drops |
 
----
+## Items with a hard cap (no scaling) — caps as "max useful"
 
-## Items with hard cap (no scaling) — caps are "max useful"
-
-Cap does not change with NG+ — game limit, not collectability limit:
+The cap does not change with NG+ — a game limit, not a collection limit:
 
 | Item | Cap | Reason |
 |---|---|---|
@@ -62,24 +49,20 @@ Cap does not change with NG+ — game limit, not collectability limit:
 | Scadutree Fragment | 50 | Max Scadutree Blessing (+20, cumulative cost 50) |
 | Revered Spirit Ash | 25 | Max Revered Spirit Ash Blessing (+10, cumulative cost 25) |
 
-**Design principle**: if cap = "max useful" (exceeding provides no functional benefit), we don't scale with NG+. Even after Elden Beast in NG+1, the player already has +12 potency / +14 flask charges / +20 blessing — additional seeds/tears/fragments are useless.
-
----
+**Design rule**: if the cap = "max useful" (exceeding it yields no functional gain), do not scale with NG+. Even after Elden Beast in NG+1, the player already has +12 potency / +14 flask charges / +20 blessing — additional seeds/tears/fragments are useless.
 
 ## Items with cap 1/0 (unique drops)
 
-Per single playthrough physically 1 copy (consumable / unique pickup):
+Per single playthrough physically 1 piece (consumable / unique pickup):
 
 - All **gestures** (54), **sorceries** (85), **incantations** (128) — memorized once.
-- All **About * tutorials** (~37) and **letters / story keys** in `info.go`.
+- All **About \* tutorials** (~37) and **letters / story keys** in `info.go`.
 - **Paintings** (3 base + 9 DLC) — read-once items.
 - **Notes** (15 base + 2 DLC) — read-once items.
 - **Crystal Tears** (~22 base + 5 DLC) — unique pickups, Twin Maidens 1-time purchases (Cerulean/Viridian Hidden, etc.).
 - **Great Runes / Bell Bearings / keys** (~270) in `key_items.go`.
-- **Cookbooks** (109) — all unique (cookbook is "consumed" when given to merchant).
+- **Cookbooks** (109) — all unique (the cookbook is "consumed" when given to a merchant).
 - **Multiplayer Fingers** (11) and **Remembrances** (25 = 15 base + 10 DLC) in `tools.go`.
-
----
 
 ## Full Chaos Mode
 
@@ -95,8 +78,6 @@ Toggle in `SettingsTab.tsx` → Safety section (red-bordered, ban-risk copy):
 
 **UX**: when enabled, the modal in Database tab shows a red banner *"⚠ Full Chaos Mode — caps bypassed (max 999)"*.
 
----
-
 ## UI implementation (`DatabaseTab.tsx`)
 
 Helper:
@@ -109,30 +90,26 @@ function effectiveCap(item, kind, clearCount, chaos): number {
 }
 ```
 
-The modal `min`/`max` uses `effectiveCap()` instead of `item.maxInventory`/`item.maxStorage`. **NG+ Scaling** banner renders when:
-- any selected item has the `scales_with_ng` flag
-- AND `Full Chaos Mode` is disabled
+The modal `min`/`max` uses `effectiveCap()` instead of `item.maxInventory`/`item.maxStorage`. The **NG+ Scaling** banner is rendered when:
+- any of the selected items has the `scales_with_ng` flag
+- AND `Full Chaos Mode` is off
 
-Banner shows:
+The banner shows:
 - `Vanilla NG: X` (always)
 - `NG+Y: Z` (when `clearCount > 0`)
-- Educational line *"Adding more increases EAC ban risk"*
+- An educational line *"Adding more increases EAC ban risk"*
 
----
-
-## Architecture: where clamping is enforced
+## Architecture: where the clamp is enforced
 
 | Layer | Clamp enforcement |
 |---|---|
 | `core` (binary load/save) | **None** — read/write is transparent |
-| `vm.MapParsedSlotToVM` | **No change** — existing clamp in handleSetItemQty remains |
+| `vm.MapParsedSlotToVM` | **No** changes — existing clamp in handleSetItemQty remains |
 | `vm.handleSetItemQty` | Clamp to `MaxInventory`/`MaxStorage` (legacy behavior) |
-| `frontend DatabaseTab modal` | **Primary enforcement** — `min/max` on `<input>`, validation before `AddItemsToCharacter()` |
-| `Full Chaos Mode` | Bypasses clamp in UI only (vm clamp still works, but 999 max from UI is sufficient in practice) |
+| `frontend DatabaseTab modal` | **Primary enforcement site** — `min/max` on `<input>`, validation before `AddItemsToCharacter()` |
+| `Full Chaos Mode` | Clamp bypass in the UI only (vm clamp still works, but max 999 from the UI is effectively enough) |
 
-**Intentional decision**: clamping at load/save does **NOT** modify values in an existing save. A player who has 999 Larval Tears (e.g. from another editor) will keep them through the load → save round-trip.
-
----
+**Conscious decision**: the clamp at load/save **does NOT** modify values in an existing save. A player who has 999 Larval Tears (e.g. from another editor) keeps them on the load → save round-trip.
 
 ## Verification
 
@@ -142,11 +119,9 @@ Banner shows:
   1. NG save → Database → Stonesword Key → modal shows cap **55**
   2. NG+3 save → cap **220** (=55×4), tooltip *"Vanilla NG: 55 · NG+3: 220"*
   3. Settings → Full Chaos Mode ON → cap **999**, red banner visible
-  4. Cookbook (Glintstone Craftsman's [1]) → cap **1**, attempt to add 2 blocked
+  4. Cookbook (Glintstone Craftsman's [1]) → cap **1**, attempt to add 2 is blocked
   5. Painting → cap **1**, no storage row
-  6. Mohg's Great Rune displays in Key Items category, absent from Bolstering
-
----
+  6. Mohg's Great Rune is shown in the Key Items category, absent from Bolstering
 
 ## Sources
 
