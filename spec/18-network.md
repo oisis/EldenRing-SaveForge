@@ -1,13 +1,12 @@
-# 18 — Network Manager
+# 18 — Network Manager (Network Data)
 
-> **Type**: Binary format spec  
 > **Scope**: Multiplayer data — 131 KB opaque blob.
 
 ---
 
 ## Overview
 
-NetMan stores multiplayer session data. Large block (131,076 bytes = 0x20004), largely unexplored.
+NetMan stores multiplayer session data. A large block (131,076 bytes = 0x20004), largely unexplored.
 
 ---
 
@@ -15,14 +14,14 @@ NetMan stores multiplayer session data. Large block (131,076 bytes = 0x20004), l
 
 | Offset | Type | Description |
 |---|---|---|
-| 0x00 | u32 | Unknown (unk0x0) — likely a state flag |
+| 0x00 | u32 | Unknown (unk0x0) — probably a state flag |
 | 0x04 | u8[0x20000] | Data (131,072 bytes) — opaque network state |
 
 ---
 
-## Spawn Point Data (directly after RendMan, before NetMan)
+## Spawn Point Data (immediately after RendMan, before NetMan)
 
-After Player Coordinates and before NetMan, additional GameMan fields are present:
+Between Player Coordinates and NetMan there are additional GameMan fields:
 
 | Offset | Type | Description |
 |---|---|---|
@@ -37,13 +36,13 @@ After Player Coordinates and before NetMan, additional GameMan fields are presen
 
 ## Editing implications
 
-- **spawn_point_entity_id**: changing = player respawns at a different Site of Grace
+- **spawn_point_entity_id**: changing = the player respawns at a different Site of Grace
 - Network data: typically not edited — session data is ephemeral
-- Entire blob can be safely zeroed (multiplayer state reset)
+- The whole blob can be zeroed out safely (multiplayer state reset)
 
 ---
 
 ## Sources
 
-- er-save-manager: `parser/world.py` — class `NetMan` (lines 785-802)
+- er-save-manager: `parser/world.py` — `NetMan` class (lines 785-802)
 - er-save-manager: `parser/user_data_x.py` lines 178-186 (GameMan spawn fields)

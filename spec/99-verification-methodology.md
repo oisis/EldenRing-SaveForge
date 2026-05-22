@@ -1,7 +1,6 @@
 # 99 — Verification & Discovery Methodology
 
-> **Type**: Research / QA  
-> **Scope**: Test procedures for verifying documented offsets and discovering unknown parameters in save files.
+> **Scope**: Test procedures for verifying documented offsets and discovering unknown parameters in the save file.
 
 ---
 
@@ -23,10 +22,10 @@
 **Goal**: Find a field's offset in the save file based on a known value.
 
 ### Procedure:
-1. Load save through our parser → extract known values (name, level, stats)
-2. Hex dump the slot to file
-3. Search for the known value pattern (little-endian)
-4. Confirm offset — compare with documentation
+1. Load the save through our parser → extract known values (name, level, stats)
+2. Hex dump the slot to a file
+3. Search for the known value's pattern (little-endian)
+4. Confirm the offset — compare with documentation
 
 ### Example — searching for Character Name:
 ```bash
@@ -34,7 +33,7 @@
 xxd -s $SLOT_START -l 0x280000 save.sl2 | grep "5a00 6f00 6600"
 ```
 
-### Example — searching for Level (e.g. level 150 = 0x96 = 96 00 00 00 LE):
+### Example — searching for Level (e.g., level 150 = 0x96 = 96 00 00 00 LE):
 ```bash
 # Level 150 in u32 LE
 xxd -s $SLOT_START -l 0x280000 save.sl2 | grep "9600 0000"
@@ -47,15 +46,15 @@ xxd -s $SLOT_START -l 0x280000 save.sl2 | grep "9600 0000"
 **Goal**: Discover which bytes change after a specific in-game action.
 
 ### Procedure:
-1. Backup save BEFORE action
-2. Perform one specific action in-game (e.g. level up, pick item, kill boss)
+1. Back up the save BEFORE the action
+2. Perform one specific in-game action (e.g., level up, pick up an item, kill a boss)
 3. Save the game
 4. Binary diff the two saves → list of changed bytes
-5. Filter out known changes (checksum, timestamps) → new discoveries remain
+5. Filter known changes (checksums, timestamps) → new discoveries remain
 
 ### Tool:
 ```bash
-# Extract specific slot (e.g. slot 0, PC with MD5)
+# Extract a specific slot (e.g., slot 0, PC with MD5)
 dd if=save_before.sl2 bs=1 skip=$((0x300 + 0x10)) count=$((0x280000)) of=slot0_before.bin
 dd if=save_after.sl2 bs=1 skip=$((0x300 + 0x10)) count=$((0x280000)) of=slot0_after.bin
 
@@ -76,16 +75,16 @@ cmp -l slot0_before.bin slot0_after.bin | head -50
 
 ## Method 3: Cross-Slot Comparison
 
-**Goal**: Compare the same offsets between different slots (characters) to identify per-character vs constant fields.
+**Goal**: Compare the same offsets across different slots (characters) to identify per-character fields vs constants.
 
 ### Procedure:
 1. Extract N slots from one save file
 2. Compare byte-by-byte at the same offsets
-3. Identical fields = constant/template
-4. Different fields = per-character data
+3. Fields that match = constants/template
+4. Fields that differ = per-character data
 
-### What to look for:
-- Offsets where the value corresponds to level differences between characters
+### What we look for:
+- Offsets where the value corresponds to the level difference between characters
 - Offsets where one character's name appears but not another's
 - Zero blocks in one slot but non-zero in another (unused vs used features)
 
@@ -93,7 +92,7 @@ cmp -l slot0_before.bin slot0_after.bin | head -50
 
 ## Method 4: Parser Comparison (er-save-manager vs ours)
 
-**Goal**: Compare parsing results of the same save by Python reference and our Go parser.
+**Goal**: Compare the parsing results of the same save by the Python reference and our Go parser.
 
 ### Procedure:
 ```bash
@@ -117,7 +116,7 @@ go test -v -run TestParseComparison ./tests/
 
 ### Compared values:
 - All PlayerGameData fields
-- GaItem count and first/last entries
+- GaItem count and the first/last entries
 - Inventory count + first items
 - Event flag spot-checks (known flags)
 - Dynamic offsets (MagicOffset, EventFlagsOffset, etc.)
@@ -126,32 +125,32 @@ go test -v -run TestParseComparison ./tests/
 
 ## Method 5: Targeted Byte Probing (Unknown Fields)
 
-**Goal**: Discover meaning of unknown fields by systematically modifying and observing in-game effect.
+**Goal**: Discover the meaning of unknown fields by systematically modifying them and observing the in-game effect.
 
 ### Procedure:
-1. Select an unknown byte/field
-2. Note current value
-3. Change to an extreme value (0x00, 0xFF, or inverse)
-4. Load save in game
+1. Pick an unknown byte/field
+2. Note the current value
+3. Change it to an extreme value (0x00, 0xFF, or the opposite)
+4. Load the save in-game
 5. Observe: crash? different behavior? no effect?
-6. Document result
+6. Document the result
 
 ### Safety rules:
-- ALWAYS work on a COPY of the save (never original)
+- ALWAYS work on a COPY of the save (never the original)
 - Change ONE field at a time
-- Test "safe" values first (0, max) before random ones
-- If crash → field is critical, note it
-- If no effect → field is likely runtime-only or unused
+- First test "safe" values (0, max) before random ones
+- If it crashes → the field is critical, note it
+- If no effect → the field is probably runtime-only or unused
 
 ---
 
 ## Method 6: Pattern Recognition (MagicPattern Anchor)
 
-**Goal**: Use the known 192-byte MagicPattern as an anchor to calculate offsets.
+**Goal**: Use the known 192-byte MagicPattern as an anchor to compute offsets.
 
 ### Procedure:
-1. Find MagicPattern in slot (192 bytes of known values)
-2. Calculate PlayerGameData offset = MagicPattern + 192 + N (where N depends on version)
+1. Find MagicPattern in the slot (192 bytes of known values)
+2. Compute PlayerGameData offset = MagicPattern + 192 + N (where N depends on version)
 3. From that point — verify fields sequentially
 
 ### MagicPattern (hex):
@@ -168,9 +167,9 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 **Goal**: Verify the BST algorithm on specific, known flags.
 
 ### Procedure:
-1. Take a save with a defeated boss (e.g. Margit — flag 71001)
-2. Calculate offset via BST: block=71, index=1, lookup BST[71], byte=offset×125+0, bit=7-1=6
-3. Check if the bit is set in the hex dump of Event Flags section
+1. Take a save with a defeated boss (e.g., Margit — flag 71001)
+2. Compute the offset via BST: block=71, index=1, lookup BST[71], byte=offset×125+0, bit=7-1=6
+3. Check whether the bit is set in the hex dump of the Event Flags section
 4. Repeat for several known flags
 
 ### Spot-check flags:
@@ -185,7 +184,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 # VERIFICATION CHECKLIST
 
-## Status: ✅ = verified, ⏳ = in progress, ❌ = to do, ❓ = unknown/to discover
+## Status: ✅ = verified, ⏳ = in progress, ❌ = todo, ❓ = unknown/to discover
 
 ---
 
@@ -199,14 +198,14 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 | 0x04 | unk0x4 | ❓ | Probe | — |
 | 0x08 | HP | ❌ | Known Value | Compare with CT value |
 | 0x0C | MaxHP | ❌ | Known Value | — |
-| 0x10 | BaseMaxHP | ❌ | Known Value | Calculate from Vigor table |
+| 0x10 | BaseMaxHP | ❌ | Known Value | Compute from Vigor table |
 | 0x14 | FP | ❌ | Known Value | — |
 | 0x18 | MaxFP | ❌ | Known Value | — |
-| 0x1C | BaseMaxFP | ❌ | Known Value | Calculate from Mind table |
+| 0x1C | BaseMaxFP | ❌ | Known Value | Compute from Mind table |
 | 0x20 | unk0x20 | ❓ | Probe | FP regen? MaxFP2? BaseMaxMP? |
 | 0x24 | SP | ❌ | Known Value | — |
 | 0x28 | MaxSP | ❌ | Known Value | — |
-| 0x2C | BaseMaxSP | ❌ | Known Value | Calculate from Endurance table |
+| 0x2C | BaseMaxSP | ❌ | Known Value | Compute from Endurance table |
 | 0x30 | unk0x30 | ❓ | Probe | SP regen? |
 
 ### Attributes (0x34–0x5F)
@@ -238,7 +237,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 | Offset | Field | Status | Method | Notes |
 |---|---|---|---|---|
-| 0x70 | Immunity (Poison) | ❌ | Probe | Should be 0 in clean save |
+| 0x70 | Immunity (Poison) | ❌ | Probe | Should be 0 in a clean save |
 | 0x74 | Immunity2 (Scarlet Rot) | ❌ | Probe | — |
 | 0x78 | Robustness (Bleed) | ❌ | Probe | — |
 | 0x7C | Vitality (Death) | ❌ | Probe | — |
@@ -268,7 +267,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 | 0xBC | unk0xbc | ❓ | Probe | — |
 | 0xBD | unk0xbd | ❓ | Probe | — |
 | 0xBE | TalismanSlotCount | ❌ | Probe | 0-3 |
-| 0xBF | SummonSpiritLevel | ❓ | Probe | What does this do exactly? |
+| 0xBF | SummonSpiritLevel | ❓ | Probe | What does this actually do? |
 
 ### Unknown Block (0xC0–0xD7)
 
@@ -321,15 +320,15 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 | Structure | Status | Method | Notes |
 |---|---|---|---|
-| EquippedItemsEquipIndex (88B) | ❌ | Known Value | Compare with inventory indices |
+| EquippedItemsEquipIndex (88B) | ❌ | Known Value | Compare against inventory indices |
 | ActiveWeaponSlots (28B) | ❌ | Probe | ArmStyle 0-3, slots 0-2 |
-| EquippedItemsItemIds (88B) | ❌ | Known Value | Item IDs from database |
+| EquippedItemsItemIds (88B) | ❌ | Known Value | Item IDs from the database |
 | EquippedItemsGaitemHandles (88B) | ❌ | Known Value | Handles from GaItem Map |
 | Slot #10 (Arrows 3) | ❓ | Probe | CT says it exists |
 | Slot #11 (Bolts 3) | ❓ | Probe | CT says it exists |
 | Slot #16 (Hair) | ❓ | Probe | Internal slot |
 | Slot #21 (Accessory 5) | ❓ | Probe | Unused — is it zero? |
-| Great Rune field | ❓ | Known Value | Where exactly in save? |
+| Great Rune field | ❓ | Known Value | Where exactly in the save? |
 | Quick Items (10 × u32) | ❌ | Known Value | — |
 | Pouch (6 × u32) | ❌ | Known Value | — |
 
@@ -343,7 +342,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 | SelectedSlotIdx | ❓ | Probe | -1 or 0-13 |
 | Quick Slots 10 × u32 | ❌ | Known Value | — |
 | Pouch 6 × u32 | ❌ | Known Value | — |
-| Equipped Gestures (ring) | ❌ | Known Value | ID from table |
+| Equipped Gestures (ring) | ❌ | Known Value | IDs from the table |
 | Acquired Projectiles count | ❌ | Known Value | Compare characters |
 | Gestures 64 × u32 | ❌ | Cross-Slot | — |
 | Equipped Physics (2 × u32) | ❌ | Known Value | Crystal Tear IDs |
@@ -371,7 +370,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 | Common item count (2688 max) | ❌ | Known Value | — |
 | Key item count (384 max) | ❌ | Known Value | — |
 | Item record (12B: handle+qty+idx) | ❌ | Known Value | — |
-| NextEquipIndex | ❌ | Monotonic check | Should be increasing |
+| NextEquipIndex | ❌ | Monotonic check | Should grow |
 | NextAcquisitionSortId | ❌ | Monotonic check | — |
 | Storage common (1920 max) | ❌ | Known Value | — |
 | Storage key (128 max) | ❌ | Known Value | — |
@@ -387,7 +386,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 | Weapon record (21B) | ❌ | Known Value | Handle + ItemID + extras |
 | Armor record (16B) | ❌ | Known Value | — |
 | Other record (8B) | ❌ | Known Value | — |
-| Type segregation (AoW first) | ❌ | Scan | Check if 0xC0... before 0x80... |
+| Type segregation (AoW first) | ❌ | Scan | Check whether 0xC0... precedes 0x80... |
 | Empty entry pattern | ❌ | Pattern | 0x00 or 0xFFFFFFFF |
 
 ---
@@ -410,9 +409,9 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 
 | Element | Status | Method | Notes |
 |---|---|---|---|
-| ClearCount (NG+) | ❌ | Known Value | Check pre/post NG+ characters |
-| Death Count | ❌ | Known Value | Known value from menu? |
-| Last Rested Grace | ❌ | Known Value | BonfireId — verify with grace list |
+| ClearCount (NG+) | ❌ | Known Value | Check chars pre/post NG+ |
+| Death Count | ❌ | Known Value | Known value from the menu? |
+| Last Rested Grace | ❌ | Known Value | BonfireId — verify against grace list |
 | Play Time | ❌ | Known Value | Compare with menu display |
 | GaItem Game Data count | ❌ | Known Value | — |
 | Tutorial Data count | ❌ | Cross-Slot | Fresh vs endgame |
@@ -425,7 +424,7 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 |---|---|---|---|
 | Torrent State | ❌ | Probe | 1/3/13 |
 | Torrent HP | ❌ | Known Value | — |
-| Blood Stain runes | ❌ | Known Value | How many runes were lost |
+| Blood Stain runes | ❌ | Known Value | How many runes lost |
 | Player Coords (x,y,z) | ❌ | Known Value | Compare with CT readout |
 | Map ID | ❌ | Known Value | — |
 | Weather type | ❓ | Diff | Compare different times of day |
@@ -452,13 +451,13 @@ FF FF FF FF 00 00 00 00 00 00 00 00 00 00 00 00 00
 | DLC flags (50B) | ❌ | Pattern | Bytes 3-49 = zero? |
 | DLC entry flag | ❌ | Probe | 0/1 |
 | BaseVersion | ❌ | Known Value | — |
-| PlayerGameData Hash | ❌ | Measure | Remainder to end of slot |
+| PlayerGameData Hash | ❌ | Measure | Rest until end of slot |
 
 ---
 
 ## K. Dynamic Offset Chain — CRITICAL
 
-Verification of sequentially calculated offset chain:
+Verification of the chain of sequentially computed offsets:
 
 | Step | From → To | Status | Method |
 |---|---|---|---|
@@ -490,17 +489,17 @@ Verification of sequentially calculated offset chain:
 | 26 | SteamID → PS5Activity | ❌ | +8B |
 | 27 | PS5Activity → DLC | ❌ | +32B |
 | 28 | DLC → Hash | ❌ | +50B |
-| 29 | Hash → Slot End | ❌ | Remainder to 0x280000 |
+| 29 | Hash → Slot End | ❌ | Rest until 0x280000 |
 
 ---
 
-## L. DISCOVERIES — Unknown parameters to investigate
+## L. DISCOVERIES — unknown parameters to investigate
 
-### HIGH priority (likely editable)
+### HIGH priority (probably editable)
 
 | ID | Location | Hypothesis | Investigation plan |
 |---|---|---|---|
-| L1 | PGD 0x00–0x07 | Runtime-only header? | Check if different between slots |
+| L1 | PGD 0x00–0x07 | Runtime-only header? | Check if it differs between slots |
 | L2 | PGD 0x20 | FP-related (between MaxFP and SP) | Compare with Mind value; probe |
 | L3 | PGD 0x30 | SP-related | Compare with Endurance value |
 | L4 | PGD 0x54–0x5C | Extended attrs? DLC? | Check pre-DLC vs post-DLC save |
@@ -509,7 +508,7 @@ Verification of sequentially calculated offset chain:
 | L7 | PGD 0xFB–0x10F | Flask upgrade level + Physick | Compare fresh vs 12 Sacred Tears |
 | L8 | PGD 0xC0–0xD7 | Character state flags? | Diff between online/offline save |
 
-### MEDIUM priority (likely informational)
+### MEDIUM priority (probably informational)
 
 | ID | Location | Hypothesis | Investigation plan |
 |---|---|---|---|
@@ -517,57 +516,57 @@ Verification of sequentially calculated offset chain:
 | L10 | PGD 0xBC–0xBD | Starting equip related? | Compare classes |
 | L11 | PGD 0xBF | SummonSpiritLevel | What does it do? DLC? |
 | L12 | PGD 0xDD–0xF6 | Extended online settings | Diff online vs offline |
-| L13 | PGD 0xEF | ReinforceLv | Character reinforce — what is this? |
+| L13 | PGD 0xEF | ReinforceLv | Character reinforce — what is it? |
 | L14 | PGD 0x180–0x1AF | Trailing 48B | SwordArt? Correction? Overflow? |
 
-### LOW priority (likely constant/unused)
+### LOW priority (probably constants/unused)
 
 | ID | Location | Hypothesis | Investigation plan |
 |---|---|---|---|
 | L15 | Equipment slot #21 | Accessory 5 — unused? | Check if always 0xFFFFFFFF |
 | L16 | Face Data trailing 15B | Slot-only extra params? | Diff vs ProfileSummary version |
 | L17 | Body Scale format | float vs u8 in save? | Hex dump known proportions |
-| L18 | Correction Stats location | In PGD or after PGD? | Search for attribute copies |
+| L18 | Correction Stats location | In PGD or after PGD? | Search for copies of attributes |
 
 ---
 
 ## Verification session procedure
 
-### Before session:
+### Before the session:
 1. `cp tmp/save/ER0000.sl2 tmp/save/ER0000.sl2.bak` — backup
-2. Prepare script to extract slots from save file
-3. Prepare `xxd` / `hexdump` commands with correct offsets
+2. Prepare a script to cut slots out of the save file
+3. Prepare `xxd` / `hexdump` commands with the correct offsets
 
-### During session:
-1. Choose section to verify (e.g. "A. PlayerGameData")
-2. Execute appropriate method (Known Value / Diff / Probe)
-3. Record results in "Status" and "Notes" columns
-4. On discovery — add to section L with full description
+### During the session:
+1. Pick a section to verify (e.g., "A. PlayerGameData")
+2. Run the appropriate method (Known Value / Diff / Probe)
+3. Record results in the "Status" and "Notes" columns
+4. On a discovery — add it to section L with a full description
 
-### After session:
-1. Update this file with statuses
-2. Update corresponding spec/ files with confirmed information
+### After the session:
+1. Update this file with the statuses
+2. Update the relevant spec/ files with confirmed information
 3. Add new discoveries to spec/26-parameter-reference.md
 
 ---
 
-## Helper tools (to write)
+## Helper tools (to be written)
 
 | Tool | Purpose | Status |
 |---|---|---|
-| `scripts/dump_slot.py` | Extracts raw slot from .sl2 | ❌ To write |
-| `scripts/find_pattern.py` | Searches for pattern in hex dump | ❌ To write |
-| `scripts/verify_bst.py` | Tests BST algorithm on known flags | ❌ To write |
-| `scripts/diff_slots.py` | Compares two slots byte-by-byte | ❌ To write |
-| `scripts/parse_pgd.py` | Parses PlayerGameData and prints fields | ❌ To write |
-| `tests/offset_chain_test.go` | Verifies the entire offset chain | ❌ To write |
+| `scripts/dump_slot.py` | Cuts a raw slot from .sl2 | ❌ Todo |
+| `scripts/find_pattern.py` | Searches for a pattern in the hex dump | ❌ Todo |
+| `scripts/verify_bst.py` | Tests the BST algorithm on known flags | ❌ Todo |
+| `scripts/diff_slots.py` | Compares two slots byte-by-byte | ❌ Todo |
+| `scripts/parse_pgd.py` | Parses PlayerGameData and prints fields | ❌ Todo |
+| `tests/offset_chain_test.go` | Verifies the entire offset chain | ❌ Todo |
 
 ---
 
 ## Sources
 
-- Hex editor: `xxd`, `hexdump`, or GUI (HxD, ImHex)
-- Python: struct module for binary parsing
+- Hex editor: `xxd`, `hexdump`, or a GUI (HxD, ImHex)
+- Python: struct module for parsing binary
 - Go test framework: `go test -v -run TestXxx`
 - er-save-manager: reference parser for comparisons
 - Cheat Engine tables: runtime values for cross-reference
