@@ -282,4 +282,4 @@ Design docs without implementation in code.
 
 ## Translations
 
-Polish translations of all specification documents live in [`lang-pl/`](lang-pl/) (subdirectory). **Note**: the Polish version (`spec/lang-pl/`) is the current source of truth; the English mirror is rebuilt from PL after the Phase 1–4 cleanup.
+Polish translations of all specification documents live in the Polish documentation subdirectory. **Note**: the Polish documentation is the current source of truth; the English mirror is rebuilt from PL after the Phase 1–4 cleanup.

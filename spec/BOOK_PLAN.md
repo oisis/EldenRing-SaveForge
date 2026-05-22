@@ -89,10 +89,10 @@ After all phases, `spec/` should consist of 30 chapters + 7 appendices, divided 
 
 - **Purpose**: separate reference from research-, planned-, and archive-docs without content changes.
 - **Scope (historical)**: creation of `research`, `planned`, `archive` subdirectories; `git mv` of 8 documents; rewrite of `README.md` + new `BOOK_PLAN.md`.
-- **Acceptance**: the main `spec/lang-pl/` directory contains only documents that are candidates for chapters; no dangling links; vanilla MD5 untouched. ✅
+- **Acceptance**: the main Polish specification directory contains only documents that are candidates for chapters; no dangling links; vanilla MD5 untouched. ✅
 - **Effort**: 2–3 h.
 - **Commit**: `1c2fbab docs(lang-pl): reorganize book structure`.
-- **Cleanup in Phase 4+** (2026-05): the `research`, `planned`, `archive` subdirectories were removed. Three active documents (38, 30, 42) returned to the root of `spec/lang-pl/`; the remaining ones (33, 40, 41, 46, 51) were deleted as obsolete.
+- **Cleanup in Phase 4+** (2026-05): the `research`, `planned`, `archive` subdirectories were removed. Three active documents (38, 30, 42) returned to the root of the Polish documentation tree; the remaining ones (33, 40, 41, 46, 51) were deleted as obsolete.
 
 ### Phase 2 — Inventory + Storage + GaItem + Equipment ✅ COMPLETED (main chapters)
 
