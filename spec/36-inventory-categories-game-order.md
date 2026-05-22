@@ -1,298 +1,393 @@
-# 36 — Inventory Categories: Game-Accurate Order & Sub-Grouping
+# 36 — Inventory Categories and Game Order
 
-> **Type**: Design doc  
-> **Scope**: Full alignment of `Inventory` and `Item Database` tabs with in-game
-> equipment layout (1:1 — names, order, sub-groups). Follows
-> [spec/33 — DB Categorization Audit](33-db-categorization-audit.md), which
-> established the source-of-truth as **Fextralife per-item breadcrumb** + in-game
-> verification. Spec/36 completes the work: defines 18 main tabs in game order,
-> maps sub-groups (where the game shows them), and refactors backend / frontend /
-> icon code to this taxonomy.
->
-> **Status**: ✅ Deployed on `feat/inventory-game-accurate-categories`
-> (April 2026).
->
-> **Source of truth**: in-game UI (PC make dev + Steam Deck verification),
-> Fextralife per-item breadcrumb, Eldenpedia inventory tab list.
+> **Type**: Design doc + canonical reference
+> **Status**: ✅ Active — canonical reference for the editor's category taxonomy.
+> **Scope**: Mapping items to in-game tabs (18 DB categories), handle prefix classes (5 binary classes), grouping in SortOrderTab (6 tabs), sub-groups (76 constants), the `dlc` flag mechanism, and "unknown category" semantics.
 
 ---
 
-## 1. Philosophy
+## Chapter goal
 
-The current category dropdown in `Item Database` was semi-technical —
-some values came from `er-save-manager`'s `Goods/*.txt` (community
-taxonomy), others were `.go` file names. A player opening the editor alongside
-the game had to translate "Information" to the in-game tab and search for
-Larval Tears in `Bolstering Materials` despite the game showing them in
-`Key Items`. Spec/36 removes this translation layer: every tab name, every
-sub-group, and every weapon class corresponds 1:1 to what the player sees
-in the in-game equipment menu.
+This chapter describes how the editor classifies items and how that classification is used in the UI (DatabaseTab dropdown, InventoryTab, SortOrderTab) and in the backend (`GetItemsByCategory`, Sort Order, Add Items).
 
-**Naming rules** (enforced):
+Key questions the chapter answers:
+
+- What is the **source of truth** for category names and their in-game order?
+- How does the handle prefix (`0x80`/`0x90`/`0xA0`/`0xB0`/`0xC0`) relate to `ItemData.Category`?
+- How do the 18 DB categories map to the 6 `SortOrderTab` tabs?
+- What happens to an item with no category (`Category == ""`) or with a DLC handle that has no mapping in the DB?
+- How are DLC items recognised?
+
+Per-category sort mechanics (acquisition stride-2) — canonically in [52](52-acquisition-sort-stride2.md). Add Items vs DB category — in [43](43-transactional-item-adding.md). Transfer and workspace UI — in [53](53-inventory-storage-transfer.md).
+
+---
+
+## Status
+
+| Component | Status |
+|---|---|
+| 18 DB categories (game order) | ✅ Canonical in `frontend/src/components/CategorySelect.tsx:10-29` |
+| Handle prefix classes (5 groups) | ✅ Canonical in `backend/core/structures.go:20-24` + `backend/db/db.go:572` |
+| Sub-categories (76 constants) | ✅ Canonical in `backend/db/data/subcategories.go` |
+| `SortOrderTab` tabs (6) → DB categories (9) | ✅ Canonical in `app_inventory_order.go:32-39` |
+| DLC flag mechanism (`Flags: []string{"dlc"}`) | ✅ Active in `backend/db/data/types.go:7` + per-item entries |
+| Final counts per category (snapshot 2026-04) | `needs verification` — numbers may differ from current DB state |
+| Game order in-game verification | ✅ April 2026 (Steam Deck per CHANGELOG); future FromSoft patches — `needs verification` |
+
+---
+
+## Source of truth in code
+
+| Topic | File / function |
+|---|---|
+| Handle prefix → handle class | `backend/db/db.go:572` — `GetItemCategoryFromHandle(handle uint32) string` (Weapon/Armor/Talisman/Item/Ash of War/Unknown) |
+| Handle ↔ DB item ID bit-swap | `backend/db/db.go:594` — `HandleToItemID`; `:615` — `ItemIDToHandlePrefix` |
+| Handle type constants | `backend/core/structures.go:20-24` — `ItemTypeWeapon=0x80000000`, `ItemTypeArmor=0x90000000`, `ItemTypeAccessory=0xA0000000`, `ItemTypeItem=0xB0000000`, `ItemTypeAow=0xC0000000` |
+| `ItemData` shape | `backend/db/data/types.go:16` — `ItemData{Name, Category, SubCategory, IconPath, Flags []string, …}` |
+| `ItemEntry` shape (DB→frontend) | `backend/db/db.go:23` — `ItemEntry{ID, Name, Category, SubCategory, …}` |
+| 18 DB categories (game order) | `frontend/src/components/CategorySelect.tsx:10-29` — `GAME_CATEGORIES`, exported via `CATEGORY_VALUES` |
+| Category dispatch (backend) | `backend/db/db.go:636` — `GetItemsByCategory(category, platform string)` with 18-case switch |
+| Sub-categories | `backend/db/data/subcategories.go` — 76 `Subcat*` const |
+| Sub-classifiers | `backend/db/data/melee_subcat.go`, `key_items_subcat.go`, `info_subcat.go`, `ranged_and_catalysts_subcat.go`, `shields_subcat.go` |
+| Tools inline SubCategory | `backend/db/data/tools.go` — all entries with `SubCategory: SubcatXxx` inline |
+| SortOrderTab tab → DB categories | `app_inventory_order.go:32-39` — `inventoryOrderTabs` (backend), `frontend/src/components/SortOrderTab.tsx:47-54` — `TAB_CATEGORIES` (frontend mirror) |
+| Unarmed exclusion | `app_inventory_order.go:54-58` — `invUnarmedBaseID = 0x0001ADB0`, `isWeaponOrderTechnical` |
+| Public list endpoints | `app.go:273` — `GetItemList(category)`; `:283` — `GetItemListChunk` (alias for progressive load) |
+| Infusion support per category | `app.go:316` — `weaponCategorySupportsInfusion` (only `melee_armaments` and `shields`) |
+| Infuse variant filter | `backend/db/db.go:988` — `filterInfuseVariants` |
+| Arrow ID detection | `backend/db/db.go:566` — `IsArrowID` |
+
+---
+
+## Mental model
+
+```
+                           ┌──────────────────────────────────────────┐
+                           │  Save (binary)                           │
+                           │  GaItem handle: 0x80…/0x90…/0xA0…/       │
+                           │                 0xB0…/0xC0… (5 classes)  │
+                           └────────────────┬─────────────────────────┘
+                                            │ GetItemCategoryFromHandle
+                                            ▼
+                           ┌──────────────────────────────────────────┐
+                           │  Handle class (5)                        │
+                           │  Weapon / Armor / Talisman / Item /      │
+                           │  Ash of War / Unknown                    │
+                           └────────────────┬─────────────────────────┘
+                                            │ HandleToItemID + GaMap
+                                            ▼
+                           ┌──────────────────────────────────────────┐
+                           │  DB item ID prefix (0x00/0x10/0x20/      │
+                           │                     0x40/0x80)            │
+                           │  → ItemData lookup in backend/db/data/   │
+                           └────────────────┬─────────────────────────┘
+                                            │ ItemData.Category
+                                            ▼
+                           ┌──────────────────────────────────────────┐
+                           │  DB category (18 tabs, game order)       │
+                           │  e.g. melee_armaments / talismans /      │
+                           │  tools / info / ashes_of_war …           │
+                           └─────┬──────────────────┬─────────────────┘
+                                 │                  │
+                                 ▼                  ▼
+                  ┌────────────────────┐   ┌────────────────────┐
+                  │ DatabaseTab        │   │ SortOrderTab       │
+                  │ dropdown (18)      │   │ 6 tabs subsetting  │
+                  └────────────────────┘   └────────────────────┘
+```
+
+---
+
+## Two orthogonal taxonomies
+
+The editor uses **two independent classification layers**:
+
+| Layer | Group count | Source | Use |
+|---|---|---|---|
+| Handle prefix class | 5 + Unknown | `GetItemCategoryFromHandle` (operates on `handle & 0xF0000000`) | Transfer (instance-move vs quantity-merge), GaItem allocation, equipped guard, prefix routing in `HandleToItemID` |
+| DB category | 18 | `ItemData.Category` in `backend/db/data/*.go` | UI dropdown, SortOrderTab grouping, `GetItemsByCategory` dispatch, infusion eligibility |
+
+Many DB categories map onto **one** handle prefix:
+
+| Handle prefix | Handle class | DB categories |
+|---|---|---|
+| `0x80000000` | Weapon | `melee_armaments`, `ranged_and_catalysts`, `shields` |
+| `0x90000000` | Armor | `head`, `chest`, `arms`, `legs` |
+| `0xA0000000` | Talisman | `talismans` |
+| `0xB0000000` | Item | `tools`, `key_items`, `info`, `crafting_materials`, `bolstering_materials`, `arrows_and_bolts`, `sorceries`, `incantations`, `ashes` |
+| `0xC0000000` | Ash of War | `ashes_of_war` |
+
+The bit-swap between the handle prefix and the DB item ID prefix is described in [03](03-gaitem-map.md); the functions `HandleToItemID` / `ItemIDToHandlePrefix` perform this conversion.
+
+---
+
+## Handle prefix classes
+
+Full prefix semantics — [03](03-gaitem-map.md). From the perspective of 36 only two consequences matter:
+
+1. **Routing in transfer** ([53](53-inventory-storage-transfer.md)): a handle with prefix `0x80/0x90/0xA0/0xC0` → instance-move; `0xB0` → quantity-merge cap-aware.
+2. **Item ID lookup**: `HandleToItemID(handle)` produces a DB-compatible ID that can be used in `GetItemData(id)` / `GetItemDataFuzzy(id)` → `ItemData` → `ItemData.Category`.
+
+`GetItemCategoryFromHandle` returns a one-line string (`"Weapon"`, `"Armor"`, `"Talisman"`, `"Item"`, `"Ash of War"`, `"Unknown"`) — intended for logging / debug. It is **NOT** the same value as `ItemData.Category` (`"melee_armaments"` etc.); the two should not be mixed.
+
+---
+
+## DB item categories
+
+### Naming rules (enforced)
+
 - `Ashes` (not "Spirit Ashes")
 - `Info` (not "Information")
-- `/` as separator (not `&`) — e.g. `Ranged Weapons / Catalysts`, `Arrows / Bolts`
+- `/` as a separator in multi-part names (not `&`) — e.g. `Ranged Weapons / Catalysts`, `Arrows / Bolts`
 
----
+Display labels are in `CategorySelect.tsx` (frontend); DB string keys are in the `db.go::GetItemsByCategory` switch (backend).
 
-## 2. Canonical order of 18 tabs
+### Canonical list of 18 tabs (game order)
 
-| # | In-game tab | DB `category` | Sub-groups? |
+| # | Tab in game | DB `category` | Sub-groups? (count, classifier) |
 |---|---|---|---|
-| 1 | Tools | `tools` | yes (12) |
+| 1 | Tools | `tools` | yes (13, inline in `tools.go`) |
 | 2 | Ashes | `ashes` | no |
 | 3 | Crafting Materials | `crafting_materials` | no |
-| 4 | Bolstering Materials | `bolstering_materials` | yes (6) |
-| 5 | Key Items | `key_items` | yes (9) |
+| 4 | Bolstering Materials | `bolstering_materials` | yes (6, manual) |
+| 5 | Key Items | `key_items` | yes (9, `key_items_subcat.go`) |
 | 6 | Sorceries | `sorceries` | no |
 | 7 | Incantations | `incantations` | no |
 | 8 | Ashes of War | `ashes_of_war` | no |
-| 9 | Melee Armaments | `melee_armaments` | yes (29) |
-| 10 | Ranged Weapons / Catalysts | `ranged_and_catalysts` | yes (7) |
+| 9 | Melee Armaments | `melee_armaments` | yes (30, `melee_subcat.go`) |
+| 10 | Ranged Weapons / Catalysts | `ranged_and_catalysts` | yes (7, `ranged_and_catalysts_subcat.go`) |
 | 11 | Arrows / Bolts | `arrows_and_bolts` | yes (4) |
-| 12 | Shields | `shields` | yes (4) |
+| 12 | Shields | `shields` | yes (4, `shields_subcat.go`) |
 | 13 | Head | `head` | no |
 | 14 | Chest | `chest` | no |
 | 15 | Arms | `arms` | no |
 | 16 | Legs | `legs` | no |
 | 17 | Talismans | `talismans` | no |
-| 18 | Info | `info` | yes (3) |
+| 18 | Info | `info` | yes (3, `info_subcat.go`) |
 
-Frontend dropdown (`CategorySelect.tsx`) renders the above order as a
-flat list of 18 `<option>` (no `<optgroup>`) — `value` matches the
-`DB category` column.
+The backend `GetItemsByCategory` **additionally** has dispatch for `gestures` (outside the top-level 18 inventory tabs; a separate in-game menu) and the value `"all"` → `GetAllItems`.
 
----
+### Sub-categories layer (76 constants)
 
-## 3. Sub-groups per tab (game order)
+`backend/db/data/subcategories.go` contains 76 `SubcatXxx string` constants (verified). 8 of the 18 tabs have sub-groups (sum 13+6+9+30+7+4+4+3 = 76):
 
-### Tools (12 sub-groups)
+| Tab | Sub-groups | Classifier |
+|---|---|---|
+| Tools | Sacred Flasks, Consumables, Throwing Pots, Perfume Arts, Throwables, Catalyst Tools, Grease, Reusable Tools, Misc, Quest Tools, Golden Runes, Remembrances, Multiplayer | inline `SubCategory: SubcatXxx` in `tools.go` |
+| Bolstering Materials | Flask Enhancers, Shadow Realm Blessings (DLC), Smithing Stones, Somberstones, Grave Glovewort, Ghost Glovewort | manual entries in `bolstering_materials.go` |
+| Key Items | Active Great Runes, Crystal Tears, Containers + Slot Upgrades, Inactive Great Runes + Keys + Medallions, DLC Keys, Larval Tears + Deathroot + Lost AoW, Cookbooks, World Maps, Sorcery/Incantation Scrolls | `key_items_subcat.go` (curated ID set + name patterns) |
+| Melee Armaments | 30 weapon classes (Daggers, Throwing Blades (DLC), Straight Swords, …, Beast Claws (DLC), Colossal Weapons, Perfume Bottles (DLC)) | `melee_subcat.go` (curated lookup + suffix fallback, strip infusion prefixes) |
+| Ranged / Catalysts | Bows, Light Bows, Greatbows, Crossbows, Ballistas, Glintstone Staffs, Sacred Seals | `ranged_and_catalysts_subcat.go` (suffix-based) |
+| Arrows / Bolts | Arrows, Greatarrows, Bolts, Greatbolts | per-item classifier in `arrows_and_bolts.go` |
+| Shields | Torches, Small Shields, Medium Shields, Greatshields | `shields_subcat.go` (name-based curated) |
+| Info | Letters / Maps / Paintings (base), Letters / Maps / Paintings (DLC), Mechanics / Locations Info | `info_subcat.go` (prefix `"About "`/`"Note: "`, flag `dlc`) |
 
-```
-1.  Sacred Flasks, Reusable Tools & FP Regenerators
-2.  Consumables
-3.  Throwing Pots
-4.  Perfume Arts                   ← consumables, NOT Perfume Bottles weapon
-5.  Throwables
-6.  Catalyst Tools
-7.  Grease
-8.  Miscellaneous Tools
-9.  Quest Tools                    ← currently empty (quest items live in info/key_items)
-10. Golden Runes                   ← moved from bolstering_materials
-11. Remembrances                   ← moved from key_items (spec/33)
-12. Multiplayer Items              ← moved from key_items (spec/33)
-```
+The exact item lists per sub-group live **in code**, not in the doc — `backend/db/data/*_subcat.go` is the source-of-truth.
 
-### Bolstering Materials (6 sub-groups)
+### Per-category filtering in `GetItemsByCategory`
 
-```
-1. Flask Enhancers                 (Golden Seeds + Sacred Tears)
-2. Shadow Realm Blessings (DLC)    (Scadutree Fragment + Revered Spirit Ash)
-3. Smithing Stones [1-8] + Ancient Dragon Smithing Stone
-4. Somberstones [1-9] + Somber Ancient Dragon Smithing Stone
-5. Grave Glovewort [1-9] + Great Grave Glovewort
-6. Ghost Glovewort [1-9] + Great Ghost Glovewort
-```
-
-### Key Items (9 sub-groups)
-
-```
-1. Active Great Runes              ← currently empty (DB doesn't distinguish active/inactive)
-2. Crystal Tears
-3. Containers + Slot Upgrades      (Empty Cracked/Ritual/Perfume Pots/Bottles, Memory Stones, Talisman Pouches)
-4. Inactive Great Runes + Keys + Medallions    ← catch-all (story keys, medallions, quest tokens)
-5. DLC Keys
-6. Larval Tears + Deathroot + Lost Ashes of War
-7. Cookbooks                       (incl. Crafting Kit, Spirit Calling Bell, Whetblades, Sewing Needles)
-8. World Maps                      (24 region maps — moved from info.go in spec/36)
-9. Sorcery Scrolls + Incantation Scrolls
-```
-
-### Melee Armaments (29 weapon classes — base + DLC interleaved)
-
-```
-Daggers → Throwing Blades (DLC) → Straight Swords → Light Greatswords (DLC) →
-Greatswords → Colossal Swords → Thrusting Swords → Heavy Thrusting Swords →
-Curved Swords → Curved Greatswords → Backhand Blades (DLC) → Katanas →
-Great Katanas (DLC) → Twinblades → Axes → Greataxes → Hammers → Great Hammers →
-Flails → Spears → Great Spears → Halberds → Reapers → Whips → Fists →
-Hand-to-Hand (DLC) → Claws → Beast Claws (DLC) → Colossal Weapons →
-Perfume Bottles (DLC, weapon)
-```
-
-### Ranged Weapons / Catalysts (7 sub-groups)
-
-```
-Bows → Light Bows → Greatbows → Crossbows → Ballistas → Glintstone Staffs → Sacred Seals
-```
-
-### Arrows / Bolts (4 sub-groups)
-
-```
-Arrows → Greatarrows → Bolts → Greatbolts
-```
-
-### Shields (4 sub-groups)
-
-```
-Torches  ← TOP (moved from melee_armaments)
-Small Shields
-Medium Shields
-Greatshields
-```
-
-### Info (3 sub-groups)
-
-```
-1. Letters / Maps / Paintings           (base game)
-2. Letters / Maps / Paintings (DLC)
-3. Mechanics / Locations Info           (About* tutorials + Notes)
-```
+- `melee_armaments` / `ranged_and_catalysts` / `shields` → `filterInfuseVariants(items)` (`db.go:988`) removes duplicates with an infusion offset.
+- `ashes` → filter " +N" suffixed variants (returns only base +0; every upgrade level is a separate entry in `data.StandardAshes`).
+- `tools` → filter Whetblades (`IsWhetbladeItemID`) + filter upgraded Flask variants (`"Flask of"` + `" +"`).
+- `key_items` → filter Bell Bearings (`IsBellBearingItemID`) + Cookbooks (`IsCookbookItemID`) + `Flags` containing `"no_database"`.
+- `ashes_of_war` → `AoWCompatBitmask` enrichment from `globalItemIndex`.
+- `arrows_and_bolts`, `crafting_materials`, `bolstering_materials`, `info`, `sorceries`, `incantations`, `head`/`chest`/`arms`/`legs`/`talismans`, `gestures` → no special filters (only skip for `Name == ""`).
 
 ---
 
-## 4. Reclassifications performed (vs previous state)
+## SortOrderTab category grouping
 
-| Item / group | From (before) | To (game) | Reason |
-|---|---|---|---|
-| **Larval Tears** | (already) `key_items.go` | Key Items / Larval Tears + Deathroot + Lost AoW | Plan called for Bolstering, but they were already in Key Items — only SubCategory changed. |
-| **Whetblades + Cookbooks** | filtered out from `key_items` | Key Items / Cookbooks (sub) | `IsCookbookItemID` / `IsWhetbladeItemID` filters removed from `db.GetItemsByCategory`. Remain managed from dedicated World UI **and** visible in Item Database. |
-| **Bell Bearings** | filtered out from `tools` | (kept filtered) | User decision (option A, 2026-04-28): managed exclusively from dedicated World → Bell Bearings UI (single source of truth — see ROADMAP Phase 4). `IsBellBearingItemID` filter preserved. |
-| **Torches** (9) | `melee_armaments` | **Shields** (sub: Torches, top) | Game shows torches in Shields tab. Stray `Torchpole` (`0x00F55C80`) already had `Category: "shields"` but was in `weapons.go` — moved to `shields.go`. |
-| **Region Maps** (24) | `info.go` | **`key_items.go`** (sub: World Maps) | Previously duplicated between tools/info/key_items. Game shows them in Key Items. Zero duplication — removed from info.go, added once in key_items.go. |
-| **Golden Runes** (33) | `bolstering_materials.go` | **`tools.go`** (sub: Golden Runes) | Game groups all Runes under Tools. User decision (option A, 2026-04-28): runes from bolstering. |
-| **Perfume Bottles** (3 weapons) | (Tools, unclear) | **`melee_armaments.go`** (sub: Perfume Bottles, DLC) | DLC weapon class. Confused with Perfume Arts (consumables) — ultimately both groups preserved: Tools/Perfume Arts (6 consumables) + Melee/Perfume Bottles (3 weapons). |
-| **Bastard Sword, Bolt of Gransax, Bloody Helice** | catch-all Straight Swords (best-effort initial) | corrected in `melee_subcat.go` curated lookup | Bastard Sword → Greatswords; Bolt of Gransax → Great Spears; Bloody Helice → Heavy Thrusting Swords. Verification passes described in section 7. |
+`SortOrderTab` (the two-column Storage|Inventory view — see [53](53-inventory-storage-transfer.md)) uses **6 tabs** that map to 9 of the 18 DB categories:
 
----
-
-## 5. Code architecture
-
-### Backend (`backend/db/data/`)
-
-**Files renamed (Phase 0 — git mv):**
-- `weapons.go` → `melee_armaments.go`
-- `aows.go` → `ashes_of_war.go`
-- `helms.go` → `head.go`
-
-(Var names — `Weapons`, `Aows`, `Helms` — remained unchanged; file rename doesn't require symbol rename to avoid breaking `db.go::GetItemsByCategory`.)
-
-**New files:**
-- `subcategories.go` — all 70 `Subcat*` constants in one source of truth.
-- `melee_subcat.go` — curated lookup tables for 30 weapon classes + suffix fallback. Strips infusion prefixes (Heavy/Keen/Cold/Sacred/Fire/…) before lookup.
-- `key_items_subcat.go` — curated ID set for Crystal Tears, name-pattern for Cookbooks/Containers/Larval/SpellScrolls/DLCKeys, fallback to `Inactive Great Runes + Keys + Medallions` (catch-all for story tokens).
-- `info_subcat.go` — rules: prefix `"About "` or `"Note: "` → Mechanics/Locations; `dlc` flag → DLC Letters/Maps; rest → base Letters/Maps/Paintings.
-- `ranged_and_catalysts_subcat.go` — suffix-based: Greatbow/Shortbow/Bow → Bows class; Crossbow/Ballista; "Seal"/"Staff" → catalyst.
-- `shields_subcat.go` — name-based curated lookup with 4 sets.
-
-**File with inline SubCategory (Phase 2f):**
-- `tools.go` — all 328 entries have `SubCategory: SubcatXxx` inline. Generator (`tmp/inline-tools-subcat/main.go`) read populated `data.Tools` after init() and injected field + flattened IconPath. Old `tools_subcat.go` removed.
-
-**Schema (`types.go`):**
 ```go
-type ItemData struct {
-    Name        string
-    Category    string   // 18-tab top-level (tools, key_items, …)
-    SubCategory string   // sub-group within tab (Sacred Flasks, Daggers, …) — empty if tab has no sub-cats
-    IconPath    string
-    // … (caps, flags, …)
+// app_inventory_order.go:32-39
+var inventoryOrderTabs = map[string][]string{
+    "weapons":   {"melee_armaments", "ranged_and_catalysts", "shields"},
+    "talismans": {"talismans"},
+    "head":      {"head"},
+    "chest":     {"chest"},
+    "arms":      {"arms"},
+    "legs":      {"legs"},
 }
 ```
 
-### Backend (`backend/db/db.go`)
+Frontend mirror: `SortOrderTab.tsx:47-54` (`TAB_CATEGORIES: Record<SortOrderTabKey, ReadonlySet<string>>`).
 
-`ItemEntry` returns to frontend with additional field `SubCategory string`. Five
-places creating `ItemEntry` in `GetItemsByCategory` were updated to propagate it.
+### What does NOT appear in SortOrderTab
 
-### Backend (`app.go`)
+9 of the 18 DB categories **have no equivalent** in any `SortOrderTab` tab:
 
-New method:
+- `tools`, `ashes`, `crafting_materials`, `bolstering_materials`, `key_items`, `sorceries`, `incantations`, `ashes_of_war`, `arrows_and_bolts`, `info`.
+
+These categories are visible only in `DatabaseTab` (Item Database — dropdown of 18 tabs) and `InventoryTab` (the legacy list view). A workspace session in `SortOrderTab` filters by `TAB_CATEGORIES[tab].has(it.category)` — items from other DB categories are in the workspace snapshot, but do not appear in the grid of any `SortOrderTab` tab.
+
+### Unarmed exclusion
+
+The `weapons` tab in `SortOrderTab` additionally excludes the Unarmed placeholder (`invUnarmedBaseID = 0x0001ADB0`):
+
+- Backend: `isWeaponOrderTechnical(name, baseID)` in `app_inventory_order.go:56-58` — used by `GetInventoryOrder`/`GetStorageOrder`/`ReorderInventory`/`ReorderStorage` to skip the 3 technical Unarmed slots.
+- Frontend: `tabFilter` in `SortOrderTab.tsx:74-78` — `if (tab === 'weapons' && it.baseItemID === UNARMED_BASE_ID) return false`.
+
+The game keeps exactly 3 Unarmed entries as the fallback "empty hand" state; they should not be visible in the sort UI nor subject to reorder.
+
+---
+
+## Inventory vs Storage category behavior
+
+Both Inventory and Storage use **the same** classification rules (`TAB_CATEGORIES` in `SortOrderTab` filters both sides via the same `tabFilter`; the backend `GetInventoryOrder` and `GetStorageOrder` in `app_inventory_order.go` operate on identical mapping).
+
+**needs verification**: whether the in-game Storage menu really renders identical tabs to Inventory (e.g. whether Storage filters anything different than equipped items). From the editor perspective — symmetric.
+
+---
+
+## Game order vs app order vs acquisition order
+
+**Three independent orderings** coexist in the system:
+
+| Ordering | Scope | Source | Use |
+|---|---|---|---|
+| **Game (category) order** | 18 tabs — `tools` first, `info` last | `CategorySelect.tsx:10-29` | Display in DatabaseTab dropdown; tab order in SortOrderTab (limited to 6) |
+| **App (sort) order** | within one tab — alphabetical by `Name`, after enrichment | `db.go::GetItemsByCategory` sorts the result per category before caching | Per-category display in DatabaseTab/InventoryTab |
+| **Acquisition order** | within `slot.Inventory.CommonItems` / `slot.Storage.CommonItems` — per-record `Index` (stride-2 base ≥ `InvEquipReservedMax+2`) | `app_inventory_order.go::ReorderInventory`/`ReorderStorage`; workspace save in `backend/editor/save.go::writeContainerLayout` | Item sorting within a tab in-game; view in SortOrderTab |
+
+Acquisition order is **independent** of category — it operates on the position within a single container. The stride-2 algorithm and bucket-collision guard — canonically in [52](52-acquisition-sort-stride2.md).
+
+---
+
+## DLC flag mechanism
+
+The editor **does not** use a separate DB category for DLC. DLC content is mixed within the existing 18 tabs; it is recognised by a flag:
+
 ```go
-func (a *App) GetItemListChunk(category string) []db.ItemEntry
+// backend/db/data/types.go:5-15 (docstring above ItemData)
+// Flags reference (string set; combine freely):
+//   - "stackable"       — item stacks in a single inventory slot (vs. unique drops)
+//   - "dlc"             — Shadow of the Erdtree content
+//   - "cut_content"     — never shipped legitimately; spawning may flag EAC
+//   - "ban_risk"        — adding this item carries elevated EAC ban risk
+//   - "scales_with_ng"  — vanilla obtainable count scales linearly with NG+ cycle
+
+type ItemData struct {
+    Name        string
+    Category    string
+    SubCategory string
+    Flags       []string
+    // …
+}
 ```
-Returns one tab at a time — frontend `Item Database` in "All Categories" view
-calls it 18× in a loop with `await new Promise(r => setTimeout(r, 0))` between
-iterations → progressive loading without blocking scroll.
 
-### Frontend
+DLC entries in `data.*` carry e.g. `Flags: []string{"dlc"}` (see `melee_armaments.go` — many entries with `Flags: []string{"dlc"}`). Sub-classifiers (`melee_subcat.go`, `info_subcat.go` …) use the `"dlc"` flag to assign a sub-group whose name contains the `(DLC)` suffix (e.g. `Backhand Blades (DLC)`, `Throwing Blades (DLC)`, DLC Keys, Shadow Realm Blessings (DLC)).
 
-| File | Change |
+In addition to the docstring values, the code also uses the `"no_database"` flag (filter in `GetItemsByCategory` for `key_items` — `db.go:758`); this flag is not listed in the `types.go` docstring but is active in the current code.
+
+`GetItemsByCategory` **does not filter** by the `"dlc"` flag — DLC entries are returned together with base. Sub-groups are the only mechanism of separation in the UI.
+
+**needs verification**: completeness of DLC sub-mapping — whether every DLC item in the DB has an assigned sub-group, whether there are DLC items falling into a catch-all sub-group / "Other". In `melee_subcat.go` the curated lookup may miss exotic DLC weapons with non-standard names (see "Known limits" section below).
+
+---
+
+## Unknown categories and category gaps
+
+### Items with empty `Category`
+
+- `GetItemsByCategory` filters out entries with `Name == ""` (the most common cause of an empty category — placeholder in `data.*` maps).
+- `GetItemSubCategory(id, item, broadCategory)` (`db.go:803`) returns `item.Category` if `!= ""`; otherwise a fallback for broad categories.
+
+### Items with a handle prefix unmapped in the DB
+
+- A save may contain a `GaItem` with handle `0xB0XXXXXX` (or another) whose `HandleToItemID(h)` yields a DB-compatible ID, but that ID **is not** in any `data.*` map (e.g. cut content, DB not updated after a patch).
+- In the workspace session model (see [53](53-inventory-storage-transfer.md)) such items land in `EditableItem` with missing DB metadata or in `UnsupportedInventoryRecords` / `UnsupportedStorageRecords` (pass-through layout in `writeContainerLayout`).
+- `SortOrderTab.tsx::tabFilter` uses `TAB_CATEGORIES[tab].has(it.category)` — items with an empty or unknown category **do not appear** in any sort tab.
+- **needs verification**: exact rendering of such an item in the workspace UI — whether visible in the grid with some fallback, or completely skipped.
+
+### Category gaps and Sort Order / transfer / Add Items
+
+- **Sort Order** ([52](52-acquisition-sort-stride2.md)): `ReorderInventory`/`ReorderStorage` validate handle membership against the category for the chosen tab; handles with an unknown category are rejected as wrong-tab.
+- **Transfer** ([53](53-inventory-storage-transfer.md)): `MoveItemsBetweenContainers` operates per handle, **does not** use DB category — the category does not influence whether the transfer succeeds. The workspace path also does not reference the DB category during the wipe-and-replay layout.
+- **Add Items** ([43](43-transactional-item-adding.md)): requires knowing the ID in the DB (`GetItemDataFuzzy`); adding an item outside the DB is not possible through `AddItemsToCharacter` from the UI.
+
+---
+
+## Relationship to Sort Order
+
+- SortOrderTab tabs are a **subset** of DB categories (6 of 18). Items from DB categories outside this subset do not appear in the sort grid.
+- Stride-2 reorder operates per Sort Order tab (`"weapons"`, `"talismans"`, …), NOT per individual DB category. A weapons reorder mixes `melee_armaments` + `ranged_and_catalysts` + `shields` in a single operation.
+- The workspace save (see [53](53-inventory-storage-transfer.md)) writes the layout for **all** items in the container regardless of category; per-tab UI visibility is a separate dimension.
+
+Canonical mechanisms — in [52](52-acquisition-sort-stride2.md) (algorithm) and [53](53-inventory-storage-transfer.md) (UI integration).
+
+---
+
+## Historical notes
+
+The current taxonomy emerged in two phases:
+
+1. **DB Categorization Audit (2025)**: introduction of the `info` category (Information tab), reclassification of Multiplayer Items / Remembrances / Crystal Tears, audit of `cut_content` / `ban_risk` flags. Source-of-truth shifted from `er-save-manager/Goods/*.txt` (community taxonomy) to Fextralife per-item breadcrumb + in-game observation. The full post-mortem is preserved in git history (the former `33-db-categorization-audit.md` from an archive subdirectory, removed in Phase 4+ cleanup).
+2. **Phase 36** (April 2026, `feat/inventory-game-accurate-categories`, merged): finalisation of game-order alignment — 18 tabs in game order, sub-groups per tab, minor reclassifications (Larval Tears → Key Items / Larval Tears + Deathroot; Torches → Shields; Region Maps → Key Items / World Maps; Golden Runes → Tools; Perfume Bottles → Melee / Perfume Bottles (DLC); Bastard Sword → Greatswords). File renames: `weapons.go` → `melee_armaments.go`, `aows.go` → `ashes_of_war.go`, `helms.go` → `head.go` (var names `Weapons`, `Aows`, `Helms` kept unchanged).
+
+The current code state is the source-of-truth; the above remains only as context for design decisions.
+
+---
+
+## Test coverage
+
+DB-level tests touching category:
+
+| Class | Test files |
 |---|---|
-| `CategorySelect.tsx` | Flat list of 18 options in game order; removed `<optgroup>`. Exports `CATEGORY_VALUES` (used by progressive loader in DatabaseTab). |
-| `InventoryTab.tsx` | Top bar `[Cat][Owned/Total badge][Search]`; column `Category` → `Sub-Category` (hidden for tabs without sub-cats); search debounce 200ms via `useDeferredValue`; capacity bar moved to App.tsx. |
-| `DatabaseTab.tsx` | Top bar and column same as above; progressive load 18× chunk + thin progress strip above table (pointer-events: none). |
-| `App.tsx` | Header Inventory: `[toggle pills][global capacity bar]`. Header Database: `[toggle pills][▶ Add Settings accordion]`. Add Settings summary: 4 params with `·` (`+25 · +10 · Standard · Ash +10`). |
+| Weapon sub-category, somber upgrade, stats | `backend/db/data/phase2b1_weapons_test.go`, `weapons_somber_max_upgrade_test.go`, `shields_somber_test.go`, `weapon_stats_critical_test.go`, `weapon_stats_generated_test.go`, `weapon_stats_passive_effects_test.go` |
+| Arrows / Bolts | `backend/db/data/phase2b2_arrows_bolts_test.go` |
+| Info notes | `backend/db/data/phase2b3_info_notes_test.go` |
+| Black Syrup (single-item regression) | `backend/db/data/phase2b4_black_syrup_test.go` |
+| Sort IDs | `backend/db/data/sort_ids_test.go` |
+| Weights | `backend/db/data/weights_test.go` |
+| Flag detection (bell bearings, container, grace, item, pickup) | `backend/db/data/bell_bearing_flags_test.go`, `container_pickup_flags_test.go`, `container_requirements_test.go`, `grace_companion_flags_test.go`, `item_companion_flags_test.go` |
+| Generated text | `backend/db/data/item_text_generated_test.go` |
+| Classes (handle prefix routing) | `backend/db/classes_test.go` |
 
-### Icons
-
-`frontend/public/items/tools/<sub>/` (11 sub-folders: consumables, grease, misc, multiplayer, perfume, pots, quest, remembrances, runes, sacred_flasks, throwables) **flattened** to `frontend/public/items/tools/`. IconPath strings in `tools.go` updated by the same generator (sed regex). New folder `frontend/public/items/info/` contains 49 icons moved from `key_items/` — two icons missing on disk (`message_from_leda.png`, `tower_of_shadow_message.png`) — pre-existing, not introduced in this refactor.
-
----
-
-## 6. Final counts (per category)
-
-| Category | Total | Sub-group breakdown |
-|---|---|---|
-| Tools | 328 | Sacred Flasks 54, Consumables 60, Throwing Pots 52, Perfume Arts 6, Throwables 32, Catalyst Tools 1, Grease 33, Misc 11, Quest Tools 0, Golden Runes 32, Remembrances 25, Multiplayer 22 |
-| Bolstering Materials | 43 | Flask Enhancers 2, Shadow Realm Blessings 2, Smithing Stones 9, Somberstones 10, Grave Glovewort 10, Ghost Glovewort 10 |
-| Key Items | 356 | Active Runes 0, Crystal Tears 13, Containers 6, Inactive Runes/Keys 169, DLC Keys 7, Larval/Deathroot 2, Cookbooks 120, World Maps 24, Spell Scrolls 15 |
-| Melee Armaments | 427 | (30 classes — see `subcategories.go`) |
-| Ranged / Catalysts | 69 | Bows 9, Light Bows 3, Greatbows 5, Crossbows 9, Ballistas 3, Staffs 28, Seals 12 |
-| Arrows / Bolts | 64 | Arrows 33, Greatarrows 6, Bolts 20, Greatbolts 5 |
-| Shields | 166 | Torches 9, Small 49, Medium 68, Greatshields 40 |
-| Info | 87 | Base Letters/Maps 15, DLC Letters/Maps 15, Mechanics/Locations 57 |
-
-Total: 1540 entries visible in `Item Database` with populated SubCategory (compare: pre-Phase-1 ~1530, +10 from un-filtered cookbooks/whetblades visible as separate entries).
+**Missing**:
+- A dedicated test validating cross-language consistency between `CategorySelect.tsx GAME_CATEGORIES` (18 strings) and the backend `db.go::GetItemsByCategory` switch.
+- A test validating that `inventoryOrderTabs` in `app_inventory_order.go` is in sync with `TAB_CATEGORIES` in `SortOrderTab.tsx`.
 
 ---
 
-## 7. Verification
+## Known limits / needs verification
 
-### Automated
-- `go test -v ./backend/...` — pass
-- `go test -v ./tests/roundtrip_test.go` — PS4/PC round-trip + cross-platform conversion pass (Phase 4)
-- `cd frontend && npx tsc --noEmit` — clean
-- `make build` — clean
-
-### Manual checklist (Phase 4 — to be performed in `make dev`)
-- Dropdown shows 18 categories in game order
-- Selecting `Tools` shows Sub-Category column with sub-groups
-- Selecting `Talismans` hides Sub-Category column
-- Selecting `All Categories` shows main category in Sub-Category column
-- All Categories loads progressively (first items <100 ms, scroll works)
-- Top bar Inventory: `[toggle][capacity bar]` one line, `[Cat][badge][Search]` second
-- Top bar Database: `[toggle][Add Settings]` one line, `[Cat][badge][Search]` second
-- Add Settings summary: 4 params (`+25 · +10 · Standard · Ash +10`)
-- Larval Tears in Key Items / Larval Tears + Deathroot
-- Torches in Shields (top)
-- Whetblades in Key Items / Cookbooks (after un-filter)
-- Search debounce — no per-keystroke lag
-- Per-category Owned/Total badge updates correctly on category change
+- **Final counts per category** (April 2026 snapshot: Tools 328, Bolstering 43, Key Items 356, Melee 427, Ranged/Catalysts 69, Arrows/Bolts 64, Shields 166, Info 87 — total ~1540 entries) — `needs verification`: the current state can be obtained at runtime via `GetItemList(category)` per category; numbers may differ from today's DB.
+- **Best-effort Melee sub-classification**: `melee_subcat.go` uses a curated lookup + suffix fallback. Exotic DLC weapons with non-standard names may end up in the wrong class; every user report → patch in `melee_subcat.go`. `needs verification` for completeness of coverage.
+- **Unknown category behavior in SortOrderTab**: empirically unconfirmed how the workspace renders an item with handle `0xB0XXXXXX` and an unmapped ID. `needs verification`.
+- **Bell Bearings visibility in Item Database**: filtered out of DatabaseTab (decision: the dedicated World UI = single source of truth). If a use-case appears (e.g. seed save) — un-filter analogously to Cookbooks/Whetblades. `needs verification` whether the decision still stands.
+- **Active vs Inactive Great Runes split**: the DB does not distinguish; the sub-group "Active Great Runes" in Key Items is empty. It would require integration with `event_flags`. `needs verification` whether implementation is planned.
+- **Quest Tools sub-group** in Tools: currently empty. `needs verification` whether the game actually shows this sub-group and which items should go there.
+- **2 missing info icons**: `frontend/public/items/info/message_from_leda.png`, `tower_of_shadow_message.png` — do not exist on disk (pre-existing). Require a manual artwork drop-in.
+- **Game order in-game verification**: last verification April 2026 (Steam Deck per CHANGELOG `feat(database): 18 in-game category tabs`). FromSoftware patches may reorganise the menu; `needs verification` for the current game version.
+- **DLC sub-mapping completeness**: whether every DLC item in the DB has an assigned sub-group. `needs verification`.
+- **Storage tab differences vs Inventory**: whether the game renders identical tabs for Storage as for Inventory. `needs verification` on an in-game fixture.
 
 ---
 
-## 8. Sources
+## Cross-references
 
-### Web
-- https://eldenpedia.com/wiki/Inventory — canonical 18 tabs + order
-- https://eldenring.wiki.fextralife.com/Items — top-level items list (per-item breadcrumb tab)
-- https://eldenring.wiki.fextralife.com/Equipment+%26+Magic — 30 weapon classes
-- https://eldenring.wiki.fextralife.com/Crystal+Tears — Crystal Tears as Key Items
-- https://eldenring.wiki.fextralife.com/Multiplayer+Items — Multiplayer breadcrumb
-- https://eldenring.wiki.fextralife.com/Remembrances — Remembrances breadcrumb
-
-### Local
-- [spec/33 — DB Categorization Audit](33-db-categorization-audit.md) — previous step (Information tab + Multiplayer/Remembrances/Crystal Tears)
-- [spec/34 — Item Caps Enforcement](34-item-caps.md) — vanilla-realistic caps + NG+ scaling (related: scales_with_ng for Larval Tear, Stonesword Key, Dragon Heart)
-- `backend/db/data/subcategories.go` — single source of truth for sub-cat names
-- `backend/db/data/*_subcat.go` — per-category init() classifiers
+- [03 — GaItem map](03-gaitem-map.md) — handle prefix, `HandleToItemID`, GaMap binary model.
+- [07 — Inventory model](07-inventory.md) — read-side 12B record, CommonItems offsets.
+- [10 — Storage model](10-storage.md) — read-side record, StorageBoxOffset.
+- [35 — GaItem allocator invariants](35-gaitem-allocator-invariants.md) — handle allocation (independent of category).
+- [43 — Transactional item adding](43-transactional-item-adding.md) — `AddItemsToCharacter`, per-category validation (e.g. `weaponCategorySupportsInfusion`).
+- [52 — Acquisition stride-2 sort order](52-acquisition-sort-stride2.md) — stride-2 reorder per Sort Order tab.
+- [53 — Inventory ↔ Storage transfer](53-inventory-storage-transfer.md) — SortOrderTab workspace UI, transfer mechanics.
 
 ---
 
-## 9. Future work
+## Sources
 
-1. **Active vs Inactive Great Runes split** — DB currently doesn't distinguish (both share IDs). Would require an active-flag (event_flag 1xxx activation) and splitting into two sub-groups in UI. Currently the "Active Great Runes" sub-group is empty.
-2. **Quest Tools sub-group** — currently empty; quest items are scattered across `info.go` (Notes, Letters) and `key_items.go` (story keys/tokens). A re-audit could consolidate them here, if they match in-game `Quest Tools` (to verify in-game).
-3. **Bell Bearings visibility in Item Database** — currently filtered out (user decision 2026-04-28). If a use case emerges (e.g. seed save without dedicated BB UI), un-filter analogously to Cookbooks/Whetblades.
-4. **Best-effort Melee placements** — `melee_subcat.go` uses curated lookup + suffix fallback. Some of the 427 weapons may land in the wrong class (e.g. exotic DLC weapons with unusual names). Verification will happen in `make dev` (Phase 4) with in-game comparison. Each user report → patch in `melee_subcat.go`.
-5. **2 missing info icons** — `message_from_leda.png`, `tower_of_shadow_message.png` (DLC) don't exist on disk (pre-existing). Require manual artwork drop-in or Fextralife CDN download.
+- `frontend/src/components/CategorySelect.tsx` — canonical list of 18 tabs in game order.
+- `frontend/src/components/SortOrderTab.tsx` — 6 workspace UI tabs + `TAB_CATEGORIES`.
+- `app_inventory_order.go` — `inventoryOrderTabs`, `invUnarmedBaseID`, `isWeaponOrderTechnical`.
+- `app.go:273+` — `GetItemList`, `GetItemListChunk`, `weaponCategorySupportsInfusion`.
+- `backend/db/db.go` — `GetItemsByCategory`, `GetItemCategoryFromHandle`, `HandleToItemID`, `ItemIDToHandlePrefix`, `filterInfuseVariants`, `GetItemSubCategory`, `IsArrowID`.
+- `backend/db/data/types.go` — `ItemData` shape + `Flags` semantics.
+- `backend/db/data/subcategories.go` — 76 `Subcat*` constants.
+- `backend/db/data/*_subcat.go` — per-category classifier (Melee, Key Items, Info, Ranged/Catalysts, Shields).
+- `backend/db/data/tools.go` — inline SubCategory for all Tools.
+- `backend/core/structures.go:20-24` — `ItemTypeWeapon/Armor/Accessory/Item/Aow` constants.
+- `docs/CHANGELOG.md` — entries `feat(database): 18 in-game category tabs` and `feat(db): info category extraction`.
