@@ -1,665 +1,477 @@
-# 48 — PvP-Ready Modular Presets
+# 48 — PvP-ready Modular Presets
 
-> **Type**: Design doc
-> **Status**: ✅ Implemented (Phase 1 complete)
-> **Scope**: Decomposition of the monolithic PvP-ready world preset into independent,
-> labeled modules with per-module risk tiers, validators, and granular UI controls.
+> **Type**: Binary format spec + design doc (canonical chapter)
+> **Scope**: The current state of `ApplyPvPPreparation` in SaveForge — 5 modules (4 active + 1 placeholder), single snapshot undo, write path optionally per module, UI status in `PvPPreparationTab.tsx`.
 
----
-
-## Background
-
-The original `pvp-ready` preset applies a flat `WorldPresetData` blob: graces + regions +
-summoning pools + colosseums + map flags. This approach has three problems:
-
-1. **Opaque coupling** — users cannot choose "regions only" without also getting all graces
-   and summoning pools.
-2. **Unverified claims** — summoning pool activation was presented as an invasion accelerator;
-   this is unconfirmed (see spec/46 §11).
-3. **Stale data** — old presets contained pre-v1.12 pool IDs (≥ 1 000 000). Validator
-   `validateWorldSummoningPools` now detects these, but the root cause is no formal module
-   ownership of each flag range.
-
-The fix: decompose into six modules, assign each a confirmed effect and a risk tier,
-then expose them individually in the UI.
+Cross-refs: [11-regions.md](11-regions.md), [14-game-state.md](14-game-state.md), [15-event-flags.md](15-event-flags.md), [16-world-state.md](16-world-state.md), [27-map-reveal.md](27-map-reveal.md), [29-dlc-black-tiles.md](29-dlc-black-tiles.md), [47-site-of-grace-activation.md](47-site-of-grace-activation.md), [50-item-companion-flags.md](50-item-companion-flags.md).
 
 ---
 
-## 1. Existing `WorldPresetData` Structure
+## 1. Chapter purpose
+
+To define unambiguously:
+
+- what `ApplyPvPPreparation` (`app_pvp.go`) actually does,
+- which modules are **active** (4): Matchmaking Regions, Colosseums, Reveal Map, Summoning Pools,
+- which module is a **placeholder** (1): Sites of Grace — returns a warning without mutation,
+- how the single-snapshot undo and error propagation work (fail-fast after the first module),
+- where the implementation ends and `needs verification` begins.
+
+It does not duplicate the event flag helper API (see [15-event-flags.md](15-event-flags.md)), the Map Reveal model (see [27-map-reveal.md](27-map-reveal.md)), regions (see [11-regions.md](11-regions.md)), graces (see [47-site-of-grace-activation.md](47-site-of-grace-activation.md)), item companion flags (see [50-item-companion-flags.md](50-item-companion-flags.md)).
+
+## 2. Status
+
+| Aspect | Status |
+|---|---|
+| Backend endpoint `ApplyPvPPreparation(slotIndex, opts)` | ✅ `app_pvp.go:25` |
+| Struct `PvPPreparationOptions` (5 bool fields) | ✅ `app_pvp.go:13-19` |
+| Module: Matchmaking Regions | ✅ active — `core.SetUnlockedRegions` |
+| Module: Colosseums | ✅ active — `ColosseumFlagSets` + `ColosseumGlobalFlags` |
+| Module: Reveal Map | ✅ active — `revealBaseMap` + `revealDLCMap` |
+| Module: Summoning Pools | ✅ active — bulk `SetEventFlag` |
+| Module: Sites of Grace | ❌ **placeholder** — warning only, no mutation |
+| Single snapshot undo (`pushUndo`) | ✅ once at the start |
+| Frontend `PvPPreparationTab.tsx` | ✅ 5 modules + 3 profiles (minimal/full/coop) + custom |
+| Sites of Grace in UI | 🔒 `disabled: true` with the note "Coming soon — broad QoL module, needs UX confirmation" |
+| Test coverage | ✅ 10 tests in `pvp_test.go` (4 validation + 3 warnings + 3 mutation) |
+
+## 3. Source of truth in code
+
+| File / symbol | What it contains |
+|---|---|
+| `app_pvp.go::PvPPreparationOptions` (lines 13-19) | Struct with 5 `bool` fields |
+| `app_pvp.go::ApplyPvPPreparation` (lines 25-113) | Single endpoint, single `pushUndo`, sequential `if opts.X { ... }` per module |
+| `app_pvp.go::revealBaseMap` / `revealDLCMap` (called from the `RevealMap` module) | See [27-map-reveal.md](27-map-reveal.md) — the same functions are used by `RevealAllMap` in `app_world.go` |
+| `backend/db/data/summoning_pools.go::ColosseumFlagSet` (lines 335-367) | Struct `{Activate, MapPOI, NPC, Gate}` + `AllFlags()` returns in a stable order |
+| `backend/db/data/summoning_pools.go::ColosseumFlagSets` (line 349) | 3 entries: Caelid `60350`, Limgrave `60360`, Royal `60370` |
+| `backend/db/data/summoning_pools.go::ColosseumGlobalFlags` (line 357) | `[6080, 60100, 69480]` — global "any colosseum unlocked" flags |
+| `backend/db/db.go::GetAllRegions` / `GetAllColosseums` / `GetAllSummoningPools` | Static DB lookups (sync.OnceValue) |
+| `frontend/src/components/PvPPreparationTab.tsx` | UI: 5 modules `MODULES`, 3 profiles `PROFILE_OPTS` (minimal/full/coop), custom resolver |
+| `pvp_test.go` | 10 tests: 4 validation, 3 warning, 3 mutation + roundtrip |
+
+## 4. Mental model
+
+```
+ApplyPvPPreparation(slotIndex, opts)
+  ├─ validation: save loaded, slot index, slot non-empty, EventFlagsOffset valid
+  │            → all errors: return nil, error (before pushUndo)
+  ├─ a.pushUndo(slotIndex)                              ← single snapshot
+  ├─ flags := slot.Data[slot.EventFlagsOffset:]
+  │
+  ├─ if opts.MatchmakingRegions:
+  │     core.SetUnlockedRegions(slot, allRegionIDs)     ← realloc slot.Data + RebuildSlot
+  │     flags = slot.Data[slot.EventFlagsOffset:]       ← REFRESH
+  │     warnings += "Applied %d matchmaking regions."
+  │
+  ├─ if opts.Colosseums:
+  │     for c in GetAllColosseums():
+  │       for f in ColosseumFlagSets[c.ID].AllFlags():
+  │         SetEventFlag(flags, f, true)                ← error → return err
+  │     for f in ColosseumGlobalFlags:
+  │       SetEventFlag(flags, f, true)                  ← error → return err
+  │     warnings += "Colosseum matchmaking flags set. Physical gates may still need..."
+  │
+  ├─ if opts.RevealMap:
+  │     revealBaseMap(slot)                              ← Phase 1 flags + Phase 2 items (see 27)
+  │     revealDLCMap(slot)                               ← Phase 1+2+3 (see 27/29)
+  │     flags = slot.Data[slot.EventFlagsOffset:]       ← REFRESH
+  │     warnings += "Map revealed (base game + DLC)."
+  │
+  ├─ if opts.SummoningPools:
+  │     for p in GetAllSummoningPools():
+  │       SetEventFlag(flags, p.ID, true)               ← error → return err
+  │     warnings += "Activated %d summoning pools. Bloody Finger invasion impact is unconfirmed."
+  │
+  └─ if opts.SitesOfGrace:
+        warnings += "Sites of Grace module is planned but not enabled in this version."
+        ← NO MUTATION
+```
+
+**Fail-fast**: the first error in module 1–4 causes `return nil, err` — subsequent modules **do not execute**, but the snapshot from `pushUndo` is *not* automatically recovered. The user must press Undo manually.
+
+## 5. Module status table
+
+| # | Field in `opts` | Tier (UI) | Backend status | What it does | Main flags/sections |
+|---|---|---|---|---|---|
+| 1 | `MatchmakingRegions` | Recommended · Tier 1 | ✅ active | `core.SetUnlockedRegions` with all 104 region IDs | `slot.UnlockedRegions` (see [11](11-regions.md)) |
+| 2 | `Colosseums` | Optional · Tier 1 | ✅ active | SET 12 flags (3 × 4 per-colosseum) + 3 global | event flags in the `60xxx`, `62xxx`, `69xxx`, `710xxx` bands |
+| 3 | `RevealMap` | QoL · Tier 0 | ✅ active | `revealBaseMap` + `revealDLCMap` | event flags `62xxx`/`63xxx`/`82xxx` + map fragment items + DLC BloodStain (see [27](27-map-reveal.md)/[29](29-dlc-black-tiles.md)) |
+| 4 | `SummoningPools` | Co-op/Summon · Tier 1 | ✅ active | SET all pool IDs (`670xxx`) | event flags `670xxx` |
+| 5 | `SitesOfGrace` | QoL · Tier 0 · planned | ❌ **placeholder** | NO-OP — appendWarning only | none (see §7) |
+
+`needs verification`: the exact number of activated pools and regions at runtime depends on the `GetAllSummoningPools`/`GetAllRegions` snapshot. See [11-regions.md](11-regions.md) for 104 regions; pools ~213 (see CHANGELOG, no isolated test of the count).
+
+## 6. Current implemented behavior
+
+### 6.1 Pre-mutation validation
+
+Before `pushUndo`:
+
+- `a.save == nil` → `"no save loaded"`.
+- `slotIndex < 0 || slotIndex >= 10` → `"invalid slot index"`.
+- `slot.Version == 0` → `"slot %d is empty"`.
+- `slot.EventFlagsOffset <= 0 || >= len(slot.Data)` → `"event flags offset not computed for slot %d"`.
+
+All 4 errors are returned **before** `pushUndo` — i.e., they do not create a snapshot.
+
+### 6.2 Single snapshot undo
+
+`a.pushUndo(slotIndex)` (line 41) creates **one** snapshot for the entire `ApplyPvPPreparation` operation. All modules mutate under this single snapshot. There are no per-module snapshots — Undo reverts **everything**, not a specific module.
+
+### 6.3 Module 1 — Matchmaking Regions
+
+`core.SetUnlockedRegions(slot, ids)` internally calls `RebuildSlot`, which:
+
+- reallocates `slot.Data` (changes the size of the `UnlockedRegions` array),
+- recalculates `EventFlagsOffset`,
+- may change `StorageBoxOffset`, etc.
+
+After this the `flags` slice is stale — the code **explicitly refreshes** `flags = slot.Data[slot.EventFlagsOffset:]` on line 57.
+
+`needs verification`: whether `core.SetUnlockedRegions` returns an error in any realistic scenarios (e.g., large region lists). The test `TestApplyPvPPreparation_BadFlagsOffset` (`pvp_test.go:54`) covers the bad-offset scenario, but not the failure path from `SetUnlockedRegions`.
+
+### 6.4 Module 2 — Colosseums
+
+Per-colosseum:
 
 ```go
-type WorldPresetData struct {
-    Graces         []uint32  // EventFlags 71xxx–76xxx
-    Bosses         []uint32  // boss defeat EventFlags
-    SummoningPools []uint32  // EventFlags 670xxx
-    Colosseums     []uint32  // EventFlags 60xxx (activate only; multi-flag via ColosseumFlagSets)
-    MapFlags       []uint32  // EventFlags 62xxx / 82xxx
-    Cookbooks      []uint32  // EventFlags cookbook range
-    BellBearings   []uint32  // EventFlags bell bearing range
-    Whetblades     []uint32  // EventFlags whetblade range
-    Gestures       []uint32  // gesture slot IDs
-    Regions        []uint32  // UnlockedRegions — separate binary struct, NOT EventFlags
-    WorldPickups   []uint32  // bolstering material pickup EventFlags
+flagSet, ok := data.ColosseumFlagSets[c.ID]
+if !ok {
+    flagSet = data.ColosseumFlagSet{Activate: c.ID}
+}
+for _, id := range flagSet.AllFlags() {
+    if id == 0 { continue }
+    SetEventFlag(flags, id, true)
 }
 ```
 
-`Regions` is the only field that writes to `slot.UnlockedRegions` via
-`core.SetUnlockedRegions`. All other fields write EventFlag bits via `db.SetEventFlag`.
+That is:
 
----
+- If `c.ID` (from `GetAllColosseums`) is in `ColosseumFlagSets` → SET 4 flags (`Activate`, `MapPOI`, `NPC`, `Gate`).
+- If not — fallback: SET only `Activate` (i.e., `c.ID`).
+- After the per-colosseum loop: SET 3 global flags from `ColosseumGlobalFlags` (`6080`, `60100`, `69480`).
 
-## 2. Module Definitions
+Currently `ColosseumFlagSets` has 3 entries (Caelid/Limgrave/Royal). `GetAllColosseums` returns exactly those 3 — the fallback is not actually used. `needs verification` in case of a future DLC with a new colosseum: `GetAllColosseums` must be synchronized with `ColosseumFlagSets`, otherwise only `Activate` will be SET.
 
-### Module A — PvP Core (Stats + Items)
+**Note on `60100` — Spectral Steed Whistle flag** — see [50-item-companion-flags.md](50-item-companion-flags.md): the flag `60100` is **shared** between `ColosseumGlobalFlags` (PvP prep) and the item companion set for the Spectral Steed Whistle. Enabling the Colosseums module **sets the Torrent-unlock flag** as a side effect.
 
-| Property | Value |
-|---|---|
-| Risk tier | Tier 1 (low; standard build editing) |
-| Save fields touched | `PlayerGameData`, `Inventory`, `Storage` |
-| Backend functions | `CharacterPreset.Character`, `Inventory`, `Storage` |
+### 6.5 Module 3 — Reveal Map
 
-**Contents:**
-- Character level, stats (Vigor/Mind/Endurance/Strength/Dex/Int/Faith/Arcane)
-- Weapons, armor, talismans in equipment slots
-- PvP consumables in inventory/storage:
-  - Bloody Finger (item ID: item lookup from `db`)
-  - Festering Bloody Finger
-  - Recusant Finger
-  - Taunter's Tongue
-  - Runes / smithing materials
-- Memory Stones (sorcery slot count)
+Calls **the same** functions as `RevealAllMap` from `app_world.go`:
 
-**Confirmed effect:** Direct. All fields are standard character edit operations.
-
----
-
-### Module B — Matchmaking Regions
-
-| Property | Value |
-|---|---|
-| Risk tier | Tier 1 (low; unlock is reversible) |
-| Save fields touched | `slot.UnlockedRegions` (separate binary struct) |
-| Backend functions | `BulkSetUnlockedRegions`, `core.SetUnlockedRegions` |
-| Data source | `backend/db/data/regions.go` — 104 entries: 62 overworld base game (6100000–6899999) + 7 DLC (6900000–6999999) + 35 legacy dungeons (1000000–1999999) |
-
-**Contents:**
-- All entries from `data.Regions` — overworld + legacy dungeons + DLC land of shadow
-- Controls invasion eligibility (Bloody Finger can only reach areas in this list)
-- Controls NPC invader appearance (Recusant Henricus etc.)
-- Controls "You have entered \<X\>" map label after teleport
-
-**Confirmed effect (spec/11, runtime-observed):** Regions must be present for PvP
-matchmaking to consider the slot for invasion. Missing regions = effectively invisible
-to invaders in that area.
-
-**Note:** `data.IsDLCRegion(id)` → range `6900000–6999999` = Shadow of the Erdtree.
-DLC regions should be marked separately in the UI. Applying them to a non-DLC character
-is harmless but logically wrong.
-
-**Validator:** `ValidateWorldRegions` (see §4).
-
----
-
-### Module C — PvP Access / Progress Flags
-
-| Property | Value |
-|---|---|
-| Risk tier | Tier 1 (quest flag manipulation; same tier as boss kills) |
-| Save fields touched | EventFlags bitfield |
-| Backend functions | `db.SetEventFlag`, `SetQuestStep`, `SetColosseumUnlocked` |
-| Data source | `quests.go` (White Mask Varre), `summoning_pools.go` (Colosseums) |
-
-**Contents:**
-
-#### Colosseums (confirmed: map + matchmaking unlock)
-- Limgrave Colosseum: `ColosseumFlagSets[60360]` → flags `60360, 62730, 69460, 710860`
-- Caelid Colosseum: `ColosseumFlagSets[60350]` → flags `60350, 62720, 69450, 710850`
-- Royal Colosseum: `ColosseumFlagSets[60370]` → flags `60370, 62740, 69470, 710870`
-- Global colosseum flags: `6080, 60100, 69480`
-
-Gate open state (physical door) is stored outside EventFlags (WorldGeom binary blob) —
-this cannot be edited from a save editor. Player must open the gate once in-game.
-
-**Preset format limitation:** `ExportWorldState` captures only the activate flags
-(60350/60360/60370) into `World.Colosseums`. NPC (69xxx), Gate (710xxx), and global
-flags (6080, 60100, 69480) are absent from named data tables and are not exported.
-`ApplyWorldState` sets only what is in the preset — it does not auto-expand like
-`SetColosseumUnlocked`. For a complete colosseum unlock via preset, the user must
-manually add global flags to `World.Colosseums` and ensure MapPOI flags are in
-`World.MapFlags`. `ValidateWorldColosseums` warns when these are missing.
-
-#### Varre Quest (Bloody Finger / Mohgwyn Palace access)
-Key steps to unlock Bloody Finger via quest path:
-- Receiving "Lord of Blood's Favor" — flag `400031`
-- Soaking favor with maiden's blood — flag `400033`
-- Offering finger / Bloody Finger granted — flags `1035449227, 9432, 9420, 1800`
-- Receiving Pureblood Knight's Medal (Mohgwyn shortcut) — flag `400032`
-
-**Caution:** Varre quest flags are a complex multi-step chain (see `quests.go`
-"White Mask Varre" — 19 steps). Setting only completion flags without prior
-dialogue flags may leave the NPC in an inconsistent state in-game. UI should
-offer "skip to Bloody Finger granted" as a preset step, not raw flag toggles.
-Implementation should use `SetQuestStep` rather than raw `SetEventFlag`.
-
-**Confirmed effect (quest system):** Setting Bloody Finger flags via quest system
-is the same mechanism used for all quest completion. Colosseum flags are hex-verified
-(see `tmp/coloseum-debug/`).
-
-**Validator:** `ValidateWorldColosseums` (see §4).
-
----
-
-### Module D — World QoL (Map + Graces)
-
-| Property | Value |
-|---|---|
-| Risk tier | Tier 0 (visual/navigation only; no competitive effect) |
-| Save fields touched | EventFlags bitfield |
-| Backend functions | `RevealAllMap`, `SetGraceVisited` (via `ApplyWorldState`) |
-| Data source | `backend/db/data/graces.go`, `maps.go` |
-
-**Contents:**
-- Map reveal: `62xxx` (map tile visibility) + `82xxx` (map system flags)
-- Sites of Grace: `71xxx–76xxx` — controls map marker + fast-travel list entry
-  - DoorFlag companion for 73xxx catacombs/hero graves
-  - In-world activation animation: runtime/EMEVD-managed, may still play on first visit (spec/47)
-
-**Confirmed effect:** Map markers appear; fast-travel list populated. No competitive
-advantage — does not affect invasion matchmaking, BF wait times, or session state.
-
-**Note:** Map reveal and grace unlock are independent sub-options within QoL. The UI
-should allow selecting them separately (map reveal without grace unlock and vice versa).
-
-**Validators:** `ValidateWorldGraces`, `ValidateWorldMapFlags` (see §4).
-
----
-
-### Module E — Co-op / Summon (Summoning Pools)
-
-| Property | Value |
-|---|---|
-| Risk tier | Tier 1 (EventFlag set; reversible) |
-| Save fields touched | EventFlags bitfield (670xxx block) |
-| Backend functions | `SetSummoningPoolActivated` (via `ApplyWorldState`) |
-| Data source | `backend/db/data/summoning_pools.go` — 670xxx, 199 entries |
-| Existing validator | `validateWorldSummoningPools` in `vm/preset.go` |
-
-**Contents:**
-- Martyr Effigy activation flags (`670xxx`) — enables co-op summon signs in dungeons
-- DLC summoning pools: `670800–670999` — Shadow of the Erdtree
-- Pre-v1.12 IDs (≥ 1 000 000): detected and warned by existing validator
-
-**Confirmed effect:** Enables co-op summon signs near Martyr Effigies.
-
-**Bloody Finger invasion impact: UNCONFIRMED.** Summoning pool activation was
-historically assumed to reduce invasion matchmaking wait times. This is not confirmed
-by the spec/46 binary analysis. Do not present this module as an invasion speed-up.
-Present it only as co-op/summon activation.
-
-**Validator:** `validateWorldSummoningPools` — already implemented.
-
----
-
-### Module F — Advanced / Research (Diagnostics)
-
-| Property | Value |
-|---|---|
-| Risk tier | Tier 2 (UD11 write: PS4 file survives, server overwrites on connect) |
-| Save fields touched | UD11 NetworkParam (read/write), UD10 BF state (read-only), UD0 CandidateSection (read-only) |
-| Backend functions | `core.NetworkParamValues` (existing), new diagnostic readers |
-| Data source | spec/44 (NetworkParam), spec/46 (UD10/UD0 state machine) |
-
-**Contents:**
-
-#### UD11 NetworkParam Inspector / Patcher
-- Read current values of `breakInRequestIntervalTimeSec`, `breakInRequestTimeOutSec`, etc.
-- Optional write of tuned values (see spec/44 for field table)
-- **Warning to user**: "NetworkParam patch is confirmed effective after character reload
-  (exit to menu → reload). Server overwrites regulation.bin on next online connect —
-  effect is temporary. Online use carries EAC ban risk."
-- Show the confirmed activation procedure (spec/46 §11) inline
-
-#### UD10 BF State Classifier
-- Read-only display of `UD10+0x5070`, `UD10+0x194E4`, `UD10+0x5080`
-- Map to human-readable state: `PASSIVE / BF-INIT / ACTIVE-BF / SUCCESS / TIMEOUT / PATCHED-IDLE`
-- Decision tree from spec/46 §7
-
-#### UD0 Candidate Section Viewer
-- Read-only display of `UD0+0x209B00..0x209C43`
-- Parse CandidateEntry structs (stride `0x14`, 5 fields)
-- Show `SPEC-VALID / DEVIATES / NOT-INITIALIZED` status
-- Display V-queue state (IDLE vs ACTIVE, which entry_id is at V0)
-
-**This module is diagnostic only.** Do not expose as a "PvP speed-up" button.
-The NetworkParam patcher is an advanced feature. Effect is confirmed after character reload
-(offline); server overwrites UD11 on next online connect, so changes are temporary.
-
----
-
-## 3. Flag Range → Module Assignment
-
-| Data / Flag range | Current meaning in code | Module | Confidence | Notes |
-|---|---|---|---|---|
-| `1000000–1999999` | `data.Regions` — legacy dungeon interiors (35 entries) | B — Matchmaking Regions | ✅ confirmed | Separate binary struct via `core.SetUnlockedRegions` |
-| `6100000–6899999` | `data.Regions` — overworld base game (62 entries) | B — Matchmaking Regions | ✅ confirmed | Separate binary struct via `core.SetUnlockedRegions` |
-| `6900000–6999999` | DLC Regions — Land of Shadow (7 entries) | B — Matchmaking Regions (DLC) | ✅ confirmed | `IsDLCRegion()` guard |
-| `60350, 60360, 60370` | Colosseum activate | C — PvP Access | ✅ hex-verified | Use `ColosseumFlagSets`, not activate-only |
-| `62xxx` | Map tile visibility | D — World QoL | ✅ confirmed | `RevealBaseMap` / `MapFlags` |
-| `82xxx` | Map system flags | D — World QoL | ✅ confirmed | `RevealBaseMap` / `MapFlags` |
-| `71xxx–76xxx` | Sites of Grace EventFlags | D — World QoL | ✅ confirmed | spec/47 — map marker + fast-travel |
-| `670xxx` (base, 100–799) | Summoning Pools — Martyr Effigies | E — Co-op / Summon | ✅ confirmed | BF invasion impact: unconfirmed |
-| `670800–670999` | DLC Summoning Pools | E — Co-op / Summon (DLC) | ✅ confirmed | `IsDLCSummoningPool()` |
-| `≥ 1 000 000` (old pool IDs) | Pre-v1.12 format — invalid | Legacy / Stale | ✅ confirmed | `validateWorldSummoningPools` warns |
-| Varre quest flags | `1035449xxx`, `400031–400037` | C — PvP Access | ⚠️ cross-ref | Multi-step; use `SetQuestStep` |
-| Unknown flags `1033438600–1050558540` | Unclassified world object/area state | Unknown | ❓ | Do not assign to a module |
-| `6080, 60100, 69480` | Colosseum global flags | C — PvP Access | ✅ hex-verified | `ColosseumGlobalFlags` |
-
----
-
-## 4. Proposed Validators
-
-All validators live in `backend/vm/validation.go` (existing) or `backend/vm/preset.go`.
-None are production-blocking — they emit `warnings []string`, not fatal errors.
-
-### `ValidateWorldRegions(ids []uint32) []string` ✅ Implemented
-
-**Checks:**
-- Each ID is present in `data.Regions` map → `warning: world.regions: ID %d not found in region database`
-- Detects duplicate IDs → `warning: world.regions: ID %d appears more than once — duplicate will be ignored`
-- Legacy dungeon IDs (`1000000–1999999`) are valid — no warning
-- DLC region IDs (`6900000–6999999`) are valid — no warning (non-DLC context check reserved for future UI layer)
-
-**Returns:** warning (not error). Region lock/unlock is reversible.
-
-**Where it lives:** `backend/vm/preset.go` as `validateWorldRegions` (private, called from `ValidatePreset`).
-DB helper: `db.IsKnownRegionID(id uint32) bool` in `backend/db/db.go`.
-
-**Tests (7/7 passing):**
-- Known overworld ID → no warning
-- Known legacy dungeon ID → no warning
-- Known DLC ID → no warning
-- Unknown ID (`9999999`) → warning
-- Duplicate known ID → warning
-- `nil` World → no warning
-- Empty region list → no warning
-
----
-
-### `ValidateWorldGraces(ids []uint32) []string` ✅ Implemented
-
-**Checks:**
-- Each ID is present in `data.Graces` map → `warning: world.graces: ID %d not found in grace database`
-- Detects duplicate IDs → `warning: world.graces: ID %d appears more than once — duplicate will be ignored`
-- DLC grace IDs (`72xxx`, `74xxx`) are valid — no warning
-- `DoorFlag` is NOT required in preset — `SetGraceVisited()` sets it automatically from `data.Graces`
-- Does not validate `LastRestedGrace`, `BonfireId`, or EMEVD activation state (see spec/47)
-
-**Returns:** warning (not error).
-
-**Where it lives:** `backend/vm/preset.go` as `validateWorldGraces` (private, called from `ValidatePreset`).
-DB helper: `db.IsKnownGraceID(id uint32) bool` in `backend/db/db.go`.
-
-**Tests (7/7 passing):**
-- Known base grace (`71000`, `76100`) → no warning
-- Known DLC grace (`72000`, `72001`) → no warning
-- Catacomb grace with `DoorFlag` (`73000`) → no warning (DoorFlag not required in preset)
-- Unknown ID (`99999`) → warning
-- Duplicate known ID → warning
-- `nil` World → no warning
-- Empty grace list → no warning
-
----
-
-### `ValidateWorldMapFlags(ids []uint32) []string` ✅ Implemented
-
-**Checks:**
-- Each ID is present in any of the four map data maps (`data.MapVisible`, `data.MapSystem`, `data.MapAcquired`, `data.MapUnsafe`) → `warning: world.mapFlags: ID %d not found in map flag database`
-- Detects duplicate IDs → `warning: world.mapFlags: ID %d appears more than once — duplicate will be ignored`
-- Grace IDs (`71xxx–76xxx`) accidentally placed in `MapFlags` → warning (not found in any map data map)
-- Summoning pool IDs (`670xxx`) accidentally placed in `MapFlags` → warning (not found in any map data map)
-
-**Returns:** warning (not error).
-
-**Where it lives:** `backend/vm/preset.go` as `validateWorldMapFlags` (private, called from `ValidatePreset`).
-DB helper: `db.IsKnownMapFlagID(id uint32) bool` in `backend/db/db.go` — checks all four map data maps.
-
-**Data coverage:**
-- `data.MapVisible` — 85 entries (`62010–62221`), tile visibility flags
-- `data.MapSystem` — 79 entries (`62000–82002`), includes `62000` (Allow Map Display), `82001` (Show Underground), `82002` (Show Shadow Realm Map)
-- `data.MapAcquired` — 24 entries
-- `data.MapUnsafe` — 56 entries
-
-**Tests (8/8 passing):**
-- Known `MapVisible` IDs (`62000`, `62010`) → no warning
-- Known `MapSystem` IDs (`82001`, `82002`) → no warning
-- Unknown ID (`99999`) → warning
-- Duplicate known ID (`62010` repeated) → warning
-- `nil` World → no warning
-- Empty map flag list → no warning
-- Grace ID (`76100`) placed in `MapFlags` → warning (misplaced)
-- Summoning pool ID (`670100`) placed in `MapFlags` → warning (misplaced)
-
----
-
-### `ValidateWorldColosseums(world *WorldPresetData) []string` ✅ Implemented
-
-**Checks:**
-- Each ID in `World.Colosseums` is recognised in `data.ColosseumFlagSets` → `warning: world.colosseums: ID %d not found in colosseum database`
-- Detects duplicate IDs → `warning: world.colosseums: ID %d appears more than once — duplicate will be ignored`
-- For each activate flag, MapPOI companion flag must be present in `World.MapFlags` → `warning: world.colosseums: %s (ID %d) is missing companion map flag %d — colosseum icon will not appear on map`
-- Global colosseum flags (6080, 60100, 69480) must be present in `World.Colosseums` → `warning: world.colosseums: global colosseum flag %d is missing — add to World.Colosseums for full unlock`
-- Global flags in `World.Colosseums` are silently accepted (not treated as unknown)
-
-**Returns:** warning (not error). Import is never blocked.
-
-**Where it lives:** `backend/vm/preset.go` as `validateWorldColosseums(world *WorldPresetData, warnings *[]string)`.
-DB helpers: `db.IsKnownColosseumID(id uint32) bool`, `db.GetColosseumFlagSet(id uint32) (data.ColosseumFlagSet, bool)` in `backend/db/db.go`.
-
-**Why:** Colosseum with only the Activate flag set may show in matchmaking but lack the
-map icon. Preset application (`ApplyWorldState`) does not auto-expand flag sets like
-`SetColosseumUnlocked` does — companion flags must be explicit.
-
-**Known limitation:** NPC (69xxx) and Gate (710xxx) companion flags are not captured by
-`ExportWorldState` and cannot be verified from preset data alone. Physical gate open
-state is outside EventFlags entirely (WorldGeom binary blob) — this validator does not
-and cannot check it. Gate state remains future research.
-
-**Tests (8/8 passing):**
-- Full set: Limgrave activate (60360) + global flags (6080/60100/69480) + MapPOI (62730) → no warning
-- Unknown ID (99999) → warning
-- Duplicate activate ID (60360 ×2) → warning
-- Activate-only (no MapPOI, no global flags) → MapPOI warning + 3 global flag warnings
-- Missing global flags only (MapPOI present) → 3 global flag warnings
-- `nil` World → no warning
-- Empty `World.Colosseums` → no warning
-- All three colosseums (60350/60360/60370 + global + all MapPOIs) → no warning
-
----
-
-### `validateKnownEventFlags(context string, ids []uint32, warnings *[]string)` ✅ Implemented
-
-Generic safety-net for event flag lists without a dedicated per-database validator.
-
-**Checks:**
-- Duplicate IDs → `warning: <context>: ID %d appears more than once — duplicate will be ignored`
-- IDs ≥ 1 000 000 000 (outside all known EventFlag address space) → `warning: <context>: ID %d is outside all known EventFlag ranges (>= 1,000,000,000) — likely invalid`
-
-**Where it lives:** `backend/vm/preset.go` as `validateKnownEventFlags` (private). Called from `validatePresetModules` for fields without a dedicated validator.
-
-**Applied to:** `World.Bosses`, `World.Cookbooks`, `World.BellBearings`, `World.Whetblades`, `World.WorldPickups`.
-
-**Intentionally excluded:**
-- `World.SummoningPools` — `validateWorldSummoningPools` uses a lower threshold (≥ 1 000 000); applying the generic validator would double-warn IDs like `1035530040`
-- `World.Graces`, `World.MapFlags`, `World.Colosseums` — have dedicated DB validators
-- `World.Regions` — not EventFlags; writes to `UnlockedRegions` binary struct
-- `World.Gestures` — gesture slot IDs, not EventFlag IDs
-
-**Design note:** The generic validator does NOT check "is this ID known in the database" for the fields it covers. That would require a dedicated DB lookup per field and would cause false positives for valid game IDs not yet in the database. Only clearly broken inputs (duplicates, extreme IDs) are flagged.
-
-**Tests (8/8 passing, via `ValidatePreset` integration):**
-- Duplicate boss ID → warning
-- Boss ID ≥ 1B → warning
-- Unknown but non-extreme boss ID → no warning
-- Duplicate cookbook ID → warning
-- WorldPickup ID ≥ 1B → warning
-- SummoningPool pre-v1.12 ID (`1035530040`, ≥ 1B) → only "pre-v1.12" warning, NOT generic ">= 1B" (no double-warning)
-- Empty `WorldPresetData` → no warnings
-- Multiple invalid fields → all respective warnings aggregated
-
----
-
-### `validatePresetModules(world *WorldPresetData, warnings *[]string)` ✅ Implemented
-
-Orchestrator for all world preset validators. Replaces the inline validator calls in `ValidatePreset`, which now calls only `validatePresetModules` when `preset.World != nil`.
-
-**Execution order (deterministic):**
-1. `validateWorldSummoningPools` — dedicated, threshold ≥ 1 000 000
-2. `validateWorldRegions` — dedicated DB lookup
-3. `validateWorldGraces` — dedicated DB lookup
-4. `validateWorldMapFlags` — dedicated DB lookup (4 map data maps)
-5. `validateWorldColosseums` — dedicated DB lookup + MapPOI + global flag check
-6. `validateKnownEventFlags("world.bosses", ...)` — generic safety-net
-7. `validateKnownEventFlags("world.cookbooks", ...)` — generic safety-net
-8. `validateKnownEventFlags("world.bellBearings", ...)` — generic safety-net
-9. `validateKnownEventFlags("world.whetblades", ...)` — generic safety-net
-10. `validateKnownEventFlags("world.worldPickups", ...)` — generic safety-net
-
-**Excluded from all validation:** `World.Regions` (dedicated), `World.Gestures` (not EventFlags).
-
----
-
-## 5. UI / UX Proposal
-
-Current UI: single "Apply World Preset" checkbox with no granularity.
-
-**Proposed:** Replace with a module checklist inside the WorldTab or Preset apply dialog.
-
-```
-PvP Preparation
-──────────────────────────────────────────────────────────────
-[✓] Module A — Stats & Equipment            risk: Tier 1
-[✓] Module B — Unlock Invasion Regions      risk: Tier 1  ← primary effect
-──────────────────────────────────────────────────────────────
-[ ] Module C — Varre Quest Shortcut         risk: Tier 1
-[ ] Module C — Unlock Colosseums            risk: Tier 1
-──────────────────────────────────────────────────────────────
-[ ] Module D — Reveal Map                   risk: Tier 0  (visual only)
-[ ] Module D — Unlock Sites of Grace        risk: Tier 0  (fast-travel only)
-──────────────────────────────────────────────────────────────
-[ ] Module E — Activate Summoning Pools     risk: Tier 1
-                (co-op; Bloody Finger invasion impact unconfirmed)
-──────────────────────────────────────────────────────────────
-[ ] Module F — NetworkParam Inspector       risk: Tier 2  (research)
-[ ] Module F — BF State Classifier          read-only diagnostic
-[ ] Module F — Candidate Section Viewer     read-only diagnostic
+```go
+revealBaseMap(slot)   // Phase 1: 4 system flags + 219 non-DLC visible + 19 base fragment items
+revealDLCMap(slot)    // Phase 1: 62002+82002 + 44 DLC visible. Phase 2: 5 DLC fragment items. Phase 3: BloodStain coords (L2).
 ```
 
-**Design rules:**
-- Modules A + B are default-on when opening the "PvP Preset" flow
-- Each module shows its risk tier badge and a one-line description
-- Module F items are collapsed behind an "Advanced / Research" accordion
-- Summoning Pool module (E) has an inline note: "Activates co-op summon signs.
-  Effect on Bloody Finger invasion rate is unconfirmed."
-- Colosseum sub-module (C) shows: "Unlocks colosseum matchmaking and map markers.
-  Physical gate must be opened once in-game."
-- Sites of Grace sub-module (D) shows: "Unlocks map markers and fast-travel.
-  Some graces may still play activation animation on first visit." (from spec/47)
+After both: `flags = slot.Data[slot.EventFlagsOffset:]` (line 94) because `AddItemsToSlot` (inside Phase 2) reallocates `slot.Data`.
 
-**What we do NOT remove:**
-- Existing individual flag toggles in WorldTab (Graces accordion, Summoning Pools accordion, etc.)
-- Existing `ApplyWorldState` function — the modular UI is built on top of it
-- Existing preset export/import — `WorldPresetData` format is unchanged
+See [27-map-reveal.md](27-map-reveal.md) §11 + [29-dlc-black-tiles.md](29-dlc-black-tiles.md) §11 for details. This chapter **does not duplicate** the 4-layer model.
 
----
+`needs verification`: whether `revealBaseMap` / `revealDLCMap` in the PvP prep context have a different side-effect surface than when called by `RevealAllMap` — the code analysis indicates they do not (the same functions, the same phases), but there is no isolated test of the PvP context.
 
-## 6. Product Direction Note for spec/46
+### 6.6 Module 4 — Summoning Pools
 
-> To be appended to `spec/46-faster-invasions-research.md` as a new final section.
+```go
+pools := db.GetAllSummoningPools()
+for _, p := range pools {
+    SetEventFlag(flags, p.ID, true)  // error → return err
+}
+```
 
-**Product direction / SaveForge implications:**
+Each pool has 1 flag (its ID). No fan-out to other flags. `needs verification`: whether activating the pool flag is enough for the Martyr Effigy in the game to actually appear as a co-op summon — an ad-hoc runtime test (CHANGELOG), no CI.
 
-The save-file investigation (spec/46) produced a clear verdict: no writable save-file
-field exists that directly reduces invasion wait time. The practical path for PvP
-preparation through save editing is:
+**Warning literal**: "Activated %d summoning pools. **Bloody Finger invasion impact is unconfirmed.**" — explicit that we do not promise that pool activation helps PvP/Bloody Finger.
 
-- **Region unlocks** (Module B) — confirmed to control invasion eligibility and area
-  visibility to invaders. This is the primary save-level PvP-relevant feature.
-- **UD11 NetworkParam** — patch confirmed effective after character/session reload.
-  Server overwrites UD11 on online connect. Expose as Module F (advanced/research) with
-  activation instructions and EAC ban risk warning. Not part of the default PvP-ready flow.
-- **UD10 / UD0 session structures** — runtime-only state. Expose as read-only
-  diagnostics (Module F). Not a patch target.
-- **Summoning Pools** — co-op / summon feature. Bloody Finger invasion impact is
-  unconfirmed. Do not present as invasion speed-up (Module E).
-- **PvP-ready preset** — must become modular (this spec). A single opaque preset
-  conflates confirmed effects (regions) with unconfirmed ones (summoning pools,
-  UD11) and visual-only changes (map, graces).
+### 6.7 Module 5 — Sites of Grace (PLACEHOLDER)
 
----
+```go
+if opts.SitesOfGrace {
+    warnings = append(warnings, "Sites of Grace module is planned but not enabled in this version.")
+}
+```
 
-## 7. Implementation Phases
+This is the **only** line. There is no:
 
-| Phase | Scope | Status |
+- reading of `data.Graces`,
+- call to `SetGraceVisited`,
+- setting of any flag,
+- mutation of `slot.Data`.
+
+See §7.
+
+## 7. Sites of Grace module E status
+
+| Aspect | Status |
+|---|---|
+| Backend `app_pvp.go::ApplyPvPPreparation` | 🔒 **placeholder** — `warning` literal, no mutation |
+| Frontend `PvPPreparationTab.tsx` `MODULES[4]` | 🔒 `disabled: true`, `disabledNote: "Coming soon — broad QoL module, needs UX confirmation"` |
+| Standalone grace endpoints (`GetGraces`/`SetGraceVisited`) | ✅ available **independently** in `WorldTab.tsx` — see [47-site-of-grace-activation.md](47-site-of-grace-activation.md) §10.2 |
+| Bulk unlock in `WorldTab` | ✅ Tier 1 `RiskActionButton riskKey="bulk_grace_unlock"` |
+| Test `TestApplyPvPPreparation_SitesOfGraceWarning` | ✅ `pvp_test.go:66` — assert warning string |
+
+**Consequence**: a user who wants to unlock all graces as part of PvP prep must **separately** use Unlock All in `WorldTab` — selecting `sitesOfGrace=true` in `ApplyPvPPreparation` is a **no-op**.
+
+`needs verification`: the target semantics of the module (bulk unlock of all graces vs only boss arenas vs selected by region) is not documented in the code. The `disabledNote` says "needs UX confirmation".
+
+## 8. Disabled / placeholder modules
+
+Only `SitesOfGrace` is marked as a placeholder. The other 4 modules are active backend + UI. The UI for Sites of Grace is **rendered as a disabled checkbox** with different styling (`opacity-60`, `cursor-not-allowed`, gray `tierStyle`).
+
+`needs verification`: whether additional modules will appear in the future (e.g., "Bosses defeated", "Item bundle") — `PvPPreparationOptions` has a fixed 5 fields, adding one requires changing the struct + UI + tests.
+
+## 9. Relation to Event Flags
+
+Modules 2 (Colosseums) and 4 (Summoning Pools) use **only** `db.SetEventFlag` from the generic helper API ([15-event-flags.md](15-event-flags.md)):
+
+- Per-colosseum: 4 flags `Activate/MapPOI/NPC/Gate` + 3 global — a total of 12 + 3 = **15 flags** (for 3 colosseums).
+- Per pool: 1 flag = the pool ID.
+
+Modules 1 (Regions) and 3 (RevealMap) **also** ultimately operate on the bitfield, but through a higher API:
+
+- Module 1 — `core.SetUnlockedRegions` mutates a **separate structure** `UnlockedRegions`, not the bitfield. See [11-regions.md](11-regions.md) §15.
+- Module 3 — `revealBaseMap`/`revealDLCMap` set event flags `62xxx`/`63xxx`/`82xxx` + add items + Phase 3 BloodStain. See [27-map-reveal.md](27-map-reveal.md).
+
+The generic helper API (`GetEventFlag`/`SetEventFlag`/BST resolver) is documented in 15 — this chapter does not duplicate it.
+
+## 10. Relation to Map Reveal
+
+Module 3 (`RevealMap`) calls **exactly the same** internal functions as the public endpoint `RevealAllMap` in `app_world.go`:
+
+| Aspect | `App.RevealAllMap` (`app_world.go:1041`) | `ApplyPvPPreparation` with `RevealMap=true` |
 |---|---|---|
-| Phase 1 | `ValidateWorldRegions`, `ValidateWorldColosseums`, `ValidateWorldMapFlags`, `ValidateWorldGraces` + `validateKnownEventFlags` (generic) + `validatePresetModules` (orchestrator) + wire all into `ValidatePreset` | ✅ Complete |
-| Phase 2 | `PvP Preparation` tab — high-level orchestrator UI with per-module checkboxes | ✅ Complete (MVP) |
-| Phase 3 | Module F: BF state classifier read-only display (UD10 + UD0 reader) | 🔲 Planned (blocked: spec/46 §7) |
-| Phase 4 | Module F: UD11 NetworkParam — Network Speed Panel (preset picker) | ✅ Complete |
-| Phase 5 | Varre quest shortcut preset step (Module C) | 🔲 Planned (blocked: spec/38 pattern) |
+| Call `revealBaseMap` | ✅ | ✅ |
+| Call `revealDLCMap` | ✅ | ✅ |
+| Phase 1 flags / Phase 2 items / Phase 3 BloodStain | ✅ identical | ✅ identical |
+| `pushUndo` | ✅ once (in `RevealAllMap`) | ✅ once (in `ApplyPvPPreparation`) — a shared snapshot with the other modules |
+| UI risk gate | Tier 1 `map_reveal_full` in `WorldTab` | Tier 0 in `PvPPreparationTab` (grouped with the other PvP modules) |
 
-**Phase 1 is complete.** `validateKnownEventFlags` and `validatePresetModules` were consolidated into Phase 1 (originally planned as Phase 2) since they depend only on Phase 1 validators.
+`needs verification`: the Tier 1 (WorldTab) vs Tier 0 (PvPPreparationTab) divergence — intentional (PvP prep has an aggregate gate), or oversight? There is no documented rationale.
 
-**Phase 2 MVP is complete.** The `PvP Preparation` tab ships with 4 active modules (Matchmaking Regions, Colosseums, Map Reveal, Summoning Pools) and 1 planned placeholder (Sites of Grace). See §8 below.
+Phase 3 BloodStain (L2 DLC Cover Layer) — see [29-dlc-black-tiles.md](29-dlc-black-tiles.md). PvP prep inherits all the DLC ownership / stale coords / overwritten exploration caveats.
 
-**Phase 4 is complete.** The Network Speed Panel (`NetworkSpeedPanel.tsx`) ships as an accordion under PvP Preparation — see §8.1 below.
+## 11. Relation to Sites of Grace
 
----
+See §7. In short:
 
-## 8. MVP UI Implementation
+- PvP module 5 = **placeholder**. Selecting `sitesOfGrace=true` in `opts` is a no-op + warning.
+- Independent grace endpoints (`GetGraces`, `SetGraceVisited`) work **directly** in `WorldTab`. See [47-site-of-grace-activation.md](47-site-of-grace-activation.md).
+- The Gatefront companion flags (`grace_companion_flags.go::GatefrontGraceEventFlagID`) are **not** touched by PvP prep.
 
-**New tab**: `PvP Preparation` (added to `frontend/src/App.tsx` tab list: `['character', 'inventory', 'world', 'pvp', 'tools', 'settings']`).
+## 12. Relation to Item Companion Flags
 
-**Architecture**:
-- `WorldTab` remains the granular editor (per-item toggles, per-section accordions).
-- `PvP Preparation` is a high-level orchestrator: per-module checkboxes + single `Apply` button.
-- Frontend does NOT duplicate region/colosseum/pool lists — all data lives in the backend DB.
+`ApplyPvPPreparation` **does not use** `data.CompanionEventFlagsForItem` nor the item lifecycle hooks (`AddItemsToCharacter` / `RemoveItemsFromCharacter`).
 
-**Backend**:
-- New file `app_pvp.go` with `PvPPreparationOptions` struct and `ApplyPvPPreparation(slotIndex int, opts PvPPreparationOptions) ([]string, error)`.
-- Single `pushUndo` call for the entire operation (no per-module undo stacking).
-- Delegates to internal core/DB functions; does NOT call higher-level App methods.
+Indirectly: module 3 (`RevealMap`) adds fragment items via `core.AddItemsToSlot` (low-level), not via `App.AddItemsToCharacter` (app-level). The SET companion flag hook from `app.go:569` **does not fire** for map fragment items. See [50-item-companion-flags.md](50-item-companion-flags.md) §9.
 
-**MVP modules**:
+Indirectly in another way: module 2 (`Colosseums`) sets `60100` (as part of `ColosseumGlobalFlags`). The same flag is a companion for the Spectral Steed Whistle ([50](50-item-companion-flags.md) §6.1). Selecting `Colosseums=true` sets `60100` **independently of** owning the Whistle. See §6.4.
 
-| Module | Default | Implementation |
-|---|---|---|
-| Matchmaking Regions | ON | `core.SetUnlockedRegions` with all 104 DB regions |
-| Colosseums | OFF | `data.ColosseumFlagSets` + `db.SetEventFlag` for all 3 arenas + global flags |
-| Map Reveal | OFF | `revealBaseMap` + `revealDLCMap` (package-level functions) |
-| Summoning Pools | OFF | `db.SetEventFlag` for all 670xxx pool IDs from DB |
-| Sites of Grace | OFF (disabled) | Placeholder — checkbox disabled in UI, backend returns "planned" warning |
+## 13. Relation to Game / World State
 
-**Out of scope in MVP (Phase 3+)**:
-- Character build presets (Module A)
-- Varre quest shortcut (Module C)
-- BF state classifier / UD10+UD0 diagnostics (Module F)
-- UD11 / NetworkParam inspector (Module F)
-- No UD10 patching, no UD11 patching
+`ApplyPvPPreparation` **does not modify**:
 
-### Preparation Profiles
+- `PreEventFlagsScalars` (`LastRestedGrace`, `TotalDeathsCount`, etc. — see [14-game-state.md](14-game-state.md)),
+- `WorldGeomMan` / `WorldArea` (see [16-world-state.md](16-world-state.md)),
+- `PlayerCoordinates` (see [17-player-coordinates.md](17-player-coordinates.md)),
+- `WorldAreaWeather` / `WorldAreaTime` (see [19-weather-time.md](19-weather-time.md)),
+- the DLC entry flag `CSDlc[1]` (`DlcSectionOffset` — see [29-dlc-black-tiles.md](29-dlc-black-tiles.md) §13.3).
 
-A profile selector is displayed above the module checklist. Profiles are UI-only convenience shortcuts — they set the module checkboxes and do not introduce a new backend API or preset format.
+Note from `app_pvp.go:82`: "Colosseum matchmaking flags set. **Physical gates may still need to be opened once in-game.**" — the `Gate` flags (710xxx) in `ColosseumFlagSet` are a *matchmaking gate marker*, **not** a physical gate. The physical gate is in the `WorldGeomMan` blob and cannot be edited from a save editor.
 
-| Profile | matchmakingRegions | colosseums | revealMap | summoningPools | sitesOfGrace |
-|---|---|---|---|---|---|
-| Minimal PvP Ready (default) | ON | OFF | OFF | OFF | OFF |
-| Full PvP Convenience | ON | ON | ON | OFF | OFF |
-| Co-op Ready | OFF | OFF | ON | ON | OFF |
-| Custom | (preserved) | (preserved) | (preserved) | (preserved) | OFF |
+## 14. Write path and rollback caveats
 
-**Rules:**
-- Default state on tab open: **no modules selected** (all checkboxes off). Profile shows `Custom`.
-- Clicking a named profile sets all checkboxes to the profile's values.
-- Manually toggling any checkbox auto-selects `Custom` (derived from current opts, not stored as separate state).
-- Clicking `Custom` has no effect — it is a read-only state indicator.
-- `Sites of Grace` is always `OFF` in all profiles — it is a disabled placeholder.
-- Profiles are not a full character build preset system (planned as a separate feature).
+### 14.1 Single snapshot, no per-module rollback
 
-**Session persistence and WorldTab refresh:**
-- `PvP Preparation` options are stored as a plain `PvPOptions` interface in `App.tsx` state, persisting while navigating between tabs. No localStorage required.
-- `PvPPreparationTab` is a fully controlled component — all checkbox state flows through `pvpOpts` props and `onPvpOptsChange` callback. No local options state in the component.
-- Applying PvP Preparation calls `handlePvPMutate` which increments a shared `saveDataRevision` counter in `App.tsx`. This counter is passed to `WorldTab` and included in `loadExplorationData`'s `useCallback` dependency array, triggering an immediate data reload.
-- This does not change backend save logic — `ApplyPvPPreparation` in `app_pvp.go` is unchanged.
+`pushUndo` once on line 41. All mutations of the 4 active modules share this snapshot. Popping the snapshot via Undo reverts **everything**. There is no per-module Undo (e.g., "undo only Colosseums").
 
-**New test file**: `pvp_test.go` (package `main`) — 7 tests covering: no-save error, invalid slot, empty slot, bad flags offset, SitesOfGrace warning, Colosseums warning, SummoningPools warning.
+### 14.2 Fail-fast without auto-restore
 
----
+The first error in module 1–4 causes `return nil, err`. Subsequent modules do not execute, but **the mutations of the earlier modules remain in `slot.Data`**. The snapshot from `pushUndo` is on the Undo stack, but is **not** automatically popped. The user sees the error in the UI (toast) and must press Undo themselves.
 
-## 8.1 Network Speed Panel
+`needs verification`: whether there is a user-facing fail-fast test — e.g., module 4 (Summoning Pools) fails and modules 1–3 are executed. The current 10 tests do not cover this scenario.
 
-**Component**: `frontend/src/components/NetworkSpeedPanel.tsx`
+### 14.3 Slice invalidation between modules
 
-Rendered inside `PvPPreparationTab.tsx`, below the module checklist, separated by a border.
-Wrapped in `AccordionSection` — **collapsed by default**.
+The `flags` slice (`slot.Data[slot.EventFlagsOffset:]`) is **explicitly refreshed** in 2 places:
 
-**What it does:**
-- Patches UD11 NetworkParam inside the save file.
-- Effect is **global for the entire save** — all character slots share UD11.
-- **Requires character reload** to activate: Load character → Exit to main menu → Load again.
-- Server overwrites UD11 on next online connect (effect is temporary).
-- Aggressive settings may increase online enforcement risk.
+1. After `MatchmakingRegions` (line 57) — `core.SetUnlockedRegions` reallocates via `RebuildSlot`.
+2. After `RevealMap` (line 94) — `AddItemsToSlot` (inside Phase 2) reallocates.
 
-**UI layout:**
+There is no refresh before `Colosseums` (line 61) — `Colosseums` uses `flags` derived on line 43 or refreshed on line 57. OK, because between these points there is no reallocation.
 
-```
-▸ Advanced: Network Speed
-─────────────────────────────────────────────────────
-⚠  Aggressive network settings may increase online enforcement risk.
+No refresh before `SummoningPools` — `flags` from the previous refresh (`RevealMap` or `MatchmakingRegions`) is current. OK.
 
-   Activation required after import:
-   Load character once → Exit to main menu → Load character again.
+### 14.4 Order matters
 
-   These settings are global for the whole save, not per character.
+The order of modules in the code:
 
-   Red invasion retry is confirmed after character reload.
-   Summons, Blue, and Host presets modify related NetworkParam fields
-   but should be treated as experimental until tested in their specific online flows.
+1. MatchmakingRegions
+2. Colosseums
+3. RevealMap
+4. SummoningPools
+5. SitesOfGrace
 
-[ Restore Vanilla Network Params ]   Targets 5 · interval 30s · timeout 20s · sign download 30s
+This order is **enforced** by the sequential `if opts.X { ... }`. The user cannot change the order via the UI. If the user wants "only RevealMap, then MatchmakingRegions" — it is not possible; either everything in the prescribed order, or manual calls separately.
 
-Reds / Invader
-[ Light Reds ]  [ Fast Reds ]
+`needs verification`: whether the order affects correctness. From the analysis: `MatchmakingRegions` reallocates (must be before others that use `flags`); `RevealMap` reallocates (must be before SummoningPools/SitesOfGrace). The coded sequence is correctness-wise OK.
 
-Summons / Co-op Signs
-[ Fast Summons ]
+### 14.5 No per-module transaction
 
-Blue / Hunter
-[ Fast Blue ]
+`db.SetEventFlag` in modules 2 and 4 — if any flag fails, the error is propagated (`return nil, err`), **the earlier flags from the same module** are already SET. A partial effect is possible.
 
-Host / Taunter's Tongue
-[ Aggressive Host ]
+## 15. UI / frontend status
 
-[ Apply Selected Preset ]
-```
+`frontend/src/components/PvPPreparationTab.tsx`:
 
-**Presets:**
-
-| Preset | Backend key | Risk | Status | Changed fields |
-|--------|---|---|---|---|
-| Vanilla | `ResetNetworkParams()` | None | — | All fields reset to game defaults |
-| Light Reds | `light-invasions` | Low | Confirmed | targets 8, interval 10s, timeout 8s |
-| Fast Reds | `fast-invasions` | Aggressive | Confirmed | targets 10, interval 4s, timeout 4s |
-| Fast Summons | `fast-summons` | Experimental | Unverified in co-op flow | sign download 10s, update 15s, reload 15s, total 40, cells 20, max 64 |
-| Fast Blue | `fast-blue` | Experimental | Unverified in Blue flow | cooldown 5s, count 4, visit list 15, search 10–30s, all-area 75% |
-| Aggressive Host | `aggressive-host` | Experimental | Unverified in Host flow | visitor max 20, timeout 60s, download 10s |
-
-**Backend preset functions** (`backend/core/regulation.go`):
-- `NetworkParamLightInvasions()` — Light Reds
-- `NetworkParamFastInvasions()` — Fast Reds
-- `NetworkParamFastSummons()` — Fast Summons (experimental values)
-- `NetworkParamFastBlue()` — Fast Blue (experimental values)
-- `NetworkParamAggressiveHost()` — Aggressive Host (experimental values)
-
-All wired via `app.go` `GetNetworkPreset(name)`. No new app.go methods needed.
-
-**Advanced slider UI:** `frontend/src/components/NetworkTab.tsx` — separate tab "network", 4 role tabs (Invader / Cooperator / Blue / Host) with individual sliders for all 20 NetworkParam fields. Complements the quick-preset panel for custom tuning.
-
-**Does NOT patch:** UD10, UD0, world-state flags, character slots.
-
----
-
-## Sources
-
-| File | Relevance |
+| UI element | What it does |
 |---|---|
-| `backend/vm/preset.go` | `WorldPresetData`, `ApplyWorldState`, `ValidatePreset` |
-| `backend/db/data/regions.go` | 104 region IDs with name + area group (62 overworld + 7 DLC + 35 legacy dungeons) |
-| `backend/db/data/summoning_pools.go` | 199 summoning pool IDs + `Colosseums` + `ColosseumFlagSets` |
-| `backend/db/data/graces.go` | 419 grace entries with EventFlag IDs + DoorFlags |
-| `backend/db/data/quests.go` | `"White Mask Varre"` — 19 quest steps with flags |
-| `app_world.go` | All World-tab backend functions |
-| `spec/46-faster-invasions-research.md` | Final verdict: UD11 patch confirmed effective after character reload; Track A (UD10 timer) confirmed ineffective |
-| `spec/47-site-of-grace-activation.md` | Grace unlock confirmed for map/fast-travel; in-world animation open |
-| `spec/44-network-param-tuning.md` | NetworkParam field reference |
-| `spec/32-ban-risk-system.md` | Tier 0/1/2 definitions |
-| `tmp/coloseum-debug/` | Hex-verified colosseum flag sets |
+| Profile picker | 3 profiles (`minimal`, `full`, `coop`) + read-only `custom` |
+| `MODULES` list of 5 elements | Each with a label, tier, desc; `SitesOfGrace` has `disabled: true` |
+| Per-module checkbox `<Chk>` | Toggle `pvpOpts[key]` — Sites of Grace is not clickable |
+| Apply button | Calls `ApplyPvPPreparation(charIdx, payload)`, parses warnings, shows a toast |
+| `NetworkSpeedPanel` | Embedded — see [44-network-param-tuning.md](44-network-param-tuning.md); a separate endpoint, **not** part of `ApplyPvPPreparation` |
+| Notes panel (warnings) | Renders the warnings returned from the backend |
+
+The 3 profiles (from `PROFILE_OPTS`):
+
+```ts
+minimal: { matchmakingRegions: true,  colosseums: false, revealMap: false, summoningPools: false, sitesOfGrace: false }
+full:    { matchmakingRegions: true,  colosseums: true,  revealMap: true,  summoningPools: false, sitesOfGrace: false }
+coop:    { matchmakingRegions: false, colosseums: false, revealMap: true,  summoningPools: true,  sitesOfGrace: false }
+```
+
+`sitesOfGrace` in the profiles is always `false` — no profile tries to enable the placeholder module.
+
+`resolveProfile` (line 87) does **NOT** compare `sitesOfGrace` — it compares only the 4 active fields. This means: a profile is recognized correctly even when `sitesOfGrace=true` (but that is a no-op anyway). `needs verification`: whether this is intentional, or a bug.
+
+`anySelected` (line 152) excludes `disabled` modules: `MODULES.some(m => !m.disabled && pvpOpts[m.key])`. The Apply button is disabled if no active module is selected.
+
+## 16. Validation and safety notes
+
+### 16.1 Overclaim "PvP ready"
+
+The name "PvP-ready" suggests that after one click the character is ready for PvP. In reality:
+
+- Matchmaking Regions: ✅ enough for basic eligibility for invasions.
+- Colosseums: ✅ matchmaking flags + map markers, but **physical gates** require an in-game open.
+- RevealMap: ✅ but it is QoL, not a PvP condition.
+- SummoningPools: warning literal — "**Bloody Finger invasion impact is unconfirmed**".
+- SitesOfGrace: placeholder.
+
+`needs verification`: whether the current matchmaking balance requires additional conditions (Stats Level range, an item in the inventory, NG+ tier) — `ApplyPvPPreparation` does not modify any of these.
+
+### 16.2 Quest / world progression side effects
+
+Module 2 (Colosseums) sets 15 flags, including `60100` (the Spectral Steed Whistle obtained flag — see §12). Side effects:
+
+- `60100` SET on a save from before the Melina encounter → Torrent may be summoned without the Whistle (a gameplay change).
+- Other flags (`Gate`/`NPC`/`MapPOI`) — `needs verification` whether they set anything beyond PvP matchmaking.
+
+Module 4 (SummoningPools) sets ~213 flags. `needs verification` whether any of them collides with other game systems.
+
+### 16.3 Map reveal side effects
+
+See [27-map-reveal.md](27-map-reveal.md) §13 + [29-dlc-black-tiles.md](29-dlc-black-tiles.md) §13. The main risks:
+
+- DLC ownership mismatch (`CSDlc` not checked),
+- Phase 3 BloodStain coords may overwrite authentic exploration,
+- visual reveal vs gameplay progression (trophies — `needs verification`).
+
+### 16.4 Item companion flags
+
+See §12. In short: `ApplyPvPPreparation` may SET flags from item companion sets (Whistle 60100) **without** the corresponding item in the inventory, if module 2 (Colosseums) is active. This is intentional (Colosseums need 60100 as a global flag), but creates the "flag without an item" edge case described in [50-item-companion-flags.md](50-item-companion-flags.md) §12.4.
+
+### 16.5 Sites of Grace placeholder
+
+A user clicking "Sites of Grace" in the UI will get a warning after Apply — but the checkbox is `disabled`, so in reality it cannot be clicked. **The backend, however, accepts** `opts.SitesOfGrace=true` (e.g., from test code / a direct JS call) and returns the warning. `needs verification`: whether there are external calls that pass `sitesOfGrace=true` with an expectation of mutation.
+
+### 16.6 Rollback / atomicity gaps
+
+See §14.1, §14.2, §14.5. The main ones:
+
+- No per-module Undo.
+- No auto-restore after fail-fast.
+- No transaction inside a module (partial flag SET on error).
+
+### 16.7 In-game verification gaps
+
+The 10 tests in `pvp_test.go` cover:
+
+- 4 validation paths (no save, invalid slot, empty slot, bad offset),
+- 3 warnings (Sites of Grace, Colosseum, Summoning Pools — assert string),
+- 3 mutation paths (Colosseums mutate, Summoning Pools mutate, EventFlag roundtrip).
+
+**It does not cover**:
+
+- in-game runtime verification (whether the Bloody Finger actually appears to an invader),
+- fail-fast cleanup (partial state in `slot.Data` after an error),
+- cross-module ordering edge cases,
+- the PvP module RevealMap (comment in `pvp_test.go:14-15`: "revealBaseMap/revealDLCMap will fail on minimal save — those are tested via roundtrip/integration tests").
+
+### 16.8 Platform / version differences
+
+The region, pool, colosseum, grace IDs are snapshots from `regulation.bin`. After a game patch:
+
+- new regions/pools/colosseums may not be in the DB (the same problem as in [11-regions.md](11-regions.md), [47-site-of-grace-activation.md](47-site-of-grace-activation.md)),
+- the semantics of the flags may change (rarely, but possible for world state flags).
+
+`needs verification`: there is no automatic detection of "regulation.bin newer than the data snapshot".
+
+## 17. Test coverage
+
+10 tests in `pvp_test.go`:
+
+| Test | Line | What it verifies |
+|---|---|---|
+| `TestApplyPvPPreparation_NoSave` | 27 | `a.save == nil` → error "no save loaded" |
+| `TestApplyPvPPreparation_InvalidSlotIndex` | 35 | `slotIndex < 0 / >= 10` → error |
+| `TestApplyPvPPreparation_EmptySlot` | 45 | `slot.Version == 0` → error |
+| `TestApplyPvPPreparation_BadFlagsOffset` | 54 | `EventFlagsOffset` out of range → error |
+| `TestApplyPvPPreparation_SitesOfGraceWarning` | 66 | `opts.SitesOfGrace=true` → warning literal "planned but not enabled" |
+| `TestApplyPvPPreparation_ColosseumWarning` | 77 | `opts.Colosseums=true` → warning about physical gates |
+| `TestApplyPvPPreparation_SummoningPoolsWarning` | 94 | `opts.SummoningPools=true` → warning Bloody Finger unconfirmed |
+| `TestApplyPvPPreparation_ColosseumsMutate` | 113 | 12+3 colosseum flags SET in the bitfield |
+| `TestApplyPvPPreparation_SummoningPoolsMutate` | 137 | All pool IDs SET |
+| `TestApplyPvPPreparation_EventFlagRoundtrip` | 166 | SET + readback via `db.GetEventFlag` |
+
+Comment in `pvp_test.go:11-16`: a minimal save with a 20 KB EventFlags region; it does not initialize dynamic offsets — the modules `MatchmakingRegions` (`core.SetUnlockedRegions`) and `RevealMap` (`revealBaseMap/revealDLCMap`) **fail** on a minimal save and are not tested here. They are covered by "roundtrip/integration tests that load real save files".
+
+`needs verification`: the list of "integration tests that load real save files" for PvP prep — whether there is a specific test calling `ApplyPvPPreparation` with `opts.RevealMap=true` on a real slot. Not found in `tests/`.
+
+## 18. Known limits / needs verification
+
+1. **Sites of Grace target semantics** — placeholder, no documented target.
+2. **`ColosseumFlagSets` extensibility** — a new DLC colosseum requires manual synchronization of `ColosseumFlagSets` with `GetAllColosseums`.
+3. **60100 cross-contamination** — a flag shared by Colosseums ↔ Whistle, intentional? `needs verification`.
+4. **Tier mismatch RevealMap** — Tier 1 in `WorldTab`, Tier 0 in `PvPPreparationTab`. Intentional?
+5. **Fail-fast auto-restore** — none; the mutations of earlier modules remain.
+6. **Per-module Undo** — none; only bulk Undo.
+7. **Partial mutation after an error in the loop** — possible in modules 2 and 4.
+8. **`resolveProfile` ignores `sitesOfGrace`** — intentional or a bug.
+9. **Integration test `RevealMap` in the PvP prep context** — no isolated test.
+10. **The number of regions / pools stale after a patch** — no detection.
+11. **The backend accepts `sitesOfGrace=true` despite the UI being disabled** — a direct JS call can bypass the UI gating.
+12. **Physical colosseum gates in WorldGeomMan** — unreachable via the save editor (`needs verification` whether any blob editing is planned).
+13. **In-game verification of PvP matchmaking** — manual, no CI.
+
+## 19. Cross-references
+
+- [11-regions.md](11-regions.md) — Module 1 (Matchmaking Regions) → `core.SetUnlockedRegions`, 104 region IDs.
+- [14-game-state.md](14-game-state.md) — `ApplyPvPPreparation` untouched.
+- [15-event-flags.md](15-event-flags.md) — the generic helper API used by modules 2 and 4.
+- [16-world-state.md](16-world-state.md) — `WorldGeomMan` blob untouched (physical colosseum gates).
+- [27-map-reveal.md](27-map-reveal.md) — Module 3 (RevealMap) → `revealBaseMap` + `revealDLCMap`.
+- [29-dlc-black-tiles.md](29-dlc-black-tiles.md) — L2 DLC Cover Layer; inherited caveats.
+- [47-site-of-grace-activation.md](47-site-of-grace-activation.md) — standalone grace endpoints; PvP module 5 placeholder.
+- [50-item-companion-flags.md](50-item-companion-flags.md) — `60100` shared with the Whistle companion set.
+
+## 20. Sources
+
+- `app_pvp.go::ApplyPvPPreparation` (lines 25-113) — single endpoint.
+- `app_pvp.go::PvPPreparationOptions` (lines 13-19) — 5 bool fields.
+- `backend/db/data/summoning_pools.go::ColosseumFlagSets` / `ColosseumGlobalFlags` / `ColosseumFlagSet.AllFlags()` (lines 335-367).
+- `backend/db/db.go::GetAllRegions` / `GetAllColosseums` / `GetAllSummoningPools` (sync.OnceValue cache).
+- `frontend/src/components/PvPPreparationTab.tsx` — UI: 5 modules `MODULES`, 3 profiles `PROFILE_OPTS`, `resolveProfile`, `anySelected`, `NetworkSpeedPanel` embed.
+- `pvp_test.go` — 10 tests (4 validation + 3 warnings + 3 mutation/roundtrip).
+- `app_world.go::revealBaseMap` / `revealDLCMap` — shared with `RevealAllMap`.
+- `docs/CHANGELOG.md` — historical ad-hoc runtime PvP verification (Steam Deck, PS4).

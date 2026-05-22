@@ -1,350 +1,441 @@
 # 47 — Site of Grace Activation
 
-> **Type**: Investigation / Design doc
-> **Status**: ✅ Resolved for map/fast-travel unlock; ⚠️ full in-world activation animation remains open
-> **Scope**: All identifier spaces and save-file fields involved in Site of Grace discovery, fast-travel, and physical in-world object state.
+> **Type**: Binary format spec + design doc (canonical chapter)
+> **Scope**: Site of Grace activation in SaveForge — data model, the SET-only contract for companion flags, the write path, PvP module status, relations to event flags / map / world / game state.
+
+Cross-refs: [11-regions.md](11-regions.md), [14-game-state.md](14-game-state.md), [15-event-flags.md](15-event-flags.md), [16-world-state.md](16-world-state.md), [27-map-reveal.md](27-map-reveal.md), [29-dlc-black-tiles.md](29-dlc-black-tiles.md), [48-pvp-ready-modular-presets.md](48-pvp-ready-modular-presets.md), [50-item-companion-flags.md](50-item-companion-flags.md).
 
 ---
 
-## Background
+## 1. Chapter purpose
 
-This document was opened to investigate whether `SetGraceVisited()` — which sets the grace EventFlag — is sufficient to fully unlock a Site of Grace, or whether additional save-file fields need to be written.
+To define unambiguously what the editor **actually** does on Site of Grace activation:
 
-**Conclusion (2026-05-09)**: The editor sets exactly the same EventFlag the game sets. `LastRestedGrace` is auto-managed by the game on arrival. No secondary save-file field was found in the Church of Elleh test case. The current implementation is correct for map marker and fast-travel unlock. Some graces may still play their in-world activation sequence after teleport; that behaviour remains a separate open research question. See §5 for the runtime diff.
+- which bit is set for the grace itself,
+- which door flag for a dungeon (Cat/HG),
+- which companion flags are set (SET-only) and why they are not cleared,
+- what the editor does **not** touch (`LastRestedGrace`, MapFlags, BonfireId),
+- what the status of the "Sites of Grace" module in PvP prep is,
+- where the implementation ends and `needs verification` begins.
 
----
+It does not duplicate the event flag helper API (see [15-event-flags.md](15-event-flags.md)) nor the item companion flags semantics (see [50-item-companion-flags.md](50-item-companion-flags.md)).
 
-## 1. Identifier Spaces
+## 2. Status
 
-Graces use **two completely separate identifier spaces**. Conflating them is the most common source of confusion.
-
-### 1.1 Grace EventFlag ID (71xxx – 76xxx)
-
-| Property | Value |
+| Aspect | Status |
 |---|---|
-| Range (base game) | 71000 – 76162 |
-| Range (DLC — Shadow of the Erdtree) | 72xxx, 74xxx, up to 76960 |
-| Total count | 419 entries in `backend/db/data/graces.go` |
-| Source identifier | `graces.go` hex constants, e.g. `0x00011558` = 71000 |
-| Lookup | BST block 71–76 via `eventflag_bst.txt` |
+| Backend endpoint `SetGraceVisited` | ✅ `app_world.go:43` |
+| Backend endpoint `GetGraces` | ✅ `app_world.go:14` |
+| Static DB | ✅ `backend/db/data/graces.go` — 419 entries (snapshot from `data.Graces`) |
+| Companion flags map | ✅ `backend/db/data/grace_companion_flags.go` — 1 entry (Gatefront 76111) |
+| `IsKnownGraceID` helper | ✅ `backend/db/db.go:1126` |
+| UI `WorldTab` Sites of Grace | ✅ per-grace + per-region + Unlock All / Lock All |
+| Tier risk gate `bulk_grace_unlock` | ✅ Tier 1 (`RiskActionButton`) |
+| Companion flag policy SET-only | ✅ enforced in `app_world.go:73-81`, covered by a test (`tests/grace_companion_flags_test.go`) |
+| PvP preset module `SitesOfGrace` | ❌ placeholder — returns the warning "planned but not enabled in this version" (`app_pvp.go:108-110`) |
+| In-world activation sequence (cutscene/animation) | ⚠️ `needs verification` per-category (Church of Elleh overworld — tested, other categories — not) |
 
-**What this flag controls (confirmed):**
-- Map marker visibility (grace icon appears on map)
-- Fast-travel eligibility (grace shows in the warp list)
-- "Discovered" state from the game engine's perspective for quest flag purposes
+## 3. Source of truth in code
 
-**In-world visual/activation state (case-specific):**
-- May be derived by EMEVD from the EventFlag at area load for some grace categories
-- Not confirmed globally across all grace types — see §4 and §8 (Future Research)
-
-**What this flag does NOT control:**
-- Respawn point assignment (`LastRestedGrace`) — managed separately by the game
-
-**Sub-ranges by area type:**
-
-| Range | Area type | Notes |
-|---|---|---|
-| 71xxx | Stormveil, Leyndell, boss arenas | Legacy dungeons |
-| 72xxx | DLC — Belurat, Enir-Ilim | DLC legacy dungeons |
-| 73xxx | All catacombs and hero graves | Paired with `DoorFlag` |
-| 74xxx | DLC — Gravesite Plain, Scadu Altus, Rauh Base | DLC catacombs/dungeons |
-| 76xxx | All overworld graces | Largest group (~195 entries) |
-
-### 1.2 BonfireId / Grace Entity ID
-
-| Property | Value |
+| File / symbol | What it contains |
 |---|---|
-| Format | `10AABBCCCC` — decimal, 10-digit |
-| Example | `1042362951` = "The First Step"; `1042362950` = "Church of Elleh" |
-| Storage | Single `u32` field `LastRestedGrace` in `PreEventFlagsScalars` |
-| Source | `spec/14-game-state.md`, `spec/15-event-flags.md` |
+| `app_world.go::GetGraces` | Read visited per-grace via `db.GetEventFlag` |
+| `app_world.go::SetGraceVisited` | Write path: pushUndo + grace flag + door flag + companion flags |
+| `backend/db/data/graces.go::Graces` | 419 entries `GraceData{Name, DungeonType, DoorFlag, BossArena}` |
+| `backend/db/data/grace_companion_flags.go::graceCompanionEventFlags` | Map `graceID → []companionFlag` (SET-only) |
+| `backend/db/data/grace_companion_flags.go::CompanionEventFlagsForGrace` | Lookup API |
+| `backend/db/data/grace_companion_flags.go::GatefrontGraceEventFlagID` | Constant `0x0001294F` (= 76111) |
+| `backend/db/db.go::GraceEntry` | Public struct `{ID, Name, Region, Visited, IsBossArena, DungeonType}` |
+| `backend/db/db.go::GetAllGraces` | sync.OnceValue cache; sorting by Region/Name + regex region mapping |
+| `backend/db/db.go::IsKnownGraceID` | Predicate (membership in `data.Graces`) |
+| `app_pvp.go` (`opts.SitesOfGrace`) | Placeholder; no own logic |
+| `frontend/src/components/WorldTab.tsx` | UI: `GetGraces`/`SetGraceVisited`, bulk handlers, Tier 1 risk gate |
+| `tests/grace_companion_flags_test.go` | 3 integration tests (SetOnRealSave / NoRTHFlags / SetOnlyNotCleared) |
+| `backend/db/data/grace_companion_flags_test.go` | Unit test of the flag constants |
 
-**What BonfireId controls:**
-- Respawn location (where the player wakes up after death)
-- The "last rested at" display in the pause menu
-- Game state checkpoint anchor
+## 4. Mental model
 
-**What BonfireId does NOT do:**
-- It is NOT a list; only one value is stored
-- It has no direct relationship to the EventFlag ID for the same grace
-- The editor does NOT need to set it — the game updates `LastRestedGrace` automatically whenever the player arrives at a grace (teleport or walk)
+Grace activation in SaveForge is a single bit in the `EventFlags` bitfield, optionally with a small fan-out:
 
-There is no public mapping from EventFlag ID → BonfireId in the codebase. The two namespaces are disjoint.
-
----
-
-## 2. Save-File Fields
-
-### 2.1 EventFlags Bitfield
-
-- Location: `slot.Data[slot.EventFlagsOffset:]`
-- Size: `0x1BF99F` bytes (1,833,375 bytes)
-- One bit per flag; BST lookup converts flag ID → byte offset + bit index
-- **Editor action**: `db.SetEventFlag(flags, graceID, true)` sets this bit
-
-Confirmed offsets (Church of Elleh test save, slot 0):
-
-| Field | Offset in `slot.Data` |
-|---|---|
-| `PreEventFlagsScalarsBase` | `0x3649A` |
-| `EventFlagsOffset` | `0x364B7` |
-| `EventFlagsEnd` | `0x1F5E56` |
-| `LastRestedGrace` (raw) | `0x364AA` |
-
-### 2.2 PreEventFlagsScalars
-
-29-byte block immediately before the EventFlags bitfield:
-`[slot.EventFlagsOffset - core.PreEventFlagsScalarsSize]`
-
-| Field | Offset in block | Type | Description |
-|---|---|---|---|
-| `GameMan0x8c` | +0x00 | u8 | Unknown GameMan byte |
-| `GameMan0x8d` | +0x01 | u8 | Unknown GameMan byte |
-| `GameMan0x8e` | +0x02 | u8 | Unknown GameMan byte |
-| `TotalDeathsCount` | +0x03 | u32 | Cumulative death counter |
-| `CharacterType` | +0x07 | i32 | 0=normal, 1=invader, etc. |
-| `InOnlineSessionFlag` | +0x0B | u8 | Online session active |
-| `CharacterTypeOnline` | +0x0C | u32 | Online character type |
-| **`LastRestedGrace`** | **+0x10** | **u32** | **BonfireId of last rested grace** |
-| `NotAloneFlag` | +0x14 | u8 | Co-op / NPC companion active |
-| `InGameCountdownTimer` | +0x15 | u32 | In-game countdown |
-| `UnkGameDataMan0x124` | +0x19 | u32 | Unknown |
-
-`LastRestedGrace` is the only save-file field that stores a BonfireId. It is a **single scalar** — not an array, not a set. The game writes it automatically on grace arrival; the editor leaves it untouched.
-
-### 2.3 DoorFlag
-
-Optional companion EventFlag for catacomb and hero grave graces. When set alongside the grace EventFlag, it opens the dungeon entrance door in-world.
-
-- Stored in `data.GraceData.DoorFlag` (u32, 0 if not applicable)
-- Set by `SetGraceVisited()` in `app_world.go` when `DoorFlag != 0`
-- Only applies to `Cat()` and `HG()` entries in `graces.go`
-
-### 2.4 MapFlags (62xxx, 82xxx)
-
-Separate EventFlag layer controlling map tile reveal. Managed independently via `World.MapFlags`.
-
-| Block | Purpose |
-|---|---|
-| 62xxx | Map visibility / fog-of-war reveal for overworld tiles |
-| 82xxx | Map system flags (map frame unlock, region unlock) |
-
-Setting grace EventFlags (71xxx–76xxx) does NOT set map flags. The two layers are independent.
-
----
-
-## 3. What the Editor Currently Sets
-
-`SetGraceVisited(slotIndex int, graceID uint32, visited bool)` in `app_world.go`:
-
-1. Reads `slot.Data[slot.EventFlagsOffset:]`
-2. Calls `db.SetEventFlag(flags, graceID, visited)` — sets the 71xxx/76xxx bit
-3. If `DoorFlag != 0`: calls `db.SetEventFlag(flags, gd.DoorFlag, visited)` — sets door flag
-4. If `visited == true` and `CompanionEventFlagsForGrace(graceID)` is non-empty: sets each companion flag (SET-only — never cleared on deactivation)
-5. Does NOT touch `LastRestedGrace` (correct — game manages this automatically)
-6. Does NOT set any MapFlags
-7. Does NOT set any BonfireId-indexed data
-
-### 3.1 Grace Companion Flags
-
-`CompanionEventFlagsForGrace` in `backend/db/data/grace_companion_flags.go` maps grace EventFlag IDs to the minimal set of EventFlags the game co-sets during normal first-visit acquisition.
-
-**Design constraints (SET-only):**
-- Companion flags are **SET on activation only** (`visited=true`).
-- They are **never cleared** when a grace is deactivated (`visited=false`).
-- Reason: the same flags may be set by item companion flags (e.g. Spectral Steed Whistle) or by normal game progression. Clearing them on grace deactivation would regress saves that reached the same state through other paths.
-
-**Current entries:**
-
-| Grace | EventFlag ID | Companion flags set |
-|---|---|---|
-| Gatefront (Limgrave West) | 76111 (`0x0001294F`) | 60100, 4680, 4681, 710520 — Initial Melina Accord |
-
-**Not included (explicitly excluded):**
-- RTH invitation flags: `10009655`, `11109658`, `11109659` — separate progression step
-- `11109786` — RTH transport trigger (transient, cleared by engine)
-- `710770`, `69090`, `69370` — Melina leaves Gatefront (research candidates; runtime confirmed not required — spec/50 PS4 test 2026-05-11)
-- `4698`, `4651`, `4652`, `4653` — Melina dialogue states (transient)
-- `4656` — Level Up performed (separate user action)
-
-This is **identical** to all three reference implementations:
-
-| Project | Implementation |
-|---|---|
-| er-save-manager (Python) | `EventFlags.set_flag(event_flags, flag_id, True)` — single bit |
-| ER-Save-Editor (Rust) | Single `u32` EventFlag ID per grace, no BonfireId |
-| Elden-Ring-Save-Editor (Python) | `toggle_grace()`: sets one bit at `grace["offset"] + grace["index"]` |
-
----
-
-## 4. Confirmed Activation Model
-
-### What the editor controls
-
-| Layer | Controlled by | How |
-|---|---|---|
-| Map marker | Grace EventFlag (71xxx–76xxx) | `SetGraceVisited()` → `SetEventFlag()` |
-| Fast-travel list entry | Grace EventFlag | same |
-| "Discovered" quest state | Grace EventFlag | same |
-| Dungeon entrance door | DoorFlag (companion EventFlag) | `SetGraceVisited()` for Cat/HG graces |
-| In-world object visual state | Not fully modeled — Church of Elleh revealed no persistent field; other grace categories may still play activation animation after editor unlock | open research question |
-| Respawn point (`LastRestedGrace`) | Game, automatic on arrival | not set by editor; game writes it |
-
-### Church of Elleh confirmed values
-
-| Item | Value |
-|---|---|
-| Grace EventFlag ID | `76100` (0x00012944) |
-| The First Step BonfireId | `1042362951` (0x3E213247) |
-| Church of Elleh BonfireId | `1042362950` (0x3E213246) |
-
-### Additional flags observed in physical-touch and teleport sessions
-
-| Flag | Physical touch | Teleport | Likely meaning |
-|---|---|---|---|
-| `69300` | ✅ | ✅ | Area-load trigger (Church of Elleh region entered) |
-| `78101` | ✅ | ✅ | Area-load trigger (Church of Elleh region entered) |
-| `69070` | ✅ | ❌ | Physical proximity trigger — NPC/cutscene (Kalé, Ranni), NOT grace lighting |
-
-None of these flags are required for editor-side grace unlock (map marker + fast travel). They are set by EMEVD when the player is in the area and do not control the save-file unlock layer.
-
-### Hypothesis verdicts
-
-| Hypothesis | Verdict |
-|---|---|
-| A — EMEVD re-triggers from EventFlag on area load | ✅ Confirmed for Church of Elleh (76xxx overworld) |
-| B — Hidden companion EventFlag controls visual state | No companion flag found for Church of Elleh. Not globally ruled out for all grace categories. |
-| C — WorldGeomMan geometry flag persists visual state | No evidence in Church of Elleh diffs. Not globally ruled out. |
-| D — Grace object state is fully runtime, not persisted | No persistent lit/unlit field found in Church of Elleh test. Likely runtime/EMEVD-managed, but not globally proven for all grace categories. |
-
----
-
-## 5. Runtime Save Diff: Church of Elleh
-
-> Completed 2026-05-09. Five save files compared: `vanilla` / `A` (editor) / `B` (physical touch) / `C` (rest) / `D` (teleport to editor-unlocked grace).
-
-### Flag presence matrix
-
-| Flag | vanilla | A (editor) | B (touch) | C (rest) | D (teleport) |
-|---|---|---|---|---|---|
-| **76100** Grace EventFlag | 0 | **1** | **1** | 1 | 1 |
-| 62120 Stormveil Castle map | 0 | 0 | 1 | 1 | 1 |
-| 69070 Unknown (NPC trigger?) | 0 | 0 | **1** | 1 | **0** |
-| 69300 Unknown (area-load) | 0 | 0 | 1 | 1 | 1 |
-| 78101 Unknown (area-load) | 0 | 0 | 1 | 1 | 1 |
-
-Flags 62001 / 82001 / 82002 (underground map display) appeared in save A because the user had also run `RevealBaseMap` — they are NOT set by `SetGraceVisited()`.
-
-### `PreEventFlagsScalars` across saves
-
-| Scalar | vanilla | A | B | C | D |
-|---|---|---|---|---|---|
-| `LastRestedGrace` | 1042362951 | 1042362951 | **1042362950** | 1042362950 | **1042362950** |
-| `UnkGameDataMan0x124` | 61 | 61 | 61 | **73** | **40** |
-
-`LastRestedGrace` transitions The First Step → Church of Elleh in both B (physical touch) and D (teleport). The game sets it automatically; the editor does not need to.
-
-### Second BonfireId occurrence
-
-BonfireId was also found at `slot.Data[0x1F636A]` — 1,300 bytes past EventFlags end, likely early NetworkManager. It updates identically with `LastRestedGrace`. Probably used for multiplayer respawn sync.
-
-### Key finding
-
-Grace 76100 is **identical** in A (editor) and B (game). The editor sets exactly what the game sets. No additional save-file fields are required for the map/fast-travel unlock layer.
-
----
-
-## 6. Diagnostic Script
-
-`tmp/scripts/diag/grace_activation_diff.go` — read-only, `//go:build ignore`.
-
-**Usage:**
 ```
-go run tmp/scripts/diag/grace_activation_diff.go \
-  -before tmp/site-of-grace-debug/ER0000-kro55-vanilla.sl2 \
-  -after  tmp/site-of-grace-debug/ER0000-b.sl2 \
-  -slot 0 -grace 76100 -bonfire 1042362951
+SetGraceVisited(slot, graceID, visited)
+  ├─ a.pushUndo(slotIndex)                  ← single snapshot rollback
+  ├─ SetEventFlag(flags, graceID, visited)  ← grace bit (71xxx–76xxx)
+  ├─ if DoorFlag != 0:
+  │     SetEventFlag(flags, DoorFlag, visited)   ← dungeon door (Cat/HG)
+  └─ if visited == true:
+        for each f in CompanionEventFlagsForGrace(graceID):
+          SetEventFlag(flags, f, true)       ← SET-only; no clear path
 ```
 
-**Reports:**
-1. Target grace EventFlag change (0→1 confirmation)
-2. All EventFlag changes grouped by 1000-range
-3. `PreEventFlagsScalars` diff — especially `LastRestedGrace`
-4. `UnlockedRegions` diff
-5. `MapFlags` diff (62xxx, 82xxx)
-6. BonfireId occurrence search in raw slot bytes
-7. Byte-diff summary by 0x10000 region
+The grace bit + the optional `DoorFlag` are a **fully symmetric** SET/CLEAR pair. Companion flags are **asymmetric** — see §8.
 
-Reference save files: `tmp/site-of-grace-debug/` (vanilla, A, B, C, D).  
-Analysis report: `tmp/site-of-grace-debug/grace-activation-analysis.md`.
+## 5. Site of Grace data model
 
----
+`data.Graces` (`backend/db/data/graces.go`) is a `map[uint32]GraceData` with 419 entries (source snapshot in the repo as of 2026-05-21). Each entry is:
 
-## 7. Repair Models
+```go
+GraceData{
+    Name        string  // e.g. "Church of Elleh (Limgrave)"
+    DungeonType string  // "catacomb" | "hero_grave" | "" (none)
+    DoorFlag    uint32  // 0 if there is no dungeon door
+    BossArena   bool    // true if the grace is a boss arena
+}
+```
 
-### Model 1 — No backend change ✅ Implemented
+`db.GetAllGraces()` (`db.go:858`) converts this to `[]GraceEntry` with an additional `Region` field derived from the string after the parenthesis + regex splitting of the Limgrave (East/West), Liurnia (East/North/West) and Mountaintops (East/West) sub-regions. This is a **runtime derivation**, not a field stored in the save.
 
-`SetGraceVisited()` is correct. No logic changes needed.
-
-### Model 2 — UI clarification ✅ Implemented
-
-`SetGraceVisited()` unlocks the map marker and fast-travel entry. It does not guarantee that all in-world activation animations are suppressed.
-
-Short note added to the `WorldTab` Sites of Grace section:
-
-> "Sites of Grace unlocked here will appear on the map and become available for fast travel. Some graces may still play their in-world activation sequence when visited."
-
-### Model 3 — Optional: investigate flag 69070
-
-Flag 69070 is set only during physical approach (not by editor or teleport). If users report that NPC cutscenes at Church of Elleh (Kalé's greeting, Ranni's first appearance) don't trigger when arriving via editor-unlocked fast travel, setting 69070 alongside the grace EventFlag may fix that. Not required for grace unlock itself.
-
-**Not pursued:**
-- Setting `LastRestedGrace` — not needed; game manages it automatically on arrival
-- Building EventFlag ID → BonfireId lookup table — not needed
-- Searching for a hidden companion flag for grace activation — not found for Church of Elleh; open for other grace categories (see §8)
-
----
-
-## 8. Future Research
-
-Further SoG investigation is paused; the main focus has returned to the Faster Invasions thread.
-
-If resumed, test save pairs across multiple grace categories to determine whether category-specific companion flags exist:
-
-| Category | Range | Notes |
+| Aspect | Value | Snapshot |
 |---|---|---|
-| Overworld (tested) | 76xxx | Church of Elleh — no extra field found |
-| Catacombs / hero graves | 73xxx | Paired with `DoorFlag`; different activation path |
-| Legacy dungeons | 71xxx | Stormveil, Leyndell — boss-adjacent graces |
-| DLC | 72xxx, 74xxx | Shadow of the Erdtree — may have additional activation layers |
+| Total count | **419** | verified `awk '/^var Graces/,/^}/' ... \| grep -cE '^\s*0x'` on 2026-05-21 |
+| Snapshot | static Go map | regenerated manually from `regulation.bin` on game patches |
+| Per-grace fields | `Name`, `DungeonType`, `DoorFlag`, `BossArena` | no region ID — region derived in `GetAllGraces` |
 
-Required save set per grace category:
-1. vanilla / before
-2. editor-unlocked (EventFlag only)
-3. after manual in-world activation
-4. after teleport without manual touch (optional)
+`needs verification`: the count 419 may differ after future DLC patches; there is no automatic regeneration from `regulation.bin` in the build. Snapshot date check: the last edit date of `graces.go`.
 
-Goal: determine whether any category produces a category-specific companion EventFlag, WorldState bit, or other persistent field absent from the Church of Elleh overworld test.
+## 6. Grace IDs and event flags
 
----
+### 6.1 ID space
 
-## Sources
+Grace event flags occupy the **71000–76960** bands (with gaps) — see [15-event-flags.md](15-event-flags.md) §BST and the byte/bit table. The character of the bands (most commonly encountered subset):
 
-| File | Relevance |
+| Band | Area type |
 |---|---|
-| `backend/db/data/graces.go` | All 419 grace entries with EventFlag IDs and DoorFlags |
-| `backend/db/data/grace_companion_flags.go` | Grace companion flag map and `CompanionEventFlagsForGrace()` |
-| `backend/db/data/grace_companion_flags_test.go` | Unit tests for grace companion flags |
-| `tests/grace_companion_flags_test.go` | Integration tests on real save slot data |
-| `backend/core/section_eventflags.go` | `PreEventFlagsScalars` struct, `EventFlagsBlock` |
-| `app_world.go` | `SetGraceVisited()` implementation |
-| `spec/14-game-state.md` | `LastRestedGrace` field, BonfireId semantics |
-| `spec/15-event-flags.md` | "Bonfire IDs" section, EventFlag byte offsets |
-| `spec/16-world-state.md` | WorldGeomMan / WorldArea (partial) |
-| `spec/50-item-companion-flags.md` | Item companion flags (Spectral Steed Whistle) — shares 60100/4680/4681/710520 |
-| `tmp/repos/er-save-manager/src/er_save_manager/parser/event_flags.py` | Reference: single-flag approach |
-| `tmp/repos/ER-Save-Editor/src/db/graces.rs` | Reference: single u32 EventFlag ID per grace |
-| `tmp/repos/Elden-Ring-Save-Editor/src/Final.py` | Reference: single bit per grace |
-| `tmp/repos/Elden-Ring-Save-Editor/src/Resources/Json/graces.json` | Grace map with offset + index (no BonfireId) |
-| `tmp/scripts/diag/grace_activation_diff.go` | Diagnostic script for before/after diff |
-| `tmp/site-of-grace-debug/grace-activation-analysis.md` | Full runtime diff analysis report |
+| 71xxx | Legacy dungeons (Stormveil, Leyndell, base game boss arenas) |
+| 72xxx | DLC legacy dungeons (Belurat, Enir-Ilim) |
+| 73xxx | Catacombs / Hero's Graves (paired with `DoorFlag`) |
+| 74xxx | DLC catacombs / dungeons |
+| 76xxx | Overworld (the largest group) |
+| 76xxx (DLC subset, up to 76960) | Overworld DLC |
+
+`needs verification`: the band segregation above is descriptive — the code does not use it for classification. `IsKnownGraceID(id)` is simply `_, ok := data.Graces[id]`. A DLC vs base game classifier **does not exist** for graces in the current code (contrast: `IsDLCMapFlag` for map flags — see [27-map-reveal.md](27-map-reveal.md)).
+
+### 6.2 Door flags (dungeon catacombs / hero's graves)
+
+`GraceData.DoorFlag` (if `!= 0`) is set **symmetrically** with the grace bit: both at `visited=true` and `visited=false`. This is the only part of `SetGraceVisited` that actually CLEARs anything on deactivation.
+
+It applies only to entries `DungeonType == "catacomb"` or `"hero_grave"` — see the `Cat()` / `HG()` constructors in `graces.go:19/24`.
+
+`needs verification`: whether the game actually **closes** the dungeon door when the DoorFlag is cleared at `visited=false` **has not been verified in-game**. The mechanic is based on the assumption that `DoorFlag` is a two-way trigger (open if SET, closed if CLEAR) — in the game it may be one-way (open trigger, but CLEAR has no effect).
+
+### 6.3 BonfireId — a separate namespace
+
+The game also uses a **second** ID namespace for graces — `BonfireId`, a 10-digit format (e.g., `1042362950` = Church of Elleh). It is stored as a single scalar `LastRestedGrace` in `PreEventFlagsScalars` (see [14-game-state.md](14-game-state.md)) and managed **only by the game** — the editor does not set it. SaveForge **does not maintain** an `EventFlag ID → BonfireId` mapping.
+
+## 7. Visited / activated semantics
+
+| State | What sets the grace bit | What the editor does on `SetGraceVisited(visited=true)` |
+|---|---|---|
+| **Grace bit `=1`** | The game on the first rest at the grace; the editor via `SetGraceVisited` | ✅ `SetEventFlag(graceID, true)` |
+| **Map marker** | Derived by the UI/EMEVD from the grace bit | ✅ (side effect of SETting the bit) |
+| **Fast-travel entry** | same | ✅ (side effect of SETting the bit) |
+| **`LastRestedGrace` BonfireId** | The game on a physical touch / rest | ❌ the editor does not touch it — see §13 |
+| **In-world activation sequence** (animation, NPC cutscene) | EMEVD on area load (most categories); may require additional area-load flags (e.g., 69300, 78101) | ❌ the editor does not set it |
+| **MapFlags (62xxx/82xxx)** | Map reveal — a separate layer | ❌ — see [27-map-reveal.md](27-map-reveal.md) |
+
+`needs verification`: the assumption "EMEVD derives the in-world state from the grace bit on area load" is verified **only for Church of Elleh (76100, overworld)** in a historical save diff (2026-05-09 — see `docs/CHANGELOG.md`). Other categories (legacy dungeons, catacombs, DLC) — were not verified individually.
+
+## 8. Grace companion flags
+
+`graceCompanionEventFlags` in `backend/db/data/grace_companion_flags.go` maps a **grace EventFlag ID → a minimal set of flags** that the game sets together with the grace during the first authentic visit. Currently:
+
+| Grace | EventFlag ID | Companion flags |
+|---|---|---|
+| Gatefront (Limgrave West) | `0x0001294F` (= 76111) — `GatefrontGraceEventFlagID` | `EventFlagObtainedSpectralSteedWhistle`, `EventFlagMelinaGaveWhistle`, `EventFlagWhistleWorldState`, `EventFlagMelinaAcceptRefusePopup` |
+
+**Only one entry** in the current DB. The companion flag pool for the remaining ~418 graces is empty — `CompanionEventFlagsForGrace(otherGrace)` returns `nil` and the loop `for _, f := range companions` is a no-op.
+
+`needs verification`: whether other graces also require a companion flag fan-out so that the game engine does not re-trigger a dialogue / cutscene — has not been exhaustively investigated. The code construction is forward-compatible (each new pair in the map is automatically active), but it requires manual per-grace research.
+
+The companion flag policy shared with the item path (e.g., Spectral Steed Whistle) — see [50-item-companion-flags.md](50-item-companion-flags.md). The constants `EventFlagObtained...` are shared between `grace_companion_flags.go` and `item_companion_flags.go`.
+
+### 8.1 What does NOT enter the companion set (explicit exclusion)
+
+The test `TestCompanionEventFlagsForGrace_NoForbiddenFlags` (`backend/db/data/grace_companion_flags_test.go:35`) **and** `TestGraceCompanionFlagsNoRTHFlags` (`tests/grace_companion_flags_test.go:49`) enforce a negative list of the same 9 IDs:
+
+| Excluded flag | Reason (from the test comments / `grace_companion_flags.go`) |
+|---|---|
+| `10009655` | Melina RTH invitation trigger — a separate progress step |
+| `11109658` | Gideon welcome (RTH visited marker) |
+| `11109659` | Gideon advice |
+| `11109786` | RTH transport trigger — transient (cleared by the game engine) |
+| `4698` | Melina cutscene trigger — transient |
+| `4656` | Level up performed — a separate user action |
+| `710770` | Melina leaves Gatefront — research candidate, a runtime test confirmed that it is not required (spec/50 PS4 test 2026-05-11) |
+| `69090` | same |
+| `69370` | same |
+
+`needs verification`: older iterations of spec/47 additionally listed `4651`–`4653` as "Melina dialog states transient" — these IDs are **not** in either of the two `forbidden` lists in the tests (they are only in `backend/db/data/quests.go:487` as quest popup requirements). The status of their classification as forbidden vs simply unverified — open.
+
+Rule from the comment in `grace_companion_flags.go`: **only flags verified in real saves after an actual in-game occurrence**.
+
+## 9. SET-only asymmetric behavior
+
+**The SET-only contract** for companion flags:
+
+```go
+// app_world.go:70-81
+// SET-only: companion flags are set on activation but never cleared on deactivation.
+// They may also be set by item companion flags or normal game progression — clearing
+// them on visited=false would regress saves that obtained the flags through other paths.
+if visited {
+    if companions := data.CompanionEventFlagsForGrace(graceID); len(companions) > 0 {
+        for _, f := range companions {
+            if err := db.SetEventFlag(flags, f, true); err != nil {
+                fmt.Printf("Warning: companion flag %d for grace %d: %v\n", f, graceID, err)
+            }
+        }
+    }
+}
+```
+
+Consequences:
+
+| Action | What happens to the grace bit | What happens to companion flags |
+|---|---|---|
+| `SetGraceVisited(visited=true)`  | `=1` | each flag in the set `=1` |
+| `SetGraceVisited(visited=false)` | `=0` | **untouched** (remain in their pre-call state) |
+| `SetGraceVisited(visited=true)` after an earlier `=true` | `=1` (idempotent) | `=1` (idempotent) |
+
+The asymmetry is **intentional** — justification in the code comment: companion flags may be set by **another** path (an item companion flag from [50-item-companion-flags.md](50-item-companion-flags.md), normal game progress). CLEAR at `visited=false` would undo progress achieved by another route — a regression risk.
+
+`needs verification`: whether there are situations where the user **wants** to clear companion flags after deactivating a grace (e.g., testing). There is no API nor UI for this — the only path is a manual bitfield mutation.
+
+Contrast: the grace bit + `DoorFlag` are **symmetric** (SET/CLEAR together with `visited`). Only companion flags are SET-only. See §13.4 for rollback implications.
+
+The test enforcing the contract: `TestGraceCompanionFlagsSetOnlyNotCleared` (`tests/grace_companion_flags_test.go:74`).
+
+## 10. Current implemented behavior
+
+### 10.1 Backend endpoints (Wails bindings)
+
+| Endpoint | Signature | What it does |
+|---|---|---|
+| `GetGraces(slotIndex) ([]db.GraceEntry, error)` | `app_world.go:14` | Returns the full grace list (`db.GetAllGraces`) with `Visited` populated from the bitfield |
+| `SetGraceVisited(slotIndex, graceID, visited) error` | `app_world.go:43` | See §4 mental model |
+
+`GetGraces` is **read-only** and tolerates a missing `EventFlagsOffset` (skip and `Visited=false`). It does not error out on warnings (`fmt.Printf` instead of error propagation).
+
+`SetGraceVisited` validates:
+- `a.save != nil`,
+- `slotIndex ∈ [0, 10)`,
+- `slot.EventFlagsOffset` within a sensible range.
+
+There is no validation of `graceID` against `IsKnownGraceID(graceID)` — the endpoint **accepts any ID**. An attempt to set an unknown flag will pass to `db.SetEventFlag` and either update the bit or return an error from the resolver. `needs verification`: whether an unknown `graceID` outside `data.Graces` but in the BST band causes a SET on a non-grace bit.
+
+### 10.2 UI write paths (frontend)
+
+From `frontend/src/components/WorldTab.tsx`:
+
+| Handler | What it calls | Tier risk |
+|---|---|---|
+| `handleGraceToggle(grace, visited)` | `SetGraceVisited` per-grace | no modal (single toggle) |
+| `handleUnlockRegionGraces(rg)` | `SetGraceVisited(true)` per region grace (Promise.all) | no modal (bulk per region) |
+| `handleUnlockAllGraces()` | `SetGraceVisited(true)` on all inactive (filter: skipBossArenas + Ashen Capital opt-in) (Promise.all) | **Tier 1** `RiskActionButton riskKey="bulk_grace_unlock"` |
+| `handleLockAllGraces()` | `SetGraceVisited(false)` on all active (Promise.all) | no modal |
+
+UI note in `WorldTab.tsx:406`:
+
+> Sites of Grace unlocked here will appear on the map and become available for fast travel. Some graces may still play their in-world activation sequence when visited.
+
+This note deliberately does not promise a full visual activation.
+
+`needs verification`: the bulk handlers call `SetGraceVisited` in `Promise.all` — each call is a **separate** `pushUndo`. A sequence of N calls creates N undo snapshots, not 1 bulk snapshot. Test coverage: no isolated test "Promise.all bulk SetGraceVisited — undo stack size N".
+
+## 11. PvP module status
+
+`app_pvp.go::PrepPvP` has in `PvPPreparationOptions` the field `SitesOfGrace bool`. The code branch (lines 108-110):
+
+```go
+if opts.SitesOfGrace {
+    warnings = append(warnings, "Sites of Grace module is planned but not enabled in this version.")
+}
+```
+
+This is a **placeholder** — the module:
+
+- does not read `data.Graces`,
+- does not call `SetGraceVisited`,
+- does not set any flags,
+- does not modify `slot.Data` in any way.
+
+The entire grace activation in the PvP prep path is a **no-op with a warning**. A PvP user who wants to unlock all graces must use `Unlock All` from the `WorldTab` UI separately.
+
+`needs verification`: whether the intent is for the PvP module to do a bulk unlock in the future (analogous to `handleUnlockAllGraces`), or a more selective set (only boss arena graces, only overworld) — not documented in the code. Master status of PvP modules — see [48-pvp-ready-modular-presets.md](48-pvp-ready-modular-presets.md).
+
+## 12. Relation to Event Flags
+
+All operations on grace flags + DoorFlag + companion flags go through the **generic helper API** from [15-event-flags.md](15-event-flags.md):
+
+- `db.GetEventFlag(flags, id)` — read a bit,
+- `db.SetEventFlag(flags, id, value)` — symmetric SET/CLEAR,
+- `resolveEventFlagPosition` — 3-tier resolver (precomputed → BST → fallback).
+
+This chapter **does not duplicate** byte/bit indexing, BST mechanics, snapshot dates. The only local addition is:
+
+- the ID range 71000–76960 as the used namespace,
+- the companion flag fan-out (§8) and the SET-only contract (§9) as a grace-specific policy.
+
+`needs verification`: the range 71000–76960 is descriptive (the top-level BST band). The exact `min/max` for the 419 entries in `data.Graces` is not cited — it can be computed with `awk` on the current DB.
+
+## 13. Relation to Map / World State
+
+`SetGraceVisited` **does not touch** any of the Map Reveal layers (see [27-map-reveal.md](27-map-reveal.md)):
+
+- L0 `UnlockedRegions` — untouched,
+- L1 MapVisible / MapAcquired event flags 62xxx/63xxx — untouched,
+- L2 DLC Cover Layer (BloodStain coords) — untouched (see [29-dlc-black-tiles.md](29-dlc-black-tiles.md)),
+- L3 FoW bitfield — untouched.
+
+Conversely: `RevealAllMap` / `revealBaseMap` / `revealDLCMap` (see 27) **do not set** any grace flags nor companion flags. These two systems are **independent** in SaveForge.
+
+`WorldState` / `WorldArea` / `WorldGeomMan` (see [16-world-state.md](16-world-state.md)) — `SetGraceVisited` does not modify any of these sections.
+
+`needs verification`: whether the game displays a grace marker on the map only if the corresponding `MapVisible` flag is also SET (map fragment owned) — not verified. It is possible that the grace bit is enough per se, possible that the region must also be revealed.
+
+## 14. Relation to Game State
+
+`SetGraceVisited` **does not modify** `LastRestedGrace` (`PreEventFlagsScalars`, see [14-game-state.md](14-game-state.md)):
+
+```go
+// app_world.go:41
+// Does not touch LastRestedGrace — the game updates that automatically on arrival.
+```
+
+Reason: `LastRestedGrace` is a BonfireId (a separate namespace — §6.3), managed at runtime by the game on a physical touch / teleport. Setting this field with the editor is not needed; the game will overwrite it on the first arrival.
+
+The second occurrence of BonfireId — in the NetworkManager section (`slot.Data[≈0x1F636A]` in a test slot, ~1300 B past the end of EventFlags) — is also **untouched** by the editor. An empirical observation from the save diff 2026-05-09. `needs verification` as to the exact offset in other slots / versions.
+
+`SetGraceVisited` also does not affect: `TotalDeathsCount`, `InGameCountdownTimer`, the NG+ state ([14-game-state.md](14-game-state.md)).
+
+## 15. Write path and rollback caveats
+
+### 15.1 Atomicity
+
+`SetGraceVisited` has **3 mutations** in a single call (at `visited=true` with DoorFlag + companion flags):
+
+1. the grace bit (`SetEventFlag(graceID, true)`),
+2. optionally the door bit (`SetEventFlag(DoorFlag, true)`),
+3. optionally N companion bits (`SetEventFlag(companions[i], true)`).
+
+There is no per-flag rollback. If step 1 succeeds and step 2 returns an error, the error is propagated to the caller but **step 1 stays** (the grace bit is already set). Step 3 (companion flags) uses `fmt.Printf` instead of error propagation — errors are **logged, not returned**.
+
+### 15.2 Snapshot undo (save-level)
+
+`a.pushUndo(slotIndex)` at the start of `SetGraceVisited` — the **only** rollback path. A full pre-mutation snapshot of the slot. A per-bit selective undo does not exist.
+
+The bulk handler from the UI (`handleUnlockAllGraces`) does N×`SetGraceVisited` via `Promise.all` — i.e., N×`pushUndo`. The stack grows linearly with the number of graces. `needs verification`: whether `pushUndo` has a depth limit and whether a bulk with ~419 graces does not evict older snapshots.
+
+### 15.3 No idempotency check
+
+`SetGraceVisited(graceID, true)` on an already-SET bit will again pass through `pushUndo` + `SetEventFlag` + companion fan-out. Idempotent in terms of result (the bit stays `=1`), but **not a no-op** in terms of cost (snapshot, mutations).
+
+### 15.4 Companion flags rollback asymmetry
+
+A snapshot undo will revert **all** bitfield changes — including companion flags set in the same call. This is OK from the undo logic perspective, but creates a subtle edge case:
+
+- if a companion flag was already `=1` from another path (item, game progress),
+- and `SetGraceVisited(true)` + `Undo` is executed,
+- the snapshot will revert to the pre-mutation state, in which the companion flag was `=1`.
+
+In practice: a companion flag may return to `=1` after Undo, even though the SET-only logic would "clear" it. This is correct behavior (Undo is a clean restore), but it is worth being aware of.
+
+## 16. Validation and safety notes
+
+### 16.1 Stale data after a game patch
+
+The 419 entries in `data.Graces` are a **snapshot** from `regulation.bin` — not regenerated automatically. After a DLC patch adding graces, the `data.Graces` band may not cover the new IDs. Consequences:
+
+- new graces will not appear in the UI,
+- a bulk Unlock All will not set the new bits,
+- `IsKnownGraceID(newID)` will return `false`.
+
+`needs verification`: there is no automatic detection of "regulation.bin newer than the graces.go snapshot".
+
+### 16.2 Wrong EventFlag IDs
+
+`SetGraceVisited` does not validate `graceID` against `data.Graces`. A call from the UI is always correct (the UI iterates over `db.GetAllGraces`), but someone calling from Wails JS / tests may pass any ID. Effect: an unverified flag will be set.
+
+### 16.3 Quest / NPC progression side effects
+
+The Gatefront companion flags (Spectral Steed Whistle, Melina Accord) **are** quest-NPC progression flags. Setting them with the editor on a save from before the first Melina encounter:
+
+- may skip Melina's cutscene,
+- may cause the NPC to not appear in the expected places,
+- may disrupt the RTH trigger sequence (Melina invitation).
+
+`needs verification`: SaveForge does **not** warn about this before calling `SetGraceVisited(76111, true)` on a fresh save.
+
+### 16.4 SET-only cannot be undone per-flag
+
+See §9 + §15.4. If the user wants to **separate** "grace visited" from "companion flags set", there is no such control — a single endpoint.
+
+### 16.5 No atomic rollback for multi-grace bulk
+
+Bulk Unlock All — N×`SetGraceVisited` via `Promise.all`. If, e.g., 200/419 calls pass and the 201st returns an error, there is no `rollback to pre-bulk state`. The UI cache (`setGraces(prev => ...)`) will update only the successful ones, but the undo stack is 200 separate snapshots.
+
+### 16.6 PvP module placeholder
+
+`opts.SitesOfGrace=true` in `ApplyPvPPreparation` will not set graces. User-facing effect: a warning in the return value, but no fail-loud (no error). It is possible that a PvP user assumes the module does an unlock — see [48-pvp-ready-modular-presets.md](48-pvp-ready-modular-presets.md).
+
+### 16.7 In-world activation sequence after a patch
+
+The assumption "EMEVD derives the visual state from the grace bit on area load" was verified on Church of Elleh in 2026-05-09. Newer patches may change EMEVD scripting. `needs verification` after every major game patch.
+
+## 17. Test coverage
+
+| Test | File | What it covers |
+|---|---|---|
+| `TestGraceCompanionFlagsSetOnRealSave` | `tests/grace_companion_flags_test.go:15` | `CompanionEventFlagsForGrace(76111)` returns a non-empty list; each flag settable + readable on a real slot |
+| `TestGraceCompanionFlagsNoRTHFlags` | `tests/grace_companion_flags_test.go:49` | The forbidden list (RTH, transient, level-up) does NOT appear in the Gatefront companion set |
+| `TestGraceCompanionFlagsSetOnlyNotCleared` | `tests/grace_companion_flags_test.go:74` | Simulates "flags set by another path"; verifies they remain SET (SET-only contract) |
+| `TestCompanionEventFlagsForGrace_Gatefront` | `backend/db/data/grace_companion_flags_test.go:5` | The companion set for Gatefront contains exactly the 4 expected constants (`EventFlagObtainedSpectralSteedWhistle`, `EventFlagMelinaGaveWhistle`, `EventFlagWhistleWorldState`, `EventFlagMelinaAcceptRefusePopup`) |
+| `TestCompanionEventFlagsForGrace_Unknown` | `backend/db/data/grace_companion_flags_test.go:28` | `CompanionEventFlagsForGrace(0xDEADBEEF)` returns `nil` (unknown grace ID) |
+| `TestCompanionEventFlagsForGrace_NoForbiddenFlags` | `backend/db/data/grace_companion_flags_test.go:35` | Iterates over **all** companion sets in `graceCompanionEventFlags`; checks that none of the 9 forbidden IDs appears |
+
+**No isolated test for**:
+
+- the `SetGraceVisited` endpoint (as a whole — pushUndo + 3 mutations + error propagation),
+- `GetGraces` with various `EventFlagsOffset` states,
+- bulk Promise.all from the UI,
+- DoorFlag SET/CLEAR symmetry per-category (catacomb vs hero_grave).
+
+`needs verification`: adding `TestSetGraceVisitedRoundtrip` (load save → SetGraceVisited(true) → assert the grace bit + DoorFlag + companion flags) would be desirable. Currently the coverage is indirect — through companion tests + a manual in-game test.
+
+## 18. Known limits / needs verification
+
+A condensed list of open questions:
+
+1. **Companion flags for the remaining ~418 graces** — empty pool (`needs verification`: which graces require a fan-out).
+2. **The count 419 stale after a patch** — no auto-regeneration from `regulation.bin`.
+3. **DLC vs base game classifier** — no `IsDLCGraceID` analog to `IsDLCMapFlag`.
+4. **DoorFlag two-way symmetry** — the game may treat CLEAR as a no-op.
+5. **In-world activation per-category** — verified only for Church of Elleh overworld.
+6. **`SetGraceVisited` validation of `graceID`** — no `IsKnownGraceID` check before mutation.
+7. **Bulk Promise.all undo stack** — N snapshots; no per-bulk single snapshot.
+8. **PvP module intent** — placeholder, no documented target semantics.
+9. **Quest progression side effects** — no pre-mutation warning for NPC-progression-critical flags.
+10. **Second occurrence of BonfireId in NetworkManager** — an empirical observation of one slot; not verified cross-slot / cross-platform.
+
+## 19. Cross-references
+
+- [11-regions.md](11-regions.md) — `UnlockedRegions`; untouched by `SetGraceVisited`.
+- [14-game-state.md](14-game-state.md) — `LastRestedGrace`, `PreEventFlagsScalars`; untouched by the editor.
+- [15-event-flags.md](15-event-flags.md) — master event flag API; chapter 47 is its caller.
+- [16-world-state.md](16-world-state.md) — `WorldGeomMan` / `WorldArea`; untouched.
+- [27-map-reveal.md](27-map-reveal.md) — 4-layer Map Reveal; independent of grace activation.
+- [29-dlc-black-tiles.md](29-dlc-black-tiles.md) — L2 DLC Cover Layer; independent.
+- [48-pvp-ready-modular-presets.md](48-pvp-ready-modular-presets.md) — PvP modules; `SitesOfGrace` placeholder.
+- [50-item-companion-flags.md](50-item-companion-flags.md) — item companion flags; **shared** constants `EventFlagObtainedSpectralSteedWhistle`, etc.
+
+## 20. Sources
+
+- `app_world.go::GetGraces` / `SetGraceVisited`.
+- `backend/db/data/graces.go` — `Graces` map, `Cat()`/`HG()` constructors, `GraceData` struct.
+- `backend/db/data/grace_companion_flags.go` — `graceCompanionEventFlags`, `CompanionEventFlagsForGrace`, `GatefrontGraceEventFlagID`.
+- `backend/db/db.go` — `GraceEntry`, `GetAllGraces`, `IsKnownGraceID`, region mapping.
+- `app_pvp.go:108-110` — placeholder `SitesOfGrace` module.
+- `frontend/src/components/WorldTab.tsx` — UI bindings and bulk handlers.
+- `tests/grace_companion_flags_test.go` — 3 integration tests.
+- `backend/db/data/grace_companion_flags_test.go` — unit tests of the constants.
+- `docs/CHANGELOG.md` — historical runtime save diff Church of Elleh (2026-05-09).
