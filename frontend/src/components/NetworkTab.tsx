@@ -1,17 +1,17 @@
 import {useState, useEffect, useCallback} from 'react';
 import toast from '../lib/toast';
 import {
-    GetNetworkParams, SetNetworkParams, ResetNetworkParams,
+    GetNetworkParams, SetNetworkParams, ResetNetworkParams, GetNetworkPreset,
 } from '../../wailsjs/go/main/App';
 import {core} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
+import {clampNetworkDraft, networkDraftError, applyGroupPreset, NETWORK_GROUP_KEYS, type NetDraft} from './networkClamp';
 
 interface NetworkTabProps {
     platform: string | null;
 }
 
-type RoleTab = 'invader' | 'cooperator' | 'blue' | 'host';
-type GlobalPreset = 'vanilla' | 'faster' | 'aggressive';
+type GroupId = 'invader' | 'cooperator' | 'blue';
 
 interface SliderDef {
     key: string;
@@ -24,56 +24,74 @@ interface SliderDef {
     defaultVal: number;
 }
 
+// --- Default-visible groups ---
+
 const INVADER_SLIDERS: SliderDef[] = [
-    {key: 'maxBreakInTargetListCount',     label: 'Max Targets',      desc: 'How many invasion target candidates are polled per matchmaking search. Higher = more potential targets found at once.',           min: 1,  max: 20,  step: 1, unit: '',  defaultVal: 5},
-    {key: 'breakInRequestIntervalTimeSec', label: 'Request Interval',  desc: 'Delay in seconds between matchmaking retries when no target is found. Lower = faster retry loop.',                                 min: 2,  max: 30,  step: 1, unit: 's', defaultVal: 30},
-    {key: 'breakInRequestTimeOutSec',      label: 'Request Timeout',   desc: 'Seconds before a single matchmaking request is considered failed and retried. Lower = faster failure recovery.',                   min: 3,  max: 20,  step: 1, unit: 's', defaultVal: 20},
-    {key: 'breakInRequestAreaCount',       label: 'Area Count',        desc: 'Number of map areas searched per invasion cycle. Higher = wider net, more CPU/bandwidth on From Software servers.',               min: 1,  max: 20,  step: 1, unit: '',  defaultVal: 5},
+    {key: 'maxBreakInTargetListCount',     label: 'Max Targets',      desc: 'How many invasion target candidates are polled per matchmaking search. Higher = more potential targets found at once.', min: 1,  max: 20, step: 1, unit: '',  defaultVal: 5},
+    {key: 'breakInRequestIntervalTimeSec', label: 'Request Interval', desc: 'Delay in seconds between matchmaking retries when no target is found. Lower = faster retry loop. Below ~8s the search message flickers almost continuously.', min: 2,  max: 30, step: 1, unit: 's', defaultVal: 30},
+    {key: 'breakInRequestTimeOutSec',      label: 'Request Timeout',  desc: 'Seconds before a single matchmaking request is abandoned. Too low (e.g. 3s) cancels near-and-far requests before they can complete.', min: 3,  max: 20, step: 1, unit: 's', defaultVal: 20},
 ];
 
 const COOPERATOR_SLIDERS: SliderDef[] = [
-    {key: 'reloadSignIntervalTime2', label: 'Sign Refresh',    desc: 'How often (seconds) the game fetches the summon sign list. Lower = signs from other players appear faster.',             min: 1,  max: 120, step: 1, unit: 's', defaultVal: 60},
-    {key: 'reloadSignTotalCount',    label: 'Signs Retrieved', desc: 'Maximum number of summon signs downloaded per refresh cycle. Higher = more signs visible.',                             min: 1,  max: 128, step: 1, unit: '',  defaultVal: 20},
-    {key: 'reloadSignCellCount',     label: 'Signs Per Cell',  desc: 'Maximum signs visible within a single map cell. Higher = denser sign pools in busy areas.',                             min: 1,  max: 99,  step: 1, unit: '',  defaultVal: 10},
-    {key: 'updateSignIntervalTime',  label: 'Sign Upload',     desc: 'How often your own summon sign is re-uploaded to the server. Lower = your sign stays fresher for hosts.',              min: 1,  max: 120, step: 1, unit: 's', defaultVal: 30},
-    {key: 'singGetMax',              label: 'Sign Get Max',    desc: 'Hard cap on the total number of signs retrievable regardless of other settings.',                                        min: 1,  max: 128, step: 1, unit: '',  defaultVal: 32},
-    {key: 'signDownloadSpan',        label: 'Download Span',   desc: 'Interval between full sign list download cycles.',                                                                      min: 1,  max: 120, step: 1, unit: 's', defaultVal: 30},
-    {key: 'signUpdateSpan',          label: 'Upload Span',     desc: 'Interval between sign data uploads to the matchmaking server.',                                                         min: 1,  max: 120, step: 1, unit: 's', defaultVal: 60},
+    {key: 'reloadSignIntervalTime2', label: 'Sign Refresh',    desc: 'How often (seconds) the game fetches the summon sign list. Lower = signs from other players appear faster.', min: 1,  max: 120, step: 1, unit: 's', defaultVal: 60},
+    {key: 'reloadSignTotalCount',    label: 'Signs Retrieved', desc: 'Maximum number of summon signs downloaded per refresh cycle. Must be ≤ Sign Get Max.',                       min: 1,  max: 128, step: 1, unit: '',  defaultVal: 20},
+    {key: 'reloadSignCellCount',     label: 'Signs Per Cell',  desc: 'Maximum signs visible within a single map cell. Must be ≤ Signs Retrieved.',                                min: 1,  max: 99,  step: 1, unit: '',  defaultVal: 10},
+    {key: 'updateSignIntervalTime',  label: 'Sign Upload',     desc: 'How often your own summon sign is re-uploaded to the server. Lower = your sign stays fresher for hosts.',   min: 1,  max: 120, step: 1, unit: 's', defaultVal: 30},
+    {key: 'singGetMax',              label: 'Sign Get Max',    desc: 'Hard cap on the total number of signs retrievable. Acts as the ceiling for Signs Retrieved.',               min: 1,  max: 128, step: 1, unit: '',  defaultVal: 32},
+    {key: 'signDownloadSpan',        label: 'Download Span',   desc: 'Interval between full sign list download cycles.',                                                          min: 1,  max: 120, step: 1, unit: 's', defaultVal: 30},
+    {key: 'signUpdateSpan',          label: 'Upload Span',     desc: 'Interval between sign data uploads to the matchmaking server.',                                             min: 1,  max: 120, step: 1, unit: 's', defaultVal: 60},
 ];
 
 const BLUE_SLIDERS: SliderDef[] = [
-    {key: 'reloadVisitListCoolTime',    label: 'Search Cooldown',      desc: 'Cooldown in seconds between Blue Cipher Ring search cycles. Lower = searches for invaded hosts more frequently.',           min: 1,  max: 120, step: 1,  unit: 's', defaultVal: 20},
-    {key: 'maxCoopBlueSummonCount',     label: 'Search Parallelism',   desc: 'How many blue phantom searches run simultaneously. Higher = covers more invaded hosts at once.',                              min: 1,  max: 10,  step: 1,  unit: '',  defaultVal: 2},
-    {key: 'maxVisitListCount',          label: 'Visit List Size',      desc: 'Number of potential invaded-host targets fetched per search cycle. Higher = more options evaluated.',                         min: 1,  max: 50,  step: 1,  unit: '',  defaultVal: 5},
-    {key: 'reloadSearchCoopBlueMin',    label: 'Reload Min',           desc: 'Minimum delay (seconds) between co-op blue reload searches. Acts as a floor for the randomised interval.',                    min: 1,  max: 180, step: 1,  unit: 's', defaultVal: 30},
-    {key: 'reloadSearchCoopBlueMax',    label: 'Reload Max',           desc: 'Maximum delay (seconds) for the reload interval. Actual delay is randomised between Min and Max each cycle.',                min: 1,  max: 300, step: 1,  unit: 's', defaultVal: 180},
-    {key: 'allAreaSearchRateCoopBlue',  label: 'Global Search %',      desc: 'Percentage chance the blue search covers ALL map areas instead of only the local area. Higher = wider reach.',                min: 0,  max: 100, step: 5,  unit: '%', defaultVal: 30},
-    {key: 'allAreaSearchRateVsBlue',    label: 'Global Retribution %', desc: 'Percentage chance the retribution hunter search spans all areas. Mirrors Global Search % but for the retribution hunter role.', min: 0,  max: 100, step: 5,  unit: '%', defaultVal: 30},
+    {key: 'reloadVisitListCoolTime',   label: 'Search Cooldown',   desc: 'Cooldown in seconds between Blue Cipher Ring search cycles. Lower = searches for invaded hosts more frequently.', min: 1,  max: 120, step: 1, unit: 's', defaultVal: 20},
+    {key: 'reloadSearchCoopBlueMin',   label: 'Reload Min',        desc: 'Minimum delay (seconds) between co-op blue reload searches. Must be ≤ Reload Max.',                              min: 1,  max: 180, step: 1, unit: 's', defaultVal: 30},
+    {key: 'reloadSearchCoopBlueMax',   label: 'Reload Max',        desc: 'Maximum delay (seconds) for the reload interval. Actual delay is randomised between Min and Max each cycle.',     min: 1,  max: 300, step: 1, unit: 's', defaultVal: 180},
+    {key: 'maxVisitListCount',         label: 'Visit List Size',   desc: 'Number of potential invaded-host targets fetched per search cycle. Higher = more options evaluated.',            min: 1,  max: 50,  step: 1, unit: '',  defaultVal: 5},
+    {key: 'allAreaSearchRateCoopBlue', label: 'Global Search %',   desc: 'Percentage chance the blue search covers ALL map areas instead of only the local area. Higher = wider reach.',    min: 0,  max: 100, step: 5, unit: '%', defaultVal: 30},
 ];
 
-const HOST_SLIDERS: SliderDef[] = [
-    {key: 'visitorListMax',      label: 'Visitor List Max',   desc: "Maximum number of visitor (invader / Taunter's Tongue) targets fetched per search.",            min: 1, max: 100, step: 1,  unit: '',  defaultVal: 10},
-    {key: 'visitorTimeOutTime',  label: 'Visitor Timeout',    desc: 'Seconds the host system waits for a visitor connection before giving up and retrying.',          min: 1, max: 600, step: 5,  unit: 's', defaultVal: 60},
-    {key: 'visitorDownloadSpan', label: 'Visitor Download',   desc: 'Interval in seconds between visitor list downloads from the matchmaking server.',                min: 1, max: 600, step: 5,  unit: 's', defaultVal: 60},
+// --- Experimental sliders (collapsed by default, never touched by presets) ---
+
+const EXPERIMENTAL_BREAKIN: SliderDef[] = [
+    {key: 'breakInRequestAreaCount', label: 'Unknown break-in field at 0x7C', desc: 'Vanilla value is 5, but the field is labelled padding ("dummy8 pad[4]") in every external PARAMDEF and its runtime effect is UNCONFIRMED. SaveForge presets never change it. Leave at 5 unless you are deliberately testing it.', min: 1, max: 10, step: 1, unit: '', defaultVal: 5},
 ];
 
-const ROLE_META: Record<RoleTab, {label: string; icon: string; desc: string; titleClassName: string; banRisk?: boolean}> = {
-    invader:    {label: 'Invader', icon: '⚔',  desc: 'Invasion matchmaking speed',            titleClassName: 'text-red-800 dark:text-red-700'},
-    cooperator: {label: 'Summon',  icon: '☀',  desc: 'Summon sign visibility & refresh',       titleClassName: 'text-orange-800 dark:text-orange-600'},
-    blue:       {label: 'Hunter',  icon: '🛡',  desc: 'Blue Cipher Ring response time',         titleClassName: 'text-blue-800 dark:text-blue-700',   banRisk: true},
-    host:       {label: 'Host',    icon: '👑',  desc: "Taunter's Tongue / visitor system",      titleClassName: 'text-foreground',                     banRisk: true},
+const EXPERIMENTAL_BLUE: SliderDef[] = [
+    {key: 'maxCoopBlueSummonCount', label: 'Blue Search Parallelism', desc: 'Client-side blue search parallelism. The server caps the actual number of active blues, so raising this rarely helps and only inflates search load. Vanilla 2.', min: 1, max: 10, step: 1, unit: '', defaultVal: 2},
+    {key: 'allAreaSearchRateVsBlue', label: 'Retribution Global %',   desc: 'Global-search rate for the retribution blue role, which is likely legacy/inactive in Elden Ring. Vanilla 30.', min: 0, max: 100, step: 5, unit: '%', defaultVal: 30},
+];
+
+const EXPERIMENTAL_VISITOR: SliderDef[] = [
+    {key: 'visitorListMax',      label: 'Visitor List Max',  desc: 'Visitor (ring-search) target list size. Part of the visit/ring-search system. No confirmed Taunter’s Tongue speed control found — this does NOT confirm faster host-side invasions.', min: 1, max: 100, step: 1, unit: '',  defaultVal: 10},
+    {key: 'visitorTimeOutTime',  label: 'Visitor Timeout',   desc: 'Seconds the visitor system waits for a connection before retrying. Legacy ring-search field.',  min: 1, max: 600, step: 5, unit: 's', defaultVal: 60},
+    {key: 'visitorDownloadSpan', label: 'Visitor Download',  desc: 'Interval between visitor list downloads. Legacy ring-search field.',                              min: 1, max: 600, step: 5, unit: 's', defaultVal: 60},
+];
+
+// Group keys come from NETWORK_GROUP_KEYS (single source of truth in networkClamp.ts).
+// The `sliders` here are UI metadata only; their keys equal NETWORK_GROUP_KEYS[group].
+const GROUP_META: Record<GroupId, {label: string; icon: string; desc: string; titleClassName: string; sliders: SliderDef[]; presetKey: string; presetLabel: string}> = {
+    invader: {
+        label: 'Reds / Invader', icon: '⚔', desc: 'Red invasion matchmaking speed (Bloody / Recusant Finger)',
+        titleClassName: 'text-red-800 dark:text-red-700',
+        sliders: INVADER_SLIDERS, presetKey: 'faster-reds', presetLabel: 'Faster Reds',
+    },
+    cooperator: {
+        label: 'Summons & Pools', icon: '☀', desc: 'Summon sign refresh, buffer & upload — pools share this path; pools impact needs runtime testing',
+        titleClassName: 'text-orange-800 dark:text-orange-600',
+        sliders: COOPERATOR_SLIDERS, presetKey: 'faster-summons', presetLabel: 'Faster Summons',
+    },
+    blue: {
+        label: 'Blue / Hunter', icon: '🛡', desc: 'Blue Cipher Ring response time & reach',
+        titleClassName: 'text-blue-800 dark:text-blue-700',
+        sliders: BLUE_SLIDERS, presetKey: 'faster-blue', presetLabel: 'Faster Blue',
+    },
 };
 
-const ROLE_SLIDERS: Record<RoleTab, SliderDef[]> = {
-    invader: INVADER_SLIDERS,
-    cooperator: COOPERATOR_SLIDERS,
-    blue: BLUE_SLIDERS,
-    host: HOST_SLIDERS,
-};
+const GROUPS: GroupId[] = ['invader', 'cooperator', 'blue'];
 
-const ROLES: RoleTab[] = ['invader', 'cooperator', 'blue', 'host'];
-
-const VANILLA_VALUES: Record<string, number> = {
+// Vanilla baseline (from binary NetworkParam.param — source of truth).
+// reloadSignTotalCount=20 / reloadSignCellCount=10 (NOT the old doc value 32/8).
+const VANILLA_VALUES: NetDraft = {
     maxBreakInTargetListCount: 5,    breakInRequestIntervalTimeSec: 30, breakInRequestTimeOutSec: 20,  breakInRequestAreaCount: 5,
     reloadSignIntervalTime2: 60,     reloadSignTotalCount: 20,          reloadSignCellCount: 10,        updateSignIntervalTime: 30,
     singGetMax: 32,                  signDownloadSpan: 30,              signUpdateSpan: 60,
@@ -82,165 +100,43 @@ const VANILLA_VALUES: Record<string, number> = {
     visitorListMax: 10,              visitorTimeOutTime: 60,            visitorDownloadSpan: 60,
 };
 
-// Mirrors the sum of all backend role presets (fast-invasions + fast-summons + fast-blue + aggressive-host)
-const FASTER_VALUES: Record<string, number> = {
-    maxBreakInTargetListCount: 10,   breakInRequestIntervalTimeSec: 10, breakInRequestTimeOutSec: 5,   breakInRequestAreaCount: 10,
-    reloadSignIntervalTime2: 30,     reloadSignTotalCount: 25,          reloadSignCellCount: 15,        updateSignIntervalTime: 20,
-    singGetMax: 40,                  signDownloadSpan: 15,              signUpdateSpan: 30,
-    reloadVisitListCoolTime: 10,     maxCoopBlueSummonCount: 4,         maxVisitListCount: 10,
-    reloadSearchCoopBlueMin: 15,     reloadSearchCoopBlueMax: 30,       allAreaSearchRateCoopBlue: 50,  allAreaSearchRateVsBlue: 50,
-    visitorListMax: 15,              visitorTimeOutTime: 30,            visitorDownloadSpan: 30,
-};
-
-// Maximum aggressiveness — moderate ban risk, offline use recommended
-const AGGRESSIVE_VALUES: Record<string, number> = {
-    maxBreakInTargetListCount: 15,   breakInRequestIntervalTimeSec: 6,  breakInRequestTimeOutSec: 3,   breakInRequestAreaCount: 15,
-    reloadSignIntervalTime2: 10,     reloadSignTotalCount: 30,          reloadSignCellCount: 20,        updateSignIntervalTime: 10,
-    singGetMax: 50,                  signDownloadSpan: 5,               signUpdateSpan: 10,
-    reloadVisitListCoolTime: 5,      maxCoopBlueSummonCount: 8,         maxVisitListCount: 15,
-    reloadSearchCoopBlueMin: 5,      reloadSearchCoopBlueMax: 10,       allAreaSearchRateCoopBlue: 75,  allAreaSearchRateVsBlue: 75,
-    visitorListMax: 20,              visitorTimeOutTime: 10,            visitorDownloadSpan: 10,
-};
-
-interface PresetParamDesc {label: string; value: string; effect: string}
-type SectionPresetDescs = Record<GlobalPreset, PresetParamDesc[]>;
-
-const SECTION_PRESET_DESCS: Record<RoleTab, SectionPresetDescs> = {
-    invader: {
-        vanilla: [
-            {label: 'Max Targets',      value: '5',   effect: 'Small pool — standard wait times in populated areas, may struggle in niche zones.'},
-            {label: 'Request Interval', value: '30s', effect: '30s gap between retries — noticeable dead time between failed searches.'},
-            {label: 'Request Timeout',  value: '20s', effect: 'Slow failure recovery — a stuck connection hangs up to 20s before being abandoned.'},
-            {label: 'Area Count',       value: '5',   effect: 'Nearby zones only — targets in adjacent or remote areas are missed.'},
-        ],
-        faster: [
-            {label: 'Max Targets',      value: '10',  effect: 'Doubled pool — more candidates per cycle, faster lock in busy areas.'},
-            {label: 'Request Interval', value: '10s', effect: 'Retries 3× more often — failed searches recover within seconds.'},
-            {label: 'Request Timeout',  value: '5s',  effect: 'Failed connections cut at 5s — matchmaker moves to next candidate quickly.'},
-            {label: 'Area Count',       value: '10',  effect: 'Double coverage — better odds in moderately populated maps.'},
-        ],
-        aggressive: [
-            {label: 'Max Targets',      value: '15',  effect: 'Large pool — matchmaker rarely comes up empty; wait times drop sharply.'},
-            {label: 'Request Interval', value: '6s',  effect: 'Near-continuous retry — the game barely pauses between invasion attempts.'},
-            {label: 'Request Timeout',  value: '3s',  effect: 'Minimum practical timeout — bad connections dropped almost instantly.'},
-            {label: 'Area Count',       value: '15',  effect: 'Wide net — effective even in rarely-invaded areas with few active players.'},
-        ],
-    },
-    cooperator: {
-        vanilla: [
-            {label: 'Sign Refresh',    value: '60s', effect: 'Once per minute — freshly placed signs can be invisible for up to 60s.'},
-            {label: 'Signs Retrieved', value: '20',  effect: '20 signs per batch — busy areas appear sparsely signed.'},
-            {label: 'Signs Per Cell',  value: '10',  effect: '10 per cell — popular spots look empty even when packed.'},
-            {label: 'Sign Upload',     value: '30s', effect: 'Your sign re-uploaded every 30s — can disappear from host screens between cycles.'},
-            {label: 'Sign Get Max',    value: '32',  effect: 'Hard cap of 32 — sign pool truncated in very busy areas.'},
-            {label: 'Download Span',   value: '30s', effect: 'Full sign list re-downloaded every 30s — moderate staleness.'},
-            {label: 'Upload Span',     value: '60s', effect: 'Your sign data pushed to server once per minute — metadata can lag.'},
-        ],
-        faster: [
-            {label: 'Sign Refresh',    value: '30s', effect: 'Twice-per-minute refresh — sign pool stays reasonably current.'},
-            {label: 'Signs Retrieved', value: '25',  effect: 'Slightly larger batch — a few more signs visible in crowded zones.'},
-            {label: 'Signs Per Cell',  value: '15',  effect: '50% more per cell — summoning zones feel more populated.'},
-            {label: 'Sign Upload',     value: '20s', effect: 'More frequent re-uploads — your sign stays visible to hosts more consistently.'},
-            {label: 'Sign Get Max',    value: '40',  effect: 'Higher cap — reduces truncation in moderately busy areas.'},
-            {label: 'Download Span',   value: '15s', effect: 'Twice as frequent — sign pool stays more current.'},
-            {label: 'Upload Span',     value: '30s', effect: 'Twice as frequent — your sign data is more current on the server.'},
-        ],
-        aggressive: [
-            {label: 'Sign Refresh',    value: '10s', effect: 'Near real-time — new signs appear within seconds of placement.'},
-            {label: 'Signs Retrieved', value: '30',  effect: 'Largest batch — best visibility of available signs in high-traffic areas.'},
-            {label: 'Signs Per Cell',  value: '20',  effect: 'Double vanilla — cells reflect actual player density more accurately.'},
-            {label: 'Sign Upload',     value: '10s', effect: 'Very frequent re-uploads — your sign almost never goes stale on the server.'},
-            {label: 'Sign Get Max',    value: '50',  effect: 'High cap — virtually removes the bottleneck in all but the most crowded areas.'},
-            {label: 'Download Span',   value: '5s',  effect: 'Minimal latency between sign placement and your visibility of it.'},
-            {label: 'Upload Span',     value: '10s', effect: 'Near-constant sync — sign metadata always up to date.'},
-        ],
-    },
-    blue: {
-        vanilla: [
-            {label: 'Search Cooldown',      value: '20s',  effect: 'Searches for invaded hosts every 20s — moderate response time.'},
-            {label: 'Search Parallelism',   value: '2',    effect: 'Two simultaneous searches — limited simultaneous coverage.'},
-            {label: 'Visit List Size',      value: '5',    effect: 'Five candidates per cycle — narrow pool, can miss invasions in less-populated areas.'},
-            {label: 'Reload Min',           value: '30s',  effect: 'Minimum 30s between reload cycles — conservative, can feel slow.'},
-            {label: 'Reload Max',           value: '180s', effect: 'Can stretch to 3 minutes between reloads — occasional very long waits.'},
-            {label: 'Global Search %',      value: '30%',  effect: '30% of searches cover all areas — mostly local hunting.'},
-            {label: 'Global Retribution %', value: '30%',  effect: 'Retribution searches are mostly local — 30% global coverage.'},
-        ],
-        faster: [
-            {label: 'Search Cooldown',      value: '10s',  effect: 'Searches twice as often — faster dispatch to ongoing invasions.'},
-            {label: 'Search Parallelism',   value: '4',    effect: 'Four parallel searches — significantly better coverage across invasion zones.'},
-            {label: 'Visit List Size',      value: '10',   effect: 'Double the pool — better match quality and coverage.'},
-            {label: 'Reload Min',           value: '15s',  effect: 'Minimum halved — more frequent reloads during active periods.'},
-            {label: 'Reload Max',           value: '30s',  effect: 'Capped at 30s — wait times short and predictable.'},
-            {label: 'Global Search %',      value: '50%',  effect: 'Half of searches are global — better reach in under-populated regions.'},
-            {label: 'Global Retribution %', value: '50%',  effect: 'Half go global — wider retribution coverage.'},
-        ],
-        aggressive: [
-            {label: 'Search Cooldown',      value: '5s',   effect: 'Near-continuous monitoring — minimal delay between invasion start and dispatch.'},
-            {label: 'Search Parallelism',   value: '8',    effect: 'Eight simultaneous searches — high throughput for rapidly finding active invasions.'},
-            {label: 'Visit List Size',      value: '15',   effect: 'Larger pool — system has more options and is less likely to come up empty.'},
-            {label: 'Reload Min',           value: '5s',   effect: 'Very short minimum — rapid reloads in bursts of invasion activity.'},
-            {label: 'Reload Max',           value: '10s',  effect: 'Tight 5–10s range — virtually no long-wait outliers.'},
-            {label: 'Global Search %',      value: '75%',  effect: 'Most searches are global — hunting across the entire map, not just nearby zones.'},
-            {label: 'Global Retribution %', value: '75%',  effect: 'Most retribution searches are global — mirrors Global Search % coverage.'},
-        ],
-    },
-    host: {
-        vanilla: [
-            {label: 'Visitor List Max',  value: '10',  effect: 'Up to 10 invader candidates per cycle — adequate for normal play.'},
-            {label: 'Visitor Timeout',   value: '60s', effect: 'Waits 60s per connection attempt — slow to recover from bad connections.'},
-            {label: 'Visitor Download',  value: '60s', effect: 'Invader list refreshed every 60s — queue can be significantly stale.'},
-        ],
-        faster: [
-            {label: 'Visitor List Max',  value: '15',  effect: 'Larger pool — better odds of a quick match.'},
-            {label: 'Visitor Timeout',   value: '30s', effect: 'Half the wait — failed connections abandoned faster, freeing the system sooner.'},
-            {label: 'Visitor Download',  value: '30s', effect: 'Twice-per-minute refresh — available invader pool stays more current.'},
-        ],
-        aggressive: [
-            {label: 'Visitor List Max',  value: '20',  effect: 'Double vanilla — reduces the chance of an empty queue when demand is high.'},
-            {label: 'Visitor Timeout',   value: '10s', effect: 'Near-instant recovery — moves to next candidate within seconds of connection failure.'},
-            {label: 'Visitor Download',  value: '10s', effect: 'Frequent refreshes — near real-time view of who\'s trying to invade.'},
-        ],
-    },
-};
-
-const GLOBAL_PRESETS: Record<GlobalPreset, {label: string; desc: string; values: Record<string, number>; risk?: boolean}> = {
-    vanilla:    {label: 'Vanilla',    desc: 'Game defaults — no risk',            values: VANILLA_VALUES},
-    faster:     {label: 'Faster',     desc: 'Balanced speed-up, all roles',       values: FASTER_VALUES},
-    aggressive: {label: 'Aggressive', desc: 'Max speed — moderate ban risk',      values: AGGRESSIVE_VALUES, risk: true},
-};
-
-const PRESET_LIST: GlobalPreset[] = ['vanilla', 'faster', 'aggressive'];
-
-const ROLE_KEYS: Record<RoleTab, string[]> = {
-    invader:    ['maxBreakInTargetListCount', 'breakInRequestIntervalTimeSec', 'breakInRequestTimeOutSec', 'breakInRequestAreaCount'],
-    cooperator: ['reloadSignIntervalTime2', 'reloadSignTotalCount', 'reloadSignCellCount', 'updateSignIntervalTime', 'singGetMax', 'signDownloadSpan', 'signUpdateSpan'],
-    blue:       ['reloadVisitListCoolTime', 'maxCoopBlueSummonCount', 'maxVisitListCount', 'reloadSearchCoopBlueMin', 'reloadSearchCoopBlueMax', 'allAreaSearchRateCoopBlue', 'allAreaSearchRateVsBlue'],
-    host:       ['visitorListMax', 'visitorTimeOutTime', 'visitorDownloadSpan'],
-};
-
-function resolveRolePreset(role: RoleTab, draft: Record<string, number>): GlobalPreset | null {
-    const keys = ROLE_KEYS[role];
-    for (const id of PRESET_LIST) {
-        if (keys.every(k => draft[k] === GLOBAL_PRESETS[id].values[k])) return id;
-    }
-    return null;
+function paramsToDict(p: core.NetworkParamValues): NetDraft {
+    return {
+        maxBreakInTargetListCount:     p.maxBreakInTargetListCount,
+        breakInRequestIntervalTimeSec: p.breakInRequestIntervalTimeSec,
+        breakInRequestTimeOutSec:      p.breakInRequestTimeOutSec,
+        breakInRequestAreaCount:       p.breakInRequestAreaCount,
+        reloadSignIntervalTime2:       p.reloadSignIntervalTime2,
+        reloadSignTotalCount:          p.reloadSignTotalCount,
+        reloadSignCellCount:           p.reloadSignCellCount,
+        updateSignIntervalTime:        p.updateSignIntervalTime,
+        singGetMax:                    p.singGetMax,
+        signDownloadSpan:              p.signDownloadSpan,
+        signUpdateSpan:                p.signUpdateSpan,
+        reloadVisitListCoolTime:       p.reloadVisitListCoolTime,
+        maxCoopBlueSummonCount:        p.maxCoopBlueSummonCount,
+        maxVisitListCount:             p.maxVisitListCount,
+        reloadSearchCoopBlueMin:       p.reloadSearchCoopBlueMin,
+        reloadSearchCoopBlueMax:       p.reloadSearchCoopBlueMax,
+        allAreaSearchRateCoopBlue:     p.allAreaSearchRateCoopBlue,
+        allAreaSearchRateVsBlue:       p.allAreaSearchRateVsBlue,
+        visitorListMax:                p.visitorListMax,
+        visitorTimeOutTime:            p.visitorTimeOutTime,
+        visitorDownloadSpan:           p.visitorDownloadSpan,
+    };
 }
 
-function resolveGlobalPreset(draft: Record<string, number>): GlobalPreset | null {
-    for (const id of PRESET_LIST) {
-        if (Object.entries(GLOBAL_PRESETS[id].values).every(([k, v]) => draft[k] === v)) return id;
-    }
-    return null;
+function groupMatches(keys: readonly string[], draft: NetDraft, source: NetDraft): boolean {
+    return keys.every(k => draft[k] === source[k]);
 }
 
 export function NetworkTab({platform}: NetworkTabProps) {
     const [params, setParams] = useState<core.NetworkParamValues | null>(null);
-    const [draft, setDraft] = useState<Record<string, number>>({});
+    const [draft, setDraft] = useState<NetDraft>({});
+    const [presets, setPresets] = useState<Record<string, NetDraft>>({});
     const [dirty, setDirty] = useState(false);
     const [applying, setApplying] = useState(false);
     const [descModal, setDescModal] = useState<{label: string; desc: string} | null>(null);
-    const [presetInfoRole, setPresetInfoRole] = useState<RoleTab | null>(null);
-    const [presetInfoPreset, setPresetInfoPreset] = useState<GlobalPreset>('vanilla');
 
     const load = useCallback(() => {
         if (!platform) { setParams(null); return; }
@@ -249,15 +145,48 @@ export function NetworkTab({platform}: NetworkTabProps) {
             setDraft(paramsToDict(p));
             setDirty(false);
         }).catch(() => setParams(null));
+
+        // Fetch functional presets from the backend — single source of truth, no drift.
+        Promise.all([
+            GetNetworkPreset('faster-reds'),
+            GetNetworkPreset('faster-summons'),
+            GetNetworkPreset('faster-blue'),
+            GetNetworkPreset('vanilla'),
+        ]).then(([reds, summons, blue, vanilla]) => {
+            setPresets({
+                'faster-reds': paramsToDict(reds),
+                'faster-summons': paramsToDict(summons),
+                'faster-blue': paramsToDict(blue),
+                'vanilla': paramsToDict(vanilla),
+            });
+        }).catch(() => setPresets({}));
     }, [platform]);
 
     useEffect(() => { load(); }, [load]);
 
+    const updateDraft = (key: string, value: number) => {
+        setDraft(prev => clampNetworkDraft({...prev, [key]: value}));
+        setDirty(true);
+    };
+
+    // Applies ONLY the group's canonical fields (NETWORK_GROUP_KEYS) — modular,
+    // never touches other groups or Experimental fields. Used by Faster + Vanilla.
+    const applyGroup = (group: GroupId, which: 'faster' | 'vanilla') => {
+        const meta = GROUP_META[group];
+        const source = which === 'faster' ? presets[meta.presetKey] : (presets['vanilla'] ?? VANILLA_VALUES);
+        if (!source) return;
+        setDraft(prev => applyGroupPreset(prev, NETWORK_GROUP_KEYS[group], source));
+        setDirty(true);
+    };
+
     const handleApply = async () => {
+        const clamped = clampNetworkDraft(draft);
+        const err = networkDraftError(clamped);
+        if (err) { toast.error(err); return; }
         setApplying(true);
         try {
-            await SetNetworkParams(new core.NetworkParamValues(draft));
-            toast.success('Network params applied');
+            await SetNetworkParams(new core.NetworkParamValues(clamped));
+            toast.success('Network params applied. Load character → Exit to menu → Load again to activate.');
             load();
         } catch (e) { toast.error(String(e)); }
         finally { setApplying(false); }
@@ -273,60 +202,6 @@ export function NetworkTab({platform}: NetworkTabProps) {
         finally { setApplying(false); }
     };
 
-    const applyGlobalPreset = (preset: GlobalPreset) => {
-        setDraft({...GLOBAL_PRESETS[preset].values});
-        setDirty(true);
-    };
-
-    const applyRolePreset = (role: RoleTab, preset: GlobalPreset) => {
-        const values = GLOBAL_PRESETS[preset].values;
-        setDraft(prev => {
-            const next = {...prev};
-            for (const k of ROLE_KEYS[role]) next[k] = values[k];
-            return next;
-        });
-        setDirty(true);
-    };
-
-    const updateDraft = (key: string, value: number) => {
-        setDraft(prev => ({...prev, [key]: value}));
-        setDirty(true);
-    };
-
-    const globalPreset = resolveGlobalPreset(draft);
-
-    const makePresetButtons = (role: RoleTab) => {
-        const rolePreset = resolveRolePreset(role, draft);
-        return (
-        <div className="flex items-center gap-1">
-            {PRESET_LIST.map(id => {
-                const p = GLOBAL_PRESETS[id];
-                const active = rolePreset === id;
-                return (
-                    <button key={id} onClick={e => { e.stopPropagation(); applyRolePreset(role, id); }} title={p.desc}
-                        className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition-all border ${
-                            active
-                                ? id === 'aggressive'
-                                    ? 'bg-red-500/20 border-red-500/60 text-red-400'
-                                    : 'bg-primary/20 border-primary/60 text-primary'
-                                : id === 'aggressive'
-                                    ? 'border-border/50 text-muted-foreground/50 hover:border-red-500/40 hover:text-red-400'
-                                    : 'border-border/50 text-muted-foreground/50 hover:border-primary/40 hover:text-foreground'
-                        }`}>
-                        {p.label}
-                    </button>
-                );
-            })}
-            <button
-                onClick={e => { e.stopPropagation(); setPresetInfoRole(role); setPresetInfoPreset('vanilla'); }}
-                className="w-4 h-4 rounded-full border border-foreground/30 text-foreground/50 hover:border-primary hover:text-primary transition-all text-[8px] font-black flex items-center justify-center shrink-0 leading-none ml-0.5"
-                title="Preset values explained">
-                ⓘ
-            </button>
-        </div>
-        );
-    };
-
     if (!platform) {
         return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">Load a save file first</div>;
     }
@@ -334,60 +209,52 @@ export function NetworkTab({platform}: NetworkTabProps) {
         return <div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading regulation data...</div>;
     }
 
+    const renderSlider = (s: SliderDef) => (
+        <div key={s.key} className="space-y-1 p-2 rounded-lg bg-card border border-border/50">
+            <div className="flex items-center justify-between gap-1">
+                <div className="flex items-center gap-1 min-w-0">
+                    <label className="text-[10px] font-bold text-foreground truncate">{s.label}</label>
+                    <button
+                        onClick={() => setDescModal({label: s.label, desc: s.desc})}
+                        className="w-3.5 h-3.5 rounded-full border border-foreground/40 text-foreground/70 hover:border-primary hover:text-primary transition-all text-[8px] font-black flex items-center justify-center shrink-0 leading-none">
+                        ?
+                    </button>
+                </div>
+                <span className="text-[10px] font-mono font-black text-primary shrink-0">
+                    {draft[s.key] ?? s.defaultVal}{s.unit}
+                </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-foreground shrink-0 tabular-nums">{s.min}{s.unit}</span>
+                <input type="range" min={s.min} max={s.max} step={s.step}
+                    value={draft[s.key] ?? s.defaultVal}
+                    onChange={e => updateDraft(s.key, parseInt(e.target.value))}
+                    className="flex-1 h-1.5 rounded-full appearance-none bg-border accent-primary cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-sm" />
+                <span className="text-[10px] text-foreground shrink-0 tabular-nums">{s.max}{s.unit}</span>
+            </div>
+        </div>
+    );
+
+    const makeGroupButtons = (group: GroupId) => {
+        const meta = GROUP_META[group];
+        const fasterSrc = presets[meta.presetKey];
+        const vanillaSrc = presets['vanilla'] ?? VANILLA_VALUES;
+        const isVanilla = groupMatches(NETWORK_GROUP_KEYS[group], draft, vanillaSrc);
+        const isFaster = fasterSrc ? groupMatches(NETWORK_GROUP_KEYS[group], draft, fasterSrc) : false;
+        const btn = (active: boolean) =>
+            `px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition-all border ${
+                active ? 'bg-primary/20 border-primary/60 text-primary'
+                       : 'border-border/50 text-muted-foreground/50 hover:border-primary/40 hover:text-foreground'}`;
+        return (
+            <div className="flex items-center gap-1">
+                <button onClick={e => { e.stopPropagation(); applyGroup(group, 'vanilla'); }} className={btn(isVanilla)}>Vanilla</button>
+                <button onClick={e => { e.stopPropagation(); applyGroup(group, 'faster'); }} className={btn(isFaster)}>{meta.presetLabel}</button>
+            </div>
+        );
+    };
+
     return (
         <>
-            {/* Preset info modal — per section */}
-            {presetInfoRole && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-150"
-                    onClick={() => setPresetInfoRole(null)}>
-                    <div className="bg-background border border-border rounded-xl p-5 max-w-sm w-full shadow-2xl mx-4 animate-in zoom-in-95 duration-150 flex flex-col max-h-[80vh]"
-                        onClick={e => e.stopPropagation()}>
-                        {/* Header */}
-                        <div className="flex items-start justify-between gap-3 mb-3 shrink-0">
-                            <div>
-                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                                    {ROLE_META[presetInfoRole].icon} {ROLE_META[presetInfoRole].label}
-                                </p>
-                                <h3 className="text-[11px] font-black uppercase tracking-widest text-foreground mt-0.5">Preset Values Explained</h3>
-                            </div>
-                            <button onClick={() => setPresetInfoRole(null)}
-                                className="text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5">
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </div>
-                        {/* Preset tabs */}
-                        <div className="flex gap-1 mb-3 shrink-0">
-                            {PRESET_LIST.map(pid => (
-                                <button key={pid} onClick={() => setPresetInfoPreset(pid)}
-                                    className={`px-3 py-1 rounded text-[9px] font-black uppercase tracking-wider transition-all border ${
-                                        presetInfoPreset === pid
-                                            ? pid === 'aggressive'
-                                                ? 'bg-red-500/20 border-red-500/60 text-red-400'
-                                                : 'bg-primary/20 border-primary/60 text-primary'
-                                            : 'border-border/50 text-muted-foreground/50 hover:text-foreground hover:border-border'
-                                    }`}>
-                                    {GLOBAL_PRESETS[pid].label}
-                                </button>
-                            ))}
-                        </div>
-                        {/* Param list */}
-                        <div className="overflow-y-auto custom-scrollbar space-y-2 pr-1">
-                            {SECTION_PRESET_DESCS[presetInfoRole][presetInfoPreset].map(p => (
-                                <div key={p.label} className="rounded-lg bg-muted/10 border border-border/40 px-3 py-2">
-                                    <div className="flex items-center justify-between gap-2 mb-0.5">
-                                        <span className="text-[10px] font-black text-foreground">{p.label}</span>
-                                        <span className="text-[10px] font-mono font-black text-primary shrink-0">{p.value}</span>
-                                    </div>
-                                    <p className="text-[10px] text-muted-foreground leading-relaxed">{p.effect}</p>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {/* Description modal */}
             {descModal && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-150"
@@ -409,85 +276,61 @@ export function NetworkTab({platform}: NetworkTabProps) {
             )}
 
             <div className="space-y-2 animate-in fade-in duration-200">
-                {/* Global preset bar */}
-                <div className="flex items-center gap-2 pb-1 border-b border-border/40">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground shrink-0">All roles:</span>
-                    <div className="flex items-center gap-1">
-                        {PRESET_LIST.map(id => {
-                            const p = GLOBAL_PRESETS[id];
-                            const active = globalPreset === id;
-                            return (
-                                <button key={id} onClick={() => applyGlobalPreset(id)} title={p.desc}
-                                    className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition-all border ${
-                                        active
-                                            ? id === 'aggressive'
-                                                ? 'bg-red-500/20 border-red-500/60 text-red-400'
-                                                : 'bg-primary/20 border-primary/60 text-primary'
-                                            : id === 'aggressive'
-                                                ? 'border-border/50 text-muted-foreground/50 hover:border-red-500/40 hover:text-red-400'
-                                                : 'border-border/50 text-muted-foreground/50 hover:border-primary/40 hover:text-foreground'
-                                    }`}>
-                                    {p.label}
-                                </button>
-                            );
-                        })}
-                    </div>
-                </div>
-
-                {ROLES.map(role => {
-                    const meta = ROLE_META[role];
-                    const sliders = ROLE_SLIDERS[role];
-
+                {/* Default-visible functional groups */}
+                {GROUPS.map(group => {
+                    const meta = GROUP_META[group];
                     return (
                         <AccordionSection
-                            key={role}
-                            id={`network-${role}`}
+                            key={group}
+                            id={`network-${group}`}
                             title={`${meta.icon} ${meta.label}`}
                             titleClassName={meta.titleClassName}
                             summary={meta.desc}
-                            actions={meta.banRisk ? (
-                                <span className="text-[9px] font-black uppercase tracking-widest text-orange-400 border border-orange-400/40 bg-orange-400/10 px-1.5 py-0.5 rounded">
-                                    Moderate Risk
-                                </span>
-                            ) : undefined}
-                            headerRight={makePresetButtons(role)}
+                            headerRight={makeGroupButtons(group)}
                         >
-                            {resolveRolePreset(role, draft) === 'aggressive' && meta.banRisk && (
-                                <p className="text-[9px] font-bold text-orange-400 mb-2">
-                                    ⚠ Aggressive preset active — moderate ban risk. Recommended for offline use only.
-                                </p>
-                            )}
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-1">
-                                {sliders.map(s => (
-                                    <div key={s.key} className="space-y-1 p-2 rounded-lg bg-card border border-border/50">
-                                        <div className="flex items-center justify-between gap-1">
-                                            <div className="flex items-center gap-1 min-w-0">
-                                                <label className="text-[10px] font-bold text-foreground truncate">{s.label}</label>
-                                                <button
-                                                    onClick={() => setDescModal({label: s.label, desc: s.desc})}
-                                                    className="w-3.5 h-3.5 rounded-full border border-foreground/40 text-foreground/70 hover:border-primary hover:text-primary transition-all text-[8px] font-black flex items-center justify-center shrink-0 leading-none">
-                                                    ?
-                                                </button>
-                                            </div>
-                                            <span className="text-[10px] font-mono font-black text-primary shrink-0">
-                                                {draft[s.key] ?? s.defaultVal}{s.unit}
-                                            </span>
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                            <span className="text-[10px] text-foreground shrink-0 tabular-nums">{s.min}{s.unit}</span>
-                                            <input type="range" min={s.min} max={s.max} step={s.step}
-                                                value={draft[s.key] ?? s.defaultVal}
-                                                onChange={e => updateDraft(s.key, parseInt(e.target.value))}
-                                                className="flex-1 h-1.5 rounded-full appearance-none bg-border accent-primary cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-sm" />
-                                            <span className="text-[10px] text-foreground shrink-0 tabular-nums">{s.max}{s.unit}</span>
-                                        </div>
-                                    </div>
-                                ))}
+                                {meta.sliders.map(renderSlider)}
                             </div>
                         </AccordionSection>
                     );
                 })}
 
+                {/* Experimental — collapsed by default */}
+                <AccordionSection
+                    id="network-experimental"
+                    title="⚗ Experimental"
+                    titleClassName="text-amber-700 dark:text-amber-500"
+                    summary="Unconfirmed / legacy fields — not used by presets"
+                    defaultOpen={false}
+                >
+                    <div className="space-y-3 pt-1">
+                        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/8 border border-amber-500/20">
+                            <span className="text-amber-500 text-[11px] flex-shrink-0 mt-0.5">⚠</span>
+                            <p className="text-[10px] text-amber-300/90 leading-relaxed">
+                                These fields are not confirmed by runtime testing. They may change geographic reach or
+                                matchmaking behaviour in unknown ways. None of the three presets touch them.
+                            </p>
+                        </div>
+
+                        <div>
+                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-2">Unknown break-in field</p>
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{EXPERIMENTAL_BREAKIN.map(renderSlider)}</div>
+                        </div>
+
+                        <div>
+                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-2">Blue extras (legacy / low value)</p>
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{EXPERIMENTAL_BLUE.map(renderSlider)}</div>
+                        </div>
+
+                        <div>
+                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-2">Visitor / legacy ring-search fields</p>
+                            <p className="text-[9px] text-muted-foreground/80 mb-2">No confirmed Taunter&rsquo;s Tongue speed control found — these do not confirm faster host-side invasions.</p>
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{EXPERIMENTAL_VISITOR.map(renderSlider)}</div>
+                        </div>
+                    </div>
+                </AccordionSection>
+
+                {/* Apply / Reset */}
                 <div className="flex items-center gap-2 pt-1 border-t border-border/50">
                     <button onClick={handleApply} disabled={applying || !dirty}
                         className="px-4 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-primary text-primary-foreground shadow-sm hover:brightness-110 active:scale-95 disabled:opacity-50 disabled:pointer-events-none transition-all">
@@ -502,15 +345,13 @@ export function NetworkTab({platform}: NetworkTabProps) {
                     )}
                 </div>
 
-                {/* How-to note */}
+                {/* How-to / disclaimer */}
                 <div className="space-y-2 pt-1">
-                    {/* Disclaimer */}
                     <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-3 space-y-1">
                         <p className="text-sm font-black uppercase tracking-[0.15em] text-red-500">⚠ Warning — Read before use</p>
                         <p className="text-sm text-red-500/90 leading-relaxed">
-                            These changes may result in a ban. This feature is currently in testing. Use with caution — preferably not on your main account.
-                            Remember: any manual modification to a save file carries a ban risk.
-                            I take no responsibility for any account being banned as a result of using these settings.
+                            These changes may result in a ban. This feature is in testing. Use with caution — preferably not on your main account.
+                            Any manual modification to a save file carries a ban risk. I take no responsibility for any account banned as a result of using these settings.
                         </p>
                     </div>
 
@@ -538,30 +379,4 @@ export function NetworkTab({platform}: NetworkTabProps) {
             </div>
         </>
     );
-}
-
-function paramsToDict(p: core.NetworkParamValues): Record<string, number> {
-    return {
-        maxBreakInTargetListCount:     p.maxBreakInTargetListCount,
-        breakInRequestIntervalTimeSec: p.breakInRequestIntervalTimeSec,
-        breakInRequestTimeOutSec:      p.breakInRequestTimeOutSec,
-        breakInRequestAreaCount:       p.breakInRequestAreaCount,
-        reloadSignIntervalTime2:       p.reloadSignIntervalTime2,
-        reloadSignTotalCount:          p.reloadSignTotalCount,
-        reloadSignCellCount:           p.reloadSignCellCount,
-        updateSignIntervalTime:        p.updateSignIntervalTime,
-        singGetMax:                    p.singGetMax,
-        signDownloadSpan:              p.signDownloadSpan,
-        signUpdateSpan:                p.signUpdateSpan,
-        reloadVisitListCoolTime:       p.reloadVisitListCoolTime,
-        maxCoopBlueSummonCount:        p.maxCoopBlueSummonCount,
-        maxVisitListCount:             p.maxVisitListCount,
-        reloadSearchCoopBlueMin:       p.reloadSearchCoopBlueMin,
-        reloadSearchCoopBlueMax:       p.reloadSearchCoopBlueMax,
-        allAreaSearchRateCoopBlue:     p.allAreaSearchRateCoopBlue,
-        allAreaSearchRateVsBlue:       p.allAreaSearchRateVsBlue,
-        visitorListMax:                p.visitorListMax,
-        visitorTimeOutTime:            p.visitorTimeOutTime,
-        visitorDownloadSpan:           p.visitorDownloadSpan,
-    };
 }

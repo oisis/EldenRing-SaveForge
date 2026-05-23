@@ -155,6 +155,56 @@ func NetworkParamLightInvasions() NetworkParamValues {
 	return d
 }
 
+// --- Functional presets (v0.9 unified system) ---
+//
+// These three presets are the single source of truth for the active Network UI
+// (frontend fetches them via GetNetworkPreset). Each preset touches only its own
+// role group; the unconfirmed 0x7C field (BreakInRequestAreaCount) is always kept
+// at vanilla 5. They replace the removed global "Aggressive" profile.
+
+// NetworkParamFasterReds returns the "Faster Reds" preset (Invader role).
+// Faster red invasion search without the regressions of the removed Aggressive
+// preset: the request timeout stays generous (15s) so near-and-far matchmaking
+// can complete, and the unconfirmed 0x7C field stays at vanilla 5.
+func NetworkParamFasterReds() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.MaxBreakInTargetListCount = 8
+	d.BreakInRequestIntervalTimeSec = 12.0
+	d.BreakInRequestTimeOutSec = 15.0
+	// BreakInRequestAreaCount (0x7C) intentionally left at vanilla 5 — semantics unconfirmed.
+	return d
+}
+
+// NetworkParamFasterSummons returns the "Faster Summons & Pools" preset (Cooperator role).
+// Faster sign download/upload and a larger, internally consistent sign buffer
+// (cellCount <= totalCount <= singGetMax). Spatial cellGroup ranges are left at
+// vanilla — they are an Experimental option, not part of this preset.
+func NetworkParamFasterSummons() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.ReloadSignIntervalTime2 = 20.0
+	d.ReloadSignTotalCount = 40
+	d.ReloadSignCellCount = 20
+	d.UpdateSignIntervalTime = 15.0
+	d.SingGetMax = 64
+	d.SignDownloadSpan = 15.0
+	d.SignUpdateSpan = 20.0
+	return d
+}
+
+// NetworkParamFasterBlue returns the "Faster Blue / Hunter" preset (Blue role).
+// Faster and wider co-op blue search. MaxCoopBlueSummonCount stays at vanilla 2
+// (the server caps actual joins; raising it only inflates client-side search).
+// AllAreaSearchRateVsBlue stays at vanilla 30 (retribution blue likely legacy in ER).
+func NetworkParamFasterBlue() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.ReloadVisitListCoolTime = 8.0
+	d.ReloadSearchCoopBlueMin = 10.0
+	d.ReloadSearchCoopBlueMax = 40.0
+	d.MaxVisitListCount = 10
+	d.AllAreaSearchRateCoopBlue = 60
+	return d
+}
+
 // NetworkParamFastSummons returns the "Fast Summons" preset (Cooperator role). Experimental.
 func NetworkParamFastSummons() NetworkParamValues {
 	d := NetworkParamDefaults()
@@ -304,6 +354,17 @@ func ValidateNetworkParams(p NetworkParamValues) error {
 	}
 	if p.VisitorDownloadSpan < 1.0 || p.VisitorDownloadSpan > 600.0 {
 		return fmt.Errorf("visitorDownloadSpan must be 1-600, got %.0f", p.VisitorDownloadSpan)
+	}
+
+	// Cross-field invariants (defensive — the UI also clamps these).
+	if p.ReloadSignCellCount > p.ReloadSignTotalCount {
+		return fmt.Errorf("reloadSignCellCount (%d) must not exceed reloadSignTotalCount (%d)", p.ReloadSignCellCount, p.ReloadSignTotalCount)
+	}
+	if p.ReloadSignTotalCount > p.SingGetMax {
+		return fmt.Errorf("reloadSignTotalCount (%d) must not exceed singGetMax (%d)", p.ReloadSignTotalCount, p.SingGetMax)
+	}
+	if p.ReloadSearchCoopBlueMin > p.ReloadSearchCoopBlueMax {
+		return fmt.Errorf("reloadSearchCoopBlueMin (%.0f) must not exceed reloadSearchCoopBlueMax (%.0f)", p.ReloadSearchCoopBlueMin, p.ReloadSearchCoopBlueMax)
 	}
 	return nil
 }

@@ -260,6 +260,131 @@ func TestPatchNetworkParams_Validation(t *testing.T) {
 	}
 }
 
+// --- functional preset tests (v0.9 unified system) ---
+
+func TestNetworkParamDefaults_VanillaValues(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	if d.ReloadSignTotalCount != 20 {
+		t.Errorf("reloadSignTotalCount = %d, want 20 (binary is source of truth, not the old 32)", d.ReloadSignTotalCount)
+	}
+	if d.ReloadSignCellCount != 10 {
+		t.Errorf("reloadSignCellCount = %d, want 10 (binary is source of truth, not the old 8)", d.ReloadSignCellCount)
+	}
+	// Unknown 0x7C field — confirmed vanilla value, unconfirmed semantics. Must stay 5.
+	if d.BreakInRequestAreaCount != 5 {
+		t.Errorf("breakInRequestAreaCount (0x7C) = %d, want 5", d.BreakInRequestAreaCount)
+	}
+}
+
+func TestNetworkParamFasterReds(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	p := core.NetworkParamFasterReds()
+
+	if p.MaxBreakInTargetListCount != 8 {
+		t.Errorf("maxBreakInTargetListCount = %d, want 8", p.MaxBreakInTargetListCount)
+	}
+	if !floatEq(p.BreakInRequestIntervalTimeSec, 12.0) {
+		t.Errorf("breakInRequestIntervalTimeSec = %f, want 12", p.BreakInRequestIntervalTimeSec)
+	}
+	if !floatEq(p.BreakInRequestTimeOutSec, 15.0) {
+		t.Errorf("breakInRequestTimeOutSec = %f, want 15", p.BreakInRequestTimeOutSec)
+	}
+	// 0x7C must stay vanilla 5.
+	if p.BreakInRequestAreaCount != 5 {
+		t.Errorf("breakInRequestAreaCount = %d, want 5 (must never be raised by a preset)", p.BreakInRequestAreaCount)
+	}
+	// Other groups untouched.
+	if p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 || p.SingGetMax != d.SingGetMax {
+		t.Errorf("Faster Reds modified cooperator fields")
+	}
+	if p.ReloadVisitListCoolTime != d.ReloadVisitListCoolTime || p.AllAreaSearchRateCoopBlue != d.AllAreaSearchRateCoopBlue {
+		t.Errorf("Faster Reds modified blue fields")
+	}
+	if err := core.ValidateNetworkParams(p); err != nil {
+		t.Errorf("Faster Reds failed validation: %v", err)
+	}
+}
+
+func TestNetworkParamFasterSummons(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	p := core.NetworkParamFasterSummons()
+
+	if !floatEq(p.ReloadSignIntervalTime2, 20.0) || p.ReloadSignTotalCount != 40 ||
+		p.ReloadSignCellCount != 20 || !floatEq(p.UpdateSignIntervalTime, 15.0) ||
+		p.SingGetMax != 64 || !floatEq(p.SignDownloadSpan, 15.0) || !floatEq(p.SignUpdateSpan, 20.0) {
+		t.Errorf("Faster Summons values mismatch: %+v", p)
+	}
+	// Invariant cell <= total <= getMax.
+	if !(p.ReloadSignCellCount <= p.ReloadSignTotalCount && p.ReloadSignTotalCount <= p.SingGetMax) {
+		t.Errorf("Faster Summons violates cell<=total<=getMax: %d/%d/%d",
+			p.ReloadSignCellCount, p.ReloadSignTotalCount, p.SingGetMax)
+	}
+	// Invasion + blue groups untouched.
+	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount || p.BreakInRequestAreaCount != d.BreakInRequestAreaCount {
+		t.Errorf("Faster Summons modified invasion fields")
+	}
+	if p.ReloadVisitListCoolTime != d.ReloadVisitListCoolTime {
+		t.Errorf("Faster Summons modified blue fields")
+	}
+	if err := core.ValidateNetworkParams(p); err != nil {
+		t.Errorf("Faster Summons failed validation: %v", err)
+	}
+}
+
+func TestNetworkParamFasterBlue(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	p := core.NetworkParamFasterBlue()
+
+	if !floatEq(p.ReloadVisitListCoolTime, 8.0) || !floatEq(p.ReloadSearchCoopBlueMin, 10.0) ||
+		!floatEq(p.ReloadSearchCoopBlueMax, 40.0) || p.MaxVisitListCount != 10 ||
+		p.AllAreaSearchRateCoopBlue != 60 {
+		t.Errorf("Faster Blue values mismatch: %+v", p)
+	}
+	// Must NOT inflate active-blue cap or retribution rate.
+	if p.MaxCoopBlueSummonCount != 2 {
+		t.Errorf("maxCoopBlueSummonCount = %d, want 2 (must stay vanilla)", p.MaxCoopBlueSummonCount)
+	}
+	if p.AllAreaSearchRateVsBlue != 30 {
+		t.Errorf("allAreaSearchRateVsBlue = %d, want 30 (must stay vanilla)", p.AllAreaSearchRateVsBlue)
+	}
+	// Invasion + signs groups untouched.
+	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount {
+		t.Errorf("Faster Blue modified invasion fields")
+	}
+	if p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 || p.SingGetMax != d.SingGetMax {
+		t.Errorf("Faster Blue modified signs fields")
+	}
+	if p.ReloadSearchCoopBlueMin > p.ReloadSearchCoopBlueMax {
+		t.Errorf("Faster Blue violates min<=max")
+	}
+	if err := core.ValidateNetworkParams(p); err != nil {
+		t.Errorf("Faster Blue failed validation: %v", err)
+	}
+}
+
+func TestNetworkParamInvariants(t *testing.T) {
+	mutate := func(f func(*core.NetworkParamValues)) core.NetworkParamValues {
+		cp := core.NetworkParamDefaults()
+		f(&cp)
+		return cp
+	}
+	tests := []struct {
+		name  string
+		patch core.NetworkParamValues
+	}{
+		{"cellCount > totalCount", mutate(func(p *core.NetworkParamValues) { p.ReloadSignCellCount = 25; p.ReloadSignTotalCount = 20 })},
+		{"totalCount > singGetMax", mutate(func(p *core.NetworkParamValues) { p.ReloadSignTotalCount = 40; p.SingGetMax = 32 })},
+		{"blue min > max", mutate(func(p *core.NetworkParamValues) { p.ReloadSearchCoopBlueMin = 100; p.ReloadSearchCoopBlueMax = 40 })},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := core.ValidateNetworkParams(tc.patch); err == nil {
+				t.Errorf("expected invariant validation error for %s", tc.name)
+			}
+		})
+	}
+}
+
 // --- helpers ---
 
 func loadPCSave(t *testing.T) *core.SaveFile {

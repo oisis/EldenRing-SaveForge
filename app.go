@@ -1168,6 +1168,16 @@ func (a *App) ResetNetworkParams() error {
 func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 	var p core.NetworkParamValues
 	switch name {
+	// Functional presets (active unified UI — single source of truth).
+	case "faster-reds":
+		p = core.NetworkParamFasterReds()
+	case "faster-summons":
+		p = core.NetworkParamFasterSummons()
+	case "faster-blue":
+		p = core.NetworkParamFasterBlue()
+	case "vanilla":
+		p = core.NetworkParamDefaults()
+	// Legacy preset keys (consumed only by the orphaned NetworkSpeedPanel).
 	case "fast-invasions":
 		p = core.NetworkParamFastInvasions()
 	case "light-invasions":
