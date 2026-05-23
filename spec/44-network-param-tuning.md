@@ -57,6 +57,9 @@ Controls invasion matchmaking. **Already implemented in v0.8.0.**
 | `maxBreakInTargetListCount` | u32 | 0x70 | 5 | Invasion target candidates per search |
 | `breakInRequestIntervalTimeSec` | f32 | 0x74 | 30.0 | Delay between matchmaking retry requests |
 | `breakInRequestTimeOutSec` | f32 | 0x78 | 20.0 | Timeout per matchmaking request |
+| `breakInRequestAreaCount` (unconfirmed) | u32 (code) / u8 (defs) | 0x7C | 5 | **Semantics UNCONFIRMED.** Labelled `dummy8 pad[4]` ("予約"/Reserved) in the local PARAMDEF and `u8 unknown_0x7c` in the community TGA def — no external source names it `breakInRequestAreaCount`; that name exists only in SaveForge. Vanilla binary value is `5` (verified). SaveForge presets always keep it at `5`; it is exposed only as an Experimental field in the UI. Do not treat it as a confirmed "area search" knob. |
+
+> **Source of truth note**: vanilla values above come from the binary `NetworkParam.param` (Row 0). The exported `csv/NetworkParam.csv` shows `reloadSignTotalCount=32` / `reloadSignCellCount=8` for the sign group, which is **wrong** — the binary (and `NetworkParamDefaults()`) holds `20` / `10`. The binary is authoritative. Note also that invasions have **no** `allAreaSearchRate_*` field (those exist only for CoopBlue/VsBlue/BellGuard), so there is no confirmed local-vs-worldwide knob for break-in search.
 
 ### Group 3: Visit / Blue Phantom System (NET_VISIT_PARAM)
 
@@ -144,41 +147,54 @@ Controls the Taunter's Tongue / summoning pool visitor mechanics.
 | **Moderate** | Group 3 (`maxCoopBlueSummonCount`, `allAreaSearchRate`), Group 6 (visitor timings) | Changes matchmaking behavior visibly but doesn't break protocol |
 | **High** | Group 4 (`penaltyPoint*`, `penaltyForgiveItemLimitTime`) | Server likely validates penalty state; mismatch = flag |
 
-## Suggested Presets
+## Functional Presets (implemented — v0.9 unified system)
 
-### "Fast Summons" (Low Risk)
+Three role-scoped presets, defined once in `backend/core/regulation.go` and fetched
+by the frontend via `GetNetworkPreset` (single source of truth — frontend and backend
+cannot drift). The previous global `Aggressive` profile (15 / 6 / 3 / 15 for invasion)
+was **removed** — it cut `breakInRequestTimeOutSec` to 3s (broke near-and-far matchmaking),
+ran a near-continuous retry loop, and wrote the unconfirmed 0x7C field. None of the new
+presets touch 0x7C (it stays at vanilla 5).
+
+### "Faster Reds" — `NetworkParamFasterReds()` (Invader)
 ```
-reloadSignIntervalTime2:  60 → 10
-reloadSignTotalCount:     20 → 64
+maxBreakInTargetListCount:      5 → 8
+breakInRequestIntervalTimeSec: 30 → 12   (≥8s avoids the constant search-message flicker)
+breakInRequestTimeOutSec:      20 → 15   (kept generous so near-and-far can complete)
+breakInRequestAreaCount (0x7C): 5 → 5    (unchanged — unconfirmed semantics)
+```
+
+### "Faster Summons & Pools" — `NetworkParamFasterSummons()` (Cooperator)
+```
+reloadSignIntervalTime2:  60 → 20
+reloadSignTotalCount:     20 → 40
 reloadSignCellCount:      10 → 20
-updateSignIntervalTime:   30 → 5
-signDownloadSpan:         30 → 5
-signUpdateSpan:           60 → 10
+updateSignIntervalTime:   30 → 15
 singGetMax:               32 → 64
+signDownloadSpan:         30 → 15
+signUpdateSpan:           60 → 20
 ```
+Invariant enforced (backend + UI clamp): `reloadSignCellCount ≤ reloadSignTotalCount ≤ singGetMax`.
+`cellGroupHorizontalRange` (spatial reach) is **not** part of this preset — it is a planned
+Experimental option (backend patching not yet implemented).
 
-### "Aggressive PvP" (Moderate Risk)
-All of "Fast Summons" plus:
+### "Faster Blue / Hunter" — `NetworkParamFasterBlue()` (Blue)
 ```
-reloadVisitListCoolTime:      20 → 5
-maxCoopBlueSummonCount:        2 → 4
-maxVisitListCount:             5 → 15
-reloadSearch_CoopBlue_Min:    30 → 5
-reloadSearch_CoopBlue_Max:   180 → 20
-allAreaSearchRate_CoopBlue:   30 → 100
-allAreaSearchRate_VsBlue:     30 → 100
-VisitorListMax:               10 → 30
-VisitorTimeOutTime:           60 → 120
-DownloadSpan (Visitor):       60 → 10
+reloadVisitListCoolTime:     20 → 8
+reloadSearch_CoopBlue_Min:   30 → 10
+reloadSearch_CoopBlue_Max:  180 → 40
+maxVisitListCount:            5 → 10
+allAreaSearchRate_CoopBlue:  30 → 60
+maxCoopBlueSummonCount:       2 → 2     (unchanged — server caps actual joins)
+allAreaSearchRate_VsBlue:    30 → 30    (unchanged — retribution likely legacy in ER)
 ```
+Invariant enforced: `reloadSearch_CoopBlue_Min ≤ reloadSearch_CoopBlue_Max`.
 
-### "No Penalty" (High Ban Risk)
-```
-penaltyPointLanDisconnect:   10 → 0
-penaltyPointReboot:          10 → 0
-penaltyPointBeginPenalize:  100 → 9999
-penaltyForgiveItemLimitTime: 36000 → 0
-```
+### Not implemented (research-only)
+- **Taunter's Tongue / host-side reds** — no confirmed rate parameter found (Goods 108/178 → SpEffect 533 sets session state only). The Visitor fields (`VisitorListMax/TimeOutTime/DownloadSpan`) belong to the ring-search visitor system and are exposed only as Experimental "legacy ring-search fields".
+- **Colosseum / arena** — no dedicated matchmaking table; `AvatarMatchSearchMax` / `BattleRoyalMatchSearch*` are marked 未使用 (unused); `requestSearchQuickMatchLimit` usage in ER is unconfirmed.
+- **`NetworkAreaParam.cellSize*`** — high risk (changing the local cell grid can desync matchmaking buckets vs the server); out of scope.
+- **`penaltyPoint*` / `penaltyForgiveItemLimitTime`** — high ban risk (server likely validates penalty state); intentionally not offered as a preset.
 
 ## Sources
 

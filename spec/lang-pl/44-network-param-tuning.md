@@ -52,6 +52,9 @@ Kontroluje matchmaking inwazji. **Zaimplementowane w v0.8.0.**
 | `maxBreakInTargetListCount` | u32 | 0x70 | 5 | Kandydaci na cel inwazji per wyszukiwanie |
 | `breakInRequestIntervalTimeSec` | f32 | 0x74 | 30.0 | Opóźnienie między ponownymi requestami matchmakingu |
 | `breakInRequestTimeOutSec` | f32 | 0x78 | 20.0 | Timeout per request matchmakingu |
+| `breakInRequestAreaCount` (niepotwierdzone) | u32 (kod) / u8 (defy) | 0x7C | 5 | **Semantyka NIEPOTWIERDZONA.** W lokalnym PARAMDEF oznaczone `dummy8 pad[4]` ("予約"/Rezerwa), w społecznościowym defie TGA `u8 unknown_0x7c` — żadne zewnętrzne źródło nie nazywa go `breakInRequestAreaCount`; ta nazwa istnieje tylko w SaveForge. Wartość vanilla w binarce to `5` (zweryfikowane). Presety SaveForge zawsze pozostawiają `5`; pole jest dostępne wyłącznie jako Experimental w UI. Nie traktuj go jako potwierdzonego pokrętła „area search". |
+
+> **Nota o źródle prawdy**: wartości vanilla powyżej pochodzą z binarki `NetworkParam.param` (Row 0). Wyeksportowany `csv/NetworkParam.csv` pokazuje dla grupy znaków `reloadSignTotalCount=32` / `reloadSignCellCount=8`, co jest **błędne** — binarka (i `NetworkParamDefaults()`) ma `20` / `10`. Binarka jest autorytatywna. Inwazje nie mają też żadnego pola `allAreaSearchRate_*` (te istnieją tylko dla CoopBlue/VsBlue/BellGuard), więc nie ma potwierdzonego pokrętła local-vs-worldwide dla break-in search.
 
 ### Grupa 3: System Blue Phantom (NET_VISIT_PARAM)
 
@@ -125,41 +128,54 @@ Kontroluje mechanikę Taunter's Tongue / summoning pool visitors.
 | **Umiarkowane** | Grupa 3 (`maxCoopBlueSummonCount`, `allAreaSearchRate`), Grupa 6 (visitor timings) | Zmienia widoczne zachowanie matchmakingu ale nie łamie protokołu |
 | **Wysokie** | Grupa 4 (`penaltyPoint*`, `penaltyForgiveItemLimitTime`) | Serwer prawdopodobnie waliduje stan kar; rozbieżność = flagowanie |
 
-## Sugerowane presety
+## Presety funkcjonalne (zaimplementowane — zunifikowany system v0.9)
 
-### "Fast Summons" (Niskie ryzyko)
+Trzy presety przypisane do ról, zdefiniowane raz w `backend/core/regulation.go` i pobierane
+przez frontend via `GetNetworkPreset` (jedno źródło prawdy — frontend i backend nie mogą się
+rozjechać). Poprzedni globalny profil `Aggressive` (15 / 6 / 3 / 15 dla inwazji) został
+**usunięty** — obcinał `breakInRequestTimeOutSec` do 3s (psuł matchmaking blisko-i-daleko),
+prowadził niemal ciągłą pętlę retry i zapisywał niepotwierdzone pole 0x7C. Żaden nowy preset
+nie rusza 0x7C (zostaje vanilla 5).
+
+### "Faster Reds" — `NetworkParamFasterReds()` (Invader)
 ```
-reloadSignIntervalTime2:  60 → 10
-reloadSignTotalCount:     20 → 64
+maxBreakInTargetListCount:      5 → 8
+breakInRequestIntervalTimeSec: 30 → 12   (≥8s unika ciągłego migania komunikatu wyszukiwania)
+breakInRequestTimeOutSec:      20 → 15   (zostaje wysoki, by blisko-i-daleko zdążyło dojść)
+breakInRequestAreaCount (0x7C): 5 → 5    (bez zmian — semantyka niepotwierdzona)
+```
+
+### "Faster Summons & Pools" — `NetworkParamFasterSummons()` (Cooperator)
+```
+reloadSignIntervalTime2:  60 → 20
+reloadSignTotalCount:     20 → 40
 reloadSignCellCount:      10 → 20
-updateSignIntervalTime:   30 → 5
-signDownloadSpan:         30 → 5
-signUpdateSpan:           60 → 10
+updateSignIntervalTime:   30 → 15
 singGetMax:               32 → 64
+signDownloadSpan:         30 → 15
+signUpdateSpan:           60 → 20
 ```
+Wymuszony invariant (backend + clamp UI): `reloadSignCellCount ≤ reloadSignTotalCount ≤ singGetMax`.
+`cellGroupHorizontalRange` (zasięg przestrzenny) **nie** jest częścią tego presetu — to planowana
+opcja Experimental (patching backendu jeszcze niezaimplementowany).
 
-### "Aggressive PvP" (Umiarkowane ryzyko)
-Wszystko z "Fast Summons" plus:
+### "Faster Blue / Hunter" — `NetworkParamFasterBlue()` (Blue)
 ```
-reloadVisitListCoolTime:      20 → 5
-maxCoopBlueSummonCount:        2 → 4
-maxVisitListCount:             5 → 15
-reloadSearch_CoopBlue_Min:    30 → 5
-reloadSearch_CoopBlue_Max:   180 → 20
-allAreaSearchRate_CoopBlue:   30 → 100
-allAreaSearchRate_VsBlue:     30 → 100
-VisitorListMax:               10 → 30
-VisitorTimeOutTime:           60 → 120
-DownloadSpan (Visitor):       60 → 10
+reloadVisitListCoolTime:     20 → 8
+reloadSearch_CoopBlue_Min:   30 → 10
+reloadSearch_CoopBlue_Max:  180 → 40
+maxVisitListCount:            5 → 10
+allAreaSearchRate_CoopBlue:  30 → 60
+maxCoopBlueSummonCount:       2 → 2     (bez zmian — serwer ogranicza realne dołączenia)
+allAreaSearchRate_VsBlue:    30 → 30    (bez zmian — odwet prawdopodobnie legacy w ER)
 ```
+Wymuszony invariant: `reloadSearch_CoopBlue_Min ≤ reloadSearch_CoopBlue_Max`.
 
-### "No Penalty" (Wysokie ryzyko bana)
-```
-penaltyPointLanDisconnect:   10 → 0
-penaltyPointReboot:          10 → 0
-penaltyPointBeginPenalize:  100 → 9999
-penaltyForgiveItemLimitTime: 36000 → 0
-```
+### Niezaimplementowane (research-only)
+- **Taunter's Tongue / reds po stronie hosta** — nie znaleziono potwierdzonego parametru tempa (Goods 108/178 → SpEffect 533 ustawia tylko stan sesji). Pola Visitor (`VisitorListMax/TimeOutTime/DownloadSpan`) należą do systemu visitor/ring-search i są dostępne wyłącznie jako Experimental „legacy ring-search fields".
+- **Koloseum / arena** — brak dedykowanej tabeli matchmakingu; `AvatarMatchSearchMax` / `BattleRoyalMatchSearch*` oznaczone 未使用 (nieużywane); użycie `requestSearchQuickMatchLimit` w ER niepotwierdzone.
+- **`NetworkAreaParam.cellSize*`** — high-risk (zmiana lokalnej siatki komórek może rozsynchronizować buckety matchmakingu względem serwera); poza zakresem.
+- **`penaltyPoint*` / `penaltyForgiveItemLimitTime`** — wysokie ryzyko bana (serwer prawdopodobnie waliduje stan kar); świadomie nie oferowane jako preset.
 
 ## Źródła
 

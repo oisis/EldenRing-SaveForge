@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(pvp): unified network presets — Faster Reds / Summons / Blue, remove Aggressive
+
+Replaced the two divergent network-preset systems with one source of truth. The
+active UI (`NetworkTab.tsx`, rendered via `PvPTab`) used hardcoded frontend
+constants (`VANILLA/FASTER/AGGRESSIVE_VALUES`); the orphaned `NetworkSpeedPanel`
+(in the unused `PvPPreparationTab`) used separate backend presets — the two could
+drift. NetworkTab now fetches preset values from the backend via `GetNetworkPreset`.
+
+- `backend/core/regulation.go`: new `NetworkParamFasterReds()` (8/12/15, 0x7C stays
+  vanilla 5), `NetworkParamFasterSummons()` (sign refresh/buffer), `NetworkParamFasterBlue()`
+  (faster+wider co-op blue; `maxCoopBlueSummonCount` and `allAreaSearchRateVsBlue` kept
+  vanilla). Added cross-field invariants to `ValidateNetworkParams`:
+  `reloadSignCellCount <= reloadSignTotalCount <= singGetMax` and
+  `reloadSearchCoopBlueMin <= reloadSearchCoopBlueMax`.
+- `app.go` `GetNetworkPreset`: new keys `faster-reds`, `faster-summons`, `faster-blue`,
+  `vanilla`. Legacy keys kept for the orphaned panel.
+- `frontend`: rewrote `NetworkTab.tsx` — three functional groups (Reds, Summons & Pools,
+  Blue/Hunter) each with Vanilla/Faster buttons, a collapsed Experimental section
+  (unknown 0x7C field locked at 5 with warning; blue legacy extras; visitor/ring-search
+  fields relabelled — "No confirmed Taunter's Tongue speed control found"). Removed the
+  global `Aggressive` profile entirely. New `networkClamp.ts` enforces the same invariants
+  client-side (+ vitest `networkClamp.test.ts`, 10 cases).
+- Removed the broken `Aggressive` invasion profile (was 15/6/3/15 — 3s timeout broke
+  near-and-far matchmaking, near-continuous retry, wrote the unconfirmed 0x7C field).
+- Docs: `spec/44` (EN+PL) — added the 0x7C unconfirmed-field row, a source-of-truth note
+  (binary `NetworkParam.param` is authoritative; `csv` showed wrong 32/8 vs binary 20/10),
+  and replaced the obsolete suggested presets with the three implemented presets.
+- Tests: `tests/regulation_test.go` — defaults (20/10, 0x7C=5), one test per preset
+  (exact values + neighbouring groups untouched), and invariant rejection. Existing PC/PS4
+  roundtrip tests unchanged and passing.
+- Not implemented (research-only): `NetworkAreaParam.cellSize*`, `cellGroup*Range` backend
+  patching, Taunter's Tongue preset, colosseum preset.
+
 ### feat(items): polish generated weapon details
 
 Builds on the Phase 3C.4 wiring with a polish pass on the weapon
