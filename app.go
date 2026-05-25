@@ -23,23 +23,23 @@ const maxUndoDepth = 5
 
 // slotSnapshot holds a deep copy of a SaveSlot for undo purposes.
 type slotSnapshot struct {
-	Data              []byte
-	Version           uint32
-	Player            core.PlayerGameData
-	GaMap             map[uint32]uint32
-	GaItems           []core.GaItemFull
-	Inventory         core.EquipInventoryData
-	Storage           core.EquipInventoryData
-	Warnings          []string
-	MagicOffset       int
-	InventoryEnd      int
-	EventFlagsOffset  int
-	PlayerDataOffset  int
-	FaceDataOffset    int
-	StorageBoxOffset  int
-	IngameTimerOffset int
-	GaItemDataOffset      int
-	TutorialDataOffset    int
+	Data               []byte
+	Version            uint32
+	Player             core.PlayerGameData
+	GaMap              map[uint32]uint32
+	GaItems            []core.GaItemFull
+	Inventory          core.EquipInventoryData
+	Storage            core.EquipInventoryData
+	Warnings           []string
+	MagicOffset        int
+	InventoryEnd       int
+	EventFlagsOffset   int
+	PlayerDataOffset   int
+	FaceDataOffset     int
+	StorageBoxOffset   int
+	IngameTimerOffset  int
+	GaItemDataOffset   int
+	TutorialDataOffset int
 	// GaItem tracked indices
 	NextAoWIndex      int
 	NextArmamentIndex int
@@ -871,7 +871,6 @@ func (a *App) GetStartingClasses() []db.ClassStats {
 	return db.GetAllClassStats()
 }
 
-
 // ImportCharacter copies a slot from the source save file to the destination save file
 func (a *App) ImportCharacter(srcIdx, destIdx int) error {
 	return fmt.Errorf("ImportCharacter is temporarily disabled during architecture refactor")
@@ -920,7 +919,10 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 	return nil
 }
 
-// DeleteSlot removes a character from a slot and shifts all subsequent slots down by one.
+// DeleteSlot clears a character slot IN PLACE — matching the game's positional
+// model. Slots 0-9 keep their positions; only the target slot is zeroed (data
+// block, active flag, full ProfileSummary region). Subsequent slots are NOT
+// shifted down (the game uses independent per-slot active flags; gaps are valid).
 func (a *App) DeleteSlot(idx int) error {
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
@@ -928,63 +930,66 @@ func (a *App) DeleteSlot(idx int) error {
 	if idx < 0 || idx >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
-	name := core.UTF16ToString(a.save.Slots[idx].Player.CharacterName[:])
-	if name == "" {
+	// Occupied = active flag set OR residual data left by an in-game deletion.
+	// Including residual lets the user clear a phantom slot the game ignores.
+	if !a.save.ActiveSlots[idx] && !a.save.SlotHasResidualData(idx) {
 		return fmt.Errorf("slot %d is already empty", idx)
 	}
 
-	// Snapshot all affected slots (idx..9) since delete shifts them down
-	for i := idx; i < 10; i++ {
-		a.pushUndo(i)
-	}
-
-	for i := idx; i < 9; i++ {
-		a.save.Slots[i] = a.save.Slots[i+1]
-		a.save.ActiveSlots[i] = a.save.ActiveSlots[i+1]
-		a.save.ProfileSummaries[i] = a.save.ProfileSummaries[i+1]
-	}
-
-	// Zero out the last slot with a valid MagicOffset to prevent Write() from panicking
-	a.save.Slots[9] = core.SaveSlot{
-		Data:        make([]byte, 0x280000),
-		GaMap:       make(map[uint32]uint32),
-		MagicOffset: 0x15420 + 432,
-	}
-	a.save.ActiveSlots[9] = false
-	a.save.ProfileSummaries[9] = core.ProfileSummary{}
-
+	a.pushUndo(idx)
+	a.save.ClearSlot(idx)
 	return nil
 }
 
-// GetActiveSlots returns the activity status of all 10 slots
+// CleanResidualSlots zeroes every inactive slot that still carries leftover
+// character data (a phantom produced when a character was deleted in-game but its
+// data block / summary were never cleared). Returns the number of slots cleaned.
+func (a *App) CleanResidualSlots() (int, error) {
+	if a.save == nil {
+		return 0, fmt.Errorf("no save loaded")
+	}
+	for i := 0; i < 10; i++ {
+		if a.save.SlotHasResidualData(i) {
+			a.pushUndo(i)
+		}
+	}
+	return a.save.CleanResidualSlots(), nil
+}
+
+// GetActiveSlots returns the activity status of all 10 slots. Source of truth is
+// the per-slot active flag (0x1954) — exactly what the game's character-select
+// reads. A slot with residual data but a cleared flag (phantom) reports inactive,
+// so the UI roster matches the console.
 func (a *App) GetActiveSlots() []bool {
 	active := make([]bool, 10)
 	if a.save == nil {
 		return active
 	}
-	for i := 0; i < 10; i++ {
-		// Slot is active if it has a name (Python method)
-		name := core.UTF16ToString(a.save.Slots[i].Player.CharacterName[:])
-		active[i] = name != ""
-	}
+	copy(active, a.save.ActiveSlots[:])
 	return active
 }
 
-// GetCharacterNames returns the names of all 10 characters
+// GetCharacterNames returns the names of all 10 characters. Inactive slots
+// (active flag cleared) report "Empty Slot" regardless of residual data, so a
+// phantom slot is not shown as a duplicate. The name is read from the slot-data
+// block, falling back to the ProfileSummary name if the block is empty.
 func (a *App) GetCharacterNames() []string {
 	names := make([]string, 10)
+	for i := range names {
+		names[i] = "Empty Slot"
+	}
 	if a.save == nil {
-		for i := 0; i < 10; i++ {
-			names[i] = "Empty Slot"
-		}
 		return names
 	}
 	for i := 0; i < 10; i++ {
-		// Get name directly from the character slot (Python method)
+		if !a.save.ActiveSlots[i] {
+			continue
+		}
 		name := core.UTF16ToString(a.save.Slots[i].Player.CharacterName[:])
 		if name == "" {
-			names[i] = "Empty Slot"
-		} else {
+			name = core.UTF16ToString(a.save.ProfileSummaries[i].CharacterName[:])
+		}
+		if name != "" {
 			names[i] = name
 		}
 	}
@@ -1056,27 +1061,27 @@ func (a *App) pushUndo(idx int) {
 	}
 
 	snap := slotSnapshot{
-		Data:              dataCopy,
-		Version:           slot.Version,
-		Player:            slot.Player,
-		GaMap:             gaMapCopy,
-		GaItems:           gaItemsCopy,
-		Inventory:         slot.Inventory.Clone(),
-		Storage:           slot.Storage.Clone(),
-		Warnings:          append([]string{}, slot.Warnings...),
-		MagicOffset:       slot.MagicOffset,
-		InventoryEnd:      slot.InventoryEnd,
-		EventFlagsOffset:  slot.EventFlagsOffset,
-		PlayerDataOffset:  slot.PlayerDataOffset,
-		FaceDataOffset:    slot.FaceDataOffset,
-		StorageBoxOffset:  slot.StorageBoxOffset,
-		IngameTimerOffset: slot.IngameTimerOffset,
+		Data:               dataCopy,
+		Version:            slot.Version,
+		Player:             slot.Player,
+		GaMap:              gaMapCopy,
+		GaItems:            gaItemsCopy,
+		Inventory:          slot.Inventory.Clone(),
+		Storage:            slot.Storage.Clone(),
+		Warnings:           append([]string{}, slot.Warnings...),
+		MagicOffset:        slot.MagicOffset,
+		InventoryEnd:       slot.InventoryEnd,
+		EventFlagsOffset:   slot.EventFlagsOffset,
+		PlayerDataOffset:   slot.PlayerDataOffset,
+		FaceDataOffset:     slot.FaceDataOffset,
+		StorageBoxOffset:   slot.StorageBoxOffset,
+		IngameTimerOffset:  slot.IngameTimerOffset,
 		GaItemDataOffset:   slot.GaItemDataOffset,
 		TutorialDataOffset: slot.TutorialDataOffset,
 		NextAoWIndex:       slot.NextAoWIndex,
-		NextArmamentIndex: slot.NextArmamentIndex,
-		NextGaItemHandle:  slot.NextGaItemHandle,
-		PartGaItemHandle:  slot.PartGaItemHandle,
+		NextArmamentIndex:  slot.NextArmamentIndex,
+		NextGaItemHandle:   slot.NextGaItemHandle,
+		PartGaItemHandle:   slot.PartGaItemHandle,
 	}
 
 	stack := a.undoStacks[idx]
@@ -1143,9 +1148,6 @@ func (a *App) clearAllUndoStacks() {
 	}
 }
 
-
-
-
 // GetNetworkParams reads the current invasion matchmaking parameters from the save's regulation.
 func (a *App) GetNetworkParams() (*core.NetworkParamValues, error) {
 	if a.save == nil {
@@ -1210,7 +1212,6 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 	}
 	return &p, nil
 }
-
 
 // ApplyWeaponInfusion changes the infusion (affinity) of a specific weapon instance
 // identified by its GaItemHandle. Only the weapon's ItemID is patched — upgrade level,
@@ -1454,8 +1455,9 @@ func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error)
 // newAoWItemID == 0: removes the AoW (patches AoWGaItemHandle to the canonical
 // core.NoCustomAoWHandle (0x00000000) in-place).
 // newAoWItemID != 0: finds the first free copy of that AoW in the slot and attaches it.
-//   Returns an error if no free copy exists, if a shared-handle conflict is detected,
-//   or if any standard validation fails. Unlike ApplyWeaponAoW, never allocates new GaItem records.
+//
+//	Returns an error if no free copy exists, if a shared-handle conflict is detected,
+//	or if any standard validation fails. Unlike ApplyWeaponAoW, never allocates new GaItem records.
 func (a *App) ApplyWeaponAoWStrict(charIdx int, weaponHandle uint32, newAoWItemID uint32) error {
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")

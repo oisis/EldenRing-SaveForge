@@ -317,6 +317,7 @@ War-Dead Catacombs (requires Radahn defeat), 3 DLC catacombs (m61 tiles, `20{col
 | Boss Kill single-flag — grants runes but boss alive | planned fix | [spec/38](spec/38-boss-multiflag.md) |
 | Grace toggle — map visible but not fast-travel activated | known limitation | — |
 | Leyndell graces — Royal Capital and Ashen Capital phases mixed into one list | ✅ fixed | — |
+| Phantom/duplicate character slot + in-place delete (no shift) | code done, app-verified — **⚠️ console test pending** | CHANGELOG |
 
 ---
 

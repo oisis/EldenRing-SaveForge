@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(slots): positional in-place character delete + phantom-slot cleanup
+
+The app showed duplicate / undeletable characters because it used a different
+source of truth for slot occupancy than the game. The game reads the per-slot
+active flag (`0x1954`); the app derived occupancy from the slot-data
+`CharacterName` and ignored the flag. A character deleted in-game (flag cleared,
+data block + ProfileSummary never zeroed) therefore appeared in the app as a
+phantom duplicate the user could not remove.
+
+- **Single source of truth = active flag**: `GetActiveSlots`/`GetCharacterNames`
+  now report occupancy from `ActiveSlots[]` (matching the game's character-select),
+  so a phantom slot shows as empty and the app roster matches the console.
+- **`DeleteSlot` is now clear-in-place, NOT shift-down**: confirmed against the
+  save format (independent per-slot active flags — gaps between active slots are
+  valid; the user's save had an inactive slot 1 between active slots 0 and 2) and
+  the reference ER-Save-Editor (purely positional). New `core.SaveSlot` helpers
+  `ClearSlot` (zeroes data block + flag + the FULL `0x24C` ProfileSummary region,
+  including the opaque face/equipment snapshot `Serialize` never rewrites),
+  `SlotHasResidualData`, `CleanResidualSlots`, `ClearProfileSummaryRegion`.
+- **Old shift-down delete was the corruption source**: it moved parsed name+level
+  but never shifted the opaque summary bytes, desyncing summary vs slot-data, and
+  renumbered all subsequent characters needlessly.
+- `app.go`: new `CleanResidualSlots()` to clear phantom slots; `frontend/App.tsx`
+  `handleDelete` updated for stable indices (no shift). `flushMetadata` magic
+  numbers replaced with named constants (`ActiveSlotsOffset`, `ProfileSummaryOffset`,
+  `ProfileSummaryStride`).
+- Tests: new `slots_test.go` (in-place clear leaves neighbours untouched, residual
+  detection, idempotent cleanup). Full PC/PS4 roundtrip + `tsc --noEmit` + `make build` pass.
+- **⚠️ TODO — verify on PS4 console**: app-verified only (duplicate gone, delete
+  works in-place). Confirm the game accepts a cleared-in-place slot and renders the
+  remaining characters correctly. Test file produced by the one-off cleanup:
+  cleared phantom slot 1, preserved Niziol (slot 0) + Bydlaczka lvl 150 (slot 2).
+
 ### fix(save): stop corrupting NextEquipIndex (CE-108255-1) + storage topup wrote wrong record
 
 Two independent save-write defects, both confirmed fixed in-app and on PS4 console.

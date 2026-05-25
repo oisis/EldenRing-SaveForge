@@ -250,8 +250,14 @@ function App() {
         if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
         try {
             await DeleteSlot(idx);
-            if (selectedChar > 0 && selectedChar >= idx) setSelectedChar(selectedChar - 1);
-            refreshSlots();
+            await refreshSlots();
+            // Clear-in-place: slot indices are stable (no shift). Only reselect if
+            // the deleted slot was the selected one — pick the first active slot.
+            if (selectedChar === idx) {
+                const slots = await GetActiveSlots();
+                const next = slots.findIndex(Boolean);
+                setSelectedChar(next >= 0 ? next : 0);
+            }
         } catch (err) {
             toast.error(String(err));
         }

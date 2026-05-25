@@ -256,13 +256,13 @@ func (s *SaveFile) flushMetadata() {
 	}
 	for i := 0; i < 10; i++ {
 		if s.ActiveSlots[i] {
-			s.UserData10.Data[0x1954+i] = 1
+			s.UserData10.Data[ActiveSlotsOffset+i] = 1
 		} else {
-			s.UserData10.Data[0x1954+i] = 0
+			s.UserData10.Data[ActiveSlotsOffset+i] = 0
 		}
 	}
 	for i := 0; i < 10; i++ {
-		s.ProfileSummaries[i].Serialize(s.UserData10.Data, 0x195E+i*0x24C)
+		s.ProfileSummaries[i].Serialize(s.UserData10.Data, ProfileSummaryOffset+i*ProfileSummaryStride)
 	}
 }
 
