@@ -32,10 +32,13 @@ phantom duplicate the user could not remove.
   `ProfileSummaryStride`).
 - Tests: new `slots_test.go` (in-place clear leaves neighbours untouched, residual
   detection, idempotent cleanup). Full PC/PS4 roundtrip + `tsc --noEmit` + `make build` pass.
-- **⚠️ TODO — verify on PS4 console**: app-verified only (duplicate gone, delete
-  works in-place). Confirm the game accepts a cleared-in-place slot and renders the
-  remaining characters correctly. Test file produced by the one-off cleanup:
-  cleared phantom slot 1, preserved Niziol (slot 0) + Bydlaczka lvl 150 (slot 2).
+- **PS4-verified**: cleaned save (cleared phantom slot 1, preserved Niziol slot 0 +
+  Bydlaczka lvl 150 slot 2) loads correctly on console; in-app delete works in-place.
+- **Delete confirmation fix**: the delete button was gated behind native
+  `window.confirm()`, a no-op in the Wails WKWebView (always returns false) — so
+  deletion never ran. Replaced with a custom confirmation modal (matching the clone
+  modal). (`frontend/src/components/PresetsTab.tsx` has the same `window.confirm`
+  pattern — out of scope here.)
 
 ### fix(save): stop corrupting NextEquipIndex (CE-108255-1) + storage topup wrote wrong record
 

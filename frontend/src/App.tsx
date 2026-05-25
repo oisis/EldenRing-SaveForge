@@ -59,6 +59,7 @@ function App() {
         return (localStorage.getItem('setting:theme') as Theme) || 'dark';
     });
     const [cloneModal, setCloneModal] = useState<{srcIdx: number} | null>(null);
+    const [deleteModal, setDeleteModal] = useState<{idx: number} | null>(null);
     const [charAddSettings, setCharAddSettings] = useState<Record<number, AddSettings>>(() => {
         try {
             const saved = localStorage.getItem('setting:charAddSettings');
@@ -245,9 +246,10 @@ function App() {
         }
     };
 
+    // Native window.confirm() is a no-op in the Wails WKWebView (returns false),
+    // so confirmation is handled by the deleteModal instead.
     const handleDelete = async (idx: number) => {
-        const name = charNames[idx];
-        if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+        setDeleteModal(null);
         try {
             await DeleteSlot(idx);
             await refreshSlots();
@@ -312,7 +314,7 @@ function App() {
                                                         className="p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-primary hover:bg-primary/10">
                                                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                                                     </button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(idx); }} title="Delete character"
+                                                    <button onClick={(e) => { e.stopPropagation(); setDeleteModal({idx}); }} title="Delete character"
                                                         className="p-1 rounded-md opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-red-500 hover:bg-red-500/10">
                                                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
                                                     </button>
@@ -715,6 +717,33 @@ function App() {
                     >
                         Cancel
                     </button>
+                </div>
+            </div>
+        )}
+        {deleteModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setDeleteModal(null)}>
+                <div className="bg-background border border-border rounded-xl p-6 w-72 space-y-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center space-x-2">
+                        <div className="w-1 h-4 bg-red-500 rounded-full" />
+                        <h3 className="text-[10px] font-black uppercase tracking-widest">Delete Character</h3>
+                    </div>
+                    <p className="text-[9px] text-muted-foreground uppercase tracking-wide">
+                        Delete <span className="text-foreground font-bold">{charNames[deleteModal.idx]}</span>? This cannot be undone.
+                    </p>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => handleDelete(deleteModal.idx)}
+                            className="flex-1 py-2 rounded-lg bg-red-500/10 border border-red-500/40 text-red-500 hover:bg-red-500/20 transition-all text-[9px] font-black uppercase tracking-widest"
+                        >
+                            Delete
+                        </button>
+                        <button
+                            onClick={() => setDeleteModal(null)}
+                            className="flex-1 py-2 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-all text-[9px] font-black uppercase tracking-widest"
+                        >
+                            Cancel
+                        </button>
+                    </div>
                 </div>
             </div>
         )}
