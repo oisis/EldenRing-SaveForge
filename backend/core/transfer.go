@@ -19,8 +19,8 @@ const (
 // "dest_at_cap" with non-zero MovedQty) — other reasons leave them at 0.
 type TransferSkip struct {
 	Handle       uint32 `json:"handle"`
-	Reason       string `json:"reason"`             // see SkipReason* constants
-	MovedQty     uint32 `json:"movedQty,omitempty"`  // qty actually transferred (partial-cap only)
+	Reason       string `json:"reason"`                 // see SkipReason* constants
+	MovedQty     uint32 `json:"movedQty,omitempty"`     // qty actually transferred (partial-cap only)
 	RemainingQty uint32 `json:"remainingQty,omitempty"` // qty left in source (partial-cap only)
 }
 
@@ -465,22 +465,14 @@ func assignDestIndex(slot *SaveSlot, c containerKind) uint32 {
 // destination side after a fresh record write, mirroring the corresponding
 // branches of addToInventory.
 func advanceDestCounters(slot *SaveSlot, c containerKind, writtenIndex uint32) {
+	// NextEquipIndex is a separate equip-list counter (NOT a visibility gate) and
+	// must be preserved — overwriting it corrupts the slot (CE-108255-1). Only the
+	// acquisition/sort counter advances past the value we just used.
 	if c == containerInventory {
-		// NextEquipIndex must stay strictly > the just-written Index. If
-		// NextAcquisitionSortId jumped ahead, lift NextEquipIndex to acqIdx+1.
-		if writtenIndex >= slot.Inventory.NextEquipIndex {
-			slot.Inventory.NextEquipIndex = writtenIndex + 1
-		} else {
-			slot.Inventory.NextEquipIndex++
-		}
-		// Ensure NextAcquisitionSortId moves forward past the value we just used.
 		if slot.Inventory.NextAcquisitionSortId <= writtenIndex {
 			slot.Inventory.NextAcquisitionSortId = writtenIndex + 1
 		} else {
 			slot.Inventory.NextAcquisitionSortId++
-		}
-		if slot.Inventory.nextEquipIndexOff > 0 {
-			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
 		}
 		if slot.Inventory.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
@@ -488,10 +480,10 @@ func advanceDestCounters(slot *SaveSlot, c containerKind, writtenIndex uint32) {
 		return
 	}
 	// Storage
-	slot.Storage.NextEquipIndex = writtenIndex + 1
-	slot.Storage.NextAcquisitionSortId++
-	if slot.Storage.nextEquipIndexOff > 0 {
-		binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextEquipIndexOff:], slot.Storage.NextEquipIndex)
+	if slot.Storage.NextAcquisitionSortId <= writtenIndex {
+		slot.Storage.NextAcquisitionSortId = writtenIndex + 1
+	} else {
+		slot.Storage.NextAcquisitionSortId++
 	}
 	if slot.Storage.nextAcqSortIdOff > 0 {
 		binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextAcqSortIdOff:], slot.Storage.NextAcquisitionSortId)
@@ -603,9 +595,9 @@ func IsHandleEquipped(slot *SaveSlot, handle uint32) bool {
 	// of the handle. Match against every plausible representation to keep the
 	// check robust across upgrade levels and infusions.
 	candidates := map[uint32]struct{}{
-		handle:                                {},
-		handle & 0x0FFFFFFF:                   {}, // bare lower bits (talismans)
-		(handle & 0x0FFFFFFF) | 0x80000000:    {}, // bare lower bits + 0x80 flag
+		handle:                             {},
+		handle & 0x0FFFFFFF:                {}, // bare lower bits (talismans)
+		(handle & 0x0FFFFFFF) | 0x80000000: {}, // bare lower bits + 0x80 flag
 	}
 	if id, ok := slot.GaMap[handle]; ok && id != 0 && id != GaHandleInvalid {
 		candidates[id] = struct{}{}

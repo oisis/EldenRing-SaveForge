@@ -669,13 +669,16 @@ func writeContainerLayout(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot,
 	// Rebuild in-memory CommonItems from binary.
 	rebuildInMemoryCommonItems(slot, startOff, capacity, equip, kind == ContainerInventory)
 
-	// Update counters in-memory and in binary.
+	// Advance ONLY the acquisition/sort counter past the highest assigned Index.
+	// NextEquipIndex is a separate equip-list counter (NOT a visibility gate) and
+	// must be preserved exactly as the game wrote it — overwriting it corrupts the
+	// slot (CE-108255-1).
 	newNext := maxAcq + 1
-	equip.NextEquipIndex = newNext
 	equip.NextAcquisitionSortId = newNext
 	if off := equip.NextEquipIndexOff(); off > 0 && off+8 <= len(slot.Data) {
-		binary.LittleEndian.PutUint32(slot.Data[off:], newNext)   // NextEquipIndex
-		binary.LittleEndian.PutUint32(slot.Data[off+4:], newNext) // NextAcquisitionSortId (adjacent u32)
+		// off    → NextEquipIndex (left intact)
+		// off+4  → NextAcquisitionSortId
+		binary.LittleEndian.PutUint32(slot.Data[off+4:], newNext)
 	}
 
 	return nil

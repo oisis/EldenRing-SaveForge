@@ -781,17 +781,12 @@ func (s *SaveSlot) mapInventory() error {
 		if s.Inventory.NextAcquisitionSortId <= maxIdx {
 			s.Inventory.NextAcquisitionSortId = maxIdx + 1
 		}
-		// Reconcile NextEquipIndex: must be >= NextAcquisitionSortId.
-		// External editors may leave NextAcqSortId > NextEquipIndex; correct both
-		// in-memory AND in binary so the game sees the fixed value even if no items
-		// are added in this session. Skip empty slots (Version=0): their counters
-		// are initialised to 0/1 by the game and must not be touched.
-		if s.Inventory.NextEquipIndex < s.Inventory.NextAcquisitionSortId {
-			s.Inventory.NextEquipIndex = s.Inventory.NextAcquisitionSortId
-			if s.Version > 0 && s.Inventory.nextEquipIndexOff > 0 {
-				binary.LittleEndian.PutUint32(s.Data[s.Inventory.nextEquipIndexOff:], s.Inventory.NextEquipIndex)
-			}
-		}
+		// NextEquipIndex is a SEPARATE equip-list counter, NOT a visibility gate:
+		// genuine console saves legitimately keep it far below NextAcquisitionSortId
+		// (e.g. 1833 vs 7787 with item indices up to 7786, and the game renders fine).
+		// The old reconcile here forced NextEquipIndex up to NextAcquisitionSortId and
+		// wrote it back on load — which corrupted the slot (CE-108255-1) on a plain
+		// load+save. We now leave NextEquipIndex exactly as the game wrote it.
 	}
 
 	// Reconcile common_item_count header at invStart-4 to the actual non-empty

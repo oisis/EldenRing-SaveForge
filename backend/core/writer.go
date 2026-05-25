@@ -728,6 +728,24 @@ func RemoveItemByBaseID(slot *SaveSlot, itemID uint32) {
 	}
 }
 
+// storageRecordOffset returns the binary offset of the storage CommonItems
+// record whose GaItemHandle == handle, scanning the raw slot.Data array
+// (StorageCommonCount slots from startOffset). Required because the in-memory
+// Storage.CommonItems slice is COMPACTED (empty slots skipped on load — see
+// spec/10-storage.md), so a slice index does not map to a binary position.
+func storageRecordOffset(slot *SaveSlot, startOffset int, handle uint32) (int, error) {
+	for i := 0; i < StorageCommonCount; i++ {
+		off := startOffset + i*InvRecordLen
+		if off+InvRecordLen > len(slot.Data) {
+			break
+		}
+		if binary.LittleEndian.Uint32(slot.Data[off:]) == handle {
+			return off, nil
+		}
+	}
+	return 0, fmt.Errorf("storageRecordOffset: handle 0x%08X not found in storage CommonItems", handle)
+}
+
 func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) error {
 	sa := NewSlotAccessor(slot.Data)
 	var items *[]InventoryItem
@@ -747,7 +765,21 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 	for i, item := range *items {
 		if item.GaItemHandle == handle {
 			(*items)[i].Quantity = qty
-			off := startOffset + i*InvRecordLen + 4
+			// Binary position: held inventory CommonItems is a full 2688-entry array
+			// (slice index == binary slot), so i*InvRecordLen is correct. Storage
+			// CommonItems is a COMPACTED slice (empty slots skipped on load — see
+			// spec/10-storage.md), so i is NOT the binary position; locate the real
+			// record by scanning slot.Data for this handle.
+			var off int
+			if isStorage {
+				binOff, err := storageRecordOffset(slot, startOffset, handle)
+				if err != nil {
+					return err
+				}
+				off = binOff + 4
+			} else {
+				off = startOffset + i*InvRecordLen + 4
+			}
 			if err := sa.CheckBounds(off, 4, "addToInventory/update"); err != nil {
 				return err
 			}
@@ -812,14 +844,12 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], newItem.Quantity)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], newItem.Index)
 
-		// Advance counters and write back.
-		// NextEquipIndex must stay > all per-item Index values (validity gate).
-		// NextAcquisitionSortId is an independent sort counter — increment by 1 only.
-		slot.Storage.NextEquipIndex = nextListId + 1
+		// Advance the sort counter only. The per-item Index was derived by scanning
+		// past the max existing storage Index above, so consecutive adds stay unique
+		// without touching NextEquipIndex. NextEquipIndex is a separate equip-list
+		// counter (not a visibility gate) — leave it untouched to avoid corrupting
+		// the slot (CE-108255-1).
 		slot.Storage.NextAcquisitionSortId++
-		if slot.Storage.nextEquipIndexOff > 0 {
-			binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextEquipIndexOff:], slot.Storage.NextEquipIndex)
-		}
 		if slot.Storage.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextAcqSortIdOff:], slot.Storage.NextAcquisitionSortId)
 		}
@@ -867,21 +897,12 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], acqIdx)
 
-		// NextEquipIndex: validity gate — items with Index >= this value are invisible to the
-		// game. Must stay strictly greater than the item.Index we just wrote (acqIdx).
-		// If NextAcquisitionSortId jumped ahead of NextEquipIndex (e.g. InvEquipReservedMax
-		// clamp or a save edited by an external tool), a plain ++ leaves the gate behind and
-		// the new item becomes invisible. Use max(NextEquipIndex, acqIdx) + 1 instead.
-		if acqIdx >= slot.Inventory.NextEquipIndex {
-			slot.Inventory.NextEquipIndex = acqIdx + 1
-		} else {
-			slot.Inventory.NextEquipIndex++
-		}
-		// NextAcquisitionSortId: sort order; its pre-increment value is the per-item Index.
+		// NextAcquisitionSortId is the source of the per-item Index; advance it past
+		// the value we just used. NextEquipIndex is a SEPARATE equip-list counter
+		// (genuine saves keep it well below the acquisition counter — it is NOT a
+		// visibility gate); leave it untouched so we never corrupt the slot
+		// (CE-108255-1). This matches pre-regression behaviour (before b5b9d99/727da67).
 		slot.Inventory.NextAcquisitionSortId++
-		if slot.Inventory.nextEquipIndexOff > 0 {
-			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
-		}
 		if slot.Inventory.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
 		}

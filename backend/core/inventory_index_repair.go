@@ -135,17 +135,15 @@ func RepairDuplicateInventoryIndices(slot *SaveSlot) (InventoryIndexRepairReport
 		return report, nil
 	}
 
-	// Advance counters so future additions don't collide with reassigned indices.
+	// Advance ONLY the acquisition/sort counter so future additions don't collide
+	// with reassigned indices. NextEquipIndex is a SEPARATE equip-list counter, NOT
+	// a visibility gate: genuine console saves keep it far below NextAcquisitionSortId.
+	// Forcing it up here (the old behaviour) corrupted the slot (CE-108255-1) — so the
+	// dedup renumbers duplicate indices but never touches NextEquipIndex.
 	if nextFree > slot.Inventory.NextAcquisitionSortId {
 		slot.Inventory.NextAcquisitionSortId = nextFree
 		if slot.Inventory.nextAcqSortIdOff > 0 && slot.Inventory.nextAcqSortIdOff+4 <= len(slot.Data) {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
-		}
-	}
-	if slot.Inventory.NextEquipIndex < slot.Inventory.NextAcquisitionSortId {
-		slot.Inventory.NextEquipIndex = slot.Inventory.NextAcquisitionSortId
-		if slot.Inventory.nextEquipIndexOff > 0 && slot.Inventory.nextEquipIndexOff+4 <= len(slot.Data) {
-			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
 		}
 	}
 

@@ -24,47 +24,32 @@ func dupIndexFixture() *App {
 	return app
 }
 
-func TestAddItemsToCharacter_PreflightAbortsOnDuplicateIndex(t *testing.T) {
+// TestAddItemsToCharacter_ToleratesPreExistingDuplicateIndex pins the post-fix
+// behaviour: the game tolerates pre-existing duplicate acquisition indices, so
+// the pre-flight guard must NO LONGER abort (and must not demand the destructive
+// repair). The minimal fixture has no backing slot.Data, so the add fails later
+// for an unrelated reason — that is fine; we only assert the guard's behaviour
+// changed and the pre-existing duplicate records are left untouched.
+func TestAddItemsToCharacter_ToleratesPreExistingDuplicateIndex(t *testing.T) {
 	app := dupIndexFixture()
 	slot := &app.save.Slots[0]
-	originalCommonLen := len(slot.Inventory.CommonItems)
-	originalIndex0 := slot.Inventory.CommonItems[0].Index
-	originalIndex1 := slot.Inventory.CommonItems[1].Index
-	originalNextAcq := slot.Inventory.NextAcquisitionSortId
 
-	res, err := app.AddItemsToCharacter(0, []uint32{0x000F4240}, 0, 0, 0, 0, 1, 0)
-	if err == nil {
-		t.Fatalf("expected pre-flight error, got nil (result=%+v)", res)
-	}
+	_, err := app.AddItemsToCharacter(0, []uint32{0x000F4240}, 0, 0, 0, 0, 1, 0)
 
-	msg := err.Error()
-	for _, want := range []string{
-		"duplicate acquisition index",
-		"Index 552",
-		"inventory_common",
-		"0xB00003C0",
-		"repair",
-	} {
-		if !strings.Contains(msg, want) {
-			t.Errorf("error message missing %q: %s", want, msg)
+	// The duplicate guard must not fire anymore.
+	if err != nil {
+		msg := err.Error()
+		for _, forbidden := range []string{"duplicate acquisition index", "Run inventory index repair"} {
+			if strings.Contains(msg, forbidden) {
+				t.Fatalf("guard still aborts on pre-existing duplicates: %s", msg)
+			}
 		}
 	}
 
-	if res.Added != 0 {
-		t.Errorf("Added should be 0 on pre-flight abort, got %d", res.Added)
-	}
-
-	// Slot must be untouched: no snapshot was taken, no items appended,
-	// counters not advanced.
-	if got := len(slot.Inventory.CommonItems); got != originalCommonLen {
-		t.Errorf("CommonItems length changed: %d → %d", originalCommonLen, got)
-	}
-	if slot.Inventory.CommonItems[0].Index != originalIndex0 ||
-		slot.Inventory.CommonItems[1].Index != originalIndex1 {
-		t.Errorf("inventory indices were mutated by aborted call")
-	}
-	if slot.Inventory.NextAcquisitionSortId != originalNextAcq {
-		t.Errorf("NextAcquisitionSortId advanced despite aborted call: %d → %d",
-			originalNextAcq, slot.Inventory.NextAcquisitionSortId)
+	// The pre-existing duplicate records must be left exactly as they were —
+	// tolerated, never renumbered.
+	if slot.Inventory.CommonItems[0].Index != 552 || slot.Inventory.CommonItems[1].Index != 552 {
+		t.Errorf("pre-existing duplicate indices were altered: %d, %d",
+			slot.Inventory.CommonItems[0].Index, slot.Inventory.CommonItems[1].Index)
 	}
 }

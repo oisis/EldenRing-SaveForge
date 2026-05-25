@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(save): stop corrupting NextEquipIndex (CE-108255-1) + storage topup wrote wrong record
+
+Two independent save-write defects, both confirmed fixed in-app and on PS4 console.
+
+- **Crash (CE-108255-1)**: every load/add/transfer/repair path forced
+  `NextEquipIndex = NextAcquisitionSortId` and wrote it back to `slot.Data`, even on a
+  plain load+save. `NextEquipIndex` is a SEPARATE equip-list counter, NOT a visibility
+  gate — genuine console saves keep it far below the acquisition counter (e.g. 1833 vs
+  7787 with item indices up to 7786, rendering fine). Forcing it up corrupted the slot.
+  Neutralized at 6 sites: `structures.go` (load reconcile removed), `writer.go` (add
+  inventory + add storage), `transfer.go` (`advanceDestCounters`), `editor/save.go`
+  (`writeContainerLayout`), `inventory_index_repair.go` (repair counter bump). All now
+  advance ONLY `NextAcquisitionSortId` and preserve `NextEquipIndex` exactly as the game
+  wrote it.
+- **Storage quantity topup wrote the wrong record**: `addToInventory` computed the write
+  offset from the in-memory slice index (`i*InvRecordLen`), but storage `CommonItems` is a
+  COMPACTED slice (empty binary slots skipped on load — see spec/10). With gaps, the topup
+  wrote the new quantity to a neighbour record and left the real one unchanged, so crafting
+  materials appeared unfilled after reload. New `storageRecordOffset` helper locates the
+  real binary record by scanning `slot.Data` for the handle; held inventory (full array)
+  unchanged.
+- **Duplicate acquisition indices**: now TOLERATED on load/add (the game accepts them;
+  `app.go` records a baseline so the post-mutation validator only flags duplicates the
+  mutation itself introduces — `ValidatePostMutationBaseline`). Genuine saves carry none,
+  so `RepairDuplicateInventoryIndices` (now safe — preserves `NextEquipIndex`) renumbers
+  them to fresh unique indices as a one-off cleanup.
+- Tests: new `storage_topup_test.go` (regression for the binary-gap topup);
+  `inventory_index_repair_test.go` invariant updated (NextEquipIndex preserved, not bumped);
+  `save_integrity_test.go` + `app_additems_duplicate_index_test.go` updated for tolerance.
+  Full PC/PS4 roundtrip + conversion tests pass; `make build` OK.
+
 ### feat(pvp): unified network presets — Faster Reds / Summons / Blue, remove Aggressive
 
 Replaced the two divergent network-preset systems with one source of truth. The

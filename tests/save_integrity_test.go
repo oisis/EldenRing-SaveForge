@@ -1068,10 +1068,14 @@ func TestNoWarningsOnCleanSaves(t *testing.T) {
 }
 
 // TestAcquisitionSortIdIncrementFix verifies that after adding N items:
-//   - NextAcquisitionSortId increments by exactly N
-//   - NextEquipIndex increments by exactly N (stays equal to NextAcqSortId — the
-//     visibility gate must stay ahead of all newly written item.Index values)
-//   - All newly added items have Index < NextEquipIndex (visible to the game)
+//   - NextAcquisitionSortId increments by exactly N (it is the source of each
+//     new item's Index)
+//   - NextEquipIndex is LEFT UNTOUCHED — it is a separate equip-list counter,
+//     NOT a visibility gate. Genuine console saves keep it far below the
+//     acquisition counter (e.g. ER0000 has NextEquipIndex=1198 with item indices
+//     up to ~15668, and the game renders every item). Forcing it up corrupts the
+//     slot (CE-108255-1).
+//   - New items get unique indices drawn from the acquisition counter.
 func TestAcquisitionSortIdIncrementFix(t *testing.T) {
 	save := loadTestSave(t, pcSavePath)
 	slot := &save.Slots[0]
@@ -1092,23 +1096,24 @@ func TestAcquisitionSortIdIncrementFix(t *testing.T) {
 		t.Errorf("NextAcquisitionSortId: want %d+3=%d, got %d",
 			beforeAcq, beforeAcq+3, afterAcq)
 	}
-	if afterEquip != beforeEquip+3 {
-		t.Errorf("NextEquipIndex: want %d+3=%d, got %d",
-			beforeEquip, beforeEquip+3, afterEquip)
+	if afterEquip != beforeEquip {
+		t.Errorf("NextEquipIndex must be preserved: want %d, got %d (add must not touch it)",
+			beforeEquip, afterEquip)
 	}
-	// Visibility invariant: all items must have Index < NextEquipIndex.
-	// mapInventory reconciles NextEquipIndex = NextAcqSortId on load, so with a
-	// clean save both counters stay in sync — afterEquip == afterAcq is correct.
+	// The three new items must carry unique acquisition indices in [beforeAcq, afterAcq).
+	seen := map[uint32]bool{}
 	for _, item := range slot.Inventory.CommonItems {
 		if item.GaItemHandle == 0 || item.GaItemHandle == 0xFFFFFFFF {
 			continue
 		}
-		if item.Index >= afterEquip {
-			t.Errorf("item 0x%X is invisible: Index=%d >= NextEquipIndex=%d",
-				item.GaItemHandle, item.Index, afterEquip)
+		if item.Index >= beforeAcq && item.Index < afterAcq {
+			if seen[item.Index] {
+				t.Errorf("duplicate new acquisition Index %d", item.Index)
+			}
+			seen[item.Index] = true
 		}
 	}
-	t.Logf("OK: AcqSort %d→%d (+%d), EquipIdx %d→%d (+%d)",
+	t.Logf("OK: AcqSort %d→%d (+%d), EquipIdx %d→%d (+%d, preserved)",
 		beforeAcq, afterAcq, afterAcq-beforeAcq,
 		beforeEquip, afterEquip, afterEquip-beforeEquip)
 }

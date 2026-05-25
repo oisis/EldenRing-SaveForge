@@ -210,8 +210,17 @@ func TestRepairDuplicateInventoryIndices_ManyAdjacentPairs(t *testing.T) {
 		}
 		seen[c.NewIndex] = true
 	}
-	// NextAcquisitionSortId / NextEquipIndex must stay strictly greater than
-	// every assigned Index.
+	// NextAcquisitionSortId must stay strictly greater than every assigned Index
+	// (it is the source counter for fresh indices). NextEquipIndex must be
+	// PRESERVED — repair renumbers duplicates but must not touch the equip-list
+	// counter (forcing it up corrupts the slot, CE-108255-1). The fixture seeds
+	// NextEquipIndex = maxOriginal+1 = 530, so it stays below the reassigned
+	// (>530) indices, which is correct.
+	const wantPreservedEquip = uint32(530)
+	if slot.Inventory.NextEquipIndex != wantPreservedEquip {
+		t.Errorf("NextEquipIndex must be preserved: want %d, got %d",
+			wantPreservedEquip, slot.Inventory.NextEquipIndex)
+	}
 	for _, it := range slot.Inventory.CommonItems {
 		if it.GaItemHandle == GaHandleEmpty {
 			continue
@@ -219,10 +228,6 @@ func TestRepairDuplicateInventoryIndices_ManyAdjacentPairs(t *testing.T) {
 		if it.Index >= slot.Inventory.NextAcquisitionSortId {
 			t.Errorf("NextAcquisitionSortId=%d not > item Index %d",
 				slot.Inventory.NextAcquisitionSortId, it.Index)
-		}
-		if it.Index >= slot.Inventory.NextEquipIndex {
-			t.Errorf("NextEquipIndex=%d not > item Index %d",
-				slot.Inventory.NextEquipIndex, it.Index)
 		}
 	}
 }

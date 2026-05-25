@@ -99,12 +99,18 @@ func (a *App) startup(ctx context.Context) {
 }
 
 func (a *App) logInfo(format string, args ...interface{}) {
+	if a.ctx == nil {
+		return // headless / test: no Wails runtime context to log or emit to
+	}
 	msg := fmt.Sprintf(format, args...)
 	runtime.LogInfof(a.ctx, "%s", msg)
 	runtime.EventsEmit(a.ctx, "app:log", "info", msg)
 }
 
 func (a *App) logError(format string, args ...interface{}) {
+	if a.ctx == nil {
+		return // headless / test: no Wails runtime context to log or emit to
+	}
 	msg := fmt.Sprintf(format, args...)
 	runtime.LogErrorf(a.ctx, "%s", msg)
 	runtime.EventsEmit(a.ctx, "app:log", "error", msg)
@@ -336,17 +342,24 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 	slot := &a.save.Slots[charIdx]
 
-	// PRE-FLIGHT: refuse to mutate a save that already has duplicate inventory
-	// acquisition indices. Without this guard the batch mutates the slot, then the
-	// post-mutation validator catches the pre-existing duplicate and rolls back —
-	// surfacing a misleading "post-mutation validation failed" error to the user.
-	// No mutation, no snapshot needed; the slot is untouched on error.
+	// PRE-FLIGHT: the game tolerates pre-existing duplicate acquisition indices
+	// (a genuine console save can carry hundreds — see spec/52). Renumbering them
+	// is what corrupts the save (CE-108255-1), so we do NOT block or repair here.
+	// Instead we record the already-duplicated indices as a tolerance baseline:
+	// the add assigns fresh unique indices to new items and never touches the
+	// existing records, so the post-mutation validator must only flag duplicates
+	// the mutation itself introduces (baseline excluded).
+	var dupBaseline map[uint32]bool
 	if dups := core.ScanDuplicateInventoryIndices(slot); len(dups) > 0 {
-		d := dups[0]
-		return result, fmt.Errorf(
-			"save inventory has %d duplicate acquisition index issue(s) before adding items: duplicate Index %d in %s (handle 0x%08X, also at row %d handle 0x%08X). Run inventory index repair before adding items",
-			len(dups), d.Index, d.Scope, d.DuplicateHandle, d.FirstRow, d.FirstHandle,
-		)
+		dupBaseline = make(map[uint32]bool, len(dups))
+		for _, d := range dups {
+			dupBaseline[d.Index] = true
+		}
+		if a.ctx != nil {
+			runtime.LogWarningf(a.ctx,
+				"AddItemsToCharacter: slot %d has %d pre-existing duplicate acquisition index(es); tolerating (game accepts them) and adding items with fresh unique indices",
+				charIdx, len(dups))
+		}
 	}
 
 	// Build maps from current inventory/storage state:
@@ -622,8 +635,10 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	// RECONCILE: fix storage header count (blind +1 increment may drift).
 	core.ReconcileStorageHeader(slot)
 
-	// POST-VALIDATION: check invariants after mutation.
-	if violations := core.ValidatePostMutation(slot); len(violations) > 0 {
+	// POST-VALIDATION: check invariants after mutation. Pre-existing duplicate
+	// indices (dupBaseline) are tolerated; only duplicates introduced by this
+	// add would trip the check and roll back.
+	if violations := core.ValidatePostMutationBaseline(slot, dupBaseline); len(violations) > 0 {
 		core.RestoreSlot(slot, snapshot)
 		return result, fmt.Errorf("rollback: post-mutation validation failed: %s", violations[0].Error())
 	}

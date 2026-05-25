@@ -364,6 +364,18 @@ func ScanDuplicateInventoryIndices(slot *SaveSlot) []DuplicateInventoryIndexIssu
 // Only checks crash-causing conditions — not full diagnostic scan.
 // Returns nil if all checks pass, or a slice of violations.
 func ValidatePostMutation(slot *SaveSlot) []IntegrityError {
+	return ValidatePostMutationBaseline(slot, nil)
+}
+
+// ValidatePostMutationBaseline is ValidatePostMutation with a tolerance set:
+// duplicate Index values listed in ignoreDupIndex (acquisition indices that
+// were ALREADY duplicated before the mutation) are not reported. The game
+// tolerates pre-existing duplicate acquisition indices (a real console save
+// can carry hundreds — see spec/52); only duplicates the mutation itself
+// introduces are crash-relevant. Adds never reuse an existing Index, so a
+// clean mutation never trips this even with ignoreDupIndex empty. Pass nil to
+// flag every duplicate (identical to the historical behaviour).
+func ValidatePostMutationBaseline(slot *SaveSlot, ignoreDupIndex map[uint32]bool) []IntegrityError {
 	var errs []IntegrityError
 
 	// 1. Every non-empty inventory handle must exist in GaMap (for non-stackable types).
@@ -388,7 +400,7 @@ func ValidatePostMutation(slot *SaveSlot) []IntegrityError {
 		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
 			continue
 		}
-		if indexSeen[item.Index] {
+		if indexSeen[item.Index] && !ignoreDupIndex[item.Index] {
 			errs = append(errs, IntegrityError{
 				Check:   "duplicate_index",
 				Message: fmt.Sprintf("duplicate Index %d in inventory common (handle 0x%08X)", item.Index, item.GaItemHandle),
@@ -400,7 +412,7 @@ func ValidatePostMutation(slot *SaveSlot) []IntegrityError {
 		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
 			continue
 		}
-		if indexSeen[item.Index] {
+		if indexSeen[item.Index] && !ignoreDupIndex[item.Index] {
 			errs = append(errs, IntegrityError{
 				Check:   "duplicate_index",
 				Message: fmt.Sprintf("duplicate Index %d in inventory key (handle 0x%08X)", item.Index, item.GaItemHandle),
