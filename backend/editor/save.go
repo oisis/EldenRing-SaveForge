@@ -3,6 +3,7 @@ package editor
 import (
 	"encoding/binary"
 	"fmt"
+	"sort"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
@@ -38,12 +39,12 @@ type HandlesByUID map[string]uint32
 //     changes via core.PatchWeaponItemID (works correctly for
 //     transferred weapons too — patch keys on handle, not container)
 //   - apply pending AoW edits (Phase 4B):
-//       * PendingAoWItemID != 0 — allocate a fresh AoW GaItem via
-//         core.PatchWeaponAoW (never reuses a handle, so two weapons
-//         setting the same AoW item get distinct handles)
-//       * PendingAoWClear == true — patch weapon's AoWGaItemHandle
-//         field to the canonical no-custom sentinel via
-//         core.PatchWeaponAoWHandle (in-place, no rebuild)
+//   - PendingAoWItemID != 0 — allocate a fresh AoW GaItem via
+//     core.PatchWeaponAoW (never reuses a handle, so two weapons
+//     setting the same AoW item get distinct handles)
+//   - PendingAoWClear == true — patch weapon's AoWGaItemHandle
+//     field to the canonical no-custom sentinel via
+//     core.PatchWeaponAoWHandle (in-place, no rebuild)
 //   - preserve unsupported/pass-through records at their original
 //     physical SlotIndex
 //
@@ -166,10 +167,10 @@ func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, b
 	}
 
 	// ── Step 3: wipe + replay record layouts in both containers ───
-	if err := writeContainerLayout(slot, snap, ContainerInventory); err != nil {
+	if err := writeContainerLayout(slot, snap, ContainerInventory, baseline); err != nil {
 		return nil, fmt.Errorf("ApplyWorkspaceSave: write inventory: %w", err)
 	}
-	if err := writeContainerLayout(slot, snap, ContainerStorage); err != nil {
+	if err := writeContainerLayout(slot, snap, ContainerStorage, baseline); err != nil {
 		return nil, fmt.Errorf("ApplyWorkspaceSave: write storage: %w", err)
 	}
 
@@ -515,7 +516,7 @@ func executeWeaponPatches(slot *core.SaveSlot, items []EditableItem) error {
 //   - Storage uses a compacted CommonItems list (only non-empty
 //     entries, in physical slot order) — matching ReadStorage's parse
 //     convention.
-func writeContainerLayout(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, kind ContainerKind) error {
+func writeContainerLayout(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, kind ContainerKind, baseline map[uint32]ContainerKind) error {
 	var (
 		editables   []EditableItem
 		passthrough []RawInventoryRecord
@@ -590,6 +591,42 @@ func writeContainerLayout(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot,
 		return fmt.Errorf("slot.Data too short for %s container (%d < %d)", kind, len(slot.Data), endOff)
 	}
 
+	// Fidelity fast-path: when the item SET is unchanged — no adds, removes, or
+	// transfers, only possibly a reorder — keep every item at its ORIGINAL
+	// physical slot and reassign acquisition indices by reusing the existing
+	// pool of original indices in the new Position order. The game sorts the
+	// inventory by acquisition index, so reusing the pool realises a reorder
+	// without inventing new indices, advancing the counters, or moving items
+	// between physical slots. Crucially this path does NOT wipe the region, so
+	// empty slots keep the exact bytes the game wrote (e.g. the acq=1 sentinel
+	// in unused storage slots). Consequently a no-op save is byte-identical to
+	// the loaded file, a weapon upgrade / AoW edit touches only the GaItem (not
+	// inventory), and a pure reorder rewrites only the acquisition-index field
+	// of the items whose order changed. Only adds/removes/transfers fall
+	// through to the full wipe-and-replay below.
+	if containerSameItemSet(editables, kind, baseline) {
+		pool := make([]uint32, len(editables))
+		for i, it := range editables {
+			pool[i] = it.AcquisitionIndex
+		}
+		sort.Slice(pool, func(i, j int) bool { return pool[i] < pool[j] })
+
+		for _, p := range passthrough {
+			off := startOff + p.SlotIndex*core.InvRecordLen
+			binary.LittleEndian.PutUint32(slot.Data[off:], p.Handle)
+			binary.LittleEndian.PutUint32(slot.Data[off+4:], p.Quantity)
+			binary.LittleEndian.PutUint32(slot.Data[off+8:], p.AcquisitionIndex)
+		}
+		for i, it := range editables {
+			off := startOff + it.OriginalSlotIndex*core.InvRecordLen
+			binary.LittleEndian.PutUint32(slot.Data[off:], it.OriginalHandle)
+			binary.LittleEndian.PutUint32(slot.Data[off+4:], it.Quantity)
+			binary.LittleEndian.PutUint32(slot.Data[off+8:], pool[i])
+		}
+		rebuildInMemoryCommonItems(slot, startOff, capacity, equip, kind == ContainerInventory)
+		return nil
+	}
+
 	// Wipe all CommonItems bytes.
 	for i := startOff; i < endOff; i++ {
 		slot.Data[i] = 0
@@ -642,6 +679,37 @@ func writeContainerLayout(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot,
 	}
 
 	return nil
+}
+
+// containerSameItemSet reports whether the container holds exactly the same
+// original items it was loaded with — no added items, no removed or
+// transferred items (the editable original-handle set equals the baseline set
+// for this container). A reorder is allowed: the set is unchanged even if the
+// Position order differs. When true the caller can keep every item at its
+// original physical slot and reuse the original acquisition-index pool, so a
+// no-op save stays byte-identical and a reorder touches only index fields.
+func containerSameItemSet(editables []EditableItem, kind ContainerKind, baseline map[uint32]ContainerKind) bool {
+	if baseline == nil {
+		return false
+	}
+	baselineCount := 0
+	for _, c := range baseline {
+		if c == kind {
+			baselineCount++
+		}
+	}
+	if len(editables) != baselineCount {
+		return false
+	}
+	for _, it := range editables {
+		if it.Source != ItemSourceOriginal || it.OriginalSlotIndex < 0 {
+			return false // an added item
+		}
+		if baseline[it.OriginalHandle] != kind {
+			return false // removed, transferred in, or moved between containers
+		}
+	}
+	return true
 }
 
 // rebuildInMemoryCommonItems syncs equip.CommonItems with the freshly

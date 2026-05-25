@@ -105,6 +105,7 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 		IsArmor:          isArmorCategory(itemData.Category),
 		IsTalisman:       itemData.Category == "talismans",
 	}
+	item.OriginalSlotIndex = -1 // added items have no original physical slot
 	if item.IsWeapon {
 		// Mirror BuildSnapshot — added weapons must carry the same
 		// AoW-mounting metadata so the edit modal can compute

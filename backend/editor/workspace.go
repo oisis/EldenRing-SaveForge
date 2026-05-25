@@ -104,43 +104,49 @@ type InventoryWorkspaceSnapshot struct {
 // user's pending edit. Use Pending* fields to express an unsaved AoW
 // swap; the two coexist until Save resolves the pending request.
 type EditableItem struct {
-	UID                   string        `json:"uid"`
-	Source                ItemSource    `json:"source"`
-	Container             ContainerKind `json:"container"`
-	Position              int           `json:"position"`
-	OriginalHandle        uint32        `json:"originalHandle"`
-	ItemID                uint32        `json:"itemID"`
-	BaseItemID            uint32        `json:"baseItemID"`
-	Name                  string        `json:"name"`
-	Category              string        `json:"category"`
-	Quantity              uint32        `json:"quantity"`
-	AcquisitionIndex      uint32        `json:"acquisitionIndex"`
-	CurrentUpgrade        int           `json:"currentUpgrade"`
-	MaxUpgrade            int           `json:"maxUpgrade"`
-	InfusionName          string        `json:"infusionName,omitempty"`
-	IconPath              string        `json:"iconPath,omitempty"`
-	HasGaItem             bool          `json:"hasGaItem"`
-	IsWeapon              bool          `json:"isWeapon"`
-	IsArmor               bool          `json:"isArmor"`
-	IsTalisman            bool          `json:"isTalisman"`
+	UID              string        `json:"uid"`
+	Source           ItemSource    `json:"source"`
+	Container        ContainerKind `json:"container"`
+	Position         int           `json:"position"`
+	OriginalHandle   uint32        `json:"originalHandle"`
+	ItemID           uint32        `json:"itemID"`
+	BaseItemID       uint32        `json:"baseItemID"`
+	Name             string        `json:"name"`
+	Category         string        `json:"category"`
+	Quantity         uint32        `json:"quantity"`
+	AcquisitionIndex uint32        `json:"acquisitionIndex"`
+	CurrentUpgrade   int           `json:"currentUpgrade"`
+	MaxUpgrade       int           `json:"maxUpgrade"`
+	InfusionName     string        `json:"infusionName,omitempty"`
+	IconPath         string        `json:"iconPath,omitempty"`
+	HasGaItem        bool          `json:"hasGaItem"`
+	IsWeapon         bool          `json:"isWeapon"`
+	IsArmor          bool          `json:"isArmor"`
+	IsTalisman       bool          `json:"isTalisman"`
 	// AoW mounting compatibility metadata, populated for weapon-editable
 	// items. WepType / CanMountAoW mirror the DB lookups done by
 	// vm.MapParsedSlotToVM so the WeaponEditModal can resolve AoW
 	// compatibility directly from the workspace item without falling
 	// back to GetCharacter (which can desync for newly-added items, or
 	// when the handle has been re-allocated by a prior Save).
-	WepType               uint16        `json:"wepType,omitempty"`
-	CanMountAoW           bool          `json:"canMountAoW,omitempty"`
-	CurrentAoWHandle      uint32        `json:"currentAoWHandle,omitempty"`
-	CurrentAoWItemID      uint32        `json:"currentAoWItemID,omitempty"`
-	CurrentAoWName        string        `json:"currentAoWName,omitempty"`
-	HasCurrentAoW         bool          `json:"hasCurrentAoW,omitempty"`
-	CurrentAoWShared      bool          `json:"currentAoWShared,omitempty"`
-	CurrentAoWStatus      string        `json:"currentAoWStatus,omitempty"`
-	PendingAoWItemID      uint32        `json:"pendingAoWItemID,omitempty"`
-	PendingAoWName        string        `json:"pendingAoWName,omitempty"`
-	PendingAoWClear       bool          `json:"pendingAoWClear,omitempty"`
-	HasPendingWeaponPatch bool          `json:"hasPendingWeaponPatch,omitempty"`
+	WepType               uint16 `json:"wepType,omitempty"`
+	CanMountAoW           bool   `json:"canMountAoW,omitempty"`
+	CurrentAoWHandle      uint32 `json:"currentAoWHandle,omitempty"`
+	CurrentAoWItemID      uint32 `json:"currentAoWItemID,omitempty"`
+	CurrentAoWName        string `json:"currentAoWName,omitempty"`
+	HasCurrentAoW         bool   `json:"hasCurrentAoW,omitempty"`
+	CurrentAoWShared      bool   `json:"currentAoWShared,omitempty"`
+	CurrentAoWStatus      string `json:"currentAoWStatus,omitempty"`
+	PendingAoWItemID      uint32 `json:"pendingAoWItemID,omitempty"`
+	PendingAoWName        string `json:"pendingAoWName,omitempty"`
+	PendingAoWClear       bool   `json:"pendingAoWClear,omitempty"`
+	HasPendingWeaponPatch bool   `json:"hasPendingWeaponPatch,omitempty"`
+
+	// OriginalSlotIndex is the physical CommonItems slot this item was parsed
+	// from (-1 for items added in the workspace). The save path replays an
+	// unchanged container to these exact slots so a no-op save stays
+	// byte-identical to the loaded file.
+	OriginalSlotIndex int `json:"originalSlotIndex"`
 }
 
 // RawInventoryRecord captures a record the workspace cannot or should not
@@ -350,6 +356,7 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 		IsArmor:          isArmor,
 		IsTalisman:       isTalisman,
 	}
+	editable.OriginalSlotIndex = slotIdx
 	if isWeapon {
 		// Weapon AoW-mounting metadata: WepType is the EquipParamWeapon
 		// category integer (0 = unknown), CanMountAoW reflects the
@@ -406,8 +413,8 @@ func buildWeaponAoWMaps(slot *core.SaveSlot) (map[uint32]uint32, map[uint32]int)
 //   - Entry present → look up the AoW itemID via slot.GaMap[aowHandle].
 //     If the lookup fails the handle is dangling → status = "missing".
 //     Otherwise the DB is queried for the AoW's name/category and:
-//       * count > 1 in aowSharedCount → status = "shared" (corruption)
-//       * otherwise status = "custom"
+//   - count > 1 in aowSharedCount → status = "shared" (corruption)
+//   - otherwise status = "custom"
 //
 // The function never errors; it sets enough fields for Validate to emit
 // a warning if state is anomalous (missing / shared / non-AoW category).
@@ -477,4 +484,3 @@ func isArmorCategory(cat string) bool {
 	}
 	return false
 }
-

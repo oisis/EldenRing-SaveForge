@@ -962,6 +962,7 @@ export namespace editor {
 	    pendingAoWName?: string;
 	    pendingAoWClear?: boolean;
 	    hasPendingWeaponPatch?: boolean;
+	    originalSlotIndex: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new EditableItem(source);
@@ -1000,6 +1001,7 @@ export namespace editor {
 	        this.pendingAoWName = source["pendingAoWName"];
 	        this.pendingAoWClear = source["pendingAoWClear"];
 	        this.hasPendingWeaponPatch = source["hasPendingWeaponPatch"];
+	        this.originalSlotIndex = source["originalSlotIndex"];
 	    }
 	}
 	export class WorkspaceValidationIssue {
