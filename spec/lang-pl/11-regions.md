@@ -1,8 +1,10 @@
 # 11 — Regions (UnlockedRegions — szybka podróż + invasion eligibility)
 
 > **Typ**: Binary format spec + region database reference
-> **Status**: ✅ canonical (Phase 4 Step 3 — 2026-05-21)
-> **Zakres**: Detail rozdział dla L0 warstwy z [27 — Map Reveal](27-map-reveal.md). Opisuje binary layout `UnlockedRegions` array, write path przez `core.SetUnlockedRegions` (z `RebuildSlot`), zawartość `backend/db/data/regions.go` (104 wpisy snapshot 2026-05-21), oraz integracje (`App.SetRegionUnlocked`, `App.BulkSetUnlockedRegions`, `ApplyPvPPreparation` matchmaking module).
+> **Status**: ✅ canonical (2026-05-26 — curated invasion allowlist, 274 wpisy)
+> **Zakres**: Detail rozdział dla L0 warstwy z [27 — Map Reveal](27-map-reveal.md). Opisuje binary layout `UnlockedRegions` array, write path przez `core.SetUnlockedRegions` (z `RebuildSlot`), zawartość `backend/db/data/regions.go` (**274 skuratowanych regionów invasion/blue** snapshot 2026-05-26), oraz integracje (`App.SetRegionUnlocked`, `App.BulkSetUnlockedRegions`, `ApplyPvPPreparation` matchmaking module).
+>
+> **`MatchmakingRegions` to skuratowana allowlista, nie cały świat.** `backend/db/data/regions.go` jest podzbiorem wierszy `PlayRegionParam` z regulation.bin, potwierdzonym jako standardowe cele invasion / blue-summon, pochodzącym 1:1 z dedykowanej listy Elden-Ring-CT-TGA "Invasion Regions". Realny Row ID z `PlayRegionParam` **nie** jest automatycznie legalnym celem PvP: huby multiplayer (Roundtable Hold w ogóle nie ma wiersza `PlayRegion`), kolosea (osobny matchmaking) oraz wewnętrzne/network-only wiersze sub-obszarów są celowo wykluczone. "Unlock All" odblokowuje każdy **zweryfikowany legalny** region PvP — nigdy "PvP wszędzie" — i teraz **zachowuje wszelkie nieskuratowane surowe region IDs** już obecne w save (zob. §9.1).
 
 ---
 
@@ -21,7 +23,7 @@ Ten rozdział opisuje:
 
 - binary layout `UnlockedRegions` array
 - `core.SetUnlockedRegions` write pipeline + `RebuildSlot` integration
-- `RegionData` static DB (`backend/db/data/regions.go`, 104 wpisy snapshot 2026-05-21)
+- `RegionData` static DB (`backend/db/data/regions.go`, 274 skuratowane wpisy snapshot 2026-05-26)
 - 3 App-level Wails methods (`GetUnlockedRegions`, `SetRegionUnlocked`, `BulkSetUnlockedRegions`)
 - integrację z `ApplyPvPPreparation` MatchmakingRegions module
 - 4 testy round-trip + mutation + shrink
@@ -43,13 +45,13 @@ Ten rozdział **nie** powiela:
 |---|---|---|---|
 | Binary read (`u32 count + count*u32 IDs`) | ✅ `Slot.UnlockedRegionsOffset` + `Slot.UnlockedRegions` parsed in `structures.go:402–411` | ✅ pokryte przez round-trip parsing | — |
 | Write — `core.SetUnlockedRegions` | ✅ `backend/core/writer.go:911` z `RebuildSlot` + rollback | ✅ 4 testy (InMemory, PS4 round-trip, AfterAddItem, PC round-trip) | Atomic via rollback |
-| Static DB — `Regions` map | ✅ `backend/db/data/regions.go`, 104 wpisy | ⚠️ pokryte tylko przez `GetAllRegions()` smoke (brak dedicated test) | Snapshot 2026-05-21 |
-| App-level toggles | ✅ `app_world.go:186/211/247` (`GetUnlockedRegions`, `SetRegionUnlocked`, `BulkSetUnlockedRegions`) | ⚠️ pokryte pośrednio przez `writer_regions_test.go` | — |
+| Static DB — `Regions` map | ✅ `backend/db/data/regions.go`, 274 skuratowane wpisy (208 base + 66 DLC) | ✅ `backend/db/regions_test.go` (liczniki, mapowanie DLC, brak sfabrykowanych IDs, brak forbidden locations) | Snapshot 2026-05-26 |
+| App-level toggles | ✅ `app_world.go:186/211/247` (`GetUnlockedRegions`, `SetRegionUnlocked`, `BulkSetUnlockedRegions`) | ✅ `app_world_regions_test.go` (preservation nieskuratowanych surowych IDs) + pośrednio `writer_regions_test.go` | Operacje grupowe zachowują nieskuratowane surowe IDs |
 | PvP integration | ✅ `app_pvp.go:47` MatchmakingRegions module — `core.SetUnlockedRegions(slot, allRegions)` | ✅ pokryte przez `pvp_test.go` round-trip | — |
 | Frontend | ✅ `WorldTab.tsx` accordion (Invasion Regions) + `RiskSectionBanner` | — | Tier 1 risk banner |
-| Empirical fresh-save markers (1001000–1001002, 1800001, 1800090, 6100000) | ⚠️ obserwowane w save, NIE są w `regions.go` DB | ❌ brak dedicated test | `needs verification` przeznaczenia markerów |
+| Empirical fresh-save markers (1001000–1001002, 1800001, 1800090, 6100000) | ⚠️ obserwowane w save, NIE są w skuratowanym `regions.go` | ✅ `app_world_regions_test.go` używa 1001000 jako fixture preservation | Nieskuratowane surowe IDs zachowywane przez każdą operację grupową |
 
-**Ostatnia weryfikacja**: 2026-05-21 na `tmp/save/ER0000.sl2` (PC, 5 slotów) + `tmp/save/oisis_pl-org.txt` (PS4) — 4 testy round-trip + Add-Item interaction.
+**Ostatnia weryfikacja**: 2026-05-26 — dane regionów zwalidowane wobec `tmp/regulation-bin-dump/csv/PlayRegionParam.csv`; round-trip na `tmp/save/ER0000.sl2` (PC) + `tmp/save/oisis_pl-org.txt` (PS4).
 
 ---
 
@@ -62,9 +64,9 @@ Ten rozdział **nie** powiela:
 | Layout constants | `backend/core/offset_defs.go:97–98` | `DynStorageBox = 0x6010`, `DynStorageToGestures = 0x100` |
 | Writer | `backend/core/writer.go:911 SetUnlockedRegions` | Dedup + sort + `RebuildSlot` + rollback |
 | Slot rebuilder | `backend/core/slot_rebuild.go::RebuildSlot` | Pełny sekwencyjny serializator |
-| Static DB struct | `backend/db/data/regions.go::RegionData` | `{Name, Area}` |
-| Static DB map | `backend/db/data/regions.go::Regions` | 104 wpisy (snapshot 2026-05-21) |
-| DB API | `backend/db/db.go:1114 GetAllRegions`, `:1116 IsKnownRegionID` | `RegionEntry{ID, Name, Area, ...}` z `sync.OnceValue` cache |
+| Static DB struct | `backend/db/data/regions.go::RegionData` | `{Name, Area, DLC}` |
+| Static DB map | `backend/db/data/regions.go::Regions` | 274 skuratowane wpisy (208 base + 66 DLC, snapshot 2026-05-26) |
+| DB API | `backend/db/db.go:1114 GetAllRegions`, `:1116 IsKnownRegionID` | `RegionEntry{ID, Name, Area, ...}` z `sync.OnceValue` cache; `IsKnownRegionID` = członkostwo w skuratowanej allowliście |
 | Entry struct | `backend/db/db.go:126 RegionEntry` | `ID, Name, Area, Unlocked` (Unlocked dodawane przez `GetUnlockedRegions` per-slot) |
 | App methods | `app_world.go:186 GetUnlockedRegions`, `:211 SetRegionUnlocked`, `:247 BulkSetUnlockedRegions` | Wails-exposed |
 | PvP integration | `app_pvp.go:47 ApplyPvPPreparation` (MatchmakingRegions module) | Uses `GetAllRegions()` + `SetUnlockedRegions(slot, ids)` |
@@ -122,11 +124,13 @@ Razem: 4 + count*4 bytes
 // backend/db/data/regions.go
 type RegionData struct {
     Name string
-    Area string  // 11 unikalnych wartości — zob. §5.5
+    Area string  // 13 unikalnych wartości — zob. §5.5
+    DLC  bool     // true dla regionów Shadow of the Erdtree (nieciągła przestrzeń ID)
 }
 
 var Regions = map[uint32]RegionData{
     6100000: {Name: "The First Step", Area: "Limgrave"},
+    6800000: {Name: "Gravesite Plain", Area: "Land of Shadow", DLC: true},
     ...
 }
 ```
@@ -143,68 +147,58 @@ type RegionEntry struct {
 }
 ```
 
-### 5.5 Area enum (11 unikalnych wartości w current snapshot)
+### 5.5 Area enum (13 unikalnych wartości w current snapshot)
 
-Wartości pola `Area` z `Regions` map (2026-05-21):
+Wartości pola `Area` z `Regions` map (2026-05-26):
 
 ```
-"Altus Plateau", "Caelid", "Farum Azula", "Haligtree",
-"Land of Shadow", "Legacy Dungeons", "Limgrave", "Liurnia",
-"Mountaintops", "Mt. Gelmir", "Underground"
+"Altus Plateau", "Caelid", "Catacombs, Caves & Tunnels", "Farum Azula",
+"Haligtree", "Land of Shadow", "Land of Shadow — Dungeons",
+"Legacy Dungeons", "Limgrave", "Liurnia", "Mountaintops",
+"Mt. Gelmir", "Underground"
 ```
 
-⚠️ DLC regions używają `Area: "Land of Shadow"`, **nie** `"DLC"`. Inferred manualnie z er-save-manager + curated; brak strict enum w kodzie — to `string` pole. `GetAllRegions()` sortuje po `Area` (alphabetic) → `Name`.
+⚠️ DLC regions używają `Area: "Land of Shadow"` (overworld) lub `"Land of Shadow — Dungeons"`, **nie** `"DLC"` — marker DLC niesie pole `DLC bool`. Obszary skuratowane z kolumny `Map` listy TGA; brak strict enum w kodzie — to `string` pole. `GetAllRegions()` sortuje po `Area` (alphabetic) → `Name`.
 
 ---
 
 ## 6. Region IDs and grouping
 
-### 6.1 Liczba wpisów (snapshot 2026-05-21)
+### 6.1 Liczba wpisów (snapshot 2026-05-26)
 
-| Grupa | Liczba | Range |
-|---|---|---|
-| Overworld base game | 62 | 6100000–6800000 (Limgrave / Liurnia / Altus / Caelid / Mountaintops / Mt. Gelmir / Underground / Farum Azula / Haligtree) |
-| Overworld DLC (Shadow of the Erdtree) | 7 | 6900000–6900006 (Land of Shadow) |
-| Legacy dungeons | 35 | 1000000–1900001 (Stormveil, Leyndell, Roundtable Hold, Academy of Raya Lucaria, Volcano Manor, Stranded Graveyard, Stone Platform / Elden Beast) |
-| **Total** | **104** | — |
+| Grupa | Liczba |
+|---|---|
+| Base game | 208 |
+| DLC (Shadow of the Erdtree) | 66 |
+| **Total (skuratowana allowlista)** | **274** |
 
-⚠️ Snapshot 2026-05-21. Po update'cie patcha gry (np. nowy DLC) wymagana re-extracja `regions.go` z er-save-manager / community RE.
+Każde ID jest realnym Row ID z `PlayRegionParam` **oraz** obecne 1:1 na liście TGA "Invasion Regions". To skuratowany podzbiór invasion/blue — nie pełna 594-wierszowa tabela `PlayRegionParam`.
 
-### 6.2 Prefix overview
+⚠️ Snapshot 2026-05-26. Po patchu gry / nowym DLC zwaliduj ponownie `regions.go` wobec `regulation.bin` `PlayRegionParam` + listy TGA (`tmp/scripts/gen_regions.py` + `tmp/scripts/validate_regions.py`).
 
-Pełna lista per-prefix (z `Regions` map):
+### 6.2 Area overview
 
-| Prefix | Count | Area (z `RegionData.Area`) | Przykłady |
+Liczniki per-area (z `Regions` map, sortowane po `Area`):
+
+| Area | Count | DLC | Uwagi |
 |---|---|---|---|
-| 1000xxx | 5 | Legacy Dungeons | Stormveil Castle, Main Gate, Rampart Tower |
-| 1100xxx | 8 | Legacy Dungeons | Leyndell, Royal Capital, Erdtree Sanctuary |
-| 1101xxx | 1 | Legacy Dungeons | Roundtable Hold |
-| 1105xxx | 4 | Legacy Dungeons | Leyndell, Capital of Ash (post-Farum Azula) |
-| 1400xxx | 5 | Legacy Dungeons | Academy of Raya Lucaria |
-| 1600xxx | 8 | Legacy Dungeons | Volcano Manor (interior), Temple of Eiglay |
-| 1800xxx | 2 | Legacy Dungeons | Stranded Graveyard, Cave of Knowledge |
-| 1900xxx | 2 | Legacy Dungeons | Stone Platform, Elden Beast |
-| 6100xxx | 6 | Limgrave | The First Step, Agheel Lake, Mistwood |
-| 6101xxx | 2 | Limgrave | Stormhill Shack, Margit the Fell Omen |
-| 6102xxx | 3 | Limgrave | Weeping Peninsula |
-| 6200xxx | 10 | Liurnia | Lake-Facing Cliffs, Caria Manor, Liurnia Highway |
-| 6201xxx | 1 | Liurnia | Bellum Church |
-| 6202xxx | 1 | Liurnia | Moonlight Altar |
-| 6300xxx | 6 | Altus Plateau | Altus overworld |
-| 6301xxx | 2 | Altus Plateau | Capital Outskirts, Capital Rampart |
-| 6302xxx | 3 | Mt. Gelmir | Ninth Mt. Gelmir Campsite, Road of Iniquity |
-| 6400xxx | 6 | Caelid | Caelid overworld |
-| 6401xxx | 1 | Caelid | Swamp of Aeonia |
-| 6402xxx | 2 | Caelid | Dragonbarrow West, Bestial Sanctum |
-| 6500xxx | 2 | Mountaintops | Mountaintops West |
-| 6501xxx | 2 | Mountaintops | Zamor Ruins, Central Mountaintops |
-| 6502xxx | 3 | Mountaintops | Consecrated Snowfield, Ordina |
-| 6600xxx | 8 | Underground | Siofra, Ainsel, Deeproot, Mohgwyn, Lake of Rot |
-| 6700xxx | 3 | Farum Azula | Crumbling Farum Azula, Dragon Temple, Beside the Great Bridge |
-| 6800xxx | 1 | Haligtree | Miquella's Haligtree |
-| 6900xxx | 7 | Land of Shadow | DLC (Gravesite Plain, Scadu Altus, Shadow Keep itd.) |
+| Altus Plateau | 9 | — | Altus overworld + Capital Outskirts |
+| Caelid | 9 | — | Caelid + Dragonbarrow + Swamp of Aeonia |
+| Catacombs, Caves & Tunnels | 63 | — | Bazowe minor dungeons (3xxxxxx) |
+| Farum Azula | 10 | — | Crumbling Farum Azula |
+| Haligtree | 7 | — | Miquella's Haligtree (w tym Promenade / Town Plaza — czołowe strefy inwazji) |
+| Land of Shadow | 27 | ✅ | DLC overworld (Gravesite Plain 6800000, Scadu Altus 6900000 itd.) |
+| Land of Shadow — Dungeons | 39 | ✅ | DLC legacy dungeons / gaols / forges / catacombs (2xxxxxx, 4xxxxxx) |
+| Legacy Dungeons | 40 | — | Stormveil, Leyndell, Raya Lucaria, Volcano Manor itd. |
+| Limgrave | 13 | — | The First Step, Weeping Peninsula, Stormhill |
+| Liurnia | 13 | — | Lake-facing, Caria Manor, Bellum, Moonlight Altar |
+| Mountaintops | 10 | — | Mountaintops + Consecrated Snowfield |
+| Mt. Gelmir | 3 | — | Road of Iniquity, Ninth Mt. Gelmir Campsite |
+| Underground | 31 | — | Siofra, Ainsel, Deeproot, Mohgwyn, Lake of Rot |
 
-Pełna lista: `backend/db/data/regions.go` (104 named entries).
+> **Regiony `isBoss` są zachowane.** Lista TGA taguje część regionów jako `isBoss` ("regiony *przed* walkami z bossami i fog walls"). To legalne konteksty inwazji — kilka z nich to najaktywniejsze strefy PvP w grze (np. Haligtree Promenade / Town Plaza). **Nie są** to wnętrza aren z wyłączonym multiplayer i **nie** są usuwane. Faktycznie zakazane lokacje (Roundtable Hold, kolosea) nie mają wiersza `PlayRegion` i są nieobecne z konstrukcji.
+
+Pełna lista: `backend/db/data/regions.go` (274 skuratowane wpisy).
 
 ### 6.3 Empirical fresh-save markers (NIE w DB)
 
@@ -221,7 +215,7 @@ W każdym fresh save (post-character-creation) zaobserwowane region IDs:
 
 ### 6.4 Late-game saves
 
-W save'ach z późnego etapu gry (post-elden-beast) zaobserwowano **do 395 wpisów** w `UnlockedRegions` (więcej niż 104 z DB — różnica to sub-region IDs używane przez engine internalnie + invasion area subdivisions). `GetAllRegions()` zwraca tylko 104 znanych „named regions"; pozostałe IDs są zachowywane przez round-trip ale niewidoczne w UI.
+W save'ach z późnego etapu gry (post-elden-beast) zaobserwowano **do ~395 wpisów** w `UnlockedRegions` (więcej niż 274 skuratowane regiony — różnica to wewnętrzne sub-region IDs + invasion area subdivisions z `PlayRegionParam`, celowo poza skuratowaną allowlistą). `GetAllRegions()` zwraca tylko 274 skuratowane „named regions"; pozostałe surowe IDs są niewidoczne w UI **i teraz zachowywane przez każdą operację grupową** (Unlock All / Lock All / per-area), nie tylko przez round-trip — zob. §9.1.
 
 ---
 
@@ -279,9 +273,26 @@ Generic event flag fundament (bit/byte indexing, BST resolver, helper API, bound
 
 | Endpoint | Sygnatura | Cel |
 |---|---|---|
-| `GetUnlockedRegions(slotIdx)` | `([]db.RegionEntry, error)` | Read all 104 DB regions z `Unlocked` bool per-slot |
-| `SetRegionUnlocked(slotIdx, regionID, unlocked)` | `error` | Toggle pojedynczy region (add/remove + RebuildSlot) |
-| `BulkSetUnlockedRegions(slotIdx, regionIDs)` | `error` | Replace full list (idempotent) |
+| `GetUnlockedRegions(slotIdx)` | `([]db.RegionEntry, error)` | Czyta wszystkie 274 skuratowane regiony z `Unlocked` bool per-slot. Nieskuratowane surowe IDs nie są pokazywane. |
+| `SetRegionUnlocked(slotIdx, regionID, unlocked)` | `error` | Toggle pojedynczy region; operuje na surowej liście (add/remove jednego ID), więc nieskuratowane surowe IDs są z natury zachowane. |
+| `BulkSetUnlockedRegions(slotIdx, regionIDs)` | `error` | Ustawia **skuratowane** członkostwo na `regionIDs`, zachowując każde surowe ID spoza skuratowanej allowlisty (`mergeUnlockedRegions`). |
+
+**Niedestrukcyjna semantyka zbiorów** (`mergeUnlockedRegions` w `app_world.go`):
+
+```
+result = regionIDs  ∪  { surowe ID ∈ slot.UnlockedRegions : !db.IsKnownRegionID(id) }
+```
+
+World tab przekazuje wyłącznie skuratowane IDs, więc bez tego bulk-replace po cichu skasowałby ~120 nieskuratowanych surowych IDs, które niesie late-game save DLC. Konkretnie:
+
+| Akcja UI | Przekazane `regionIDs` | Efektywny wynik |
+|---|---|---|
+| Unlock All | pełna skuratowana allowlista | `existingRaw ∪ curatedAllowlist` |
+| Lock All | `[]` | `existingRaw − curatedAllowlist` (nieskuratowane surowe zachowane) |
+| Unlock area | skuratowane-unlocked ∪ area | nieskuratowane surowe zawsze zachowane |
+| Lock area | skuratowane-unlocked − area | nieskuratowane surowe zawsze zachowane |
+
+`core.SetUnlockedRegions` deduplikuje + sortuje scalony wynik.
 
 ### 9.2 Internal (`backend/core`)
 
@@ -299,25 +310,26 @@ if opts.MatchmakingRegions {
     allRegions := db.GetAllRegions()
     ids := make([]uint32, len(allRegions))
     for i, r := range allRegions { ids[i] = r.ID }
-    if err := core.SetUnlockedRegions(slot, ids); err != nil {
+    // Niedestrukcyjne: zachowaj surowe IDs spoza skuratowanej allowlisty.
+    if err := core.SetUnlockedRegions(slot, mergeUnlockedRegions(ids, slot.UnlockedRegions)); err != nil {
         return nil, fmt.Errorf("matchmaking regions: %w", err)
     }
-    // SetUnlockedRegions calls RebuildSlot which replaces slot.Data.
-    // Offsets are refreshed automatically; no manual offset recalc needed.
 }
 ```
 
-Skutek: wszystkie 104 znanych regionów (62 + 7 + 35) unlocked dla PvP matchmaking.
+Skutek: wszystkie 274 skuratowane regiony (208 base + 66 DLC) unlocked dla PvP matchmaking, przy zachowaniu wszelkich nieskuratowanych surowych region IDs już obecnych w save. To "Unlock All" przez preset — **nie** włącza PvP wszędzie, tylko zweryfikowane legalne regiony invasion/blue.
 
 ### 9.4 Frontend integration
 
 `WorldTab.tsx` accordion „Invasion Regions":
 
-- Per-region checkbox → `SetRegionUnlocked(charIdx, r.id, unlocked)` (linia 252)
-- „Select All in area" → `BulkSetUnlockedRegions(charIdx, next)` (linie 258, 264)
-- „Unlock All" → `BulkSetUnlockedRegions(charIdx, regionEntries.map(r => r.id))` (linia 270)
-- „Reset" → `BulkSetUnlockedRegions(charIdx, [])` (linia 276)
+- Per-region checkbox → `SetRegionUnlocked(charIdx, r.id, unlocked)` (linia 252) — add/remove na surowej liście, zachowuje resztę
+- Per-area „+ / −" → `BulkSetUnlockedRegions(charIdx, next)` (linie 258, 264) — nieskuratowane surowe zachowane przez merge w backendzie
+- „Unlock All" → `BulkSetUnlockedRegions(charIdx, regionEntries.map(r => r.id))` (linia 270) → `existingRaw ∪ curatedAllowlist`
+- „Lock All" → `BulkSetUnlockedRegions(charIdx, [])` (linia 276) → `existingRaw − curatedAllowlist` (**nie** kasuje nieskuratowanych surowych IDs)
 - `RiskSectionBanner` w nagłówku accordion (zob. [32](32-ban-risk-system.md))
+
+Handlery frontendu są bez zmian; gwarancja preservation żyje w całości w backendowym `mergeUnlockedRegions` (§9.1), więc UI nie może przypadkiem skasować surowych IDs, których nigdy nie widzi.
 
 ---
 
@@ -325,13 +337,11 @@ Skutek: wszystkie 104 znanych regionów (62 + 7 + 35) unlocked dla PvP matchmaki
 
 ### 10.1 Origin
 
-`backend/db/data/regions.go` jest **statyczny katalog generated offline** z [er-save-manager](https://github.com/Jeius/er-save-manager) — community-researched IDs. Source comment w pliku:
-
-> `Source: er-save-manager/src/er_save_manager/data/regions.py — community-researched IDs.`
+`backend/db/data/regions.go` jest **statyczny katalog generated offline** przez `tmp/scripts/gen_regions.py`, który scala dedykowaną listę [Elden-Ring-CT-TGA](https://github.com/Dasaav-dsv/Elden-Ring-CT-TGA) "Invasion Regions" (Dasaav; DLC by Joel/SeriouslyCasual) z istniejącymi skuratowanymi nazwami, a następnie **twardo filtruje każde ID wobec `regulation.bin` `PlayRegionParam`** (`tmp/regulation-bin-dump/csv/PlayRegionParam.csv`), więc przeżywają tylko realne Row IDs danych gry. Etykiety 6800000/6900000 są poprawione z `PlaceName_dlc01` FMG + `BonfireWarpParam`.
 
 ### 10.2 Snapshot date
 
-**2026-05-21** — 104 wpisy. Po update'cie patcha gry (np. nowy DLC, balansowanie areas) wymagana re-extracja. Brak automatycznego diff vs `regulation.bin`.
+**2026-05-26** — 274 skuratowane wpisy (208 base + 66 DLC). Po patchu gry / nowym DLC uruchom ponownie `gen_regions.py` + `validate_regions.py` aby zwalidować wobec `regulation.bin`. Brak automatycznego CI diff.
 
 ### 10.3 Co może się zmienić po patchu
 
@@ -341,9 +351,9 @@ Skutek: wszystkie 104 znanych regionów (62 + 7 + 35) unlocked dla PvP matchmaki
 
 ### 10.4 Inferred grupowanie Area
 
-Pole `Area` w `RegionData` jest **manualnie skuratowane** — 11 unikalnych wartości w current snapshot (zob. §5.5).
+Pole `Area` w `RegionData` jest **manualnie skuratowane** — 13 unikalnych wartości w current snapshot (zob. §5.5).
 
-⚠️ Inferred — nie z save format. `needs verification` że każdy region jest zakwalifikowany do właściwego area-grupy (UI grupuje regiony per area w accordion). DLC regions używają `"Land of Shadow"`, nie `"DLC"`.
+⚠️ Inferred — nie z save format. `needs verification` że każdy region jest zakwalifikowany do właściwego area-grupy (UI grupuje regiony per area w accordion). DLC regions używają `"Land of Shadow"` / `"Land of Shadow — Dungeons"`, nie `"DLC"`.
 
 ---
 
@@ -379,7 +389,7 @@ Komentarz w `writer.go:911`:
 
 ### 11.4 Stress test
 
-R-1 step 17: testowane do ~100 000 regionów w syntetycznych testach obciążeniowych. Po rebuild końc danych ~2.2 MB wgłąb slotu o `SlotSize = 0x280000`, pozostawiając 408–432 KB zerowego paddingu. **Brak ryzyka obcięcia** dla realistycznych zakresów (`Unlock All` dodaje 104 regiony, fresh save ma 6).
+R-1 step 17: testowane do ~100 000 regionów w syntetycznych testach obciążeniowych. Po rebuild końc danych ~2.2 MB wgłąb slotu o `SlotSize = 0x280000`, pozostawiając 408–432 KB zerowego paddingu. **Brak ryzyka obcięcia** dla realistycznych zakresów (`Unlock All` ustawia 274 skuratowane regiony plus zachowane surowe IDs, fresh save ma 6).
 
 ### 11.5 Historical: usunięta byte-shift path
 
@@ -392,13 +402,13 @@ Stara implementacja (Stage-1 invasion-regions feature) wstawiała region IDs in-
 | # | Risk | Severity | Mitigation |
 |---|---|---|---|
 | V1 | Stale `regions.go` po patchu gry | ⚠️ medium | `needs verification` po każdym DLC/patch update; brak automatycznego diff vs `regulation.bin`. |
-| V2 | `Unlock All` (104 regiony) na non-DLC save → DLC IDs 69xxxxx w save | ⚠️ low | Gra toleruje (safe), ale logicznie niepoprawne. UI mogłoby warn przy DLC IDs — `needs verification` czy ostrzega. |
-| V3 | Empirical fresh-save markers 1001000–1001002 nie w DB | ⚠️ medium | Round-trip zachowuje, ale `GetAllRegions()` nie zwraca → UI nie pokazuje. `needs verification` przeznaczenia. |
+| V2 | `Unlock All` (274 skuratowane regiony) na non-DLC save → DLC IDs w save | ⚠️ low | Gra toleruje (safe), ale logicznie niepoprawne na save bez DLC. `IsDLCRegion(id)` umożliwia przyszły warning w UI. |
+| V3 | Empirical fresh-save markers 1001000–1001002 nie w skuratowanym DB | ✅ zmitygowane | Zachowane przez round-trip **i** każdą operację grupową (`mergeUnlockedRegions`); `GetAllRegions()` ich nie pokazuje, więc UI ich nie toggle'uje. |
 | V4 | Setting region bez L1 (visible flag) → fast travel ok, ale mapa pusta | ⚠️ low | Po user-side: musi też wywołać `RevealAllMap` lub `SetMapRegionFlags` (L1). |
-| V5 | `BulkSetUnlockedRegions([])` → utrata wszystkich regionów (no fast travel) | 🔴 high | Atomic via rollback w `SetUnlockedRegions`; UI snapshot-undo (`pushUndo`) jest workaround. `RiskSectionBanner` ostrzega. |
+| V5 | „Lock All" → utrata wszystkich regionów (no fast travel) | ✅ zmitygowane | „Lock All" usuwa teraz tylko skuratowaną allowlistę (`existingRaw − curated`); nieskuratowane surowe IDs zachowane. Nadal atomic via rollback + `pushUndo`; `RiskSectionBanner` ostrzega. |
 | V6 | `SetUnlockedRegions` po `AddItemsToSlot` bez refresh offsets | 🔴 high | Już rozwiązane w kodzie (linia 911 z refresh przed rebuild). Test `TestSetUnlockedRegionsAfterAddItem` weryfikuje. |
-| V7 | `RebuildSlot` corrupted slot na large dataset (>100k regions) | ⚠️ low | Stress-tested do ~100k; `Unlock All` użytkownika to 104. Brak realnego ryzyka. |
-| V8 | Late-game save z ~395 wpisami zawiera nieznane sub-region IDs | ⚠️ medium | Round-trip zachowuje, ale UI nie pokazuje. `needs verification` czy są writeable bez side effects. |
+| V7 | `RebuildSlot` corrupted slot na large dataset (>100k regions) | ⚠️ low | Stress-tested do ~100k; `Unlock All` użytkownika to 274 skuratowane + zachowane surowe. Brak realnego ryzyka. |
+| V8 | Late-game save z ~395 wpisami zawiera nieznane sub-region IDs | ✅ zmitygowane | Zachowane przez round-trip **i** każdą operację grupową (`mergeUnlockedRegions`); UI nie pokazuje. |
 | V9 | DLC regions 69xxxxx na non-DLC save → save nadal poprawny ale UI mismatch | ⚠️ low | Patrz V2 (duplicate). |
 | V10 | `SectionMap` rebuild fail jest non-fatal | ⚠️ low | Append warning + kontynuuje z stale section map. `needs verification` czy stale section map nie powoduje innych issues w kolejnych mutacjach. |
 
@@ -412,14 +422,15 @@ Stara implementacja (Stage-1 invasion-regions feature) wstawiała region IDs in-
 | `TestSetUnlockedRegionsRoundTripPS4` | PS4 round-trip (read → mutate → write → read → byte-equal mutated state) | `backend/core/writer_regions_test.go:48` |
 | `TestSetUnlockedRegionsAfterAddItem` | Interaction z `AddItemsToSlot` — verify refresh offsets path | `backend/core/writer_regions_test.go:106` |
 | `TestSetUnlockedRegionsRoundTripPC` | PC round-trip jak PS4 | `backend/core/writer_regions_test.go:158` |
+| `TestRegionsCompleteness` / `TestRegionsKeyDLCPresent` / `TestRegionConflictResolved` | Liczniki skuratowanej allowlisty (274/208/66), kluczowe DLC IDs, mapowanie 6800000/6900000 | `backend/db/regions_test.go` |
+| `TestRegionsNoFabricatedIDs` / `TestNoForbiddenPvPLocations` | Brak sfabrykowanych legacy IDs; brak nazw hubów/koloseów | `backend/db/regions_test.go` |
+| `TestUnlockAllPreservesNonCuratedRaw` / `TestLockAllPreservesNonCuratedRaw` / `TestPerAreaTogglePreservesNonCuratedRaw` | Operacje grupowe zachowują nieskuratowane surowe IDs (fixture 1001000) | `app_world_regions_test.go` |
 
 Brak dedicated test:
 
-- `BulkSetUnlockedRegions([])` (empty replace — V5 risk).
-- DLC region 69xxxxx na non-DLC save (V2).
-- 1001000–1001002 markery zachowanie przez round-trip (V3).
+- DLC region na non-DLC save (V2).
 - PS4↔PC cross-platform conversion test (`TestConvert*` nie istnieje).
-- Late-game save z ~395 wpisami (V8).
+- End-to-end preservation przez `App.BulkSetUnlockedRegions` z realnie wczytanym save (czysta `mergeUnlockedRegions` jest pokryta; wrapper App pośrednio).
 
 ---
 
@@ -427,16 +438,16 @@ Brak dedicated test:
 
 | # | Limit / gap | Status | Notatka |
 |---|---|---|---|
-| L1 | Snapshot 2026-05-21 (104 wpisy) | ⚠️ stale po patchu | Re-extracja z er-save-manager wymagana po update gry. |
-| L2 | Fresh-save markers 1001000–1001002 | ❓ przeznaczenie nieznane | `needs verification`. Round-trip OK, UI nie pokazuje. |
-| L3 | Late-game saves z ~395 wpisami zawierają sub-region IDs poza DB | ⚠️ partial coverage | `GetAllRegions()` zwraca 104; reszta zachowana ale niewidoczna. |
+| L1 | Snapshot 2026-05-26 (274 skuratowane wpisy) | ⚠️ stale po patchu | Uruchom `gen_regions.py` + `validate_regions.py` wobec `regulation.bin` po update gry. |
+| L2 | Fresh-save markers 1001000–1001002 | ❓ przeznaczenie nieznane | `needs verification` przeznaczenia. Zachowane przez round-trip + operacje grupowe; UI nie pokazuje. |
+| L3 | Late-game saves z ~395 wpisami zawierają sub-region IDs poza skuratowanym DB | ✅ zachowane | `GetAllRegions()` zwraca 274 skuratowane; reszta zachowana przez round-trip **i** operacje grupowe, tylko niewidoczna w UI. |
 | L4 | DLC region ownership cross-check | ❌ brak | Edytor nie sprawdza czy save posiada DLC przed ustawieniem 69xxxxx. UI mogłoby warn. |
 | L5 | PS4↔PC cross-platform bit-equal | ❌ brak `TestConvert*` | Round-trip per-platforma OK; brak testu „PS4 → save → convert → load PC → identyczne IDs". |
 | L6 | `Area` grouping inferred manualnie | ⚠️ snapshot | Możliwa rozbieżność po dodaniu nowych regions (np. DLC area niezakwalifikowane). |
 | L7 | `SectionMap` rebuild non-fatal | ⚠️ design choice | Stale section map może powodować subtelne bugi w kolejnych mutacjach — `needs verification`. |
 | L8 | Sub-region IDs (np. 6101000 vs 6100000) | ⚠️ semantyka niejasna | Engine używa internalnie sub-areas (Stormhill jest sub-area Limgrave). Mapping subarea-do-parent nie zaimplementowany. |
 | L9 | Empty `BulkSetUnlockedRegions([])` | ❌ brak guard | Możliwy use case „reset all regions" — atomic via rollback, ale brak warningu UI. |
-| L10 | `RegionData` source pochodzi z er-save-manager | ⚠️ dependency | Jeśli upstream errors / removes IDs, nasza baza może być rozbieżna. Brak CI check. |
+| L10 | `RegionData` źródłem jest lista TGA filtrowana wobec `PlayRegionParam` | ⚠️ dependency | Jeśli lista TGA lub dump `regulation.bin` się zmieni, uruchom ponownie generator. Brak CI check. |
 
 ---
 
@@ -464,23 +475,27 @@ Brak dedicated test:
 - `backend/core/offset_defs.go:97–98` — `DynStorageBox = 0x6010`, `DynStorageToGestures = 0x100`
 - `backend/core/writer.go:911 SetUnlockedRegions` — writer + rollback
 - `backend/core/slot_rebuild.go::RebuildSlot` — pełny sequential serializer
-- `backend/db/data/regions.go` — 104 wpisy + `RegionData` struct (snapshot 2026-05-21)
-- `backend/db/db.go:126 RegionEntry`, `:1114 GetAllRegions`, `:1116 IsKnownRegionID`
-- `app_world.go:186/211/247` — `GetUnlockedRegions`, `SetRegionUnlocked`, `BulkSetUnlockedRegions`
-- `app_pvp.go:47` — `ApplyPvPPreparation` MatchmakingRegions module
-- `frontend/src/components/WorldTab.tsx` — UI accordion + handlers
+- `backend/db/data/regions.go` — 274 skuratowane wpisy + `RegionData{Name, Area, DLC}` (snapshot 2026-05-26)
+- `backend/db/db.go:126 RegionEntry`, `:1114 GetAllRegions`, `:1116 IsKnownRegionID` (członkostwo w skuratowanej allowliście)
+- `app_world.go:186/211/247` — `GetUnlockedRegions`, `SetRegionUnlocked`, `BulkSetUnlockedRegions` + `mergeUnlockedRegions` (preservation)
+- `app_pvp.go:47` — `ApplyPvPPreparation` MatchmakingRegions module (też preserving)
+- `frontend/src/components/WorldTab.tsx` — UI accordion + handlers (bez zmian)
 
 ### Tests
 
 - `backend/core/writer_regions_test.go` — 4 testy (InMemory, RoundTripPS4, AfterAddItem, RoundTripPC)
+- `backend/db/regions_test.go` — liczniki skuratowane, mapowanie DLC, brak sfabrykowanych IDs, brak forbidden locations
+- `app_world_regions_test.go` — preservation nieskuratowanych surowych IDs dla Unlock All / Lock All / per-area
 - `tests/pvp_test.go` — pokrywa PvP MatchmakingRegions path
 
-### Reference parsers / community
+### Game data + reference (authoritative)
 
-- er-save-manager (Python): `parser/world.py::Regions` + `data/regions.py` — community-researched IDs (upstream source)
+- `tmp/regulation-bin-dump/csv/PlayRegionParam.csv` — autorytatywna przestrzeń regionów (594 wiersze); skuratowane DB to podzbiór invasion/blue
+- `tmp/regulation-bin-dump/msg/.../PlaceName_dlc01.fmg.json` — 680000 "Gravesite Plain", 690000 "Scadu Altus"
+- Elden-Ring-CT-TGA "Invasion Regions" (Dasaav; DLC by Joel/SeriouslyCasual) — dedykowana lista invasion-targeting (open-world / dungeon / boss)
 - ER-Save-Editor (Rust): `src/save/common/save_slot.rs` — length-prefixed list reference
 
 ### Hex-verified saves
 
-- `tmp/save/ER0000.sl2` (PC, 5 slotów) — round-trip 2026-05-21
-- `tmp/save/oisis_pl-org.txt` (PS4) — round-trip 2026-05-21
+- `tmp/save/ER0000.sl2` (PC, 5 slotów) — round-trip
+- `tmp/save/oisis_pl-org.txt` (PS4) — round-trip

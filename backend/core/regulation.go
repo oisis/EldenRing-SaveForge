@@ -205,6 +205,58 @@ func NetworkParamFasterBlue() NetworkParamValues {
 	return d
 }
 
+// --- Aggressive functional presets (v0.10) ---
+//
+// Stronger, clearly observable per-group profiles for PS5 PvP testing. Like the
+// Faster presets they are strictly modular: each touches only its own role group,
+// never the unconfirmed 0x7C field (BreakInRequestAreaCount), never Visitor
+// fields, never another group. They do NOT restore the removed global "Aggressive"
+// profile — there is no cross-group Aggressive and no aggressive-host.
+
+// NetworkParamAggressiveReds returns the "Aggressive Reds" preset (Invader role).
+// Maximal red invasion target throughput for Bloody/Recusant Finger testing while
+// keeping a safe timeout (12s, not the old broken 3s) and leaving 0x7C at vanilla 5.
+// Target-candidate proxy: (60/8)*12 = 90/min vs Faster 40/min vs Vanilla 10/min.
+func NetworkParamAggressiveReds() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.MaxBreakInTargetListCount = 12
+	d.BreakInRequestIntervalTimeSec = 8.0
+	d.BreakInRequestTimeOutSec = 12.0
+	// BreakInRequestAreaCount (0x7C) intentionally left at vanilla 5 — semantics unconfirmed.
+	return d
+}
+
+// NetworkParamAggressiveSummons returns the "Aggressive Summon Signs" preset
+// (Cooperator role). Fastest sign refresh/upload and the largest internally
+// consistent sign buffer (cellCount <= totalCount <= singGetMax: 32 <= 64 <= 96).
+// Controls the summon-sign network path only; Summoning Pool activation is a
+// separate World/Exploration feature. cellGroup* ranges are left untouched.
+func NetworkParamAggressiveSummons() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.ReloadSignIntervalTime2 = 10.0
+	d.ReloadSignTotalCount = 64
+	d.ReloadSignCellCount = 32
+	d.UpdateSignIntervalTime = 10.0
+	d.SingGetMax = 96
+	d.SignDownloadSpan = 10.0
+	d.SignUpdateSpan = 10.0
+	return d
+}
+
+// NetworkParamAggressiveBlue returns the "Aggressive Blue / Hunter" preset (Blue
+// role). Fastest, widest co-op blue search for hunter-side testing with an active
+// Blue Cipher Ring. MaxCoopBlueSummonCount (Blue Search Parallelism) and
+// AllAreaSearchRateVsBlue (Retribution) stay vanilla — they are Experimental.
+func NetworkParamAggressiveBlue() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.ReloadVisitListCoolTime = 5.0
+	d.ReloadSearchCoopBlueMin = 5.0
+	d.ReloadSearchCoopBlueMax = 20.0
+	d.MaxVisitListCount = 15
+	d.AllAreaSearchRateCoopBlue = 100
+	return d
+}
+
 // NetworkParamFastSummons returns the "Fast Summons" preset (Cooperator role). Experimental.
 func NetworkParamFastSummons() NetworkParamValues {
 	d := NetworkParamDefaults()

@@ -147,48 +147,93 @@ Controls the Taunter's Tongue / summoning pool visitor mechanics.
 | **Moderate** | Group 3 (`maxCoopBlueSummonCount`, `allAreaSearchRate`), Group 6 (visitor timings) | Changes matchmaking behavior visibly but doesn't break protocol |
 | **High** | Group 4 (`penaltyPoint*`, `penaltyForgiveItemLimitTime`) | Server likely validates penalty state; mismatch = flag |
 
-## Functional Presets (implemented — v0.9 unified system)
+## Functional Presets (implemented — v0.10: Vanilla / Faster / Aggressive)
 
-Three role-scoped presets, defined once in `backend/core/regulation.go` and fetched
-by the frontend via `GetNetworkPreset` (single source of truth — frontend and backend
-cannot drift). The previous global `Aggressive` profile (15 / 6 / 3 / 15 for invasion)
-was **removed** — it cut `breakInRequestTimeOutSec` to 3s (broke near-and-far matchmaking),
-ran a near-continuous retry loop, and wrote the unconfirmed 0x7C field. None of the new
-presets touch 0x7C (it stays at vanilla 5).
+Three role-scoped groups, each with **three modular presets** (`Vanilla`, `Faster`,
+`Aggressive`), defined once in `backend/core/regulation.go` and fetched by the frontend
+via `GetNetworkPreset` (single source of truth — frontend and backend cannot drift).
 
-### "Faster Reds" — `NetworkParamFasterReds()` (Invader)
-```
-maxBreakInTargetListCount:      5 → 8
-breakInRequestIntervalTimeSec: 30 → 12   (≥8s avoids the constant search-message flicker)
-breakInRequestTimeOutSec:      20 → 15   (kept generous so near-and-far can complete)
-breakInRequestAreaCount (0x7C): 5 → 5    (unchanged — unconfirmed semantics)
-```
+Modularity rule: a group button only ever writes that group's stable fields
+(`NETWORK_GROUP_KEYS[group]`). Applying one group's preset never resets another group's
+values, the user's manual tuning, or any Experimental field. `Aggressive` is a *stronger
+profile for testing/tuning* — it is **not** the old removed global `Aggressive` (which
+cut `breakInRequestTimeOutSec` to 3s, broke near-and-far matchmaking, ran a near-continuous
+retry loop and wrote 0x7C). There is no cross-group Aggressive and no `aggressive-host`.
 
-### "Faster Summons & Pools" — `NetworkParamFasterSummons()` (Cooperator)
-```
-reloadSignIntervalTime2:  60 → 20
-reloadSignTotalCount:     20 → 40
-reloadSignCellCount:      10 → 20
-updateSignIntervalTime:   30 → 15
-singGetMax:               32 → 64
-signDownloadSpan:         30 → 15
-signUpdateSpan:           60 → 20
-```
-Invariant enforced (backend + UI clamp): `reloadSignCellCount ≤ reloadSignTotalCount ≤ singGetMax`.
-`cellGroupHorizontalRange` (spatial reach) is **not** part of this preset — it is a planned
-Experimental option (backend patching not yet implemented).
+### Reds / Invader — `NetworkParam{Faster,Aggressive}Reds()`
 
-### "Faster Blue / Hunter" — `NetworkParamFasterBlue()` (Blue)
-```
-reloadVisitListCoolTime:     20 → 8
-reloadSearch_CoopBlue_Min:   30 → 10
-reloadSearch_CoopBlue_Max:  180 → 40
-maxVisitListCount:            5 → 10
-allAreaSearchRate_CoopBlue:  30 → 60
-maxCoopBlueSummonCount:       2 → 2     (unchanged — server caps actual joins)
-allAreaSearchRate_VsBlue:    30 → 30    (unchanged — retribution likely legacy in ER)
-```
-Invariant enforced: `reloadSearch_CoopBlue_Min ≤ reloadSearch_CoopBlue_Max`.
+| Field | Vanilla | Faster | Aggressive |
+|---|---:|---:|---:|
+| `maxBreakInTargetListCount` | 5 | 8 | 12 |
+| `breakInRequestIntervalTimeSec` | 30 | 12 | 8 |
+| `breakInRequestTimeOutSec` | 20 | 15 | 12 |
+
+Target-candidate proxy per minute: Vanilla `(60/30)×5 = 10`, Faster `(60/12)×8 = 40`,
+Aggressive `(60/8)×12 = 90`. Aggressive keeps a safe 12s timeout (not the old 3s) and never
+touches `breakInRequestAreaCount` (0x7C) — see Experimental fields below.
+
+### Summon Signs — `NetworkParam{Faster,Aggressive}Summons()`
+
+| Field | Vanilla | Faster | Aggressive |
+|---|---:|---:|---:|
+| `reloadSignIntervalTime2` | 60 | 20 | 10 |
+| `reloadSignTotalCount` | 20 | 40 | 64 |
+| `reloadSignCellCount` | 10 | 20 | 32 |
+| `updateSignIntervalTime` | 30 | 15 | 10 |
+| `singGetMax` | 32 | 64 | 96 |
+| `signDownloadSpan` | 30 | 15 | 10 |
+| `signUpdateSpan` | 60 | 20 | 10 |
+
+Invariant enforced (backend + UI clamp): `reloadSignCellCount ≤ reloadSignTotalCount ≤ singGetMax`
+(Aggressive: 32 ≤ 64 ≤ 96). This group controls the **summon-sign network path** only —
+**Summoning Pool activation is a separate World / Exploration feature**, configured in the
+World tab, not here. Many pools are confirmed working in-game after earlier fixes, but full
+completeness is not yet formally verified; signs published via pools may share this network
+path, but the effect is not formally verified. `cellGroupHorizontalRange` / `cellGroupTopRange`
+/ `cellGroupBottomRange` remain **future Experimental candidates** for this group — not
+implemented (no patching, no UI).
+
+### Blue / Hunter — `NetworkParam{Faster,Aggressive}Blue()`
+
+| Field | Vanilla | Faster | Aggressive |
+|---|---:|---:|---:|
+| `reloadVisitListCoolTime` | 20 | 8 | 5 |
+| `reloadSearchCoopBlueMin` | 30 | 10 | 5 |
+| `reloadSearchCoopBlueMax` | 180 | 40 | 20 |
+| `maxVisitListCount` | 5 | 10 | 15 |
+| `allAreaSearchRateCoopBlue` | 30 | 60 | 100 |
+
+Invariants enforced: `reloadSearchCoopBlueMin ≤ reloadSearchCoopBlueMax`, and
+`allAreaSearchRateCoopBlue` stays in `0–100`. Test hunter-side on a character with an active
+Blue Cipher Ring. `maxCoopBlueSummonCount` and `allAreaSearchRateVsBlue` are **not** in this
+group — they are Experimental (see below).
+
+### Experimental fields (per group, never changed by presets)
+
+The former single "Experimental" UI section is removed; the fields now live inside their
+functional group, each flagged `Experimental`, and **no active preset (Vanilla / Faster /
+Aggressive) ever writes them**:
+
+- **Reds:** `breakInRequestAreaCount` (0x7C) — unknown break-in field at 0x7C. Gameplay
+  meaning unconfirmed; vanilla value is 5; active presets never modify it.
+- **Blue:** `maxCoopBlueSummonCount` ("Blue Search Parallelism") and `allAreaSearchRateVsBlue`
+  ("Retribution Global %"). Both are Experimental/unverified in Elden Ring; active Blue
+  presets never change them.
+
+**Visitor fields** (`visitorListMax`, `visitorTimeOutTime`, `visitorDownloadSpan`) are
+**hidden from the active UI** — no confirmed use and no proven link to Taunter's Tongue. The
+backend fields and save compatibility are preserved (they round-trip untouched); they are
+simply not rendered and not part of any preset.
+
+### PS5 test setup
+
+1. For Reds/Blue tests, unlock the full base+DLC region pool via **World → Exploration →
+   Invasion Regions → Unlock All** (the 274-region curated allowlist; see [11](11-regions.md)).
+2. NetworkParam activation requires the second-load procedure: configure in SaveForge → copy
+   the save to PS5 → load the character once → return to the main menu → load the same
+   character again → only then test online (the first load resets regulation.bin; the second
+   reads it from the save). The cause of the first-/second-load behaviour is not investigated.
+3. For Blue / Hunter, test on a hunter character with an **active Blue Cipher Ring**.
 
 ### Not implemented (research-only)
 - **Taunter's Tongue / host-side reds** — no confirmed rate parameter found (Goods 108/178 → SpEffect 533 sets session state only). The Visitor fields (`VisitorListMax/TimeOutTime/DownloadSpan`) belong to the ring-search visitor system and are exposed only as Experimental "legacy ring-search fields".

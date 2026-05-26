@@ -67,6 +67,11 @@ const fasterReds = (): Record<string, number> => ({...vanilla(), maxBreakInTarge
 const fasterSummons = (): Record<string, number> => ({...vanilla(), reloadSignIntervalTime2: 20, reloadSignTotalCount: 40, reloadSignCellCount: 20, updateSignIntervalTime: 15, singGetMax: 64, signDownloadSpan: 15, signUpdateSpan: 20});
 const fasterBlue = (): Record<string, number> => ({...vanilla(), reloadVisitListCoolTime: 8, reloadSearchCoopBlueMin: 10, reloadSearchCoopBlueMax: 40, maxVisitListCount: 10, allAreaSearchRateCoopBlue: 60});
 
+// Aggressive preset sources mirror backend NetworkParamAggressive* (Defaults + group changes).
+const aggressiveReds = (): Record<string, number> => ({...vanilla(), maxBreakInTargetListCount: 12, breakInRequestIntervalTimeSec: 8, breakInRequestTimeOutSec: 12});
+const aggressiveSummons = (): Record<string, number> => ({...vanilla(), reloadSignIntervalTime2: 10, reloadSignTotalCount: 64, reloadSignCellCount: 32, updateSignIntervalTime: 10, singGetMax: 96, signDownloadSpan: 10, signUpdateSpan: 10});
+const aggressiveBlue = (): Record<string, number> => ({...vanilla(), reloadVisitListCoolTime: 5, reloadSearchCoopBlueMin: 5, reloadSearchCoopBlueMax: 20, maxVisitListCount: 15, allAreaSearchRateCoopBlue: 100});
+
 describe('NETWORK_GROUP_KEYS — group scope excludes Experimental', () => {
     it('invader does not include the unknown 0x7C field', () => {
         expect(NETWORK_GROUP_KEYS.invader).not.toContain('breakInRequestAreaCount');
@@ -212,6 +217,134 @@ describe('preset composition (modular merge)', () => {
         expect(blue.maxCoopBlueSummonCount).toBe(4); // extra preserved
         expect(blue.maxBreakInTargetListCount).toBe(9); // Reds preserved
         expect(blue.breakInRequestAreaCount).toBe(7); // 0x7C preserved
+    });
+});
+
+describe('Aggressive preset composition (modular merge)', () => {
+    // TC-A1 — three Aggressive presets compose; Experimental + Visitor untouched.
+    it('TC-A1: Aggressive Reds → Summons → Blue keeps all three groups, 0x7C/extras/visitor vanilla', () => {
+        let s = vanilla();
+        s = applyGroupPreset(s, NETWORK_GROUP_KEYS.invader, aggressiveReds());
+        s = applyGroupPreset(s, NETWORK_GROUP_KEYS.cooperator, aggressiveSummons());
+        s = applyGroupPreset(s, NETWORK_GROUP_KEYS.blue, aggressiveBlue());
+
+        // Reds
+        expect(s.maxBreakInTargetListCount).toBe(12);
+        expect(s.breakInRequestIntervalTimeSec).toBe(8);
+        expect(s.breakInRequestTimeOutSec).toBe(12);
+        // Summons (invariant cell<=total<=getMax holds: 32<=64<=96)
+        expect(s.reloadSignIntervalTime2).toBe(10);
+        expect(s.reloadSignTotalCount).toBe(64);
+        expect(s.reloadSignCellCount).toBe(32);
+        expect(s.singGetMax).toBe(96);
+        expect(s.signDownloadSpan).toBe(10);
+        expect(s.signUpdateSpan).toBe(10);
+        // Blue
+        expect(s.reloadVisitListCoolTime).toBe(5);
+        expect(s.reloadSearchCoopBlueMin).toBe(5);
+        expect(s.reloadSearchCoopBlueMax).toBe(20);
+        expect(s.maxVisitListCount).toBe(15);
+        expect(s.allAreaSearchRateCoopBlue).toBe(100);
+        // Untouched — Experimental + Visitor
+        expect(s.breakInRequestAreaCount).toBe(5);
+        expect(s.maxCoopBlueSummonCount).toBe(2);
+        expect(s.allAreaSearchRateVsBlue).toBe(30);
+        expect(s.visitorListMax).toBe(10);
+        expect(s.visitorTimeOutTime).toBe(60);
+        expect(s.visitorDownloadSpan).toBe(60);
+    });
+
+    // TC-A2 — Aggressive Reds keeps Experimental 0x7C and other groups.
+    it('TC-A2: Aggressive Reds changes only the 3 Reds fields', () => {
+        const start = {
+            ...vanilla(),
+            breakInRequestAreaCount: 9,                                   // manual Experimental 0x7C
+            reloadSignTotalCount: 50, reloadSignCellCount: 25, singGetMax: 80, // manual Summons
+            reloadVisitListCoolTime: 7, allAreaSearchRateCoopBlue: 55,    // manual Blue
+        };
+        const s = applyGroupPreset(start, NETWORK_GROUP_KEYS.invader, aggressiveReds());
+
+        expect(s.maxBreakInTargetListCount).toBe(12);
+        expect(s.breakInRequestIntervalTimeSec).toBe(8);
+        expect(s.breakInRequestTimeOutSec).toBe(12);
+        // preserved
+        expect(s.breakInRequestAreaCount).toBe(9);
+        expect(s.reloadSignTotalCount).toBe(50);
+        expect(s.reloadSignCellCount).toBe(25);
+        expect(s.singGetMax).toBe(80);
+        expect(s.reloadVisitListCoolTime).toBe(7);
+        expect(s.allAreaSearchRateCoopBlue).toBe(55);
+    });
+
+    // TC-A3 — Aggressive Summons keeps other groups; invariants hold.
+    it('TC-A3: Aggressive Summons changes only Summons fields, invariants hold', () => {
+        const start = {
+            ...vanilla(),
+            maxBreakInTargetListCount: 7, breakInRequestTimeOutSec: 14,   // manual Reds
+            reloadVisitListCoolTime: 9, maxVisitListCount: 11,            // manual Blue
+        };
+        const s = applyGroupPreset(start, NETWORK_GROUP_KEYS.cooperator, aggressiveSummons());
+
+        expect(s.reloadSignTotalCount).toBe(64);
+        expect(s.reloadSignCellCount).toBe(32);
+        expect(s.singGetMax).toBe(96);
+        expect(s.reloadSignCellCount <= s.reloadSignTotalCount).toBe(true);
+        expect(s.reloadSignTotalCount <= s.singGetMax).toBe(true);
+        // other groups preserved
+        expect(s.maxBreakInTargetListCount).toBe(7);
+        expect(s.breakInRequestTimeOutSec).toBe(14);
+        expect(s.reloadVisitListCoolTime).toBe(9);
+        expect(s.maxVisitListCount).toBe(11);
+    });
+
+    // TC-A4 — Aggressive Blue keeps Blue Experimental extras and other groups.
+    it('TC-A4: Aggressive Blue changes only the 5 Blue fields, keeps extras manual', () => {
+        const start = {
+            ...vanilla(),
+            maxCoopBlueSummonCount: 6,                                    // manual Blue Search Parallelism (Experimental)
+            allAreaSearchRateVsBlue: 85,                                  // manual Retribution Global % (Experimental)
+            maxBreakInTargetListCount: 9,                                 // manual Reds
+            reloadSignTotalCount: 30,                                     // manual Summons (<= vanilla singGetMax 32)
+        };
+        const s = applyGroupPreset(start, NETWORK_GROUP_KEYS.blue, aggressiveBlue());
+
+        // Blue main applied
+        expect(s.reloadVisitListCoolTime).toBe(5);
+        expect(s.reloadSearchCoopBlueMin).toBe(5);
+        expect(s.reloadSearchCoopBlueMax).toBe(20);
+        expect(s.maxVisitListCount).toBe(15);
+        expect(s.allAreaSearchRateCoopBlue).toBe(100);
+        // Blue Experimental preserved
+        expect(s.maxCoopBlueSummonCount).toBe(6);
+        expect(s.allAreaSearchRateVsBlue).toBe(85);
+        // other groups preserved
+        expect(s.maxBreakInTargetListCount).toBe(9);
+        expect(s.reloadSignTotalCount).toBe(30);
+    });
+
+    // TC-A5 — group Vanilla after Aggressive resets only stable fields, keeps Experimental.
+    it('TC-A5: group Vanilla resets only stable group fields, leaves Experimental untouched', () => {
+        let s = vanilla();
+        // Aggressive everything + manual Experimental values.
+        s = applyGroupPreset(s, NETWORK_GROUP_KEYS.invader, aggressiveReds());
+        s = applyGroupPreset(s, NETWORK_GROUP_KEYS.blue, aggressiveBlue());
+        s = {...s, breakInRequestAreaCount: 8, maxCoopBlueSummonCount: 5, allAreaSearchRateVsBlue: 70};
+
+        // Vanilla Reds: resets 3 Reds fields, keeps 0x7C.
+        const vReds = applyGroupPreset(s, NETWORK_GROUP_KEYS.invader, vanilla());
+        expect(vReds.maxBreakInTargetListCount).toBe(5);
+        expect(vReds.breakInRequestIntervalTimeSec).toBe(30);
+        expect(vReds.breakInRequestTimeOutSec).toBe(20);
+        expect(vReds.breakInRequestAreaCount).toBe(8); // Experimental untouched
+        // Blue still aggressive (other group untouched by Reds vanilla)
+        expect(vReds.allAreaSearchRateCoopBlue).toBe(100);
+
+        // Vanilla Blue: resets 5 Blue fields, keeps Blue Experimental.
+        const vBlue = applyGroupPreset(s, NETWORK_GROUP_KEYS.blue, vanilla());
+        expect(vBlue.reloadVisitListCoolTime).toBe(20);
+        expect(vBlue.allAreaSearchRateCoopBlue).toBe(30);
+        expect(vBlue.maxCoopBlueSummonCount).toBe(5);   // Experimental untouched
+        expect(vBlue.allAreaSearchRateVsBlue).toBe(70); // Experimental untouched
     });
 });
 

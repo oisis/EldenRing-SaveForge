@@ -241,9 +241,37 @@ func (a *App) SetRegionUnlocked(slotIndex int, regionID uint32, unlocked bool) e
 	return core.SetUnlockedRegions(slot, next)
 }
 
-// BulkSetUnlockedRegions replaces the slot's region list with the given
-// IDs (deduped + sorted by core.SetUnlockedRegions). Used by the World tab
-// for per-area Unlock/Lock and the global Unlock All / Lock All actions.
+// mergeUnlockedRegions computes the new raw unlocked_regions list for a World-tab
+// bulk operation. It sets the curated invasion-region membership to exactly
+// curatedIDs while preserving every existing raw ID that is NOT part of the
+// curated allowlist (db.IsKnownRegionID).
+//
+// The World tab only ever surfaces curated regions, so a bare list replacement
+// would silently drop advanced / internal region IDs a real save carries (a
+// late-game DLC save can hold ~395 raw IDs vs. the curated allowlist's ~274).
+// Preserving the non-curated remainder makes every bulk action non-destructive:
+//
+//	Unlock All  → curatedIDs = full allowlist  ⇒ result = rawNonCurated ∪ allowlist
+//	Lock All    → curatedIDs = {}              ⇒ result = rawNonCurated
+//	per-area ±  → curatedIDs = curated subset  ⇒ rawNonCurated always retained
+//
+// core.SetUnlockedRegions dedupes + sorts the result, so overlaps are harmless.
+func mergeUnlockedRegions(curatedIDs, existingRaw []uint32) []uint32 {
+	out := make([]uint32, 0, len(curatedIDs)+len(existingRaw))
+	out = append(out, curatedIDs...)
+	for _, id := range existingRaw {
+		if !db.IsKnownRegionID(id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// BulkSetUnlockedRegions sets the curated invasion-region membership of the slot
+// to regionIDs while preserving any raw unlocked_regions entries outside the
+// curated allowlist (see mergeUnlockedRegions). Used by the World tab for
+// per-area Unlock/Lock and the global Unlock All / Lock All actions. The result
+// is deduped + sorted by core.SetUnlockedRegions.
 func (a *App) BulkSetUnlockedRegions(slotIndex int, regionIDs []uint32) error {
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
@@ -257,7 +285,7 @@ func (a *App) BulkSetUnlockedRegions(slotIndex int, regionIDs []uint32) error {
 	if slot.Version == 0 {
 		return fmt.Errorf("slot %d is empty", slotIndex)
 	}
-	return core.SetUnlockedRegions(slot, regionIDs)
+	return core.SetUnlockedRegions(slot, mergeUnlockedRegions(regionIDs, slot.UnlockedRegions))
 }
 
 // GetColosseums returns all colosseums with unlock state from the specified character slot

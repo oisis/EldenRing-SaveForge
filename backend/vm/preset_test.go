@@ -780,7 +780,9 @@ func TestValidatePreset_Regions_DLCValid(t *testing.T) {
 		FormatVersion: PresetFormatVersion,
 		Character:     CharacterPresetCore{Class: 0, Vigor: 15, Mind: 10, Endurance: 11, Strength: 14, Dexterity: 13, Intelligence: 9, Faith: 9, Arcane: 7},
 		World: &WorldPresetData{
-			Regions: []uint32{6900000, 6900001},
+			// Real Shadow of the Erdtree PlayRegion IDs: Scadu Altus + Gravesite
+			// Plain (overworld) and Belurat (DLC legacy dungeon).
+			Regions: []uint32{6900000, 6800000, 2000000},
 		},
 	}
 	warnings := ValidatePreset(preset)
