@@ -128,48 +128,93 @@ Kontroluje mechanikę Taunter's Tongue / summoning pool visitors.
 | **Umiarkowane** | Grupa 3 (`maxCoopBlueSummonCount`, `allAreaSearchRate`), Grupa 6 (visitor timings) | Zmienia widoczne zachowanie matchmakingu ale nie łamie protokołu |
 | **Wysokie** | Grupa 4 (`penaltyPoint*`, `penaltyForgiveItemLimitTime`) | Serwer prawdopodobnie waliduje stan kar; rozbieżność = flagowanie |
 
-## Presety funkcjonalne (zaimplementowane — zunifikowany system v0.9)
+## Presety funkcjonalne (zaimplementowane — v0.10: Vanilla / Faster / Aggressive)
 
-Trzy presety przypisane do ról, zdefiniowane raz w `backend/core/regulation.go` i pobierane
-przez frontend via `GetNetworkPreset` (jedno źródło prawdy — frontend i backend nie mogą się
-rozjechać). Poprzedni globalny profil `Aggressive` (15 / 6 / 3 / 15 dla inwazji) został
-**usunięty** — obcinał `breakInRequestTimeOutSec` do 3s (psuł matchmaking blisko-i-daleko),
-prowadził niemal ciągłą pętlę retry i zapisywał niepotwierdzone pole 0x7C. Żaden nowy preset
-nie rusza 0x7C (zostaje vanilla 5).
+Trzy grupy przypisane do ról, każda z **trzema modułowymi presetami** (`Vanilla`, `Faster`,
+`Aggressive`), zdefiniowane raz w `backend/core/regulation.go` i pobierane przez frontend via
+`GetNetworkPreset` (jedno źródło prawdy — frontend i backend nie mogą się rozjechać).
 
-### "Faster Reds" — `NetworkParamFasterReds()` (Invader)
-```
-maxBreakInTargetListCount:      5 → 8
-breakInRequestIntervalTimeSec: 30 → 12   (≥8s unika ciągłego migania komunikatu wyszukiwania)
-breakInRequestTimeOutSec:      20 → 15   (zostaje wysoki, by blisko-i-daleko zdążyło dojść)
-breakInRequestAreaCount (0x7C): 5 → 5    (bez zmian — semantyka niepotwierdzona)
-```
+Reguła modułowości: przycisk grupy zapisuje wyłącznie stabilne pola tej grupy
+(`NETWORK_GROUP_KEYS[group]`). Zastosowanie presetu jednej grupy nigdy nie resetuje wartości
+innej grupy, ręcznego tuningu użytkownika ani żadnego pola Experimental. `Aggressive` to
+*mocniejszy profil do testów/tuningu* — **nie** jest to stary usunięty globalny `Aggressive`
+(który obcinał `breakInRequestTimeOutSec` do 3s, psuł matchmaking blisko-i-daleko, prowadził
+niemal ciągłą pętlę retry i zapisywał 0x7C). Nie ma cross-group Aggressive ani `aggressive-host`.
 
-### "Faster Summons & Pools" — `NetworkParamFasterSummons()` (Cooperator)
-```
-reloadSignIntervalTime2:  60 → 20
-reloadSignTotalCount:     20 → 40
-reloadSignCellCount:      10 → 20
-updateSignIntervalTime:   30 → 15
-singGetMax:               32 → 64
-signDownloadSpan:         30 → 15
-signUpdateSpan:           60 → 20
-```
-Wymuszony invariant (backend + clamp UI): `reloadSignCellCount ≤ reloadSignTotalCount ≤ singGetMax`.
-`cellGroupHorizontalRange` (zasięg przestrzenny) **nie** jest częścią tego presetu — to planowana
-opcja Experimental (patching backendu jeszcze niezaimplementowany).
+### Reds / Invader — `NetworkParam{Faster,Aggressive}Reds()`
 
-### "Faster Blue / Hunter" — `NetworkParamFasterBlue()` (Blue)
-```
-reloadVisitListCoolTime:     20 → 8
-reloadSearch_CoopBlue_Min:   30 → 10
-reloadSearch_CoopBlue_Max:  180 → 40
-maxVisitListCount:            5 → 10
-allAreaSearchRate_CoopBlue:  30 → 60
-maxCoopBlueSummonCount:       2 → 2     (bez zmian — serwer ogranicza realne dołączenia)
-allAreaSearchRate_VsBlue:    30 → 30    (bez zmian — odwet prawdopodobnie legacy w ER)
-```
-Wymuszony invariant: `reloadSearch_CoopBlue_Min ≤ reloadSearch_CoopBlue_Max`.
+| Pole | Vanilla | Faster | Aggressive |
+|---|---:|---:|---:|
+| `maxBreakInTargetListCount` | 5 | 8 | 12 |
+| `breakInRequestIntervalTimeSec` | 30 | 12 | 8 |
+| `breakInRequestTimeOutSec` | 20 | 15 | 12 |
+
+Proxy liczby target-candidates na minutę: Vanilla `(60/30)×5 = 10`, Faster `(60/12)×8 = 40`,
+Aggressive `(60/8)×12 = 90`. Aggressive zachowuje bezpieczny timeout 12s (nie stare 3s) i nigdy
+nie rusza `breakInRequestAreaCount` (0x7C) — zob. pola Experimental niżej.
+
+### Summon Signs — `NetworkParam{Faster,Aggressive}Summons()`
+
+| Pole | Vanilla | Faster | Aggressive |
+|---|---:|---:|---:|
+| `reloadSignIntervalTime2` | 60 | 20 | 10 |
+| `reloadSignTotalCount` | 20 | 40 | 64 |
+| `reloadSignCellCount` | 10 | 20 | 32 |
+| `updateSignIntervalTime` | 30 | 15 | 10 |
+| `singGetMax` | 32 | 64 | 96 |
+| `signDownloadSpan` | 30 | 15 | 10 |
+| `signUpdateSpan` | 60 | 20 | 10 |
+
+Wymuszony invariant (backend + clamp UI): `reloadSignCellCount ≤ reloadSignTotalCount ≤ singGetMax`
+(Aggressive: 32 ≤ 64 ≤ 96). Ta grupa kontroluje wyłącznie **ścieżkę sieciową znaków przywołania** —
+**aktywacja Summoning Pools jest osobną funkcją World / Exploration**, konfigurowaną w zakładce
+World, nie tutaj. Wiele pooli działa w grze po wcześniejszych poprawkach, ale pełna kompletność
+nie jest jeszcze formalnie zweryfikowana; znaki publikowane przez poole mogą korzystać z tej
+ścieżki sieciowej, ale efekt nie jest formalnie zweryfikowany. `cellGroupHorizontalRange` /
+`cellGroupTopRange` / `cellGroupBottomRange` pozostają **przyszłymi kandydatami Experimental**
+dla tej grupy — niezaimplementowane (brak patchingu, brak UI).
+
+### Blue / Hunter — `NetworkParam{Faster,Aggressive}Blue()`
+
+| Pole | Vanilla | Faster | Aggressive |
+|---|---:|---:|---:|
+| `reloadVisitListCoolTime` | 20 | 8 | 5 |
+| `reloadSearchCoopBlueMin` | 30 | 10 | 5 |
+| `reloadSearchCoopBlueMax` | 180 | 40 | 20 |
+| `maxVisitListCount` | 5 | 10 | 15 |
+| `allAreaSearchRateCoopBlue` | 30 | 60 | 100 |
+
+Wymuszone invarianty: `reloadSearchCoopBlueMin ≤ reloadSearchCoopBlueMax` oraz
+`allAreaSearchRateCoopBlue` pozostaje w `0–100`. Testuj po stronie huntera na postaci z aktywnym
+Blue Cipher Ring. `maxCoopBlueSummonCount` i `allAreaSearchRateVsBlue` **nie** należą do tej
+grupy — są Experimental (zob. niżej).
+
+### Pola Experimental (per grupa, nigdy nie zmieniane przez presety)
+
+Dawna pojedyncza sekcja UI „Experimental" jest usunięta; pola żyją teraz w obrębie swojej grupy
+funkcjonalnej, każde oznaczone `Experimental`, i **żaden aktywny preset (Vanilla / Faster /
+Aggressive) ich nie zapisuje**:
+
+- **Reds:** `breakInRequestAreaCount` (0x7C) — nieznane pole break-in pod 0x7C. Znaczenie
+  gameplayowe niepotwierdzone; wartość vanilla to 5; aktywne presety go nie modyfikują.
+- **Blue:** `maxCoopBlueSummonCount` („Blue Search Parallelism") i `allAreaSearchRateVsBlue`
+  („Retribution Global %"). Oba Experimental/niezweryfikowane w Elden Ring; aktywne presety Blue
+  ich nie zmieniają.
+
+**Pola Visitor** (`visitorListMax`, `visitorTimeOutTime`, `visitorDownloadSpan`) są **ukryte z
+aktywnego UI** — brak potwierdzonego zastosowania i brak dowodu związku z Taunter's Tongue. Pola
+backendowe i kompatybilność zapisu są zachowane (round-trip nietknięty); są po prostu nie
+renderowane i nie należą do żadnego presetu.
+
+### Setup testów PS5
+
+1. Do testów Reds/Blue odblokuj pełną pulę base+DLC przez **World → Exploration → Invasion
+   Regions → Unlock All** (274-regionowa skuratowana allowlista; zob. [11](11-regions.md)).
+2. Aktywacja NetworkParam wymaga procedury drugiego loadu: skonfiguruj w SaveForge → skopiuj
+   save na PS5 → wczytaj postać raz → wróć do menu głównego → wczytaj tę samą postać ponownie →
+   dopiero wtedy testuj online (pierwszy load resetuje regulation.bin; drugi czyta go z save).
+   Przyczyna zachowania pierwszy/drugi-load nie jest badana.
+3. Dla Blue / Hunter testuj na postaci-hunterze z **aktywnym Blue Cipher Ring**.
 
 ### Niezaimplementowane (research-only)
 - **Taunter's Tongue / reds po stronie hosta** — nie znaleziono potwierdzonego parametru tempa (Goods 108/178 → SpEffect 533 ustawia tylko stan sesji). Pola Visitor (`VisitorListMax/TimeOutTime/DownloadSpan`) należą do systemu visitor/ring-search i są dostępne wyłącznie jako Experimental „legacy ring-search fields".

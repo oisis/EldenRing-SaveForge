@@ -4,6 +4,39 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(pvp): Network Tuning — Aggressive presets, Summon Signs rename, Experimental relocation
+
+Each functional Network Tuning group now has three modular presets — `Vanilla`,
+`Faster`, `Aggressive` — for stronger PS5 PvP test profiles. The active `NetworkTab`
+UI is reorganised so Experimental fields live next to the function they belong to
+instead of one catch-all section.
+
+- `backend/core/regulation.go`: added `NetworkParamAggressiveReds` (12 / 8 / 12),
+  `NetworkParamAggressiveSummons` (10 / 64 / 32 / 10 / 96 / 10 / 10) and
+  `NetworkParamAggressiveBlue` (5 / 5 / 20 / 15 / 100). Each is strictly modular and
+  keeps the unconfirmed 0x7C, Visitor fields and the other groups at vanilla. This is
+  NOT the old removed global `Aggressive` (no cross-group preset, no `aggressive-host`).
+- `app.go`: `GetNetworkPreset` dispatches the new keys `aggressive-reds` /
+  `aggressive-summons` / `aggressive-blue` (signature unchanged → no bindings regen).
+- `frontend/NetworkTab.tsx`: each group exposes Vanilla / Faster / Aggressive buttons
+  (still routed through `applyGroupPreset` + `NETWORK_GROUP_KEYS`, so a preset only
+  writes its own group's stable fields). Renamed the cooperator group `Summons & Pools`
+  → `Summon Signs` with a note that Summoning Pool activation is configured separately
+  in World / Exploration. Removed the single Experimental section: 0x7C now sits in
+  Reds, Blue Search Parallelism + Retribution Global % in Blue, each flagged Experimental
+  and never touched by presets. Visitor controls are hidden from the UI (backend fields
+  and save compatibility preserved; they round-trip untouched and join no preset).
+- Tests: `tests/regulation_test.go` — `TestNetworkParamAggressive{Reds,Summons,Blue}`
+  assert exact values, invariants and that out-of-group/Experimental fields stay vanilla.
+  `frontend/networkClamp.test.ts` — TC-A1..A5 cover Aggressive composition, modularity
+  and that group Vanilla never resets Experimental/Visitor.
+- Docs: `spec/44-network-param-tuning.md` (+ PL) rewritten with per-group
+  Vanilla/Faster/Aggressive tables, the Experimental relocation, hidden Visitor fields,
+  and the PS5 second-load + Unlock-All + Blue-Cipher-Ring test setup.
+- Out of scope / unchanged: MatchmakingRegions, SummoningPools, Colosseums,
+  NetworkAreaParam, `cellSize*`, `cellGroup*Range` (documented as future Experimental
+  candidates only), Taunter's Tongue, colosseum matchmaking, the orphaned NetworkSpeedPanel.
+
 ### feat(pvp): complete MatchmakingRegions from TGA game-data (base + Shadow of the Erdtree)
 
 Expanded the invasion/matchmaking region database from 104 to **274 IDs** so
