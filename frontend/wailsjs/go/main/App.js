@@ -82,6 +82,10 @@ export function BulkSetUnlockedRegions(arg1, arg2) {
   return window['go']['main']['App']['BulkSetUnlockedRegions'](arg1, arg2);
 }
 
+export function CleanResidualSlots() {
+  return window['go']['main']['App']['CleanResidualSlots']();
+}
+
 export function CloneSlot(arg1, arg2) {
   return window['go']['main']['App']['CloneSlot'](arg1, arg2);
 }

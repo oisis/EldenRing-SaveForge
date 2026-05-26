@@ -48,6 +48,8 @@ export function BulkSetGesturesUnlocked(arg1:number,arg2:Array<number>,arg3:bool
 
 export function BulkSetUnlockedRegions(arg1:number,arg2:Array<number>):Promise<void>;
 
+export function CleanResidualSlots():Promise<number>;
+
 export function CloneSlot(arg1:number,arg2:number):Promise<void>;
 
 export function CloseAndDownload(arg1:string):Promise<string>;
