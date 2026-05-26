@@ -93,13 +93,13 @@ ApplyPvPPreparation(slotIndex, opts)
 
 | # | Field w `opts` | Tier (UI) | Status backendu | Co robi | Główne flagi/sekcje |
 |---|---|---|---|---|---|
-| 1 | `MatchmakingRegions` | Recommended · Tier 1 | ✅ active | `core.SetUnlockedRegions` ze wszystkimi 104 region IDs | `slot.UnlockedRegions` (patrz [11](11-regions.md)) |
+| 1 | `MatchmakingRegions` | Recommended · Tier 1 | ✅ active | odblokowuje 274-regionową skuratowaną allowlistę invasion/blue przez `core.SetUnlockedRegions`, zachowując nieskuratowane surowe IDs | `slot.UnlockedRegions` (patrz [11](11-regions.md)) |
 | 2 | `Colosseums` | Optional · Tier 1 | ✅ active | SET 12 flag (3 × 4 per‑colosseum) + 3 globalne | event flags w pasmach `60xxx`, `62xxx`, `69xxx`, `710xxx` |
 | 3 | `RevealMap` | QoL · Tier 0 | ✅ active | `revealBaseMap` + `revealDLCMap` | event flags `62xxx`/`63xxx`/`82xxx` + map fragment items + DLC BloodStain (patrz [27](27-map-reveal.md)/[29](29-dlc-black-tiles.md)) |
 | 4 | `SummoningPools` | Co‑op/Summon · Tier 1 | ✅ active | SET wszystkich pool IDs (`670xxx`) | event flags `670xxx` |
 | 5 | `SitesOfGrace` | QoL · Tier 0 · planned | ❌ **placeholder** | NO‑OP — appendWarning only | brak (patrz §7) |
 
-`needs verification`: dokładna liczba aktywowanych pooli i regionów w runtime zależy od `GetAllSummoningPools`/`GetAllRegions` snapshotu. Patrz [11-regions.md](11-regions.md) dla 104 regionów; pooli ~213 (patrz CHANGELOG, brak izolowanego testu liczby).
+`needs verification`: dokładna liczba aktywowanych pooli i regionów w runtime zależy od `GetAllSummoningPools`/`GetAllRegions` snapshotu. Patrz [11-regions.md](11-regions.md) dla 274-regionowej skuratowanej allowlisty invasion/blue (podzbiór `PlayRegionParam`, **nie** "PvP wszędzie"); pooli ~213 (patrz CHANGELOG, brak izolowanego testu liczby).
 
 ## 6. Current implemented behavior
 
@@ -119,6 +119,8 @@ Wszystkie 4 błędy zwracane **przed** `pushUndo` — czyli nie tworzą snapshot
 `a.pushUndo(slotIndex)` (linia 41) tworzy **jeden** snapshot dla całej operacji `ApplyPvPPreparation`. Wszystkie moduły mutują pod tym jednym snapshocie. Brak per‑module snapshotów — Undo cofa **całość**, nie konkretny moduł.
 
 ### 6.3 Module 1 — Matchmaking Regions
+
+Moduł odblokowuje **skuratowaną allowlistę invasion/blue** (274 IDs z `db.GetAllRegions()` — podzbiór `PlayRegionParam`, nie cały świat; patrz [11](11-regions.md)). Jest niedestrukcyjny: IDs są scalane przez `mergeUnlockedRegions(ids, slot.UnlockedRegions)`, więc wszelkie nieskuratowane surowe region IDs już obecne w save są zachowane (`existingRaw ∪ curatedAllowlist`). Odblokowuje każdy **zweryfikowany legalny** region PvP — **nie** włącza "PvP wszędzie".
 
 `core.SetUnlockedRegions(slot, ids)` wywołuje wewnętrznie `RebuildSlot`, które:
 
@@ -456,7 +458,7 @@ Komentarz w `pvp_test.go:11‑16`: minimal save z 20 KB EventFlags region; nie i
 
 ## 19. Cross‑references
 
-- [11-regions.md](11-regions.md) — Moduł 1 (Matchmaking Regions) → `core.SetUnlockedRegions`, 104 region IDs.
+- [11-regions.md](11-regions.md) — Moduł 1 (Matchmaking Regions) → `core.SetUnlockedRegions`, 274-regionowa skuratowana allowlista (niedestrukcyjny merge).
 - [14-game-state.md](14-game-state.md) — `ApplyPvPPreparation` nieruszone.
 - [15-event-flags.md](15-event-flags.md) — generic helper API używany przez moduły 2 i 4.
 - [16-world-state.md](16-world-state.md) — `WorldGeomMan` blob nieruszony (physical colosseum gates).

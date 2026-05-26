@@ -4,6 +4,90 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(pvp): complete MatchmakingRegions from TGA game-data (base + Shadow of the Erdtree)
+
+Expanded the invasion/matchmaking region database from 104 to **274 IDs** so
+`Unlock All Invasion Regions` prepares a character for PS5 PvP testing across both
+base game and the DLC. This change touches **only** the save-side `MatchmakingRegions`
+list (invasion eligibility); it does not modify Network Tuning, Summoning Pools,
+Colosseums, RevealMap, SitesOfGrace, NetworkParam, NetworkAreaParam or `cellSize*`.
+
+- `backend/db/data/regions.go`: rebuilt `Regions` against extracted game data — every
+  ID is a real Row ID in `regulation.bin` PlayRegionParam (594 rows). Names/areas are
+  curated from the Elden-Ring-CT-TGA "Invasion Regions" table (Dasaav; DLC by
+  Joel/SeriouslyCasual), which matches PlayRegionParam 1:1. **208 base + 66 DLC = 274.**
+  DLC IDs are non-contiguous (`2xxxxxx` legacy dungeons, `4xxxxxx` minor dungeons/gaols/
+  forges, `68xxxxx`/`69xxxxx` overworld), so the previous tidy `6900000–6900006` DLC
+  block was both incomplete and mislabelled.
+- Resolved the `6800000` / `6900000` mapping conflict from game data: PlayRegionParam
+  `mapMenuUnlockEventId` (76802 / 76900) → BonfireWarpParam → PlaceName_dlc01 FMG, where
+  `680000 = "Gravesite Plain"` and `690000 = "Scadu Altus"`. Both `areaNo = 61` (the m61
+  Land of Shadow overworld). So `6800000` = **Gravesite Plain** (DLC), `6900000` =
+  **Scadu Altus** (DLC); the real Haligtree interior is the `1500xxx` block (base).
+- Removed 20 legacy SaveForge-only IDs (underground `6600xxx`, Farum `6700xxx`,
+  `6502001/2`, `1101000`, fabricated DLC `6900001–6900006`): game data is decisive —
+  none of them exist in PlayRegionParam, so they are not real PlayRegion IDs and were
+  never valid `unlocked_regions` entries. The genuine underground/Farum/Haligtree regions
+  use the `12xxxxx`/`13xxxxx`/`15xxxxx` IDs, all now present from the game-data set.
+- Added a `DLC bool` field to `RegionData`; rewrote `IsDLCRegion` to be data-driven
+  (the old numeric range `6900000–6999999` could not identify the scattered DLC IDs).
+- `frontend`: no changes — `WorldTab` reads regions dynamically via `GetAllRegions` and
+  groups them by `Area` in collapsible per-area accordions, so the expanded list and the
+  two new DLC area groups appear automatically.
+- Tests: `backend/db/regions_test.go` (new) — completeness (274/208/66), key DLC IDs
+  present, `6800000`/`6900000` conflict resolution, data-driven `IsDLCRegion`, a guard
+  against re-adding the fabricated IDs, and `GetAllRegions` uniqueness/ordering. Existing
+  `writer_regions_test.go` roundtrip/dedup tests unchanged and passing.
+- Note: this is `MatchmakingRegions` (save-side PvP-ready region list) only. Network
+  Tuning (search speed/limits), Summoning Pools (separate activation flags, in active
+  use), and Colosseums (gate state out of scope) are unchanged.
+- Follow-up (deferred): the ~320 PlayRegionParam rows beyond the 274 named regions are
+  internal sub-areas/boss-arena/network rows (the bulk of the ~395 entries seen in
+  late-game saves) — adding them would need name resolution and is deferred.
+
+### fix(pvp): treat MatchmakingRegions as a curated allowlist + make Unlock/Lock non-destructive
+
+Pre-commit safety review of the 274-region change. Reframed the region list as a
+**curated invasion/blue allowlist** (a subset of `PlayRegionParam`), not "every world
+region", and made all bulk region operations non-destructive so they can never wipe
+advanced raw region IDs a real save carries.
+
+- Safety model / negative validation: confirmed the TGA "Invasion Regions" list is a
+  *dedicated invasion-targeting* list (its own guide: "which regions the Near/Far
+  invasion option attempts to invade"), with open-world / dungeon / boss-fog categories.
+  It deliberately omits multiplayer hubs (Roundtable Hold has **no** `PlayRegion` row at
+  all) and colosseums (separate matchmaking). The `isBoss`-tagged entries are kept — they
+  are legitimate invasion contexts (several are premier PvP zones, e.g. Haligtree
+  Promenade / Town Plaza), not multiplayer-disabled arena interiors. **No IDs removed**:
+  the genuinely forbidden categories are already absent by construction.
+- `app_world.go`: added `mergeUnlockedRegions(curatedIDs, existingRaw)` and routed
+  `BulkSetUnlockedRegions` through it. Bulk ops now set the curated membership to exactly
+  the passed IDs while preserving every raw ID outside the allowlist
+  (`!db.IsKnownRegionID`). Result: Unlock All = `existingRaw ∪ allowlist`, Lock All =
+  `existingRaw − allowlist`, per-area toggles always keep non-curated raw IDs. The
+  frontend is unchanged — the guarantee lives in the backend. Per-region toggle
+  (`SetRegionUnlocked`) was already non-destructive (operates on the raw list).
+- `app_pvp.go`: the `ApplyPvPPreparation` MatchmakingRegions module ("Unlock All" via
+  preset) now uses the same `mergeUnlockedRegions`, so the preset path is non-destructive
+  too. No Network Tuning / preset content changed.
+- `backend/db/db.go`, `backend/db/data/regions.go`: clarified that `IsKnownRegionID` /
+  `Regions` are the curated allowlist (membership-based, a subset of the 594-row
+  `PlayRegionParam`), not the full world; documented why hubs/colosseums are excluded.
+- Tests: `app_world_regions_test.go` (new) — Unlock All / Lock All / per-area preserve a
+  real non-curated raw ID (`1001000`, a `PlayRegionParam` row outside the allowlist).
+  `backend/db/regions_test.go`: added `TestNoForbiddenPvPLocations` (no hub/colosseum
+  names) and reframed the count-test comments as a curated allowlist.
+- Docs: `spec/11-regions.md` + `spec/lang-pl/11-regions.md` rewritten for the curated
+  allowlist (counts 104→274, area enum 11→13, `RegionData.DLC`, non-destructive
+  Unlock/Lock semantics, source = TGA filtered against `PlayRegionParam`, mitigated V3/V5/V8).
+  `spec/48` + PL updated for the 274-region non-destructive MatchmakingRegions module.
+- System separation (unchanged, restated in docs): `MatchmakingRegions` = region
+  eligibility; `Network Tuning` = matchmaking speed/timeouts/limits; `SummoningPools` =
+  separate activation system (many pools confirmed working in-game after earlier fixes,
+  full completeness not yet formally verified); `Colosseums` = access exists, the physical
+  gate remains a deferred problem. NetworkParam on PS5 requires the load → menu →
+  second-load procedure before online testing (cause not investigated).
+
 ### feat(pvp): unified network presets — Faster Reds / Summons / Blue, remove Aggressive
 
 Replaced the two divergent network-preset systems with one source of truth. The
