@@ -362,6 +362,99 @@ func TestNetworkParamFasterBlue(t *testing.T) {
 	}
 }
 
+func TestNetworkParamAggressiveReds(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	p := core.NetworkParamAggressiveReds()
+
+	if p.MaxBreakInTargetListCount != 12 {
+		t.Errorf("maxBreakInTargetListCount = %d, want 12", p.MaxBreakInTargetListCount)
+	}
+	if !floatEq(p.BreakInRequestIntervalTimeSec, 8.0) {
+		t.Errorf("breakInRequestIntervalTimeSec = %f, want 8", p.BreakInRequestIntervalTimeSec)
+	}
+	if !floatEq(p.BreakInRequestTimeOutSec, 12.0) {
+		t.Errorf("breakInRequestTimeOutSec = %f, want 12", p.BreakInRequestTimeOutSec)
+	}
+	// 0x7C must stay vanilla 5 in the returned profile.
+	if p.BreakInRequestAreaCount != 5 {
+		t.Errorf("breakInRequestAreaCount = %d, want 5 (Aggressive must never raise 0x7C)", p.BreakInRequestAreaCount)
+	}
+	// Other groups untouched.
+	if p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 || p.SingGetMax != d.SingGetMax {
+		t.Errorf("Aggressive Reds modified cooperator fields")
+	}
+	if p.ReloadVisitListCoolTime != d.ReloadVisitListCoolTime || p.AllAreaSearchRateCoopBlue != d.AllAreaSearchRateCoopBlue {
+		t.Errorf("Aggressive Reds modified blue fields")
+	}
+	if p.VisitorListMax != d.VisitorListMax {
+		t.Errorf("Aggressive Reds modified visitor fields")
+	}
+	if err := core.ValidateNetworkParams(p); err != nil {
+		t.Errorf("Aggressive Reds failed validation: %v", err)
+	}
+}
+
+func TestNetworkParamAggressiveSummons(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	p := core.NetworkParamAggressiveSummons()
+
+	if !floatEq(p.ReloadSignIntervalTime2, 10.0) || p.ReloadSignTotalCount != 64 ||
+		p.ReloadSignCellCount != 32 || !floatEq(p.UpdateSignIntervalTime, 10.0) ||
+		p.SingGetMax != 96 || !floatEq(p.SignDownloadSpan, 10.0) || !floatEq(p.SignUpdateSpan, 10.0) {
+		t.Errorf("Aggressive Summons values mismatch: %+v", p)
+	}
+	// Invariant cell <= total <= getMax (32 <= 64 <= 96).
+	if !(p.ReloadSignCellCount <= p.ReloadSignTotalCount && p.ReloadSignTotalCount <= p.SingGetMax) {
+		t.Errorf("Aggressive Summons violates cell<=total<=getMax: %d/%d/%d",
+			p.ReloadSignCellCount, p.ReloadSignTotalCount, p.SingGetMax)
+	}
+	// Invasion + blue groups untouched.
+	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount || p.BreakInRequestAreaCount != d.BreakInRequestAreaCount {
+		t.Errorf("Aggressive Summons modified invasion fields")
+	}
+	if p.ReloadVisitListCoolTime != d.ReloadVisitListCoolTime {
+		t.Errorf("Aggressive Summons modified blue fields")
+	}
+	if err := core.ValidateNetworkParams(p); err != nil {
+		t.Errorf("Aggressive Summons failed validation: %v", err)
+	}
+}
+
+func TestNetworkParamAggressiveBlue(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	p := core.NetworkParamAggressiveBlue()
+
+	if !floatEq(p.ReloadVisitListCoolTime, 5.0) || !floatEq(p.ReloadSearchCoopBlueMin, 5.0) ||
+		!floatEq(p.ReloadSearchCoopBlueMax, 20.0) || p.MaxVisitListCount != 15 ||
+		p.AllAreaSearchRateCoopBlue != 100 {
+		t.Errorf("Aggressive Blue values mismatch: %+v", p)
+	}
+	// Must NOT inflate active-blue cap (Blue Search Parallelism) or retribution rate.
+	if p.MaxCoopBlueSummonCount != 2 {
+		t.Errorf("maxCoopBlueSummonCount = %d, want 2 (Experimental, must stay vanilla)", p.MaxCoopBlueSummonCount)
+	}
+	if p.AllAreaSearchRateVsBlue != 30 {
+		t.Errorf("allAreaSearchRateVsBlue = %d, want 30 (Experimental, must stay vanilla)", p.AllAreaSearchRateVsBlue)
+	}
+	// Invasion + signs groups untouched.
+	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount {
+		t.Errorf("Aggressive Blue modified invasion fields")
+	}
+	if p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 || p.SingGetMax != d.SingGetMax {
+		t.Errorf("Aggressive Blue modified signs fields")
+	}
+	// Invariants: min<=max, rate in 0-100.
+	if p.ReloadSearchCoopBlueMin > p.ReloadSearchCoopBlueMax {
+		t.Errorf("Aggressive Blue violates min<=max")
+	}
+	if p.AllAreaSearchRateCoopBlue < 0 || p.AllAreaSearchRateCoopBlue > 100 {
+		t.Errorf("allAreaSearchRateCoopBlue out of 0-100: %d", p.AllAreaSearchRateCoopBlue)
+	}
+	if err := core.ValidateNetworkParams(p); err != nil {
+		t.Errorf("Aggressive Blue failed validation: %v", err)
+	}
+}
+
 func TestNetworkParamInvariants(t *testing.T) {
 	mutate := func(f func(*core.NetworkParamValues)) core.NetworkParamValues {
 		cp := core.NetworkParamDefaults()

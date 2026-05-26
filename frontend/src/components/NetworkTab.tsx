@@ -50,40 +50,60 @@ const BLUE_SLIDERS: SliderDef[] = [
     {key: 'allAreaSearchRateCoopBlue', label: 'Global Search %',   desc: 'Percentage chance the blue search covers ALL map areas instead of only the local area. Higher = wider reach.',    min: 0,  max: 100, step: 5, unit: '%', defaultVal: 30},
 ];
 
-// --- Experimental sliders (collapsed by default, never touched by presets) ---
+// --- Experimental sliders (shown inside their functional group, never touched by presets) ---
 
 const EXPERIMENTAL_BREAKIN: SliderDef[] = [
-    {key: 'breakInRequestAreaCount', label: 'Unknown break-in field at 0x7C', desc: 'Vanilla value is 5, but the field is labelled padding ("dummy8 pad[4]") in every external PARAMDEF and its runtime effect is UNCONFIRMED. SaveForge presets never change it. Leave at 5 unless you are deliberately testing it.', min: 1, max: 10, step: 1, unit: '', defaultVal: 5},
+    {key: 'breakInRequestAreaCount', label: 'Unknown break-in field at 0x7C', desc: 'Unknown break-in field at 0x7C. Its gameplay meaning is unconfirmed. Vanilla value is 5. Active presets never modify this field.', min: 1, max: 10, step: 1, unit: '', defaultVal: 5},
 ];
 
 const EXPERIMENTAL_BLUE: SliderDef[] = [
-    {key: 'maxCoopBlueSummonCount', label: 'Blue Search Parallelism', desc: 'Client-side blue search parallelism. The server caps the actual number of active blues, so raising this rarely helps and only inflates search load. Vanilla 2.', min: 1, max: 10, step: 1, unit: '', defaultVal: 2},
-    {key: 'allAreaSearchRateVsBlue', label: 'Retribution Global %',   desc: 'Global-search rate for the retribution blue role, which is likely legacy/inactive in Elden Ring. Vanilla 30.', min: 0, max: 100, step: 5, unit: '%', defaultVal: 30},
+    {key: 'maxCoopBlueSummonCount', label: 'Blue Search Parallelism', desc: 'Client-side blue search parallelism (maxCoopBlueSummonCount). The server caps the actual number of active blues, so raising this rarely helps. Experimental — active Blue presets never change it. Vanilla 2.', min: 1, max: 10, step: 1, unit: '', defaultVal: 2},
+    {key: 'allAreaSearchRateVsBlue', label: 'Retribution Global %',   desc: 'Global-search rate for the retribution blue role (allAreaSearchRateVsBlue). Its effect in Elden Ring is unverified. Experimental — active Blue presets never change it. Vanilla 30.', min: 0, max: 100, step: 5, unit: '%', defaultVal: 30},
 ];
 
-const EXPERIMENTAL_VISITOR: SliderDef[] = [
-    {key: 'visitorListMax',      label: 'Visitor List Max',  desc: 'Visitor (ring-search) target list size. Part of the visit/ring-search system. No confirmed Taunter’s Tongue speed control found — this does NOT confirm faster host-side invasions.', min: 1, max: 100, step: 1, unit: '',  defaultVal: 10},
-    {key: 'visitorTimeOutTime',  label: 'Visitor Timeout',   desc: 'Seconds the visitor system waits for a connection before retrying. Legacy ring-search field.',  min: 1, max: 600, step: 5, unit: 's', defaultVal: 60},
-    {key: 'visitorDownloadSpan', label: 'Visitor Download',  desc: 'Interval between visitor list downloads. Legacy ring-search field.',                              min: 1, max: 600, step: 5, unit: 's', defaultVal: 60},
-];
+// Visitor / legacy ring-search fields. Hidden from the active UI until a confirmed
+// use is found (no confirmed link to Taunter's Tongue). The backend fields and save
+// compatibility are kept — paramsToDict / VANILLA_VALUES still carry them, so they
+// round-trip untouched; they are simply not rendered and not part of any preset.
 
 // Group keys come from NETWORK_GROUP_KEYS (single source of truth in networkClamp.ts).
 // The `sliders` here are UI metadata only; their keys equal NETWORK_GROUP_KEYS[group].
-const GROUP_META: Record<GroupId, {label: string; icon: string; desc: string; titleClassName: string; sliders: SliderDef[]; presetKey: string; presetLabel: string}> = {
+interface GroupMeta {
+    label: string;
+    icon: string;
+    desc: string;
+    titleClassName: string;
+    sliders: SliderDef[];
+    fasterKey: string;
+    fasterLabel: string;
+    aggressiveKey: string;
+    aggressiveLabel: string;
+    experimental?: SliderDef[];
+}
+
+const GROUP_META: Record<GroupId, GroupMeta> = {
     invader: {
         label: 'Reds / Invader', icon: '⚔', desc: 'Red invasion matchmaking speed (Bloody / Recusant Finger)',
         titleClassName: 'text-red-800 dark:text-red-700',
-        sliders: INVADER_SLIDERS, presetKey: 'faster-reds', presetLabel: 'Faster Reds',
+        sliders: INVADER_SLIDERS,
+        fasterKey: 'faster-reds', fasterLabel: 'Faster',
+        aggressiveKey: 'aggressive-reds', aggressiveLabel: 'Aggressive',
+        experimental: EXPERIMENTAL_BREAKIN,
     },
     cooperator: {
-        label: 'Summons & Pools', icon: '☀', desc: 'Summon sign refresh, buffer & upload — pools share this path; pools impact needs runtime testing',
+        label: 'Summon Signs', icon: '☀', desc: 'Summon sign refresh & upload. Summoning Pool activation is configured separately in World / Exploration.',
         titleClassName: 'text-orange-800 dark:text-orange-600',
-        sliders: COOPERATOR_SLIDERS, presetKey: 'faster-summons', presetLabel: 'Faster Summons',
+        sliders: COOPERATOR_SLIDERS,
+        fasterKey: 'faster-summons', fasterLabel: 'Faster',
+        aggressiveKey: 'aggressive-summons', aggressiveLabel: 'Aggressive',
     },
     blue: {
-        label: 'Blue / Hunter', icon: '🛡', desc: 'Blue Cipher Ring response time & reach',
+        label: 'Blue / Hunter', icon: '🛡', desc: 'Blue Cipher Ring response time & reach (test hunter-side with an active Blue Cipher Ring)',
         titleClassName: 'text-blue-800 dark:text-blue-700',
-        sliders: BLUE_SLIDERS, presetKey: 'faster-blue', presetLabel: 'Faster Blue',
+        sliders: BLUE_SLIDERS,
+        fasterKey: 'faster-blue', fasterLabel: 'Faster',
+        aggressiveKey: 'aggressive-blue', aggressiveLabel: 'Aggressive',
+        experimental: EXPERIMENTAL_BLUE,
     },
 };
 
@@ -151,12 +171,18 @@ export function NetworkTab({platform}: NetworkTabProps) {
             GetNetworkPreset('faster-reds'),
             GetNetworkPreset('faster-summons'),
             GetNetworkPreset('faster-blue'),
+            GetNetworkPreset('aggressive-reds'),
+            GetNetworkPreset('aggressive-summons'),
+            GetNetworkPreset('aggressive-blue'),
             GetNetworkPreset('vanilla'),
-        ]).then(([reds, summons, blue, vanilla]) => {
+        ]).then(([fReds, fSummons, fBlue, aReds, aSummons, aBlue, vanilla]) => {
             setPresets({
-                'faster-reds': paramsToDict(reds),
-                'faster-summons': paramsToDict(summons),
-                'faster-blue': paramsToDict(blue),
+                'faster-reds': paramsToDict(fReds),
+                'faster-summons': paramsToDict(fSummons),
+                'faster-blue': paramsToDict(fBlue),
+                'aggressive-reds': paramsToDict(aReds),
+                'aggressive-summons': paramsToDict(aSummons),
+                'aggressive-blue': paramsToDict(aBlue),
                 'vanilla': paramsToDict(vanilla),
             });
         }).catch(() => setPresets({}));
@@ -170,12 +196,16 @@ export function NetworkTab({platform}: NetworkTabProps) {
     };
 
     // Applies ONLY the group's canonical fields (NETWORK_GROUP_KEYS) — modular,
-    // never touches other groups or Experimental fields. Used by Faster + Vanilla.
-    const applyGroup = (group: GroupId, which: 'faster' | 'vanilla') => {
+    // never touches other groups or Experimental fields. Used by Vanilla / Faster / Aggressive.
+    const applyGroup = (group: GroupId, which: 'faster' | 'aggressive' | 'vanilla') => {
         const meta = GROUP_META[group];
-        const source = which === 'faster' ? presets[meta.presetKey] : (presets['vanilla'] ?? VANILLA_VALUES);
+        let source: NetDraft | undefined;
+        if (which === 'faster') source = presets[meta.fasterKey];
+        else if (which === 'aggressive') source = presets[meta.aggressiveKey];
+        else source = presets['vanilla'] ?? VANILLA_VALUES;
         if (!source) return;
-        setDraft(prev => applyGroupPreset(prev, NETWORK_GROUP_KEYS[group], source));
+        const resolved = source;
+        setDraft(prev => applyGroupPreset(prev, NETWORK_GROUP_KEYS[group], resolved));
         setDirty(true);
     };
 
@@ -237,10 +267,13 @@ export function NetworkTab({platform}: NetworkTabProps) {
 
     const makeGroupButtons = (group: GroupId) => {
         const meta = GROUP_META[group];
-        const fasterSrc = presets[meta.presetKey];
+        const keys = NETWORK_GROUP_KEYS[group];
+        const fasterSrc = presets[meta.fasterKey];
+        const aggressiveSrc = presets[meta.aggressiveKey];
         const vanillaSrc = presets['vanilla'] ?? VANILLA_VALUES;
-        const isVanilla = groupMatches(NETWORK_GROUP_KEYS[group], draft, vanillaSrc);
-        const isFaster = fasterSrc ? groupMatches(NETWORK_GROUP_KEYS[group], draft, fasterSrc) : false;
+        const isVanilla = groupMatches(keys, draft, vanillaSrc);
+        const isFaster = fasterSrc ? groupMatches(keys, draft, fasterSrc) : false;
+        const isAggressive = aggressiveSrc ? groupMatches(keys, draft, aggressiveSrc) : false;
         const btn = (active: boolean) =>
             `px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider transition-all border ${
                 active ? 'bg-primary/20 border-primary/60 text-primary'
@@ -248,7 +281,8 @@ export function NetworkTab({platform}: NetworkTabProps) {
         return (
             <div className="flex items-center gap-1">
                 <button onClick={e => { e.stopPropagation(); applyGroup(group, 'vanilla'); }} className={btn(isVanilla)}>Vanilla</button>
-                <button onClick={e => { e.stopPropagation(); applyGroup(group, 'faster'); }} className={btn(isFaster)}>{meta.presetLabel}</button>
+                <button onClick={e => { e.stopPropagation(); applyGroup(group, 'faster'); }} className={btn(isFaster)}>{meta.fasterLabel}</button>
+                <button onClick={e => { e.stopPropagation(); applyGroup(group, 'aggressive'); }} className={btn(isAggressive)}>{meta.aggressiveLabel}</button>
             </div>
         );
     };
@@ -291,44 +325,18 @@ export function NetworkTab({platform}: NetworkTabProps) {
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-1">
                                 {meta.sliders.map(renderSlider)}
                             </div>
+                            {meta.experimental && (
+                                <div className="mt-2 pt-2 border-t border-amber-500/20">
+                                    <div className="flex items-center gap-1.5 mb-2">
+                                        <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-500 border border-amber-500/30">Experimental</span>
+                                        <span className="text-[9px] text-muted-foreground/80">Unconfirmed effect — never changed by Vanilla / Faster / Aggressive.</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{meta.experimental.map(renderSlider)}</div>
+                                </div>
+                            )}
                         </AccordionSection>
                     );
                 })}
-
-                {/* Experimental — collapsed by default */}
-                <AccordionSection
-                    id="network-experimental"
-                    title="⚗ Experimental"
-                    titleClassName="text-amber-700 dark:text-amber-500"
-                    summary="Unconfirmed / legacy fields — not used by presets"
-                    defaultOpen={false}
-                >
-                    <div className="space-y-3 pt-1">
-                        <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-amber-500/8 border border-amber-500/20">
-                            <span className="text-amber-500 text-[11px] flex-shrink-0 mt-0.5">⚠</span>
-                            <p className="text-[10px] text-amber-300/90 leading-relaxed">
-                                These fields are not confirmed by runtime testing. They may change geographic reach or
-                                matchmaking behaviour in unknown ways. None of the three presets touch them.
-                            </p>
-                        </div>
-
-                        <div>
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-2">Unknown break-in field</p>
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{EXPERIMENTAL_BREAKIN.map(renderSlider)}</div>
-                        </div>
-
-                        <div>
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-2">Blue extras (legacy / low value)</p>
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{EXPERIMENTAL_BLUE.map(renderSlider)}</div>
-                        </div>
-
-                        <div>
-                            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-muted-foreground mb-2">Visitor / legacy ring-search fields</p>
-                            <p className="text-[9px] text-muted-foreground/80 mb-2">No confirmed Taunter&rsquo;s Tongue speed control found — these do not confirm faster host-side invasions.</p>
-                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{EXPERIMENTAL_VISITOR.map(renderSlider)}</div>
-                        </div>
-                    </div>
-                </AccordionSection>
 
                 {/* Apply / Reset */}
                 <div className="flex items-center gap-2 pt-1 border-t border-border/50">

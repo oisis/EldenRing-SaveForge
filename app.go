@@ -1175,6 +1175,12 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 		p = core.NetworkParamFasterSummons()
 	case "faster-blue":
 		p = core.NetworkParamFasterBlue()
+	case "aggressive-reds":
+		p = core.NetworkParamAggressiveReds()
+	case "aggressive-summons":
+		p = core.NetworkParamAggressiveSummons()
+	case "aggressive-blue":
+		p = core.NetworkParamAggressiveBlue()
 	case "vanilla":
 		p = core.NetworkParamDefaults()
 	// Legacy preset keys (consumed only by the orphaned NetworkSpeedPanel).
