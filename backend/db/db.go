@@ -1113,9 +1113,12 @@ var getAllRegions = sync.OnceValue(func() []RegionEntry {
 
 func GetAllRegions() []RegionEntry { return getAllRegions() }
 
-// IsKnownRegionID reports whether id is a recognised invasion-region ID in the
-// current database (overworld 6100000–6899999, DLC 6900000–6999999, legacy
-// dungeon interiors 1000000–1999999).
+// IsKnownRegionID reports whether id is part of the curated invasion-region
+// allowlist (data.Regions) — the subset of regulation.bin PlayRegionParam rows
+// that are valid standard invasion / blue-summon targets. It is membership-based,
+// not range-based: the curated DLC IDs are non-contiguous, and many real
+// PlayRegionParam rows (internal sub-areas, network-only rows) are deliberately
+// excluded. Used to distinguish curated IDs from raw save-side region IDs.
 func IsKnownRegionID(id uint32) bool {
 	_, ok := data.Regions[id]
 	return ok

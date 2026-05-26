@@ -49,7 +49,10 @@ func (a *App) ApplyPvPPreparation(slotIndex int, opts PvPPreparationOptions) ([]
 		for i, r := range allRegions {
 			ids[i] = r.ID
 		}
-		if err := core.SetUnlockedRegions(slot, ids); err != nil {
+		// Unlock the full curated invasion allowlist while preserving any
+		// non-curated raw region IDs already in the save (mergeUnlockedRegions).
+		// This is "Unlock All" via preset: it must be non-destructive too.
+		if err := core.SetUnlockedRegions(slot, mergeUnlockedRegions(ids, slot.UnlockedRegions)); err != nil {
 			return nil, fmt.Errorf("matchmaking regions: %w", err)
 		}
 		// SetUnlockedRegions calls RebuildSlot which replaces slot.Data and
