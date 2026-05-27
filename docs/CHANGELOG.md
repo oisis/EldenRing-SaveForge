@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### perf(icons): downscale oversized key item icons
+
+Downscaled 25 actively used `key_items` PNG icons from `1024×1024` to `256×256`,
+covering crystal tears, cracked/knot tears, keys and whetblades (plus Heart of
+Bayle and Messmer's Kindling). File names, PNG format, transparency and the
+existing `IconPath` values are unchanged. The batch size dropped from
+`21 742 723 B` to `1 942 948 B`, a saving of `19 799 775 B` (`−91.1%`). Quality
+was verified manually for a representative sample in the database grid and the
+large detail panel. The remaining large-icon categories and the three
+palette-mode icons stay out of scope.
+
 ### perf(icons): downscale four oversized active item icons
 
 Downscaled four actively used PNG icons from `1024×1024` to `256×256` as a pilot
