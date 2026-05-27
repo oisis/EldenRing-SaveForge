@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(icons): remove redundant orphan painting duplicates
+
+Removed 7 redundant, unreferenced painting PNG copies from
+`frontend/public/items/tools/` (Champion's Song, Flightless Bird, Homing
+Instinct, Prophecy, Redmane, Resurrection and Sorcerer). The active canonical
+assets with byte-identical content remain in the semantically correct
+`frontend/public/items/info/` directory. The deleted files were not referenced
+by any active `IconPath` nor by any tracked source, config, docs or tests. The
+change reduces physical orphan assets by 7 and removes 234 206 B of redundant
+files; `IconPath`, resolved targets and missing targets are unchanged. The two
+different-basename cases and other orphan groups stay out of scope.
+
 ### fix(build): rename Jolán asset for go embed compatibility
 
 Renamed the physical asset `ashes/jolán_and_anna.png` to the embed-safe ASCII
