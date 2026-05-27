@@ -493,7 +493,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     // is also selected. Items with cap 0 are skipped server-side.
     const modalMaxInvHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'inv', clearCount, fullChaosMode))) : 1;
     const modalMaxStorageHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'storage', clearCount, fullChaosMode))) : 1;
-    const modalAnyInvAllowed = !!confirmModal && confirmModal.some(i => effectiveCap(i, 'inv', clearCount, fullChaosMode) > 0);
     const modalAnyStorageAllowed = !!confirmModal && confirmModal.some(i => effectiveCap(i, 'storage', clearCount, fullChaosMode) > 0);
     const modalMixedMaxes = confirmModal && confirmModal.length > 1 && !modalNonStackable &&
         (new Set(confirmModal.map(i => i.maxInventory)).size > 1 || new Set(confirmModal.map(i => i.maxStorage)).size > 1);
