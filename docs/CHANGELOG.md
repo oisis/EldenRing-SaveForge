@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### perf(icons): downscale oversized spell icons
+
+Downscaled 13 actively used spell PNG icons from `1024×1024` to `256×256`,
+covering 9 `sorceries` and 4 `incantations` icons. File names, PNG format,
+transparency and the existing `IconPath` values are unchanged. The batch size
+dropped from `15 848 791 B` to `1 391 884 B`, a saving of `14 456 907 B`
+(`−91.22%`). Quality was verified manually for a representative sample in the
+database grid and the large detail panel. The remaining large-icon categories
+and the three palette-mode icons stay out of scope.
+
 ### perf(icons): downscale oversized key item icons
 
 Downscaled 25 actively used `key_items` PNG icons from `1024×1024` to `256×256`,
