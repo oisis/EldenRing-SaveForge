@@ -160,3 +160,42 @@ func TestIsAshOfWarCompatibleWithWeapon_StarFist_ShieldOnlyAoW_Incompatible(t *t
 		t.Error("expected compatible=false for shield-only AoW on Star Fist")
 	}
 }
+
+// Real DLC weapons whose wepType is NOT in WepTypeToCanMountBit must resolve to
+// known=false (data insufficient) rather than known=true/incompatible. The
+// caller (the active weapon-edit workspace flow) is responsible for the
+// passthrough "allow" decision because GemMountType==2 still gates mounting;
+// this DB lookup must only signal that it cannot decide, never a false reject.
+//
+// wepType/GemMountType verified against backend/db/data/weapon_gem_mount.go:
+//   0x01E84800 Dragon Towershield → {WepType: 69, GemMountType: 2}
+//   0x03F6B5A0 Great Katana (DLC) → {WepType: 94, GemMountType: 2}
+// Neither 69 nor 94 has a WepTypeToCanMountBit entry. Sword Dance (0x80003070)
+// is a real AoW with a non-zero bitmask, so the unknown result comes solely
+// from the unmapped weapon type.
+func TestIsAshOfWarCompatibleWithWeapon_DLCUnmappedWepType_Unknown(t *testing.T) {
+	const swordDance = uint32(0x80003070)
+	cases := []struct {
+		name    string
+		weapon  uint32
+		wepType uint16
+	}{
+		{"Dragon Towershield", 0x01E84800, 69},
+		{"Great Katana", 0x03F6B5A0, 94},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			compatible, known := IsAshOfWarCompatibleWithWeapon(swordDance, c.weapon)
+			if known {
+				t.Errorf("%s (0x%08X, wepType=%d): expected known=false for unmapped DLC wepType",
+					c.name, c.weapon, c.wepType)
+			}
+			// known=false is fail-closed: compatible is deliberately false so a
+			// caller that ignores `known` cannot read it as an affirmative match.
+			if compatible {
+				t.Errorf("%s (0x%08X): expected compatible=false (fail-closed) when known=false",
+					c.name, c.weapon)
+			}
+		})
+	}
+}
