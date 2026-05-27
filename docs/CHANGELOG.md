@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(icons): relocate eight misplaced item icon assets
+
+Relocated eight confirmed item icon assets into the directories already required
+by their existing runtime `IconPath`, fixing the icons for two info notes
+(About Sorceries and Incantations, About Teardrop Scarabs), Sellia's Secret,
+three DLC melee armaments (Fire Knight's Greatsword, Fire Knight's Shortsword,
+Lightning Perfume Bottle), Black Syrup and Oil-Soaked Tear. The files were
+misplaced under `items/key_items/`; each was moved to the folder its `IconPath`
+points to (`items/info/`, `items/tools/` or `items/melee_armaments/`). No
+`IconPath` mappings and no image contents were changed. This does not cover the
+still-ambiguous About Flask of Wondrous Physick or the remaining missing icons.
+
 ### fix(character-importer): restore source-slot avatar icon
 
 Fixed the broken hardcoded path of the decorative Knight Helm icon shown for
