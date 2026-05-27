@@ -30,14 +30,6 @@ export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
 
 export function ApplyPvPPreparation(arg1:number,arg2:main.PvPPreparationOptions):Promise<Array<string>>;
 
-export function ApplyWeaponAoW(arg1:number,arg2:number,arg3:number):Promise<void>;
-
-export function ApplyWeaponAoWStrict(arg1:number,arg2:number,arg3:number):Promise<void>;
-
-export function ApplyWeaponInfusion(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
-
-export function ApplyWeaponUpgradeLevel(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
-
 export function AuditLoadedSaveIssues():Promise<Array<main.SaveIssue>>;
 
 export function BulkSetAshOfWarFlags(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;

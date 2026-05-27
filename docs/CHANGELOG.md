@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(weapon-edit): remove legacy weapon-apply endpoints
+
+Removed the public direct-write endpoints `ApplyWeaponUpgradeLevel`,
+`ApplyWeaponInfusion`, `ApplyWeaponAoW` and `ApplyWeaponAoWStrict` left over from
+the former legacy weapon editor flow, together with their generated bindings and
+dead frontend mocks. The active weapon-editing flow remains workspace-based and
+persists through the workspace save path (`editor.ApplyWorkspaceSave`). The core
+writers (`PatchWeaponItemID`, `PatchWeaponAoW`, `PatchWeaponAoWHandle`) stay in
+place because the active save still uses them; their stale "legacy tab only"
+comment was corrected. Writer and DLC-compatibility regressions are covered by
+`backend/core` and `backend/db` tests respectively. No reachable UI behavior
+changed.
+
 ### chore(weapon-edit): remove unreachable non-workspace mode
 
 Removed the unreachable legacy/non-workspace mode from `WeaponEditModal`. The

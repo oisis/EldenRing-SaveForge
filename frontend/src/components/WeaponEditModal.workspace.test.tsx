@@ -11,9 +11,6 @@ const mocks = vi.hoisted(() => ({
     GetItemList: vi.fn(),
     GetCharacter: vi.fn(),
     GetAoWAvailability: vi.fn(),
-    ApplyWeaponUpgradeLevel: vi.fn(),
-    ApplyWeaponInfusion: vi.fn(),
-    ApplyWeaponAoWStrict: vi.fn(),
 }));
 
 vi.mock('../../wailsjs/go/main/App', () => ({
@@ -21,9 +18,6 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     GetItemList: mocks.GetItemList,
     GetCharacter: mocks.GetCharacter,
     GetAoWAvailability: mocks.GetAoWAvailability,
-    ApplyWeaponUpgradeLevel: mocks.ApplyWeaponUpgradeLevel,
-    ApplyWeaponInfusion: mocks.ApplyWeaponInfusion,
-    ApplyWeaponAoWStrict: mocks.ApplyWeaponAoWStrict,
 }));
 
 beforeEach(() => {
@@ -31,9 +25,6 @@ beforeEach(() => {
     mocks.GetItemList.mockResolvedValue([]);
     mocks.GetCharacter.mockResolvedValue({ inventory: [], storage: [] });
     mocks.GetAoWAvailability.mockResolvedValue([]);
-    mocks.ApplyWeaponUpgradeLevel.mockResolvedValue(undefined);
-    mocks.ApplyWeaponInfusion.mockResolvedValue(undefined);
-    mocks.ApplyWeaponAoWStrict.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
