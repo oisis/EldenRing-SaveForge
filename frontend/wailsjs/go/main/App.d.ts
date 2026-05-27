@@ -38,6 +38,8 @@ export function ApplyWeaponInfusion(arg1:number,arg2:number,arg3:number,arg4:num
 
 export function ApplyWeaponUpgradeLevel(arg1:number,arg2:number,arg3:number,arg4:number):Promise<void>;
 
+export function AuditLoadedSaveIssues():Promise<Array<main.SaveIssue>>;
+
 export function BulkSetAshOfWarFlags(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
 
 export function BulkSetBellBearings(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;

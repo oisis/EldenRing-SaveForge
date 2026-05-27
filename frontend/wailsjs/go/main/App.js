@@ -62,6 +62,10 @@ export function ApplyWeaponUpgradeLevel(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['ApplyWeaponUpgradeLevel'](arg1, arg2, arg3, arg4);
 }
 
+export function AuditLoadedSaveIssues() {
+  return window['go']['main']['App']['AuditLoadedSaveIssues']();
+}
+
 export function BulkSetAshOfWarFlags(arg1, arg2, arg3) {
   return window['go']['main']['App']['BulkSetAshOfWarFlags'](arg1, arg2, arg3);
 }

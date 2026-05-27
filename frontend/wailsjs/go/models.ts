@@ -1505,6 +1505,24 @@ export namespace main {
 	        this.sitesOfGrace = source["sitesOfGrace"];
 	    }
 	}
+	export class SaveIssue {
+	    slot: number;
+	    code: string;
+	    message: string;
+	    fixTab: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveIssue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slot = source["slot"];
+	        this.code = source["code"];
+	        this.message = source["message"];
+	        this.fixTab = source["fixTab"];
+	    }
+	}
 	
 	export class SlotCapacity {
 	    gaItemsUsed: number;

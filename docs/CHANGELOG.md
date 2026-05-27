@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(inventory): never write out-of-range weapon upgrades + surface them before save
+
+Root-caused the "Golem Greatbow +25" / `upgrade_out_of_range` report and the silent
+save that wouldn't persist a fix. No auto-repair / background magic — the app just
+stops creating the corruption and tells the user where to fix what already exists.
+
+- **A — add path can no longer create out-of-range levels** (`app.go`): added
+  `clampUpgrade(requested, max)` and applied it in `AddItemsToCharacter` so the
+  encoded item ID can never carry a level above the item's real `MaxUpgrade`. A
+  somber +10 weapon (Golem Greatbow) requested at +25 is now stored at +10, never
+  `base+25` (the invalid encoding the editor rejects). This was the original source
+  of the corruption (an add made when the weapon was mis-capped at 25).
+- **B — weapon editor tells the truth and lets you repair manually**
+  (`WeaponEditModal.tsx`): for an item whose stored level exceeds its max, the level
+  dropdown is now seeded with a valid level (so it is not blank/0 with a disabled
+  Apply), the real out-of-range level is shown in red, and a note explains how to fix
+  it. Picking a valid level + Apply re-encodes the item to a valid ID.
+- **C — no more silent save**: new read-only `AuditLoadedSaveIssues` App endpoint
+  scans every slot (`editor.BuildSnapshot`+`Validate`) and returns blocking issues
+  annotated with the tab to fix them. `App.tsx` "Save As" now runs the audit first;
+  if issues exist it shows a modal listing them (grouped, with count + fix location)
+  and lets the user **Save Anyway** or **Cancel & Fix**. Saving is allowed, never
+  blocked — the user is simply informed instead of losing edits silently.
+- Tests: `app_weapon_upgrade_clamp_test.go` — `clampUpgrade` unit cases + integration
+  (adding Golem Greatbow at +25 stores +10, never `base+25`). Full Go suite + vet,
+  `tsc`, 147 vitest, and frontend build pass.
+- Out of scope (unchanged): no auto-repair on load, MatchmakingRegions, NetworkParam,
+  SummoningPools, Colosseums.
+
 ### fix(slots): positional in-place character delete + phantom-slot cleanup
 
 The app showed duplicate / undeletable characters because it used a different

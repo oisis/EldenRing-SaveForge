@@ -330,6 +330,22 @@ func weaponCategorySupportsInfusion(category string) bool {
 // Container-gated items (Throwing Pots, Aromatics) are best-effort: qty is trimmed
 // to fit the container cap without blocking the batch. Trimmed items are reported
 // in AddResult.Trimmed.
+// clampUpgrade bounds a requested upgrade level to [0, max]. Used by the add
+// path so the encoded item ID can never carry a level above the item's real
+// MaxUpgrade (which would produce a permanently out-of-range item).
+func clampUpgrade(requested, max int) int {
+	if max < 0 {
+		max = 0
+	}
+	if requested < 0 {
+		return 0
+	}
+	if requested > max {
+		return max
+	}
+	return requested
+}
+
 func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int) (AddResult, error) {
 	result := AddResult{Requested: len(itemIDs)}
 
@@ -443,17 +459,22 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	for _, id := range sortedIDs {
 		itemData, _ := db.GetItemDataFuzzy(id)
 		finalID := id
+		// Clamp the requested upgrade to the item's real MaxUpgrade so an add can
+		// never encode an out-of-range level (e.g. base+25 for a somber +10 weapon
+		// like Golem Greatbow). The encoded ID embeds the level, so an over-cap
+		// value would produce a permanently invalid item the editor then rejects.
 		switch {
 		case itemData.Category == "ashes":
-			finalID = id + uint32(upgradeAsh)
+			finalID = id + uint32(clampUpgrade(upgradeAsh, int(itemData.MaxUpgrade)))
 		case itemData.MaxUpgrade == 25:
+			lvl := clampUpgrade(upgrade25, int(itemData.MaxUpgrade))
 			if infuseOffset != 0 && weaponCategorySupportsInfusion(itemData.Category) {
-				finalID = id + uint32(infuseOffset) + uint32(upgrade25)
+				finalID = id + uint32(infuseOffset) + uint32(lvl)
 			} else {
-				finalID = id + uint32(upgrade25)
+				finalID = id + uint32(lvl)
 			}
 		case itemData.MaxUpgrade == 10:
-			finalID = id + uint32(upgrade10)
+			finalID = id + uint32(clampUpgrade(upgrade10, int(itemData.MaxUpgrade)))
 		}
 
 		actualInv := resolveQty(invQty, int(itemData.MaxInventory))

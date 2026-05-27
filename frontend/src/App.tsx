@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetActiveSlots, SetSlotActivity, GetCharacterNames, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetSlotDiff, GetSaveDiffSummary, GetInfuseTypes, GetSlotCapacity} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetActiveSlots, SetSlotActivity, GetCharacterNames, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetSlotDiff, GetSaveDiffSummary, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -93,6 +93,7 @@ function App() {
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
     const [saving, setSaving] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
+    const [saveIssuesModal, setSaveIssuesModal] = useState<main.SaveIssue[] | null>(null);
     const [saveDataRevision, setSaveDataRevision] = useState(0);
     const [pvpOpts, setPvpOpts] = useState<PvPOptions>(DEFAULT_PVP_OPTIONS);
 
@@ -178,12 +179,29 @@ function App() {
         }
     };
 
-    const handleSaveAs = async () => {
+    // Performs the actual file write. Separated so it can run either directly
+    // (no issues) or after the user acknowledges the pre-save issues modal.
+    const doWriteSave = async () => {
         if (!platform) return;
         setSaving(true);
         try { await WriteSave(platform); toast.success('File saved'); }
         catch (err) { toast.error(String(err)); }
         finally { setSaving(false); }
+    };
+
+    const handleSaveAs = async () => {
+        if (!platform) return;
+        // Pre-save audit: surface blocking data issues (e.g. out-of-range weapon
+        // upgrades) BEFORE writing, so nothing is saved silently. Saving is still
+        // allowed — the modal just informs and points to where to repair.
+        try {
+            const issues = await AuditLoadedSaveIssues();
+            if (issues && issues.length > 0) {
+                setSaveIssuesModal(issues);
+                return;
+            }
+        } catch { /* audit is advisory; never block saving on its failure */ }
+        await doWriteSave();
     };
 
     const refreshSlots = async () => {
@@ -717,6 +735,51 @@ function App() {
                     >
                         Cancel
                     </button>
+                </div>
+            </div>
+        )}
+        {saveIssuesModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setSaveIssuesModal(null)}>
+                <div className="bg-background border border-border rounded-xl p-6 w-[28rem] max-w-[90vw] space-y-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center space-x-2">
+                        <div className="w-1 h-4 bg-amber-500 rounded-full" />
+                        <h3 className="text-[10px] font-black uppercase tracking-widest">Save — {saveIssuesModal.length} issue(s) found</h3>
+                    </div>
+                    <p className="text-[9px] text-muted-foreground uppercase tracking-wide">
+                        The save has invalid data. You can save anyway, or cancel and repair it first.
+                    </p>
+                    <div className="max-h-56 overflow-y-auto space-y-2">
+                        {Object.values(
+                            saveIssuesModal.reduce((acc, it) => {
+                                const key = `${it.slot}|${it.message}|${it.fixTab}`;
+                                if (!acc[key]) acc[key] = {issue: it, count: 0};
+                                acc[key].count++;
+                                return acc;
+                            }, {} as Record<string, {issue: main.SaveIssue; count: number}>),
+                        ).map(({issue, count}, i) => (
+                            <div key={i} className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-2 space-y-1">
+                                <p className="text-[10px] text-foreground">
+                                    <span className="font-black">Slot {issue.slot}</span>
+                                    {count > 1 ? ` · ${count}×` : ''} — {issue.message}
+                                </p>
+                                <p className="text-[9px] text-muted-foreground">Fix in: <span className="text-primary">{issue.fixTab}</span></p>
+                            </div>
+                        ))}
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={async () => { setSaveIssuesModal(null); await doWriteSave(); }}
+                            className="flex-1 py-2 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-500 hover:bg-amber-500/20 transition-all text-[9px] font-black uppercase tracking-widest"
+                        >
+                            Save Anyway
+                        </button>
+                        <button
+                            onClick={() => setSaveIssuesModal(null)}
+                            className="flex-1 py-2 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-all text-[9px] font-black uppercase tracking-widest"
+                        >
+                            Cancel &amp; Fix
+                        </button>
+                    </div>
                 </div>
             </div>
         )}

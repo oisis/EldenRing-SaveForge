@@ -102,7 +102,13 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
     const [currentInfusionName, setCurrentInfusionName] = useState<string>(item.infusionName ?? '');
     const maxUpgrade = item.maxUpgrade ?? 0;
 
-    const [selectedLevel, setSelectedLevel] = useState<number>(item.currentUpgrade ?? 0);
+    // Seed the selector with a VALID level. If the stored level is out of range
+    // (e.g. a +25 somber weapon that should cap at +10), clamp the seed to the max
+    // so the dropdown shows a real option and "Apply Level" is immediately usable
+    // to repair it — instead of rendering a blank/0 and a disabled button.
+    const [selectedLevel, setSelectedLevel] = useState<number>(
+        Math.min(Math.max(item.currentUpgrade ?? 0, 0), item.maxUpgrade ?? 0),
+    );
     const [applying, setApplying] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState<string | null>(null);
@@ -272,6 +278,9 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
 
     // ─── Level / Infusion gates ────────────────────────────────────────────────
     const canEditLevel = maxUpgrade > 0;
+    // Stored level above the weapon's real cap = invalid data (e.g. an old
+    // out-of-range add). Surfaced so the user can fix it manually.
+    const levelOutOfRange = canEditLevel && currentLevel > maxUpgrade;
     const levelChanged = selectedLevel !== currentLevel;
     const levelInRange = selectedLevel >= 0 && selectedLevel <= maxUpgrade;
     const canApplyLevel = canEditLevel && levelChanged && levelInRange && !applying;
@@ -549,11 +558,18 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
                                 Upgrade Level
                             </span>
                             {canEditLevel ? (
-                                <span className="text-[9px] font-mono text-muted-foreground/70">
+                                <span className={`text-[9px] font-mono ${levelOutOfRange ? 'text-red-500 font-black' : 'text-muted-foreground/70'}`}>
                                     +{currentLevel} / +{maxUpgrade}
                                 </span>
                             ) : null}
                         </div>
+
+                        {levelOutOfRange && (
+                            <p className="text-[10px] text-red-500 leading-relaxed">
+                                ⚠ Stored level +{currentLevel} exceeds this weapon&rsquo;s max +{maxUpgrade} (invalid data).
+                                Pick a valid level and press <span className="font-black">Apply Level</span> to repair it.
+                            </p>
+                        )}
 
                         {!canEditLevel ? (
                             <p className="text-[10px] text-muted-foreground/70 italic">
