@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(character-importer): restore source-slot avatar icon
+
+Fixed the broken hardcoded path of the decorative Knight Helm icon shown for
+the source-slot selector in Character Importer (`items/armor/` → `items/head/`).
+The slots no longer render a broken-image glyph from the non-existent
+`items/armor/` directory. No change to import logic or save data.
+
 ### chore(weapon-edit): remove legacy weapon-apply endpoints
 
 Removed the public direct-write endpoints `ApplyWeaponUpgradeLevel`,
