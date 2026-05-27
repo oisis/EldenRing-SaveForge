@@ -140,7 +140,7 @@ After all phases, `spec/` should consist of 30 chapters + 7 appendices, divided 
 - **Build Template spell loadout / character stats** — schema v1 does not export attunement slots or PlayerGameData stats. (55 §6)
 - **Build Template forward-compat `version=2` tests** — `SchemaVersion=1` is the only accepted version; no tests for unknown-future-fields scenarios. (55 §18, §21.L8)
 - **Cross-platform PS4 vs PC portability for Build Template** — schema portable by design, but no E2E PS4↔PC roundtrip test.
-- **Frontend/backend `WEP_TYPE_TO_BIT` drift** — two frontend mirrors without CI / generator guard. (54 §17, §22.L4)
+- **Frontend/backend `WEP_TYPE_TO_BIT` drift** — single frontend mirror (`WeaponEditModal.tsx`) vs backend, no CI / generator guard. (54 §17, §22.L4)
 - **`replace-*` modes not implemented** — `replace-weapons`, `replace-armors`, etc., reserved in the schema; v1 supports only `merge`. (55 §6)
 
 ### Phase 4 — Map / World / Event Flags / Game State (Ch.9, Ch.10, Ch.11, Ch.12, Ch.13, Ch.30) ✅ COMPLETED (main chapters)

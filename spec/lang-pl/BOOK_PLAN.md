@@ -140,7 +140,7 @@ Po wszystkich fazach `spec/lang-pl/` ma się składać z 30 rozdziałów + 7 za�
 - **Build Template spell loadout / character stats** — schema v1 nie eksportuje attunement slotów ani statystyk PlayerGameData. (55 §6)
 - **Build Template forward-compat `version=2` testy** — `SchemaVersion=1` jedyny akceptowany; brak testów scenariuszy unknown-future-fields. (55 §18, §21.L8)
 - **Cross-platform PS4 vs PC portability dla Build Template** — schema portable z założenia, ale brak E2E testu PS4↔PC roundtrip.
-- **Frontend/backend `WEP_TYPE_TO_BIT` drift** — dwa frontend mirrory bez guardu CI / generatora. (54 §17, §22.L4)
+- **Frontend/backend `WEP_TYPE_TO_BIT` drift** — pojedynczy frontend mirror (`WeaponEditModal.tsx`) vs backend, bez guardu CI / generatora. (54 §17, §22.L4)
 - **`replace-*` modes nie zaimplementowane** — `replace-weapons`, `replace-armors` itd. zarezerwowane w schemacie; v1 obsługuje tylko `merge`. (55 §6)
 
 ### Phase 4 — Map / World / Event Flags / Game State (Ch.9, Ch.10, Ch.11, Ch.12, Ch.13, Ch.30) ✅ UKOŃCZONA (główne rozdziały)

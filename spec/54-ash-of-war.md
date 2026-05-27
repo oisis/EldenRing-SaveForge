@@ -12,7 +12,7 @@ This chapter ties together all the layers that handle assigning / detaching Ash 
 
 - the on-disk format (relation weapon GaItem ↔ AoW GaItem, "no custom AoW" sentinels),
 - the allocation model and its non-trivial constraints (the guard concerning the armament zone),
-- the write paths (`PatchWeaponAoWHandle` strict, `PatchWeaponAoW` legacy allocates + rebuild),
+- the write paths (`PatchWeaponAoWHandle` in-place handle reuse, `PatchWeaponAoW` allocates + rebuild),
 - availability scanning and shared-handle detection,
 - the compatibility model and mount semantics,
 - the workspace path (RAM-only) from the perspective of the `WeaponEditModal` modal.
@@ -34,13 +34,13 @@ Reference chapters whose contents we do **not** repeat in 54:
 |---|---|
 | Reader (`core.SaveSlot.parseFromData`) | ✅ accepts both sentinels (`0x00000000` and `0xFFFFFFFF`). |
 | Canonical writer (`core.PatchWeaponAoWHandle`) | ✅ canonicalizes output to `0x00000000`, guards shared-handle. |
-| Legacy writer (`core.PatchWeaponAoW`) | ✅ allocates a new AoW + rebuilds the slot (used by the hidden legacy tab). |
+| Allocation writer (`core.PatchWeaponAoW`) | ✅ allocates a new AoW + rebuilds the slot (active AoW-set path of the workspace save). |
 | Allocator guard | ✅ guard `NextArmamentIndex >= maxEntries` in `allocateGaItem` (commit `6881cb9`). |
 | Availability scan (`core.ScanAoWAvailability`) | ✅ two-pass, detects shared-handle. |
 | Compatibility check (`db.IsAshOfWarCompatibleWithWeapon`) | ✅ with the `canMountWep_*` bitmask + `WepTypeToCanMountBit`. |
 | Workspace AoW (`editor.UpdateWeapon` + `EditableItem` pending fields) | ✅ pending pattern with "fail-closed on unknown compat" validation at save. |
-| Frontend modal (`WeaponEditModal.tsx`) | ✅ dual-mode: workspace path and legacy path; default workspace. |
-| DLC wepTypes 69/94/95 | ⚠️ allow-passthrough in the backend (`known==false`), `needs verification` on the UI side. |
+| Frontend modal (`WeaponEditModal.tsx`) | ✅ workspace-only path (the former non-workspace/legacy mode was removed). |
+| DLC wepTypes 69/94/95 | ⚠️ DB lookup returns `known==false`; the active workspace save fail-closes, so these AoW edits are currently refused — `needs verification`. |
 
 ---
 
@@ -52,18 +52,17 @@ Reference chapters whose contents we do **not** repeat in 54:
 | Record sizes | `backend/core/offset_defs.go`: `GaRecordWeapon = 21`, `GaRecordItem = 8`, `GaHandleTypeMask = 0xF0000000`. |
 | Allocator + guard | `backend/core/writer.go`: `allocateGaItem` (lines ~430–501), guard lines 461–462. |
 | Strict patch | `backend/core/writer.go`: `PatchWeaponAoWHandle` (lines ~1131–1207). |
-| Legacy alloc + rebuild | `backend/core/writer.go`: `PatchWeaponAoW` (lines ~1209–1325). |
+| Allocation + rebuild | `backend/core/writer.go`: `PatchWeaponAoW` (lines ~1209–1325). |
 | Availability scan | `backend/core/aow_availability.go`: `ScanAoWAvailability`, `AoWCopyRaw`. |
 | Compat data | `backend/db/data/aow_compat.go`: `AoWCompatMasks`, `WepTypeToCanMountBit`, `CanMountWepNames`. |
 | Weapon mount data | `backend/db/data/weapon_gem_mount.go`: `WeaponGemMounts`. |
 | Compat helpers | `backend/db/db.go`: `CanWeaponMountAoW`, `IsAoWCompatibleWithWepType`, `IsAshOfWarCompatibleWithWeapon`. |
-| App entrypoints | `app.go`: `ApplyWeaponAoW`, `ApplyWeaponAoWStrict`, `GetAoWAvailability`. |
+| App entrypoints | `app.go`: `GetAoWAvailability` (availability scan). The former direct-write endpoints `ApplyWeaponAoW` / `ApplyWeaponAoWStrict` (and `ApplyWeaponInfusion` / `ApplyWeaponUpgradeLevel`) were removed — AoW/weapon writes now run only through the workspace save. |
 | Editor patch DTO | `backend/editor/weapon.go`: `WeaponPatch`, `UpdateWeapon`. |
 | Editor workspace state | `backend/editor/workspace.go`: `EditableItem.Current*`/`Pending*`/`CanMountAoW`/`WepType`, constants `AoWStatus*`. |
 | Save-side execution | `backend/editor/save.go`: `collectPendingAoWChanges`, `validatePendingAoWChanges`, `executePendingAoWPatches`. |
 | Workspace validator | `backend/editor/validate.go`: `CodePendingAoWUnknown`, `CodePendingAoWConflict`. |
-| Frontend modal | `frontend/src/components/WeaponEditModal.tsx` (workspace + legacy paths, its own `WEP_TYPE_TO_BIT` mirror). |
-| Internal legacy tab | `frontend/src/components/WeaponEditTab.tsx` (hidden / deprecated; uses both `ApplyWeaponAoW` and `ApplyWeaponAoWStrict` depending on the `createCopy` toggle; its own `WEP_TYPE_TO_BIT` mirror). |
+| Frontend modal | `frontend/src/components/WeaponEditModal.tsx` (workspace-only path, its own `WEP_TYPE_TO_BIT` mirror). |
 | Workspace integration | `frontend/src/components/SortOrderTab.tsx` (injects `workspace` + `workspaceItem` into `WeaponEditModal` — see §16). |
 
 ---
@@ -218,12 +217,10 @@ func IsAshOfWarCompatibleWithWeapon(aowItemID uint32, weaponItemID uint32) (comp
 
 | Caller | `known == false` | `known && !compatible` |
 |---|---|---|
-| `app.ApplyWeaponAoW` | passthrough (mutates slot) | block |
-| `app.ApplyWeaponAoWStrict` | passthrough (mutates slot) | block |
 | `editor.validatePendingAoWChanges` (workspace save) | **fail-closed** (`refusing fail-closed`) | block |
 | `WeaponEditModal` (UI default view) | hide (fail-closed visibility) | hide |
 
-The mismatch of `app.go` (passthrough) with save-side (fail-closed) is intentional: the legacy ApplyWeapon* path mutates the slot immediately and relies on the fact that `CanWeaponMountAoW(baseID) == true` passed earlier (the UI lists only mountable weapons). The workspace save is more restrictive, because templates can introduce an AoW × weapon combination the UI never presented.
+The active write path is the workspace save, and it is uniformly fail-closed on `known == false`: an AoW × weapon combination SaveForge cannot assess is refused at save (templates and auto-apply can introduce combinations the UI never presented). The UI mirrors this by hiding `unknown`/`incompatible` entries. A previous generation of direct-write endpoints fail-opened (passthrough) on `known == false`, but those endpoints were removed; no passthrough path remains.
 
 ---
 
@@ -319,26 +316,27 @@ What is legal (and often confuses):
 - The same AoW **ItemID** may have multiple separate copies (different handles). This is exactly how Lost Ashes of War and drops accumulate.
 - Two different weapons may both show the same Ash of War in-game, as long as they reference **different** gem handles of the same ItemID.
 
-The strict path UI presents the `conflict` status in the AoW listing and blocks the apply of that copy (rather than both weapons). `App.ApplyWeaponAoWStrict` additionally refuses if `hasConflict` in `ScanAoWAvailability` (line ~1493 app.go).
+The strict path UI presents the `conflict` status in the AoW listing and blocks the apply of that copy (rather than both weapons). At the writer level, `PatchWeaponAoWHandle` itself refuses an attach whose target handle is already referenced by another weapon GaItem (shared-handle guard, §13).
 
 ---
 
 ## 12. Write paths overview
 
-SaveForge has **two** AoW write paths at the core level. The choice is a function of the entry point and the UI history:
+SaveForge has **two** AoW write paths at the core level. Both are now reached only through the workspace save; the choice between them is a function of clear-vs-set:
 
-| Path | Core function | App entry point | UI |
+| Path | Core function | Entry point | UI |
 |---|---|---|---|
-| **Strict** (in-place, no rebuild) | `core.PatchWeaponAoWHandle` | `app.ApplyWeaponAoWStrict` | `WeaponEditModal` (Sort Order) + `WeaponEditTab` in `createCopy=false` mode |
-| **Legacy / allocate + rebuild** | `core.PatchWeaponAoW` | `app.ApplyWeaponAoW` | only `WeaponEditTab` in `createCopy=true` mode (hidden / deprecated tab) |
-| **Workspace pending → save** | `core.PatchWeaponAoWHandle` (clear) or `core.PatchWeaponAoW` (set) | `editor.executePendingAoWPatches` (called by `ApplyWorkspaceSave`) | `WeaponEditModal` in `isWorkspaceMode == true` |
+| **Strict** (in-place, no rebuild) | `core.PatchWeaponAoWHandle` | `editor.executePendingAoWPatches` — clear (`PendingAoWClear`) | `WeaponEditModal` (Sort Order) |
+| **Allocate + rebuild** | `core.PatchWeaponAoW` | `editor.executePendingAoWPatches` — set (`PendingAoWItemID`) | `WeaponEditModal` (Sort Order) |
+
+Both are invoked by `executePendingAoWPatches`, which `ApplyWorkspaceSave` runs at save time.
 
 The "strict vs allocate" choice has operational significance:
 
 - **Strict** requires an existing free copy of an AoW GaItem of the desired ItemID — the UI must confirm this via the availability scan.
-- **Legacy** always mints a fresh handle and allocates a new AoW GaItem; it requires a full `RebuildSlotFull` and reparse — more expensive and subject to the guard from §14.
+- **Allocate** always mints a fresh handle and allocates a new AoW GaItem; it requires a full `RebuildSlotFull` and reparse — more expensive and subject to the guard from §14.
 
-The workspace save bridges both paths: clear → strict (in-place sentinel), set → legacy (allocates a new GaItem). Consequence: every change with `PendingAoWClear=true` is cheap; a change with `PendingAoWItemID != 0` rebuilds the slot.
+The workspace save bridges both paths: clear → strict (in-place sentinel), set → allocate (allocates a new GaItem). Consequence: every change with `PendingAoWClear=true` is cheap; a change with `PendingAoWItemID != 0` rebuilds the slot.
 
 ---
 
@@ -388,7 +386,7 @@ Identical effect to strict-remove: writes `NoCustomAoWHandle` at `[weaponOff+16]
 
 The old AoW GaItem (previously referenced) is **not** garbage-collected. The game tolerates orphans (orphan copies) in the GaMap; the strict path can re-attach them later without allocation.
 
-The function is documented in the code as "currently invoked only via App.ApplyWeaponAoW, which itself is reachable only from the hidden legacy Weapon Edit tab" — see §17.
+This is the active AoW-set path: it is invoked by the workspace save (`editor.executePendingAoWPatches`) whenever a pending AoW Set (`PendingAoWItemID != 0`) requires a fresh GaItem — see §16.3.
 
 ---
 
@@ -437,16 +435,11 @@ The reject is **before-mutation**: neither `NextAoWIndex`, nor `NextArmamentInde
 
 ## 16. Workspace and WeaponEditModal state
 
-WeaponEditModal operates in **two modes** depending on the props:
+WeaponEditModal is **workspace-only**. The `workspace` + `workspaceItem` props are required; the former non-workspace/legacy mode (and its `GetCharacter` fallback) was removed.
 
-```typescript
-const isWorkspaceMode = !!workspace && !!workspaceItem;
-```
-
-| Mode | Props condition | Read state | Write state |
+| Mode | Props | Read state | Write state |
 |---|---|---|---|
-| Workspace | `workspace` + `workspaceItem` passed | `EditableItem` (RAM, pending fields included) | `workspace.updateWeapon(uid, patch)` → mutates the RAM snapshot |
-| Legacy | only `charIndex` + `item` | `GetCharacter(charIndex)` (save snapshot) | `ApplyWeaponAoWStrict` (in-place patch slot) |
+| Workspace (only) | `workspace` + `workspaceItem` | `EditableItem` (RAM, pending fields included) | `workspace.updateWeapon(uid, patch)` → mutates the RAM snapshot |
 
 ### 16.1. Workspace read path
 
@@ -458,13 +451,9 @@ const [wepType, setWepType]             = useState(workspaceItem?.wepType ?? 0);
 
 After each `workspace.updateWeapon(...)` the returned fresh `EditableItem` synchronizes the state via `useEffect`.
 
-### 16.2. Why workspace mode does NOT use `GetCharacter`
+### 16.2. Why the modal does NOT use `GetCharacter`
 
-Comment in the code (`WeaponEditModal.tsx:131–136`):
-
-> *"In workspace mode the AoW-mount metadata (currentAoWId / canMountAoW / wepType) comes straight from the editable workspace item — GetCharacter reads the *save* state, which can drift from the workspace (added items have no save-side handle, prior Saves may re-allocate handles). Legacy mode keeps the GetCharacter fallback so WeaponEditTab and other non-workspace callers are unaffected."*
-
-Specifically:
+The AoW-mount metadata (`currentAoWId` / `canMountAoW` / `wepType`) comes straight from the editable workspace item. `GetCharacter` reads the *save* state, which can drift from the workspace, so the modal never relies on it:
 
 - An item added in the workspace (Source=Added) **does not yet have** a real `OriginalHandle` in the save — `GetCharacter` returns a snapshot without that item.
 - Recent saves may re-allocate handles on `core.PatchWeaponAoW` (slot rebuild) — the `GetCharacter` cache may return the old handle.
@@ -514,7 +503,7 @@ Constants in `backend/editor/workspace.go`:
 
 ## 17. Frontend / backend compatibility drift
 
-The UI maintains **two parallel** mirrors of `WepTypeToCanMountBit`: one in `WeaponEditModal.tsx` (lines ~48–54) and another in `WeaponEditTab.tsx` (line ~13). Both sets of pairs are today identical to `backend/db/data/aow_compat.go::WepTypeToCanMountBit`, but each is maintained by hand — no generator or CI test enforces consistency:
+The UI maintains a single frontend mirror of `WepTypeToCanMountBit`, in `WeaponEditModal.tsx` (lines ~48–54). It is today identical to `backend/db/data/aow_compat.go::WepTypeToCanMountBit`, but it is maintained by hand — no generator or CI test enforces consistency:
 
 ```typescript
 // frontend/src/components/WeaponEditModal.tsx
@@ -527,7 +516,7 @@ const WEP_TYPE_TO_BIT: Record<number, number> = {
 };
 ```
 
-**Drift risk**: the backend `data.WepTypeToCanMountBit` is the source of truth (see `backend/db/data/aow_compat.go:245–291`). Every backend-side update (e.g., a new DLC wepType) must be propagated **manually** to both frontend mirrors; there is no CI guard and no generator. The CHANGELOG (commit `25fa240` "wire ash of war edit in weapon modal" and the discussion in later entries) explicitly flags the target plan to refactor to a shared frontend helper — until that happens, every change is `needs verification` in both files.
+**Drift risk**: the backend `data.WepTypeToCanMountBit` is the source of truth (see `backend/db/data/aow_compat.go:245–291`). Every backend-side update (e.g., a new DLC wepType) must be propagated **manually** to the frontend mirror; there is no CI guard and no generator. Until a shared frontend helper or generator exists, every such change is `needs verification` in `WeaponEditModal.tsx`.
 
 The UI fail-closes on an unknown `wepType`:
 
@@ -542,15 +531,14 @@ function getAoWCompatStatus(aowCompatBitmask: number, wepType: number) {
 
 `unknown` is blocked in the default view (`Show unavailable = false`). After enabling the `Show unavailable` toggle, `unknown`/`incompatible` entries are visible, but **not applicable** (`canApplyAoW` requires `compat === 'compatible'`).
 
-Contrast vs backend:
+Contrast across the active layers:
 
 | Layer | `known == false` behavior |
 |---|---|
-| `app.ApplyWeaponAoW*` (legacy + strict) | Allow passthrough — assumes that `CanWeaponMountAoW` (GemMountType==2) is sufficient. |
-| `editor.validatePendingAoWChanges` | Fail-closed. |
+| `editor.validatePendingAoWChanges` (workspace save) | Fail-closed. |
 | `WeaponEditModal` UI | Hide / disable. |
 
-The `app.go` allow-passthrough vs UI fail-closed decision is intentional: the legacy ApplyWeaponAoW lets a developer/DLC tester bypass the UI constraint. The workspace save is restrictive, because templates and auto-apply can introduce combinations not confirmed by the UI.
+Both active layers fail-closed on unknown compatibility — the UI hides the entry and the workspace save refuses it. This is deliberate, because templates and auto-apply can introduce combinations the UI never confirmed. (A previous generation of direct-write endpoints fail-opened on `known == false`; they were removed, so no passthrough path remains.)
 
 `needs verification`: the bitmask may be incomplete for DLC AoW gems (rows in `EquipParamGem` not covered by the `import_aow_compat.py` import). Affinity gating for infusion variants (e.g., Heavy Longsword vs Standard Longsword) is **not** handled by the bitmask — `EquipParamWeapon.defaultWepAttr` / `configurableWepAttr00..23` are not imported into `WeaponGemMounts`. No evidence was found that affinity gating is enforced in SaveForge.
 
@@ -627,13 +615,9 @@ Anti-patterns the document must NOT document as "safe":
 | `backend/editor/current_aow_test.go::*` | Population of `CurrentAoW*` after scan + pending flow. |
 | `backend/editor/weapon_test.go::*` | `WeaponPatch` semantics (SetAoWItemID, ClearAoW, HasPendingWeaponPatch). |
 | `backend/editor/save_test.go::TestValidatePendingAoWChanges_*` | Fail-closed on unknown compat, reject non-AoW category, accept clear. |
-| `app_weapon_aow_dlc_test.go::TestApplyWeaponAoW_DLCUnmappedWepType_Allows` | DLC wepType=69 (Dragon Towershield) — passthrough. |
-| `app_weapon_aow_dlc_test.go::TestApplyWeaponAoW_DLCGreatKatana_Allows` | DLC wepType=94 — passthrough. |
-| `app_weapon_aow_dlc_test.go::TestApplyWeaponAoWStrict_DLCUnmappedWepType_Allows` | Strict mode also passthrough on DLC. |
-| `app_weapon_aow_dlc_test.go::TestApplyWeaponAoW_KnownIncompatible_Blocks` | known + !compatible blocks. |
-| `app_weapon_aow_dlc_test.go::TestApplyWeaponAoW_NonMountableWeapon_Blocks` | `gemMountType != 2` blocks. |
-| `app_weapon_aow_dlc_test.go::TestApplyWeaponAoW_RemoveAlwaysAllowed` | Remove skips the compat check. |
-| `app_weapon_aow_editor_test.go::*` | The full matrix of legacy `ApplyWeaponAoW` (no-save, invalid char, handle-not-found, remove, existing-free, missing-create, used-create). |
+| `backend/db/compat_test.go::TestIsAshOfWarCompatibleWithWeapon_DLCUnmappedWepType_Unknown` | Real DLC weapons with unmapped `wepType` (Dragon Towershield 69, Great Katana 94) resolve to `known=false` at the DB layer (fail-closed `compatible=false`). |
+| `backend/db/compat_test.go::TestIsAshOfWarCompatibleWithWeapon_*` | Known-compatible / known-incompatible / non-mountable (`gemMountType != 2`) verdicts at the DB layer. |
+| `backend/core/writer_weapon_itemid_test.go::*` | `PatchWeaponItemID` byte-patch contract (locate-by-handle, stale-data guard, in-place 4-byte ItemID overwrite). |
 | `frontend/src/components/WeaponEditModal.workspace.test.tsx` | Workspace mode read/write with workspaceItem. |
 
 ---
@@ -643,13 +627,12 @@ Anti-patterns the document must NOT document as "safe":
 | # | Area | Status |
 |---|---|---|
 | L1 | Affinity gating per AoW (`defaultWepAttr`/`configurableWepAttr00..23`) | `needs verification` — no gating path found in the code. The UI does not differentiate infusion variants on the compat check. |
-| L2 | DLC wepType 69/94/95 | Backend allow-passthrough; the UI treats them as `unknown` and fail-closes visibility. No data in `WepTypeToCanMountBit` on either side. `needs verification` whether the UI has information for the user that this is "DLC, compatibility unknown". |
+| L2 | DLC wepType 69/94/95 | No data in `WepTypeToCanMountBit`, so the DB lookup returns `known=false` (locked by `backend/db/compat_test.go`). The UI treats them as `unknown` and the workspace save fail-closes, so an AoW edit on these weapons is currently refused. `needs verification` whether these wepTypes should be mapped to allow legitimate edits, and whether the UI explains "DLC, compatibility unknown" to the user. |
 | L3 | `gemMountType == 1` (somber) AoW editing semantics | The UI sets `CanMountAoW = false` → the AoW section is disabled. `needs verification` whether there is a placeholder/explanation that this is not an error. |
-| L4 | Frontend ↔ backend `WEP_TYPE_TO_BIT` drift | Two frontend mirrors (`WeaponEditModal.tsx`, `WeaponEditTab.tsx`), both maintained by hand; currently identical with the backend. No CI guard / generator. `needs verification` on every backend change. |
+| L4 | Frontend ↔ backend `WEP_TYPE_TO_BIT` drift | Single frontend mirror (`WeaponEditModal.tsx`), maintained by hand; currently identical with the backend. No CI guard / generator. `needs verification` on every backend change. |
 | L5 | Compat bitmask completeness | `AoWCompatMasks` is generated from `EquipParamGem`; it is possible that new DLC rows were not re-imported. `needs verification` after a regulation update. |
 | L6 | Orphan AoW GaItem garbage collection | Does not exist (intentionally). The game tolerates it, the strict path can re-attach. `needs verification` in long user-facing workflows (whether the save grows linearly with the number of AoW edits). |
 | L7 | Workspace `populateCurrentAoW` edge cases | The full Added × Removed × Pending matrix is not described here — covered by tests in `current_aow_test.go`. `needs verification` for new sources/sinks. |
-| L8 | `app.ApplyWeaponAoW` (legacy) future removal | Documented in the code as "currently invoked only via the hidden legacy Weapon Edit tab". The cleanup plan is not in this document. |
 
 ---
 
@@ -670,7 +653,7 @@ Anti-patterns the document must NOT document as "safe":
 
 ## 24. Sources
 
-- Code: `backend/core/structures.go`, `backend/core/offset_defs.go`, `backend/core/writer.go`, `backend/core/aow_availability.go`, `backend/db/db.go`, `backend/db/data/aow_compat.go`, `backend/db/data/weapon_gem_mount.go`, `backend/editor/weapon.go`, `backend/editor/save.go`, `backend/editor/validate.go`, `backend/editor/workspace.go`, `app.go`, `frontend/src/components/WeaponEditModal.tsx`, `frontend/src/components/WeaponEditTab.tsx`, `frontend/src/components/SortOrderTab.tsx`.
-- Tests: `backend/core/aow_strict_test.go`, `backend/core/aow_dual_destination_test.go`, `backend/core/gaitem_placement_test.go`, `backend/editor/current_aow_test.go`, `backend/editor/weapon_test.go`, `backend/editor/save_test.go`, `app_weapon_aow_dlc_test.go`, `app_weapon_aow_editor_test.go`, `frontend/src/components/WeaponEditModal.workspace.test.tsx`.
+- Code: `backend/core/structures.go`, `backend/core/offset_defs.go`, `backend/core/writer.go`, `backend/core/aow_availability.go`, `backend/db/db.go`, `backend/db/data/aow_compat.go`, `backend/db/data/weapon_gem_mount.go`, `backend/editor/weapon.go`, `backend/editor/save.go`, `backend/editor/validate.go`, `backend/editor/workspace.go`, `app.go`, `frontend/src/components/WeaponEditModal.tsx`, `frontend/src/components/SortOrderTab.tsx`.
+- Tests: `backend/core/aow_strict_test.go`, `backend/core/aow_dual_destination_test.go`, `backend/core/gaitem_placement_test.go`, `backend/core/writer_weapon_itemid_test.go`, `backend/db/compat_test.go`, `backend/editor/current_aow_test.go`, `backend/editor/weapon_test.go`, `backend/editor/save_test.go`, `frontend/src/components/WeaponEditModal.workspace.test.tsx`.
 - Game data: `tmp/regulation-bin-dump/csv/EquipParamWeapon.csv` (columns `swordArtsParamId`, `wepType`, `gemMountType`), `EquipParamGem.csv` (`swordArtsParamId`, `canMountWep_*`), `SwordArtsParam.csv`.
 - History / forensic: commits `4e800b9` (`fix(aow): use vanilla no-custom sentinel`), `cb1a822` (`fix(ui): clarify custom Ash of War removal`), `6881cb9` (`fix(core): guard AoW allocation at armament capacity`), `f3d64c1` (`fix(inventory): restore AoW editing in workspace mode`), `0b62cfd` (`feat(inventory): save pending Ashes of War edits`), `8fcc97f` (`feat(inventory): expose current AoW in workspace`).
