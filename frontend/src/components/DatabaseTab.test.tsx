@@ -155,4 +155,40 @@ describe('DatabaseTab', () => {
         expect(mocks.AddItemsToCharacter).toHaveBeenCalledWith(
             0, [BAN_ITEM_ID], 0, 0, 0, 0, 1, 0);
     });
+
+    // error modal: the capacity-exceeded path is the smallest deterministic way
+    // to open the (purely presentational) error modal — AddItemsToCharacter
+    // returns a capHit instead of throwing, so handleAdd renders the modal from
+    // state. Freezes the current title/message and that OK only closes the UI.
+    it('error modal: capacity exceeded renders the error and OK closes it without an additional mutation', async () => {
+        // Single non-stackable item makes exactly one AddItemsToCharacter call;
+        // returning capHit drives the Capacity Exceeded branch (not the throw path).
+        mocks.AddItemsToCharacter.mockResolvedValue({
+            added: 0, requested: 1, trimmed: [], capHit: 'inventory_full',
+            freeInv: 0, freeStore: 0, neededInv: 5, neededStore: 0,
+        });
+
+        renderTab();
+        fireEvent.click(await screen.findByRole('button', { name: /Add Favorites/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Add Anyway' }));
+        const addBtn = await screen.findByRole('button', { name: /^Add$/ });
+        fireEvent.click(addBtn);
+
+        // The mutation endpoint was actually reached exactly once.
+        await waitFor(() =>
+            expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1));
+
+        // Actual rendered title for capHit 'inventory_full' and a characteristic
+        // message fragment (need/free line built in handleAdd).
+        expect(await screen.findByText('Inventory Full')).toBeInTheDocument();
+        expect(screen.getByText(/Inventory: need 5, free 0/)).toBeInTheDocument();
+
+        // OK is the only action; it closes the modal via setErrorModal(null).
+        fireEvent.click(screen.getByRole('button', { name: 'OK' }));
+        await waitFor(() =>
+            expect(screen.queryByText('Inventory Full')).not.toBeInTheDocument());
+
+        // Closing is UI-only: no second mutation triggered.
+        expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1);
+    });
 });
