@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### perf(icons): downscale four oversized active item icons
+
+Downscaled four actively used PNG icons from `1024×1024` to `256×256` as a pilot
+for trimming oversized assets. The set covers representative icons across
+`incantation`, `info`, `key_items` and `tools` (Aspects of the Crucible: Thorns,
+About the Scadutree Blessing, Crimsonspill Crystal Tear and the Battlefield
+Priest's Cookbook shared icon). File names, PNG format, transparency and the
+existing `IconPath` values are unchanged. The combined size of these four icons
+dropped from `6 927 527 B` to `532 764 B` (`−92.3%`). Quality was verified
+manually in the database grid and the large detail panel. This pilot does not
+cover the remaining large icons or the palette-mode icons.
+
 ### fix(icons): relocate misplaced Flask of Wondrous Physick info icon
 
 Moved the `About Flask of Wondrous Physick` tutorial icon from the wrong
