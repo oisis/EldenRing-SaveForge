@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(icons): remove redundant shackle orphan duplicates
+
+Removed 2 redundant, unreferenced Shackle PNG copies from
+`frontend/public/items/key_items/` (Margit's Shackle and Mohg's Shackle). The
+active canonical assets with byte-identical content remain in the semantically
+correct `frontend/public/items/tools/` directory; the active `Margit's Shackle`
+and `Mohg's Shackle` records belong to the `tools` category and use `IconPath`
+values under `items/tools/`. The deleted files were not referenced by any active
+`IconPath` nor by any tracked source, config, docs or tests. The change removes
+44 947 B of redundant files; `IconPath`, resolved targets and missing targets
+are unchanged. The remaining orphan duplicates, the two Class B cases and other
+deferred topics stay out of scope.
+
 ### chore(icons): remove redundant orphan painting duplicates
 
 Removed 7 redundant, unreferenced painting PNG copies from
