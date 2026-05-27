@@ -139,11 +139,14 @@ describe('WeaponEditModal (workspace mode)', () => {
     });
 
     it('shows the workspace item name in the header', async () => {
+        const workspace = { sessionID: 'ses-header', updateWeapon: vi.fn() };
         await renderModal({
             charIndex: 0,
             item: makeOrderItem({ name: 'Claymore' }),
             source: 'inventory',
             onClose: () => {},
+            workspace,
+            workspaceItem: makeWorkspaceItem({ name: 'Claymore' }),
         });
 
         expect(screen.getByText('Claymore')).toBeInTheDocument();
