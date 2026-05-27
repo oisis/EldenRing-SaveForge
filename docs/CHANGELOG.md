@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### perf(icons): downscale oversized tools icons
+
+Downscaled 31 actively used `tools` PNG icons from `1024×1024` to `256×256`,
+covering maps, cookbooks, prattling pates, notes/letter/scroll, keys and the
+Deflecting Hardtear. The shared cookbook icons represent numbered volumes and
+were downscaled as single physical assets. File names, PNG format, transparency
+and the existing `IconPath` values are unchanged. The batch size dropped from
+`29 260 094 B` to `2 242 618 B`, a saving of `27 017 476 B` (`−92.34%`). Icon
+quality was verified visually from the image diff. The palette-mode
+`oil_soaked_tear.png` and other open icon topics stay out of scope.
+
 ### perf(icons): downscale oversized non-tools item icons
 
 Downscaled 14 actively used PNG icons from `1024×1024` to `256×256`, covering
