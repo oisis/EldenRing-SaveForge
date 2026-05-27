@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(database): remove unreachable legacy icon preview modal
+
+Removed the dead, unreachable icon preview modal from `DatabaseTab` along with
+its `selectedIcon` state. The modal could never open — `selectedIcon` was only
+ever set to `null` (close); no user action set it to a value, and clicking an
+item icon opens the active `ItemDetailPanel` instead. The active item detail
+panel, the missing-icon handling (`brokenIcons`), the hover preview tooltip, and
+the add-item flow are unchanged. No backend, endpoints, or Wails bindings touched.
+
 ### chore(cleanup): remove unreachable legacy Weapon Edit Tab
 
 Deleted `frontend/src/components/WeaponEditTab.tsx` and its dead render path. The

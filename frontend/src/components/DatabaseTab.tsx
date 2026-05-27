@@ -106,8 +106,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const [storageMax, setStorageMax] = useState(false);
     const [storageQtyVal, setStorageQtyVal] = useState(1);
 
-    // Icon preview
-    const [selectedIcon, setSelectedIcon] = useState<{name: string, path: string} | null>(null);
+    // Icon hover preview tooltip
     const [hoverTooltip, setHoverTooltip] = useState<{name: string, path: string, x: number, y: number} | null>(null);
 
     // Detail panel
@@ -1119,32 +1118,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 <div className="fixed z-[60] pointer-events-none" style={{left: hoverTooltip.x, top: hoverTooltip.y - 8, transform: 'translate(-50%, -100%)'}}>
                     <div className="bg-card border border-border rounded-lg shadow-xl p-2">
                         <img src={hoverTooltip.path} alt="" className="w-36 h-36 object-contain drop-shadow-md" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                    </div>
-                </div>
-            )}
-
-            {/* Icon Preview Modal */}
-            {selectedIcon && (
-                <div
-                    className="fixed inset-0 bg-background/80 backdrop-blur-xl z-[100] flex items-center justify-center p-8 animate-in fade-in duration-300"
-                    onClick={() => setSelectedIcon(null)}
-                >
-                    <div className="relative max-w-2xl w-full flex flex-col items-center space-y-8 animate-in zoom-in-95 duration-300">
-                        <div className="w-64 h-64 bg-muted/20 rounded-3xl border border-border/50 flex items-center justify-center shadow-2xl shadow-primary/10 relative group">
-                            <div className="absolute inset-0 bg-primary/5 rounded-3xl blur-3xl group-hover:bg-primary/10 transition-all duration-500" />
-                            {brokenIcons.has(selectedIcon.path) ? (
-                                <span className="text-3xl font-black text-muted-foreground/30 select-none">?</span>
-                            ) : (
-                                <img src={selectedIcon.path} alt={selectedIcon.name} className="w-48 h-48 object-contain drop-shadow-2xl relative z-10" onError={() => handleImageError(selectedIcon.path)} />
-                            )}
-                        </div>
-                        <div className="text-center space-y-2">
-                            <h3 className="text-2xl font-black uppercase tracking-[0.2em] text-foreground">{selectedIcon.name}</h3>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.3em]">{selectedIcon.path}</p>
-                        </div>
-                        <button className="px-8 py-3 bg-primary text-primary-foreground rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all">
-                            Close Preview
-                        </button>
                     </div>
                 </div>
             )}
