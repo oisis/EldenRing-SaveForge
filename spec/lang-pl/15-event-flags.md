@@ -340,7 +340,6 @@ Wybrane callsity `db.SetEventFlag` / `db.GetEventFlag` w aktualnym kodzie (`app_
 | `revealBaseMap`/`revealDLCMap`/`ResetMapExploration` | Set map visible / clear; add map fragment items | 62xxx, 63xxx, 82xxx | [27](27-map-reveal.md) |
 | `SetMapFlag`/`SetMapRegionFlags` | Set pojedynczy lub region map flag | 62xxx, 63xxx | [27](27-map-reveal.md) |
 | `SetWhetbladeUnlocked` | Auto-manage `AoWMenuUnlockedFlag` (65800), Storm Stomp dup (65841) | 65610–65720, 65800, 65841 | (`app_world.go`) |
-| `SetAshOfWarFlagUnlocked` | AoW affinity unlock flags | 65xxx (ash of war) | — |
 | `SetBellBearingUnlocked` | Bell bearing trader unlocks | mixed | — |
 | `SetGestureUnlocked` | Gesture unlocks | 60800–60849 | — |
 | `SetRegionUnlocked` (`app_world.go`) | Region flag toggle (NOT to be confused with `core.SetUnlockedRegions`) | 6100000–6999999 | [11](11-regions.md) |

@@ -50,10 +50,6 @@ export function AuditLoadedSaveIssues() {
   return window['go']['main']['App']['AuditLoadedSaveIssues']();
 }
 
-export function BulkSetAshOfWarFlags(arg1, arg2, arg3) {
-  return window['go']['main']['App']['BulkSetAshOfWarFlags'](arg1, arg2, arg3);
-}
-
 export function BulkSetBellBearings(arg1, arg2, arg3) {
   return window['go']['main']['App']['BulkSetBellBearings'](arg1, arg2, arg3);
 }
@@ -136,10 +132,6 @@ export function GetActiveSlots() {
 
 export function GetAoWAvailability(arg1) {
   return window['go']['main']['App']['GetAoWAvailability'](arg1);
-}
-
-export function GetAshOfWarFlags(arg1) {
-  return window['go']['main']['App']['GetAshOfWarFlags'](arg1);
 }
 
 export function GetBellBearings(arg1) {
@@ -408,10 +400,6 @@ export function SelectAndOpenSave() {
 
 export function SelectAndOpenSourceSave() {
   return window['go']['main']['App']['SelectAndOpenSourceSave']();
-}
-
-export function SetAshOfWarFlagUnlocked(arg1, arg2, arg3) {
-  return window['go']['main']['App']['SetAshOfWarFlagUnlocked'](arg1, arg2, arg3);
 }
 
 export function SetBellBearingUnlocked(arg1, arg2, arg3) {

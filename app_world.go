@@ -898,65 +898,6 @@ func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) 
 	return nil
 }
 
-// GetAshOfWarFlags returns all Ash of War duplication flags with unlock state
-func (a *App) GetAshOfWarFlags(slotIndex int) ([]db.AshOfWarFlagEntry, error) {
-	if a.save == nil {
-		return nil, fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return nil, fmt.Errorf("invalid slot index")
-	}
-	slot := &a.save.Slots[slotIndex]
-	entries := db.GetAllAshOfWarFlags()
-	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-		flags := slot.Data[slot.EventFlagsOffset:]
-		for i := range entries {
-			unlocked, err := db.GetEventFlag(flags, entries[i].ID)
-			if err != nil {
-				continue
-			}
-			entries[i].Unlocked = unlocked
-		}
-	}
-	return entries, nil
-}
-
-// SetAshOfWarFlagUnlocked sets or clears an Ash of War duplication flag
-func (a *App) SetAshOfWarFlagUnlocked(slotIndex int, flagID uint32, unlocked bool) error {
-	if a.save == nil {
-		return fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return fmt.Errorf("invalid slot index")
-	}
-	a.pushUndo(slotIndex)
-	slot := &a.save.Slots[slotIndex]
-	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
-		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
-	}
-	return db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], flagID, unlocked)
-}
-
-// BulkSetAshOfWarFlags sets multiple AoW duplication flags at once (single undo).
-func (a *App) BulkSetAshOfWarFlags(slotIndex int, flagIDs []uint32, unlocked bool) error {
-	if a.save == nil {
-		return fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return fmt.Errorf("invalid slot index")
-	}
-	a.pushUndo(slotIndex)
-	slot := &a.save.Slots[slotIndex]
-	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
-		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
-	}
-	flags := slot.Data[slot.EventFlagsOffset:]
-	for _, id := range flagIDs {
-		_ = db.SetEventFlag(flags, id, unlocked)
-	}
-	return nil
-}
-
 // BulkSetBellBearings sets multiple bell bearing flags at once (single undo)
 // and keeps the matching inventory items in sync via syncBellBearingItem.
 func (a *App) BulkSetBellBearings(slotIndex int, flagIDs []uint32, unlocked bool) error {

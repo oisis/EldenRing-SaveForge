@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(cleanup): remove dead AoW-flags trio and orphaned backing
+
+Removed the unreachable public `AoW-flags trio` App/Wails endpoints
+(`GetAshOfWarFlags`, `SetAshOfWarFlagUnlocked`, `BulkSetAshOfWarFlags` in
+`app_world.go`) together with their now-orphaned backing: the
+`db.AshOfWarFlagEntry` type, `db.GetAllAshOfWarFlags` / `getAllAshOfWarFlags`,
+the `data.AshOfWarFlags` duplication-flag table (65810–65934) with its
+`AshOfWarFlagData` type, and the `db.AshOfWarFlagEntry` reference in
+`_forceExportTypes`. Two read-only audits confirmed the trio had no backend or
+frontend callers, no tests, and was unreachable from the active UI; its backing
+was consumed only by the trio itself plus the type-export shim. Wails bindings
+were regenerated (`wails generate module`), dropping the three exports and the
+`AshOfWarFlagEntry` TypeScript model. The active, independent whetblade/affinity
+flow is untouched: `SetWhetbladeUnlocked`, `WhetbladeRelatedFlags`,
+`AoWMenuUnlockedFlag` (65800) and the Storm Stomp duplication flag (65841) stay
+in place — 65841 keeps its own constant `data.StormStompDupFlag` in
+`whetblades.go`, independent of the removed table. The active
+`data.AoWItemToFlagID` map (batch-add Lost-Ash-of-War flow) was preserved in
+`ash_of_war_flags.go`. Docs updated: removed the trio listing from
+`spec/16-world-state.md`, the `SetAshOfWarFlagUnlocked` row from
+`spec/15-event-flags.md`, and the unimplemented `AshOfWarFlags` field from the
+`CharacterPresetWorld` design struct in `spec/37-character-presets.md` (the
+real `WorldPresetData` never had it) — all with PL parity.
+
 ### chore(icons): remove redundant shackle orphan duplicates
 
 Removed 2 redundant, unreferenced Shackle PNG copies from

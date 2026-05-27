@@ -32,8 +32,6 @@ export function ApplyPvPPreparation(arg1:number,arg2:main.PvPPreparationOptions)
 
 export function AuditLoadedSaveIssues():Promise<Array<main.SaveIssue>>;
 
-export function BulkSetAshOfWarFlags(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
-
 export function BulkSetBellBearings(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
 
 export function BulkSetCookbooksUnlocked(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
@@ -75,8 +73,6 @@ export function ExportLibraryBuildTemplateToFile(arg1:string):Promise<main.Build
 export function GetActiveSlots():Promise<Array<boolean>>;
 
 export function GetAoWAvailability(arg1:number):Promise<Array<vm.AoWAvailabilityEntry>>;
-
-export function GetAshOfWarFlags(arg1:number):Promise<Array<db.AshOfWarFlagEntry>>;
 
 export function GetBellBearings(arg1:number):Promise<Array<db.BellBearingEntry>>;
 
@@ -211,8 +207,6 @@ export function SaveInventoryWorkspaceChanges(arg1:string):Promise<editor.Invent
 export function SelectAndOpenSave():Promise<string>;
 
 export function SelectAndOpenSourceSave():Promise<string>;
-
-export function SetAshOfWarFlagUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
 export function SetBellBearingUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 

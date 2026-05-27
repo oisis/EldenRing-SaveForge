@@ -159,7 +159,6 @@ GetQuestNPCs / GetQuestProgress / SetQuestStep
 GetCookbooks / SetCookbookUnlocked / BulkSetCookbooksUnlocked
 GetBellBearings / SetBellBearingUnlocked / BulkSetBellBearings
 GetWhetblades / SetWhetbladeUnlocked
-GetAshOfWarFlags / SetAshOfWarFlagUnlocked / BulkSetAshOfWarFlags
 GetMapProgress / SetMapFlag / SetMapRegionFlags / RevealAllMap / ResetMapExploration / RemoveFogOfWar
 ```
 

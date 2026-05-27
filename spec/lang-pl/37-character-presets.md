@@ -196,7 +196,6 @@ type CharacterPresetWorld struct {
     Cookbooks       []uint32       `json:"cookbooks,omitempty"`
     BellBearings    []uint32       `json:"bellBearings,omitempty"`
     Whetblades      []uint32       `json:"whetblades,omitempty"`
-    AshOfWarFlags   []uint32       `json:"ashOfWarFlags,omitempty"`
     Gestures        []uint32       `json:"gestures,omitempty"`
     UnlockedRegions []uint32       `json:"unlockedRegions,omitempty"`
     FogOfWarRemoved bool           `json:"fogOfWarRemoved,omitempty"`
