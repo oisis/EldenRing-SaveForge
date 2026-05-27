@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### perf(icons): downscale oversized crafting and info icons
+
+Downscaled 13 actively used PNG icons from `1024×1024` to `256×256`, covering 7
+`crafting_materials` and 6 `info` icons. File names, PNG format, transparency and
+the existing `IconPath` values are unchanged. The batch size dropped from
+`11 935 360 B` to `986 774 B`, a saving of `10 948 586 B` (`−91.73%`). Icon
+quality was verified visually from the image diff. The two large palette-mode
+icons in `crafting_materials` and the remaining large-icon categories stay out
+of scope.
+
 ### perf(icons): downscale oversized spell icons
 
 Downscaled 13 actively used spell PNG icons from `1024×1024` to `256×256`,
