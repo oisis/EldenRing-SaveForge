@@ -194,13 +194,6 @@ type WhetbladeEntry struct {
 	Unlocked bool   `json:"unlocked"`
 }
 
-// AshOfWarFlagEntry represents an Ash of War duplication flag.
-type AshOfWarFlagEntry struct {
-	ID       uint32 `json:"id"`
-	Name     string `json:"name"`
-	Unlocked bool   `json:"unlocked"`
-}
-
 // globalItemIndex provides O(1) item lookup by ID, built once at startup.
 var globalItemIndex map[uint32]data.ItemData
 
@@ -1282,23 +1275,6 @@ var getAllWhetblades = sync.OnceValue(func() []WhetbladeEntry {
 })
 
 func GetAllWhetblades() []WhetbladeEntry { return getAllWhetblades() }
-
-// GetAllAshOfWarFlags returns all Ash of War duplication flags sorted by name.
-var getAllAshOfWarFlags = sync.OnceValue(func() []AshOfWarFlagEntry {
-	entries := make([]AshOfWarFlagEntry, 0, len(data.AshOfWarFlags))
-	for id, aow := range data.AshOfWarFlags {
-		entries = append(entries, AshOfWarFlagEntry{
-			ID:   id,
-			Name: aow.Name,
-		})
-	}
-	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].Name < entries[j].Name
-	})
-	return entries
-})
-
-func GetAllAshOfWarFlags() []AshOfWarFlagEntry { return getAllAshOfWarFlags() }
 
 // SetEventFlag sets or clears a specific event flag in the bit array.
 // Uses the same resolution order as GetEventFlag (lookup table → BST → fallback).

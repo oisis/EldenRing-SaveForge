@@ -4,6 +4,237 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(cleanup): remove dead AoW-flags trio and orphaned backing
+
+Removed the unreachable public `AoW-flags trio` App/Wails endpoints
+(`GetAshOfWarFlags`, `SetAshOfWarFlagUnlocked`, `BulkSetAshOfWarFlags` in
+`app_world.go`) together with their now-orphaned backing: the
+`db.AshOfWarFlagEntry` type, `db.GetAllAshOfWarFlags` / `getAllAshOfWarFlags`,
+the `data.AshOfWarFlags` duplication-flag table (65810–65934) with its
+`AshOfWarFlagData` type, and the `db.AshOfWarFlagEntry` reference in
+`_forceExportTypes`. Two read-only audits confirmed the trio had no backend or
+frontend callers, no tests, and was unreachable from the active UI; its backing
+was consumed only by the trio itself plus the type-export shim. Wails bindings
+were regenerated (`wails generate module`), dropping the three exports and the
+`AshOfWarFlagEntry` TypeScript model. The active, independent whetblade/affinity
+flow is untouched: `SetWhetbladeUnlocked`, `WhetbladeRelatedFlags`,
+`AoWMenuUnlockedFlag` (65800) and the Storm Stomp duplication flag (65841) stay
+in place — 65841 keeps its own constant `data.StormStompDupFlag` in
+`whetblades.go`, independent of the removed table. The active
+`data.AoWItemToFlagID` map (batch-add Lost-Ash-of-War flow) was preserved in
+`ash_of_war_flags.go`. Docs updated: removed the trio listing from
+`spec/16-world-state.md`, the `SetAshOfWarFlagUnlocked` row from
+`spec/15-event-flags.md`, and the unimplemented `AshOfWarFlags` field from the
+`CharacterPresetWorld` design struct in `spec/37-character-presets.md` (the
+real `WorldPresetData` never had it) — all with PL parity.
+
+### chore(icons): remove redundant shackle orphan duplicates
+
+Removed 2 redundant, unreferenced Shackle PNG copies from
+`frontend/public/items/key_items/` (Margit's Shackle and Mohg's Shackle). The
+active canonical assets with byte-identical content remain in the semantically
+correct `frontend/public/items/tools/` directory; the active `Margit's Shackle`
+and `Mohg's Shackle` records belong to the `tools` category and use `IconPath`
+values under `items/tools/`. The deleted files were not referenced by any active
+`IconPath` nor by any tracked source, config, docs or tests. The change removes
+44 947 B of redundant files; `IconPath`, resolved targets and missing targets
+are unchanged. The remaining orphan duplicates, the two Class B cases and other
+deferred topics stay out of scope.
+
+### chore(icons): remove redundant orphan painting duplicates
+
+Removed 7 redundant, unreferenced painting PNG copies from
+`frontend/public/items/tools/` (Champion's Song, Flightless Bird, Homing
+Instinct, Prophecy, Redmane, Resurrection and Sorcerer). The active canonical
+assets with byte-identical content remain in the semantically correct
+`frontend/public/items/info/` directory. The deleted files were not referenced
+by any active `IconPath` nor by any tracked source, config, docs or tests. The
+change reduces physical orphan assets by 7 and removes 234 206 B of redundant
+files; `IconPath`, resolved targets and missing targets are unchanged. The two
+different-basename cases and other orphan groups stay out of scope.
+
+### fix(build): rename Jolán asset for go embed compatibility
+
+Renamed the physical asset `ashes/jolán_and_anna.png` to the embed-safe ASCII
+path `ashes/jolan_and_anna.png` and updated the 11 matching `IconPath` values
+for `Jolán and Anna` and its upgrade levels (base plus +1…+10). The displayed
+item names `Jolán and Anna` keep their accent. The accented file name broke the
+embedded frontend assets (`//go:embed frontend/dist`) and prevented the
+application from building; `make build` passes after the rename. The PNG image
+and the item semantics are unchanged.
+
+### perf(icons): downscale oversized tools icons
+
+Downscaled 31 actively used `tools` PNG icons from `1024×1024` to `256×256`,
+covering maps, cookbooks, prattling pates, notes/letter/scroll, keys and the
+Deflecting Hardtear. The shared cookbook icons represent numbered volumes and
+were downscaled as single physical assets. File names, PNG format, transparency
+and the existing `IconPath` values are unchanged. The batch size dropped from
+`29 260 094 B` to `2 242 618 B`, a saving of `27 017 476 B` (`−92.34%`). Icon
+quality was verified visually from the image diff. The palette-mode
+`oil_soaked_tear.png` and other open icon topics stay out of scope.
+
+### perf(icons): downscale oversized non-tools item icons
+
+Downscaled 14 actively used PNG icons from `1024×1024` to `256×256`, covering
+`arrows_and_bolts`, `ashes`, `talismans`, `bolstering_materials`, `ashes_of_war`,
+`shields` and `melee_armaments`. Two `ashes` icons are each shared by 11
+spirit-ash upgrade records (base plus +1…+10) and were downscaled as single
+physical assets. File names, PNG format, transparency and the existing
+`IconPath` values are unchanged. The batch size dropped from `13 266 510 B` to
+`1 108 915 B`, a saving of `12 157 595 B` (`−91.64%`). Icon quality was verified
+visually from the image diff. The `tools` category and the palette-mode icons
+stay out of scope.
+
+### perf(icons): downscale oversized crafting and info icons
+
+Downscaled 13 actively used PNG icons from `1024×1024` to `256×256`, covering 7
+`crafting_materials` and 6 `info` icons. File names, PNG format, transparency and
+the existing `IconPath` values are unchanged. The batch size dropped from
+`11 935 360 B` to `986 774 B`, a saving of `10 948 586 B` (`−91.73%`). Icon
+quality was verified visually from the image diff. The two large palette-mode
+icons in `crafting_materials` and the remaining large-icon categories stay out
+of scope.
+
+### perf(icons): downscale oversized spell icons
+
+Downscaled 13 actively used spell PNG icons from `1024×1024` to `256×256`,
+covering 9 `sorceries` and 4 `incantations` icons. File names, PNG format,
+transparency and the existing `IconPath` values are unchanged. The batch size
+dropped from `15 848 791 B` to `1 391 884 B`, a saving of `14 456 907 B`
+(`−91.22%`). Quality was verified manually for a representative sample in the
+database grid and the large detail panel. The remaining large-icon categories
+and the three palette-mode icons stay out of scope.
+
+### perf(icons): downscale oversized key item icons
+
+Downscaled 25 actively used `key_items` PNG icons from `1024×1024` to `256×256`,
+covering crystal tears, cracked/knot tears, keys and whetblades (plus Heart of
+Bayle and Messmer's Kindling). File names, PNG format, transparency and the
+existing `IconPath` values are unchanged. The batch size dropped from
+`21 742 723 B` to `1 942 948 B`, a saving of `19 799 775 B` (`−91.1%`). Quality
+was verified manually for a representative sample in the database grid and the
+large detail panel. The remaining large-icon categories and the three
+palette-mode icons stay out of scope.
+
+### perf(icons): downscale four oversized active item icons
+
+Downscaled four actively used PNG icons from `1024×1024` to `256×256` as a pilot
+for trimming oversized assets. The set covers representative icons across
+`incantation`, `info`, `key_items` and `tools` (Aspects of the Crucible: Thorns,
+About the Scadutree Blessing, Crimsonspill Crystal Tear and the Battlefield
+Priest's Cookbook shared icon). File names, PNG format, transparency and the
+existing `IconPath` values are unchanged. The combined size of these four icons
+dropped from `6 927 527 B` to `532 764 B` (`−92.3%`). Quality was verified
+manually in the database grid and the large detail panel. This pilot does not
+cover the remaining large icons or the palette-mode icons.
+
+### fix(icons): relocate misplaced Flask of Wondrous Physick info icon
+
+Moved the `About Flask of Wondrous Physick` tutorial icon from the wrong
+`items/tools/` directory to `items/info/`, the location its existing runtime
+`IconPath` already points to. The file was a leftover from the old
+`tools/sacred_flasks/` directory flatten while its sibling `about_*` tutorial
+icons were grouped under `items/info/`. No `IconPath` was changed and the image
+bytes were not modified. Remaining unresolved icons, including Beast Claw, stay
+out of scope.
+
+### fix(icons): relocate eight misplaced item icon assets
+
+Relocated eight confirmed item icon assets into the directories already required
+by their existing runtime `IconPath`, fixing the icons for two info notes
+(About Sorceries and Incantations, About Teardrop Scarabs), Sellia's Secret,
+three DLC melee armaments (Fire Knight's Greatsword, Fire Knight's Shortsword,
+Lightning Perfume Bottle), Black Syrup and Oil-Soaked Tear. The files were
+misplaced under `items/key_items/`; each was moved to the folder its `IconPath`
+points to (`items/info/`, `items/tools/` or `items/melee_armaments/`). No
+`IconPath` mappings and no image contents were changed. This does not cover the
+still-ambiguous About Flask of Wondrous Physick or the remaining missing icons.
+
+### fix(character-importer): restore source-slot avatar icon
+
+Fixed the broken hardcoded path of the decorative Knight Helm icon shown for
+the source-slot selector in Character Importer (`items/armor/` → `items/head/`).
+The slots no longer render a broken-image glyph from the non-existent
+`items/armor/` directory. No change to import logic or save data.
+
+### chore(weapon-edit): remove legacy weapon-apply endpoints
+
+Removed the public direct-write endpoints `ApplyWeaponUpgradeLevel`,
+`ApplyWeaponInfusion`, `ApplyWeaponAoW` and `ApplyWeaponAoWStrict` left over from
+the former legacy weapon editor flow, together with their generated bindings and
+dead frontend mocks. The active weapon-editing flow remains workspace-based and
+persists through the workspace save path (`editor.ApplyWorkspaceSave`). The core
+writers (`PatchWeaponItemID`, `PatchWeaponAoW`, `PatchWeaponAoWHandle`) stay in
+place because the active save still uses them; their stale "legacy tab only"
+comment was corrected. Writer and DLC-compatibility regressions are covered by
+`backend/core` and `backend/db` tests respectively. No reachable UI behavior
+changed.
+
+### chore(weapon-edit): remove unreachable non-workspace mode
+
+Removed the unreachable legacy/non-workspace mode from `WeaponEditModal`. The
+active modal is driven exclusively by the workspace flow from `SortOrderTab`,
+so the `workspace`/`workspaceItem` props are now required and the dead
+`GetCharacter` fallback, the legacy `ApplyWeaponUpgradeLevel` /
+`ApplyWeaponInfusion` / `ApplyWeaponAoWStrict` apply paths, and the unused
+`onApplied` callback were dropped. Upgrade, infusion, Ash of War and
+compatibility behavior for the reachable UI is unchanged.
+
+### chore(database): extract repair prompt
+
+Moved the active duplicate inventory/acquisition-index repair prompt out of
+`DatabaseTab` into a dedicated presentational component
+(`components/database/RepairPrompt.tsx`). The `repairPrompt` state, the
+`RepairDuplicateInventoryIndices` call, the retry of the original add, and the
+decision to keep the confirm modal mounted during the prompt all remain in
+`DatabaseTab`. User-visible behavior is unchanged.
+
+### chore(database): remove unused error modal items list
+
+Removed the never-used `items?` field and its conditional list JSX from
+`ErrorModal` and the `errorModal` state in `DatabaseTab`. No `setErrorModal(...)`
+caller (capacity-exceeded, add-failure, repair-failure) ever populated it, so
+the list could never render. The error modal's reachable behavior (title,
+message, OK) is unchanged.
+
+### chore(database): extract error modal
+
+Moved the active error modal out of `DatabaseTab` into a dedicated
+presentational component (`components/database/ErrorModal.tsx`). The capacity-
+exceeded, add-failure, and repair-failure paths along with the `errorModal`
+state remain managed by `DatabaseTab`. User-visible behavior is unchanged.
+
+### chore(database): extract ban-risk warning modal
+
+Moved the active ban-risk warning modal out of `DatabaseTab` into a dedicated
+presentational component (`components/database/BanRiskWarningModal.tsx`). The
+modal is now fully prop-driven; the gating state (`banRiskWarning`,
+`ignoreBanRisk`), the confirm flow, and the `AddItemsToCharacter` mutation all
+remain in `DatabaseTab`. User-visible behavior (Cancel, Add Anyway, the ignore
+checkbox) is unchanged.
+
+### chore(database): remove unreachable legacy icon preview modal
+
+Removed the dead, unreachable icon preview modal from `DatabaseTab` along with
+its `selectedIcon` state. The modal could never open — `selectedIcon` was only
+ever set to `null` (close); no user action set it to a value, and clicking an
+item icon opens the active `ItemDetailPanel` instead. The active item detail
+panel, the missing-icon handling (`brokenIcons`), the hover preview tooltip, and
+the add-item flow are unchanged. No backend, endpoints, or Wails bindings touched.
+
+### chore(cleanup): remove unreachable legacy Weapon Edit Tab
+
+Deleted `frontend/src/components/WeaponEditTab.tsx` and its dead render path. The
+Inventory → Weapon Edit pill had already been hidden, leaving the component
+unreachable (no setter drove `invView` to `'weapon_edit'`). Weapon editing is now
+served exclusively by `WeaponEditModal` (launched from the Weapons & Sort Order
+tab), which remains untouched and consumes a superset of the same backend
+endpoints. No backend endpoints or Wails bindings were removed.
+
+- `App.tsx`: dropped the `WeaponEditTab` import, the `'weapon_edit'` `invView`
+  variant, the dead render branch, and the now-redundant `weapon_edit` guards.
+
 ### fix(inventory): self-heal lost edit session so weapon repair always works
 
 Repairing an out-of-range weapon could fail with `inventory edit session "…" not

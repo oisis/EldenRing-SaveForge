@@ -9,6 +9,9 @@ import {RiskBadge} from './RiskBadge';
 import {isLowerTierTalisman} from '../lib/talismanFamilies';
 import {useFavorites} from '../state/favorites';
 import {ItemDetailPanel} from './ItemDetailPanel';
+import {BanRiskWarningModal} from './database/BanRiskWarningModal';
+import {ErrorModal} from './database/ErrorModal';
+import {RepairPrompt} from './database/RepairPrompt';
 
 // Pre-flight guard in AddItemsToCharacter rejects mutations on saves that
 // already have duplicate inventory acquisition indices. Match the marker phrase
@@ -92,7 +95,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     });
     const [isSaving, setIsSaving] = useState(false);
     const [brokenIcons, setBrokenIcons] = useState<Set<string>>(new Set());
-    const [errorModal, setErrorModal] = useState<{title: string; message: string; items?: string[]} | null>(null);
+    const [errorModal, setErrorModal] = useState<{title: string; message: string} | null>(null);
     // Repair prompt: open when AddItemsToCharacter aborts due to pre-existing
     // duplicate inventory indices. Keeps confirmModal intact so Repair & Retry
     // can re-run handleAdd with the same selection / qty inputs.
@@ -106,8 +109,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const [storageMax, setStorageMax] = useState(false);
     const [storageQtyVal, setStorageQtyVal] = useState(1);
 
-    // Icon preview
-    const [selectedIcon, setSelectedIcon] = useState<{name: string, path: string} | null>(null);
+    // Icon hover preview tooltip
     const [hoverTooltip, setHoverTooltip] = useState<{name: string, path: string, x: number, y: number} | null>(null);
 
     // Detail panel
@@ -491,7 +493,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     // is also selected. Items with cap 0 are skipped server-side.
     const modalMaxInvHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'inv', clearCount, fullChaosMode))) : 1;
     const modalMaxStorageHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'storage', clearCount, fullChaosMode))) : 1;
-    const modalAnyInvAllowed = !!confirmModal && confirmModal.some(i => effectiveCap(i, 'inv', clearCount, fullChaosMode) > 0);
     const modalAnyStorageAllowed = !!confirmModal && confirmModal.some(i => effectiveCap(i, 'storage', clearCount, fullChaosMode) > 0);
     const modalMixedMaxes = confirmModal && confirmModal.length > 1 && !modalNonStackable &&
         (new Set(confirmModal.map(i => i.maxInventory)).size > 1 || new Set(confirmModal.map(i => i.maxStorage)).size > 1);
@@ -503,151 +504,36 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     return (
         <div className="flex-1 flex flex-col min-h-0 space-y-3">
             {/* Ban-risk Warning Modal — gates confirmModal when any selected item has ban_risk flag */}
-            {banRiskWarning && (() => {
-                const banRiskItems = banRiskWarning.filter(i => i.flags?.includes('ban_risk'));
-                return (
-                    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-300">
-                        <div className="bg-card p-8 rounded-2xl border-2 border-red-500/40 flex flex-col space-y-5 max-w-md w-full mx-4 shadow-2xl shadow-red-500/20 animate-in zoom-in-95 duration-300">
-                            {/* Header */}
-                            <div className="flex items-center space-x-3">
-                                <div className="w-10 h-10 rounded-full bg-red-500/15 border border-red-500/40 flex items-center justify-center">
-                                    <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h3 className="text-sm font-black uppercase tracking-[0.15em] text-red-500">Ban Risk Warning</h3>
-                                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Cut content / cheat-flagged item</p>
-                                </div>
-                            </div>
-
-                            {/* Warning text */}
-                            <p className="text-[11px] text-foreground leading-relaxed">
-                                {banRiskItems.length === 1 ? (
-                                    <>
-                                        <strong>{banRiskItems[0].name}</strong> is flagged as <strong>ban-risk</strong>.
-                                        Adding it to your save may trigger Easy Anti-Cheat detection if you go online.
-                                    </>
-                                ) : (
-                                    <>
-                                        <strong>{banRiskItems.length}</strong> of the selected items are flagged as <strong>ban-risk</strong>.
-                                        Adding them to your save may trigger Easy Anti-Cheat detection if you go online.
-                                    </>
-                                )}
-                            </p>
-
-                            {/* List of ban-risk items */}
-                            {banRiskItems.length > 1 && (
-                                <div className="bg-red-500/5 border border-red-500/20 rounded-md p-3 max-h-32 overflow-y-auto custom-scrollbar">
-                                    <ul className="text-[10px] text-red-500/90 list-disc list-inside space-y-0.5">
-                                        {banRiskItems.map(i => <li key={i.id}>{i.name}</li>)}
-                                    </ul>
-                                </div>
-                            )}
-
-                            {/* Ignore checkbox */}
-                            <label className="flex items-center justify-between p-2.5 rounded-md bg-muted/20 border border-border/50 cursor-pointer hover:bg-muted/30 transition-all">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                                    Ignore all ban risk warnings
-                                </span>
-                                <input
-                                    type="checkbox"
-                                    checked={ignoreBanRisk}
-                                    onChange={e => handleIgnoreBanRiskChange(e.target.checked)}
-                                    className="w-3.5 h-3.5 rounded border-border text-red-500 focus:ring-red-500/20"
-                                />
-                            </label>
-
-                            {/* Actions */}
-                            <div className="flex space-x-2">
-                                <button
-                                    onClick={() => setBanRiskWarning(null)}
-                                    className="flex-1 px-4 py-2.5 bg-muted/30 text-muted-foreground rounded-md text-[10px] font-black uppercase tracking-widest border border-border hover:bg-muted/50 transition-all"
-                                >
-                                    Cancel
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        const items = banRiskWarning;
-                                        setBanRiskWarning(null);
-                                        openConfirmModal(items);
-                                    }}
-                                    className="flex-1 px-4 py-2.5 bg-red-500 text-white rounded-md text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all"
-                                >
-                                    Add Anyway
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            })()}
+            {banRiskWarning && (
+                <BanRiskWarningModal
+                    items={banRiskWarning}
+                    ignoreBanRisk={ignoreBanRisk}
+                    onIgnoreChange={handleIgnoreBanRiskChange}
+                    onCancel={() => setBanRiskWarning(null)}
+                    onConfirm={() => {
+                        const items = banRiskWarning;
+                        setBanRiskWarning(null);
+                        openConfirmModal(items);
+                    }}
+                />
+            )}
 
             {/* Error Modal — capacity / container cap / add failure */}
             {errorModal && (
-                <div className="fixed inset-0 z-[130] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-300">
-                    <div className="bg-card p-8 rounded-2xl border-2 border-red-500/40 flex flex-col space-y-5 max-w-md w-full mx-4 shadow-2xl shadow-red-500/20 animate-in zoom-in-95 duration-300">
-                        <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 rounded-full bg-red-500/15 border border-red-500/40 flex items-center justify-center">
-                                <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </div>
-                            <h3 className="text-sm font-black uppercase tracking-[0.15em] text-red-500">{errorModal.title}</h3>
-                        </div>
-                        <p className="text-[11px] text-foreground leading-relaxed whitespace-pre-line">{errorModal.message}</p>
-                        {errorModal.items && errorModal.items.length > 0 && (
-                            <div className="bg-red-500/5 border border-red-500/20 rounded-md p-3 max-h-40 overflow-y-auto custom-scrollbar">
-                                <ul className="text-[10px] text-red-500/90 list-disc list-inside space-y-0.5">
-                                    {errorModal.items.map((name, i) => <li key={i}>{name}</li>)}
-                                </ul>
-                            </div>
-                        )}
-                        <button
-                            onClick={() => setErrorModal(null)}
-                            className="w-full px-4 py-2.5 bg-red-500 text-white rounded-md text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all"
-                        >
-                            OK
-                        </button>
-                    </div>
-                </div>
+                <ErrorModal
+                    title={errorModal.title}
+                    message={errorModal.message}
+                    onClose={() => setErrorModal(null)}
+                />
             )}
 
             {/* Repair Prompt — duplicate inventory index pre-flight blocked the add */}
             {repairPrompt && (
-                <div className="fixed inset-0 z-[140] flex items-center justify-center bg-background/80 backdrop-blur-sm animate-in fade-in duration-300">
-                    <div className="bg-card p-8 rounded-2xl border-2 border-amber-500/40 flex flex-col space-y-5 max-w-md w-full mx-4 shadow-2xl shadow-amber-500/20 animate-in zoom-in-95 duration-300">
-                        <div className="flex items-center space-x-3">
-                            <div className="w-10 h-10 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center justify-center">
-                                <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M12 9v3m0 3h.01M4.93 19h14.14a2 2 0 001.74-3L13.74 4a2 2 0 00-3.48 0L3.19 16a2 2 0 001.74 3z" />
-                                </svg>
-                            </div>
-                            <h3 className="text-sm font-black uppercase tracking-[0.15em] text-amber-500">Inventory index repair required</h3>
-                        </div>
-                        <p className="text-[11px] text-foreground leading-relaxed">
-                            This save has duplicate acquisition indices before adding items. The editor blocked the add operation to avoid writing an inconsistent save.
-                        </p>
-                        <p className="text-[11px] text-muted-foreground leading-relaxed">
-                            Repair will only renumber duplicate acquisition/sort indices. No items will be removed and no quantities will change. The fix is undoable from this character slot.
-                        </p>
-                        <div className="flex flex-col space-y-2">
-                            <button
-                                onClick={handleRepairAndRetry}
-                                disabled={repairPrompt.retrying}
-                                className="w-full px-4 py-2.5 bg-amber-500 text-white rounded-md text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                {repairPrompt.retrying ? 'Repairing…' : 'Repair & Retry'}
-                            </button>
-                            <button
-                                onClick={handleRepairCancel}
-                                disabled={repairPrompt.retrying}
-                                className="w-full px-4 py-2.5 bg-muted text-foreground rounded-md text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
-                            >
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
+                <RepairPrompt
+                    retrying={repairPrompt.retrying}
+                    onRepairAndRetry={handleRepairAndRetry}
+                    onCancel={handleRepairCancel}
+                />
             )}
 
             {/* Confirm Modal */}
@@ -1119,32 +1005,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 <div className="fixed z-[60] pointer-events-none" style={{left: hoverTooltip.x, top: hoverTooltip.y - 8, transform: 'translate(-50%, -100%)'}}>
                     <div className="bg-card border border-border rounded-lg shadow-xl p-2">
                         <img src={hoverTooltip.path} alt="" className="w-36 h-36 object-contain drop-shadow-md" onError={(e) => (e.currentTarget.style.display = 'none')} />
-                    </div>
-                </div>
-            )}
-
-            {/* Icon Preview Modal */}
-            {selectedIcon && (
-                <div
-                    className="fixed inset-0 bg-background/80 backdrop-blur-xl z-[100] flex items-center justify-center p-8 animate-in fade-in duration-300"
-                    onClick={() => setSelectedIcon(null)}
-                >
-                    <div className="relative max-w-2xl w-full flex flex-col items-center space-y-8 animate-in zoom-in-95 duration-300">
-                        <div className="w-64 h-64 bg-muted/20 rounded-3xl border border-border/50 flex items-center justify-center shadow-2xl shadow-primary/10 relative group">
-                            <div className="absolute inset-0 bg-primary/5 rounded-3xl blur-3xl group-hover:bg-primary/10 transition-all duration-500" />
-                            {brokenIcons.has(selectedIcon.path) ? (
-                                <span className="text-3xl font-black text-muted-foreground/30 select-none">?</span>
-                            ) : (
-                                <img src={selectedIcon.path} alt={selectedIcon.name} className="w-48 h-48 object-contain drop-shadow-2xl relative z-10" onError={() => handleImageError(selectedIcon.path)} />
-                            )}
-                        </div>
-                        <div className="text-center space-y-2">
-                            <h3 className="text-2xl font-black uppercase tracking-[0.2em] text-foreground">{selectedIcon.name}</h3>
-                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.3em]">{selectedIcon.path}</p>
-                        </div>
-                        <button className="px-8 py-3 bg-primary text-primary-foreground rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all">
-                            Close Preview
-                        </button>
                     </div>
                 </div>
             )}

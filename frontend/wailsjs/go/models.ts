@@ -469,22 +469,6 @@ export namespace data {
 
 export namespace db {
 	
-	export class AshOfWarFlagEntry {
-	    id: number;
-	    name: string;
-	    unlocked: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new AshOfWarFlagEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.unlocked = source["unlocked"];
-	    }
-	}
 	export class BellBearingEntry {
 	    id: number;
 	    name: string;

@@ -97,7 +97,7 @@ Po ukończeniu Phase 3 (canonical rewrites: 54, 55) pozostają następujące `ne
 
 - **AoW affinity gating** — `EquipParamWeapon.defaultWepAttr` / `configurableWepAttr00..23` nie są zaimportowane do `WeaponGemMounts`; preview Build Template waliduje compat tylko po `wepType`. `needs verification` w [54 §22.L1](54-ash-of-war.md) i [55 §21.L1](55-build-template.md).
 - **DLC wepType 69/94/95 user-facing behavior** — backend allow-passthrough, UI traktuje jako `unknown` i fail-closes widoczność sekcji AoW; brak informacji dla użytkownika, że to DLC z nieznaną kompatybilnością. `needs verification` w [54 §22.L2](54-ash-of-war.md).
-- **Frontend/backend `WEP_TYPE_TO_BIT` drift** — dwa frontend mirrory (`WeaponEditModal.tsx`, `WeaponEditTab.tsx`), oba ręcznie podtrzymywane; identyczne z backendem ale brak guardu CI / generatora. `needs verification` przy każdej zmianie backendu. Zob. [54 §17 / §22.L4](54-ash-of-war.md).
+- **Frontend/backend `WEP_TYPE_TO_BIT` drift** — pojedynczy frontend mirror (`WeaponEditModal.tsx`), ręcznie podtrzymywany; identyczny z backendem ale brak guardu CI / generatora. `needs verification` przy każdej zmianie backendu. Zob. [54 §17 / §22.L4](54-ash-of-war.md).
 - **`gemMountType == 1` (somber) edge cases w UI** — `CanMountAoW = false` wyłącza sekcję AoW, ale dokumentacja nie potwierdza placeholdera/wyjaśnienia. `needs verification` w [54 §22.L3](54-ash-of-war.md).
 - **`AoWCompatMasks` completeness po update'cie regulation** — bitmask generowany z `EquipParamGem`; nowe DLC rows mogą nie być re-imported. `needs verification` w [54 §22.L5](54-ash-of-war.md).
 - **Orphan AoW GaItem GC / save bloat** — alokator nie zwalnia handle po reset AoW; save rośnie liniowo z liczbą AoW edits. `needs verification` w [54 §22.L6](54-ash-of-war.md).
