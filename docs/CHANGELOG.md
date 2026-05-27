@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(database): extract error modal
+
+Moved the active error modal out of `DatabaseTab` into a dedicated
+presentational component (`components/database/ErrorModal.tsx`). The capacity-
+exceeded, add-failure, and repair-failure paths along with the `errorModal`
+state remain managed by `DatabaseTab`. User-visible behavior is unchanged.
+
 ### chore(database): extract ban-risk warning modal
 
 Moved the active ban-risk warning modal out of `DatabaseTab` into a dedicated
