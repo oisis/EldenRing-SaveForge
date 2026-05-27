@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### perf(icons): downscale oversized non-tools item icons
+
+Downscaled 14 actively used PNG icons from `1024×1024` to `256×256`, covering
+`arrows_and_bolts`, `ashes`, `talismans`, `bolstering_materials`, `ashes_of_war`,
+`shields` and `melee_armaments`. Two `ashes` icons are each shared by 11
+spirit-ash upgrade records (base plus +1…+10) and were downscaled as single
+physical assets. File names, PNG format, transparency and the existing
+`IconPath` values are unchanged. The batch size dropped from `13 266 510 B` to
+`1 108 915 B`, a saving of `12 157 595 B` (`−91.64%`). Icon quality was verified
+visually from the image diff. The `tools` category and the palette-mode icons
+stay out of scope.
+
 ### perf(icons): downscale oversized crafting and info icons
 
 Downscaled 13 actively used PNG icons from `1024×1024` to `256×256`, covering 7
