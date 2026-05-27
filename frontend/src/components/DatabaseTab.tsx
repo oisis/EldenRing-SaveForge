@@ -94,7 +94,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     });
     const [isSaving, setIsSaving] = useState(false);
     const [brokenIcons, setBrokenIcons] = useState<Set<string>>(new Set());
-    const [errorModal, setErrorModal] = useState<{title: string; message: string; items?: string[]} | null>(null);
+    const [errorModal, setErrorModal] = useState<{title: string; message: string} | null>(null);
     // Repair prompt: open when AddItemsToCharacter aborts due to pre-existing
     // duplicate inventory indices. Keeps confirmModal intact so Repair & Retry
     // can re-run handleAdd with the same selection / qty inputs.
@@ -523,7 +523,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 <ErrorModal
                     title={errorModal.title}
                     message={errorModal.message}
-                    items={errorModal.items}
                     onClose={() => setErrorModal(null)}
                 />
             )}

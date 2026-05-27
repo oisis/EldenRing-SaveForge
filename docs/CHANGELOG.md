@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(database): remove unused error modal items list
+
+Removed the never-used `items?` field and its conditional list JSX from
+`ErrorModal` and the `errorModal` state in `DatabaseTab`. No `setErrorModal(...)`
+caller (capacity-exceeded, add-failure, repair-failure) ever populated it, so
+the list could never render. The error modal's reachable behavior (title,
+message, OK) is unchanged.
+
 ### chore(database): extract error modal
 
 Moved the active error modal out of `DatabaseTab` into a dedicated
