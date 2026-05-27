@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(database): extract ban-risk warning modal
+
+Moved the active ban-risk warning modal out of `DatabaseTab` into a dedicated
+presentational component (`components/database/BanRiskWarningModal.tsx`). The
+modal is now fully prop-driven; the gating state (`banRiskWarning`,
+`ignoreBanRisk`), the confirm flow, and the `AddItemsToCharacter` mutation all
+remain in `DatabaseTab`. User-visible behavior (Cancel, Add Anyway, the ignore
+checkbox) is unchanged.
+
 ### chore(database): remove unreachable legacy icon preview modal
 
 Removed the dead, unreachable icon preview modal from `DatabaseTab` along with
