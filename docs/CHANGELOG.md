@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(weapon-edit): remove unreachable non-workspace mode
+
+Removed the unreachable legacy/non-workspace mode from `WeaponEditModal`. The
+active modal is driven exclusively by the workspace flow from `SortOrderTab`,
+so the `workspace`/`workspaceItem` props are now required and the dead
+`GetCharacter` fallback, the legacy `ApplyWeaponUpgradeLevel` /
+`ApplyWeaponInfusion` / `ApplyWeaponAoWStrict` apply paths, and the unused
+`onApplied` callback were dropped. Upgrade, infusion, Ash of War and
+compatibility behavior for the reachable UI is unchanged.
+
 ### chore(database): extract repair prompt
 
 Moved the active duplicate inventory/acquisition-index repair prompt out of

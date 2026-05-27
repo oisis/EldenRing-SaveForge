@@ -1,20 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ApplyWeaponAoWStrict,
-    ApplyWeaponInfusion,
-    ApplyWeaponUpgradeLevel,
     GetAoWAvailability,
-    GetCharacter,
     GetInfuseTypes,
     GetItemList,
 } from '../../wailsjs/go/main/App';
 import { db, editor, main } from '../../wailsjs/go/models';
 import { aowApplyPatch, infusionPatch, upgradePatch } from './weaponPatch';
 
-// Workspace mode — when provided, the modal routes upgrade / infusion / AoW
-// edits through the in-memory inventory workspace via updateWeapon(uid, patch).
-// In that mode pending* state from the returned EditableItem is surfaced to the
-// user separately from the read-only current* values.
+// The modal routes upgrade / infusion / AoW edits through the in-memory
+// inventory workspace via updateWeapon(uid, patch). pending* state from the
+// returned EditableItem is surfaced to the user separately from the read-only
+// current* values.
 export interface WeaponEditModalWorkspace {
     sessionID: string;
     updateWeapon: (uid: string, patch: editor.WeaponPatch) => Promise<editor.EditableItem | null>;
@@ -25,25 +21,14 @@ interface Props {
     item: main.InventoryOrderItem;
     source: 'inventory' | 'storage';
     onClose: () => void;
-    onApplied?: (patch: WeaponPatch) => void;
-    // Optional — when provided, the modal operates in workspace mode for the
-    // weapon identified by `uid`. The provided EditableItem snapshot supplies
-    // current/pending AoW state without an extra round-trip.
-    workspace?: WeaponEditModalWorkspace;
-    workspaceItem?: editor.EditableItem;
+    // The modal operates in workspace mode for the weapon identified by `uid`.
+    // The EditableItem snapshot supplies current/pending AoW state without an
+    // extra round-trip.
+    workspace: WeaponEditModalWorkspace;
+    workspaceItem: editor.EditableItem;
 }
 
-// WeaponPatch — fields that may change after an Apply.
-// SortOrderTab uses this to patch its local previewItems / baseItems by handle
-// without refetching (preserves any pending preview reorder).
-export interface WeaponPatch {
-    handle: number;
-    itemId: number;
-    currentUpgrade: number;
-    infusionName?: string;
-}
-
-// Mirrors backend data.WepTypeToCanMountBit (also duplicated in WeaponEditTab).
+// Mirrors backend data.WepTypeToCanMountBit.
 // Maps weapon wepType → bit position in AoWCompatBitmask.
 const WEP_TYPE_TO_BIT: Record<number, number> = {
     1: 0, 3: 1, 5: 2, 7: 3, 9: 8, 11: 9, 13: 6, 14: 5, 15: 4, 16: 7, 17: 7,
@@ -82,18 +67,17 @@ interface AoWAvailabilityEntry {
 
 type AoWStatus = 'current' | 'available' | 'in_use' | 'missing' | 'conflict';
 
-export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, workspace, workspaceItem }: Props) {
-    const isWorkspaceMode = !!workspace && !!workspaceItem;
+export function WeaponEditModal({ charIndex, item, source, onClose, workspace, workspaceItem }: Props) {
     const [imgError, setImgError] = useState(false);
-    const [pendingAoWName, setPendingAoWName] = useState<string>(workspaceItem?.pendingAoWName ?? '');
-    const [pendingAoWClear, setPendingAoWClear] = useState<boolean>(workspaceItem?.pendingAoWClear ?? false);
-    const [pendingAoWItemID, setPendingAoWItemID] = useState<number>(workspaceItem?.pendingAoWItemID ?? 0);
+    const [pendingAoWName, setPendingAoWName] = useState<string>(workspaceItem.pendingAoWName ?? '');
+    const [pendingAoWClear, setPendingAoWClear] = useState<boolean>(workspaceItem.pendingAoWClear ?? false);
+    const [pendingAoWItemID, setPendingAoWItemID] = useState<number>(workspaceItem.pendingAoWItemID ?? 0);
 
     useEffect(() => {
-        setPendingAoWName(workspaceItem?.pendingAoWName ?? '');
-        setPendingAoWClear(workspaceItem?.pendingAoWClear ?? false);
-        setPendingAoWItemID(workspaceItem?.pendingAoWItemID ?? 0);
-    }, [workspaceItem?.pendingAoWName, workspaceItem?.pendingAoWClear, workspaceItem?.pendingAoWItemID]);
+        setPendingAoWName(workspaceItem.pendingAoWName ?? '');
+        setPendingAoWClear(workspaceItem.pendingAoWClear ?? false);
+        setPendingAoWItemID(workspaceItem.pendingAoWItemID ?? 0);
+    }, [workspaceItem.pendingAoWName, workspaceItem.pendingAoWClear, workspaceItem.pendingAoWItemID]);
 
     // Live working state — starts from props but tracks Apply results so the
     // modal can show the new level / itemId / infusion without being closed.
@@ -134,39 +118,28 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
     // ─── Ash of War state ─────────────────────────────────────────────────────
     const [ashesOfWar, setAshesOfWar] = useState<AshOfWarOption[]>([]);
     const [aowAvailability, setAowAvailability] = useState<Map<number, AoWAvailabilityEntry>>(new Map());
-    // In workspace mode the AoW-mount metadata (currentAoWId / canMountAoW /
-    // wepType) comes straight from the editable workspace item — GetCharacter
-    // reads the *save* state, which can drift from the workspace (added
-    // items have no save-side handle, prior Saves may re-allocate handles).
-    // Legacy mode keeps the GetCharacter fallback so WeaponEditTab and other
-    // non-workspace callers are unaffected.
-    const [currentAoWId, setCurrentAoWId] = useState<number>(
-        isWorkspaceMode ? (workspaceItem?.currentAoWItemID ?? 0) : 0,
-    );
-    const [canMountAoW, setCanMountAoW] = useState<boolean>(
-        isWorkspaceMode ? (workspaceItem?.canMountAoW ?? false) : false,
-    );
-    const [wepType, setWepType] = useState<number>(
-        isWorkspaceMode ? (workspaceItem?.wepType ?? 0) : 0,
-    );
+    // The AoW-mount metadata (currentAoWId / canMountAoW / wepType) comes
+    // straight from the editable workspace item — reading the *save* state
+    // would drift from the workspace (added items have no save-side handle,
+    // prior Saves may re-allocate handles).
+    const [currentAoWId, setCurrentAoWId] = useState<number>(workspaceItem.currentAoWItemID ?? 0);
+    const [canMountAoW, setCanMountAoW] = useState<boolean>(workspaceItem.canMountAoW ?? false);
+    const [wepType, setWepType] = useState<number>(workspaceItem.wepType ?? 0);
     const [selectedAoW, setSelectedAoW] = useState<number | null>(null);
     const [aowSearch, setAowSearch] = useState('');
     const [showUnavailable, setShowUnavailable] = useState(false);
 
-    // Keep workspace-mode AoW state synced with the latest workspaceItem
-    // snapshot — every UpdateWeapon call returns a fresh EditableItem with
-    // updated CurrentAoW* (post-save) and Pending* fields.
+    // Keep AoW state synced with the latest workspaceItem snapshot — every
+    // UpdateWeapon call returns a fresh EditableItem with updated CurrentAoW*
+    // (post-save) and Pending* fields.
     useEffect(() => {
-        if (!isWorkspaceMode || !workspaceItem) return;
         setCurrentAoWId(workspaceItem.currentAoWItemID ?? 0);
         setCanMountAoW(workspaceItem.canMountAoW ?? false);
         setWepType(workspaceItem.wepType ?? 0);
     }, [
-        isWorkspaceMode,
-        workspaceItem?.currentAoWItemID,
-        workspaceItem?.canMountAoW,
-        workspaceItem?.wepType,
-        workspaceItem,
+        workspaceItem.currentAoWItemID,
+        workspaceItem.canMountAoW,
+        workspaceItem.wepType,
     ]);
 
     // Load AoW item list (one-shot).
@@ -182,25 +155,6 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         }).catch(() => setAshesOfWar([]));
     }, []);
 
-    // Refresh weapon state (currentAoWId/canMountAoW/wepType) from
-    // GetCharacter. Used only outside workspace mode — workspace mode reads
-    // these directly from the editable item.
-    const refreshWeaponState = useCallback(async () => {
-        if (isWorkspaceMode) return;
-        try {
-            const char = await GetCharacter(charIndex);
-            const all = [...(char?.inventory ?? []), ...(char?.storage ?? [])];
-            const found: any = all.find((it: any) => it.handle === item.handle);
-            if (found) {
-                setCurrentAoWId((found.aowId as number) || 0);
-                setCanMountAoW(found.canMountAoW === true);
-                setWepType((found.wepType as number) ?? 0);
-            }
-        } catch {
-            // leave existing state
-        }
-    }, [charIndex, item.handle, isWorkspaceMode]);
-
     const refreshAvailability = useCallback(async () => {
         try {
             const entries = await GetAoWAvailability(charIndex);
@@ -213,15 +167,13 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
     }, [charIndex]);
 
     useEffect(() => {
-        refreshWeaponState();
         refreshAvailability();
-    }, [refreshWeaponState, refreshAvailability]);
+    }, [refreshAvailability]);
 
     // ─── Derived ──────────────────────────────────────────────────────────────
     // NOTE: fail-closed on unknown compatibility. This modal does NOT pass through
-    // 'unknown' compat (unlike WeaponEditTab on this branch) because there is no
-    // backend compatibility API on this branch beyond ApplyWeaponAoWStrict's
-    // existing guard, and ApplyWeaponAoW(Strict) silently allows unknown when
+    // 'unknown' compat because there is no backend compatibility API on this
+    // branch beyond the existing apply guard, which silently allows unknown when
     // CanWeaponMountAoW==true. Pending merge of research/aow-weapon-compatibility,
     // we treat unknown as blocked here for safety.
 
@@ -322,41 +274,19 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         setApplying(true);
         setError(null);
         setSuccess(null);
-        const newItemId = currentItemId - currentLevel + selectedLevel;
-        if (isWorkspaceMode) {
-            const patch = upgradePatch(selectedLevel);
-            workspace!.updateWeapon(workspaceItem!.uid, patch)
-                .then(updated => {
-                    if (!updated) {
-                        setError('Failed to update upgrade — see notification.');
-                        return;
-                    }
-                    setCurrentItemId(updated.itemID);
-                    setCurrentLevel(updated.currentUpgrade);
-                    setCurrentInfusionName(updated.infusionName ?? '');
-                    setSuccess(`Level updated to +${updated.currentUpgrade} (pending save)`);
-                })
-                .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-                .finally(() => setApplying(false));
-            return;
-        }
-        const expectedCurrentItemId = currentItemId;
-        ApplyWeaponUpgradeLevel(charIndex, item.handle, expectedCurrentItemId, newItemId)
-            .then(() => {
-                setCurrentItemId(newItemId);
-                setCurrentLevel(selectedLevel);
-                setSuccess(`Level updated to +${selectedLevel}`);
-                onApplied?.({
-                    handle: item.handle,
-                    itemId: newItemId,
-                    currentUpgrade: selectedLevel,
-                    infusionName: currentInfusionName,
-                });
+        const patch = upgradePatch(selectedLevel);
+        workspace.updateWeapon(workspaceItem.uid, patch)
+            .then(updated => {
+                if (!updated) {
+                    setError('Failed to update upgrade — see notification.');
+                    return;
+                }
+                setCurrentItemId(updated.itemID);
+                setCurrentLevel(updated.currentUpgrade);
+                setCurrentInfusionName(updated.infusionName ?? '');
+                setSuccess(`Level updated to +${updated.currentUpgrade} (pending save)`);
             })
-            .catch((e: unknown) => {
-                const msg = e instanceof Error ? e.message : String(e);
-                setError(msg || 'Failed to apply level change');
-            })
+            .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
             .finally(() => setApplying(false));
     };
 
@@ -365,43 +295,20 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         setApplying(true);
         setError(null);
         setSuccess(null);
-        const newItemId = currentItemId - currentInfuseOffset + selectedInfuseOffset;
         const newName = infuseTypes.find(t => t.offset === selectedInfuseOffset)?.name ?? 'Standard';
-        if (isWorkspaceMode) {
-            const patch = infusionPatch(newName);
-            workspace!.updateWeapon(workspaceItem!.uid, patch)
-                .then(updated => {
-                    if (!updated) {
-                        setError('Failed to update infusion — see notification.');
-                        return;
-                    }
-                    setCurrentItemId(updated.itemID);
-                    setCurrentLevel(updated.currentUpgrade);
-                    setCurrentInfusionName(updated.infusionName ?? '');
-                    setSuccess(`Infusion updated to ${newName} (pending save)`);
-                })
-                .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-                .finally(() => setApplying(false));
-            return;
-        }
-        const expectedCurrentItemId = currentItemId;
-        ApplyWeaponInfusion(charIndex, item.handle, expectedCurrentItemId, newItemId)
-            .then(() => {
-                setCurrentItemId(newItemId);
-                const storedName = newName === 'Standard' ? '' : newName;
-                setCurrentInfusionName(storedName);
-                setSuccess(`Infusion updated to ${newName}`);
-                onApplied?.({
-                    handle: item.handle,
-                    itemId: newItemId,
-                    currentUpgrade: currentLevel,
-                    infusionName: storedName,
-                });
+        const patch = infusionPatch(newName);
+        workspace.updateWeapon(workspaceItem.uid, patch)
+            .then(updated => {
+                if (!updated) {
+                    setError('Failed to update infusion — see notification.');
+                    return;
+                }
+                setCurrentItemId(updated.itemID);
+                setCurrentLevel(updated.currentUpgrade);
+                setCurrentInfusionName(updated.infusionName ?? '');
+                setSuccess(`Infusion updated to ${newName} (pending save)`);
             })
-            .catch((e: unknown) => {
-                const msg = e instanceof Error ? e.message : String(e);
-                setError(msg || 'Failed to apply infusion change');
-            })
+            .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
             .finally(() => setApplying(false));
     };
 
@@ -409,43 +316,20 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
         setApplying(true);
         setError(null);
         setSuccess(null);
-        if (isWorkspaceMode) {
-            const patch = aowApplyPatch(newAoWItemID);
-            workspace!.updateWeapon(workspaceItem!.uid, patch)
-                .then(updated => {
-                    if (!updated) {
-                        setError('Failed to update Ash of War — see notification.');
-                        return;
-                    }
-                    setSelectedAoW(null);
-                    setSuccess(`${label} (pending save)`);
-                    setPendingAoWName(updated.pendingAoWName ?? '');
-                    setPendingAoWClear(updated.pendingAoWClear ?? false);
-                    setPendingAoWItemID(updated.pendingAoWItemID ?? 0);
-                })
-                .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-                .finally(() => setApplying(false));
-            return;
-        }
-        ApplyWeaponAoWStrict(charIndex, item.handle, newAoWItemID)
-            .then(async () => {
-                await Promise.all([refreshWeaponState(), refreshAvailability()]);
+        const patch = aowApplyPatch(newAoWItemID);
+        workspace.updateWeapon(workspaceItem.uid, patch)
+            .then(updated => {
+                if (!updated) {
+                    setError('Failed to update Ash of War — see notification.');
+                    return;
+                }
                 setSelectedAoW(null);
-                setSuccess(label);
-                // Save mutated — propagate to SortOrderTab so onMutate fires.
-                // Tile metadata (itemId / level / infusion) does not change, so
-                // we pass the current values; merge is a logical no-op.
-                onApplied?.({
-                    handle: item.handle,
-                    itemId: currentItemId,
-                    currentUpgrade: currentLevel,
-                    infusionName: currentInfusionName,
-                });
+                setSuccess(`${label} (pending save)`);
+                setPendingAoWName(updated.pendingAoWName ?? '');
+                setPendingAoWClear(updated.pendingAoWClear ?? false);
+                setPendingAoWItemID(updated.pendingAoWItemID ?? 0);
             })
-            .catch((e: unknown) => {
-                const msg = e instanceof Error ? e.message : String(e);
-                setError(msg || 'Failed to apply Ash of War change');
-            })
+            .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
             .finally(() => setApplying(false));
     };
 
@@ -688,7 +572,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, onApplied, w
                             )}
                         </div>
 
-                        {isWorkspaceMode && (pendingAoWClear || pendingAoWItemID !== 0) && (
+                        {(pendingAoWClear || pendingAoWItemID !== 0) && (
                             <div className="text-[10px] px-2 py-1 rounded border bg-amber-500/10 border-amber-500/30 text-amber-200 leading-snug">
                                 {pendingAoWClear
                                     ? 'Pending save: built-in skill will be restored.'
