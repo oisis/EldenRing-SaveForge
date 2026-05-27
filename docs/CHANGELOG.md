@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(database): extract repair prompt
+
+Moved the active duplicate inventory/acquisition-index repair prompt out of
+`DatabaseTab` into a dedicated presentational component
+(`components/database/RepairPrompt.tsx`). The `repairPrompt` state, the
+`RepairDuplicateInventoryIndices` call, the retry of the original add, and the
+decision to keep the confirm modal mounted during the prompt all remain in
+`DatabaseTab`. User-visible behavior is unchanged.
+
 ### chore(database): remove unused error modal items list
 
 Removed the never-used `items?` field and its conditional list JSX from
