@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(icons): relocate misplaced Flask of Wondrous Physick info icon
+
+Moved the `About Flask of Wondrous Physick` tutorial icon from the wrong
+`items/tools/` directory to `items/info/`, the location its existing runtime
+`IconPath` already points to. The file was a leftover from the old
+`tools/sacred_flasks/` directory flatten while its sibling `about_*` tutorial
+icons were grouped under `items/info/`. No `IconPath` was changed and the image
+bytes were not modified. Remaining unresolved icons, including Beast Claw, stay
+out of scope.
+
 ### fix(icons): relocate eight misplaced item icon assets
 
 Relocated eight confirmed item icon assets into the directories already required
