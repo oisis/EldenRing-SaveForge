@@ -416,6 +416,7 @@ func (a *App) DownloadRemoteSave(targetName string) (string, error) {
 	a.lastSavePath = ""
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
+	a.clearAllEditSessions()
 	return string(save.Platform), nil
 }
 

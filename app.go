@@ -140,6 +140,7 @@ func (a *App) SelectAndOpenSave() (string, error) {
 	a.lastSavePath = path
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
+	a.clearAllEditSessions()
 	return string(save.Platform), nil
 }
 
@@ -1167,6 +1168,14 @@ func (a *App) clearAllUndoStacks() {
 	for i := range a.undoStacks {
 		a.undoStacks[i] = nil
 	}
+}
+
+// clearAllEditSessions drops every in-memory inventory edit session. Called when
+// a new save is loaded so stale sessions (which reference the previous save's
+// slots) cannot linger; the frontend re-creates a fresh session on demand.
+func (a *App) clearAllEditSessions() {
+	a.editSessions = make(map[string]*editor.InventoryEditSession)
+	a.editSessionByChar = make(map[int]string)
 }
 
 // GetNetworkParams reads the current invasion matchmaking parameters from the save's regulation.

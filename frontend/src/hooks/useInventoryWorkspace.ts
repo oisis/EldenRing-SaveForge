@@ -103,6 +103,39 @@ export function useInventoryWorkspace(): UseInventoryWorkspaceResult {
         return id;
     }, [handleError]);
 
+    // Runs a session-scoped backend op, self-healing if the backend has lost the
+    // session (e.g. evicted on save reload or tab remount). On a "session not found"
+    // failure it transparently restarts the session for the current character and
+    // retries once, so an edit/repair never dies with a stale session id.
+    const runSessionOp = useCallback(async <T,>(
+        label: string,
+        op: (sessionID: string) => Promise<T>,
+    ): Promise<T | null> => {
+        const sessionGone = (err: unknown) =>
+            /session .*not found|no active session/i.test(String((err as { message?: string })?.message ?? err));
+
+        let id = sessionIDRef.current;
+        if (!id) {
+            const ci = characterIndexRef.current;
+            if (ci == null) { handleError(label, new Error('no active session')); return null; }
+            id = (await start(ci))?.sessionID ?? '';
+            if (!id) return null;
+        }
+        try {
+            return await op(id);
+        } catch (err) {
+            if (sessionGone(err) && characterIndexRef.current != null) {
+                const fresh = (await start(characterIndexRef.current))?.sessionID ?? '';
+                if (fresh) {
+                    try { return await op(fresh); }
+                    catch (retryErr) { handleError(label, retryErr); return null; }
+                }
+            }
+            handleError(label, err);
+            return null;
+        }
+    }, [handleError, start]);
+
     const refresh = useCallback(async () => {
         const id = sessionIDRef.current;
         if (!id) return;
@@ -171,34 +204,28 @@ export function useInventoryWorkspace(): UseInventoryWorkspaceResult {
     }, [applySnapshot, handleError, requireSession]);
 
     const updateWeapon = useCallback(async (uid: string, patch: editor.WeaponPatch) => {
-        const id = requireSession('Weapon edit failed');
-        if (!id) return null;
-        try {
-            const next = await UpdateInventoryWorkspaceWeapon(id, uid, patch);
-            applySnapshot(next);
-            return findByUID(next.inventoryItems, uid) ?? findByUID(next.storageItems, uid);
-        } catch (err) {
-            handleError('Weapon edit failed', err);
-            return null;
-        }
-    }, [applySnapshot, handleError, requireSession]);
+        const next = await runSessionOp('Weapon edit failed',
+            (id) => UpdateInventoryWorkspaceWeapon(id, uid, patch));
+        if (!next) return null;
+        applySnapshot(next);
+        return findByUID(next.inventoryItems, uid) ?? findByUID(next.storageItems, uid);
+    }, [applySnapshot, runSessionOp]);
 
     const save = useCallback(async () => {
-        const id = requireSession('Save failed');
-        if (!id) return null;
         setSaving(true);
         setLastError(null);
         try {
-            const next = await SaveInventoryWorkspaceChanges(id);
+            // Self-heals a lost session; validation errors (e.g. out-of-range
+            // upgrade) are surfaced normally and do NOT trigger a restart.
+            const next = await runSessionOp('Save failed',
+                (id) => SaveInventoryWorkspaceChanges(id));
+            if (!next) return null;
             applySnapshot(next);
             return next;
-        } catch (err) {
-            handleError('Save failed', err);
-            return null;
         } finally {
             setSaving(false);
         }
-    }, [applySnapshot, handleError, requireSession]);
+    }, [applySnapshot, runSessionOp]);
 
     const discard = useCallback(async () => {
         const id = sessionIDRef.current;

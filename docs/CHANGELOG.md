@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(inventory): self-heal lost edit session so weapon repair always works
+
+Repairing an out-of-range weapon could fail with `inventory edit session "…" not
+found`: the frontend held a session id the backend had dropped (sessions were not
+cleared when a new save loaded, and a tab remount / reload could evict them). The
+B-fix above made the repair button reachable, which exposed this.
+
+- `useInventoryWorkspace.ts`: added `runSessionOp` — session-scoped calls now
+  self-heal: on a "session not found" failure they transparently restart the
+  session for the current character and retry once. Wired into `updateWeapon` and
+  `save`. Validation errors (e.g. out-of-range upgrade) are NOT treated as session
+  loss, so they still surface normally.
+- `app.go` / `app_deploy.go`: loading a save now calls `clearAllEditSessions()` so
+  stale sessions referencing the previous save's slots cannot linger.
+
 ### fix(inventory): never write out-of-range weapon upgrades + surface them before save
 
 Root-caused the "Golem Greatbow +25" / `upgrade_out_of_range` report and the silent
