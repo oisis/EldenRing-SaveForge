@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(build): rename Jolán asset for go embed compatibility
+
+Renamed the physical asset `ashes/jolán_and_anna.png` to the embed-safe ASCII
+path `ashes/jolan_and_anna.png` and updated the 11 matching `IconPath` values
+for `Jolán and Anna` and its upgrade levels (base plus +1…+10). The displayed
+item names `Jolán and Anna` keep their accent. The accented file name broke the
+embedded frontend assets (`//go:embed frontend/dist`) and prevented the
+application from building; `make build` passes after the rename. The PNG image
+and the item semantics are unchanged.
+
 ### perf(icons): downscale oversized tools icons
 
 Downscaled 31 actively used `tools` PNG icons from `1024×1024` to `256×256`,
