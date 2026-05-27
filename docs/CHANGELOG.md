@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(cleanup): remove unreachable legacy Weapon Edit Tab
+
+Deleted `frontend/src/components/WeaponEditTab.tsx` and its dead render path. The
+Inventory → Weapon Edit pill had already been hidden, leaving the component
+unreachable (no setter drove `invView` to `'weapon_edit'`). Weapon editing is now
+served exclusively by `WeaponEditModal` (launched from the Weapons & Sort Order
+tab), which remains untouched and consumes a superset of the same backend
+endpoints. No backend endpoints or Wails bindings were removed.
+
+- `App.tsx`: dropped the `WeaponEditTab` import, the `'weapon_edit'` `invView`
+  variant, the dead render branch, and the now-redundant `weapon_edit` guards.
+
 ### fix(inventory): self-heal lost edit session so weapon repair always works
 
 Repairing an out-of-range weapon could fail with `inventory edit session "…" not

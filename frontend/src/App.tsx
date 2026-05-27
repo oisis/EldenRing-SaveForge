@@ -11,7 +11,6 @@ import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {PvPTab} from './components/PvPTab';
-import {WeaponEditTab} from './components/WeaponEditTab';
 import {SortOrderTab} from './components/SortOrderTab';
 
 import {ToastBar} from './components/ToastBar';
@@ -89,7 +88,7 @@ function App() {
     const [showEmptySlots, setShowEmptySlots] = useState(false);
     const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
     const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
-    const [invView, setInvView] = useState<'inventory' | 'database' | 'weapon_edit' | 'sort_order'>('inventory');
+    const [invView, setInvView] = useState<'inventory' | 'database' | 'sort_order'>('inventory');
     const [detailItem, setDetailItem] = useState<db.ItemEntry | null>(null);
     const [saving, setSaving] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
@@ -527,14 +526,11 @@ function App() {
                                         {/* Mode bar: left = tabs, right = capacity stats */}
                                         <div className="flex items-center justify-between mb-3 shrink-0 gap-4">
                                             <div className="flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50 shrink-0">
-                                                {/* TODO(deprecated): Inventory → Weapon Edit pill removed from this list to hide the UI entry.
-                                                    The 'weapon_edit' variant remains in invView's type union and render switch as a legacy branch.
-                                                    Remove the 'weapon_edit' variant and WeaponEditTab import/render in a future cleanup. */}
                                                 {([
                                                     { id: 'database', label: 'Item Database' },
                                                     { id: 'inventory', label: 'Equipment' },
                                                     { id: 'sort_order', label: 'Weapons & Sort Order' },
-                                                ] as { id: 'database' | 'inventory' | 'weapon_edit' | 'sort_order'; label: string }[]).map(({ id, label }) => (
+                                                ] as { id: 'database' | 'inventory' | 'sort_order'; label: string }[]).map(({ id, label }) => (
                                                     <button
                                                         key={id}
                                                         onClick={() => { setInvView(id); if (id !== 'database') setDetailItem(null); }}
@@ -549,7 +545,7 @@ function App() {
                                                 ))}
                                             </div>
 
-                                            {invView !== 'weapon_edit' && invView !== 'sort_order' && capacity && (
+                                            {invView !== 'sort_order' && capacity && (
                                                 <div className="flex items-center gap-4">
                                                     {[
                                                         { label: 'All Items', used: capacity.gaItemsUsed, max: capacity.gaItemsMax },
@@ -591,21 +587,11 @@ function App() {
                                                 showOnlyFavorites={showOnlyFavorites}
                                                 onToggleFavorites={() => setShowOnlyFavorites(v => !v)}
                                             />
-                                        ) : invView === 'sort_order' ? (
+                                        ) : (
                                             <SortOrderTab
                                                 charIndex={selectedChar}
                                                 inventoryVersion={inventoryVersion}
                                                 onMutate={refreshUndoDepth}
-                                            />
-                                        ) : (
-                                            // TODO(deprecated): Inventory → Weapon Edit UI entry is hidden. This legacy branch is
-                                            // unreachable while the pill is removed (no setter for invView='weapon_edit' exists).
-                                            // Remove this branch together with WeaponEditTab in a future cleanup.
-                                            <WeaponEditTab
-                                                charIndex={selectedChar}
-                                                inventoryVersion={inventoryVersion}
-                                                infuseTypes={infuseTypes}
-                                                platform={platform}
                                             />
                                         )}
                                     </div>
