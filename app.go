@@ -8,6 +8,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"sync"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
@@ -20,6 +21,13 @@ import (
 )
 
 const maxUndoDepth = 5
+
+// maxCharacters mirrors the canonical fixed slot count baked into
+// core.SaveFile (Slots [10]SaveSlot — backend/core/save_manager.go) and
+// the validation literal `charIdx >= 10` used throughout this file. It
+// exists so the lifecycle mutex array has a single symbolic source; we
+// deliberately do NOT refactor every `10` in the codebase here.
+const maxCharacters = 10
 
 // slotSnapshot holds a deep copy of a SaveSlot for undo purposes.
 type slotSnapshot struct {
@@ -64,6 +72,30 @@ type App struct {
 	// so callers can look up the current session for a character without
 	// scanning. Sessions are pure RAM — never persisted, never carry mutations
 	// in Phase 1.
+	//
+	// editSessionsMu serializes every lifecycle operation on the two maps
+	// above (insert, replace, lookup, delete, full clear). Wails dispatches
+	// each bound endpoint in its own goroutine, so without this mutex two
+	// concurrent StartInventoryEditSession calls would race on the map writes
+	// at app_inventory_session.go and crash the process with
+	// `fatal error: concurrent map writes`. The mutex is held ONLY around
+	// registry-touching code — long-running mutations and slot rebuilds use
+	// the per-session lock on InventoryEditSession instead, so two sessions
+	// for two different characters can still run in parallel.
+	editSessionsMu sync.Mutex
+	// lifecycleMu serialises session lifecycle transitions per character
+	// slot (Start replacement, Discard, clearAllEditSessions). It is
+	// SEPARATE from editSessionsMu and from sess.mu and exists to close
+	// the cross-session slot race: without it a new StartInventoryEditSession
+	// could call editor.StartSession on a.save.Slots[charIdx] while the
+	// PREVIOUS session for the same slot was still inside
+	// SaveInventoryWorkspaceChanges mutating the same slot. Lock order is
+	// strict: lifecycleMu[charIdx] (long-held) → editSessionsMu (short,
+	// registry only) → sess.Acquire() (per-session, may block on a peer's
+	// Save). Never take a lifecycleMu while already holding sess.mu.
+	// Different characters use independent entries so two characters can
+	// still be edited in parallel.
+	lifecycleMu       [maxCharacters]sync.Mutex
 	editSessions      map[string]*editor.InventoryEditSession
 	editSessionByChar map[int]string
 
@@ -1173,9 +1205,46 @@ func (a *App) clearAllUndoStacks() {
 // clearAllEditSessions drops every in-memory inventory edit session. Called when
 // a new save is loaded so stale sessions (which reference the previous save's
 // slots) cannot linger; the frontend re-creates a fresh session on demand.
+//
+// Concurrency:
+//   - Acquires every lifecycleMu[0..maxCharacters-1] in ascending order
+//     BEFORE touching the registry. This blocks any concurrent
+//     StartInventoryEditSession / DiscardInventoryEditSession for any
+//     character until the bulk drain has completed — a new Start cannot
+//     sneak in between the registry reset and the per-session close and
+//     race the old Save on the freshly-replaced a.save.
+//   - Then under editSessionsMu the registry maps are reset and drained
+//     atomically. editSessionsMu is released before any per-session
+//     close so a long-running peer cannot indirectly hold up the
+//     registry probe path.
+//   - Each drained session is then Close()-d. closeSession blocks on the
+//     per-session mutex, draining any in-flight Save. By the time
+//     clearAllEditSessions returns no orphan session is still writing.
+//   - lifecycleMu locks are released in descending order; the ordering
+//     is deterministic so concurrent Start/Discard cannot construct a
+//     reverse cycle and deadlock.
 func (a *App) clearAllEditSessions() {
+	for i := 0; i < maxCharacters; i++ {
+		a.lifecycleMu[i].Lock()
+	}
+	defer func() {
+		for i := maxCharacters - 1; i >= 0; i-- {
+			a.lifecycleMu[i].Unlock()
+		}
+	}()
+
+	a.editSessionsMu.Lock()
+	drained := make([]*editor.InventoryEditSession, 0, len(a.editSessions))
+	for _, s := range a.editSessions {
+		drained = append(drained, s)
+	}
 	a.editSessions = make(map[string]*editor.InventoryEditSession)
 	a.editSessionByChar = make(map[int]string)
+	a.editSessionsMu.Unlock()
+
+	for _, s := range drained {
+		closeSession(s)
+	}
 }
 
 // GetNetworkParams reads the current invasion matchmaking parameters from the save's regulation.

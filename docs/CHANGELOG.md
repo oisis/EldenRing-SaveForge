@@ -4,6 +4,70 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(inventory-session): serialize concurrent workspace session access
+
+Fixed the backend crash `fatal error: concurrent map writes` originating in
+`StartInventoryEditSession` (`app_inventory_session.go`). Wails dispatches every
+bound endpoint in its own goroutine, so two concurrent calls hitting the
+unsynchronised `editSessions` / `editSessionByChar` maps on `App` — easily
+reproduced by React 18 StrictMode / HMR double-firing the SortOrderTab effect —
+crashed the process unrecoverably.
+
+- Added a registry-scoped `editSessionsMu sync.Mutex` on `App` that guards every
+  lifecycle touch of the two maps (lookup, insert, replace, delete, full clear)
+  and nothing else, so two different characters' sessions can still run in
+  parallel.
+- Added a per-session lock on `editor.InventoryEditSession` exposed via
+  `Acquire` / `Unlock` / `Close` / `IsClosed` plus `editor.ErrSessionClosed`.
+  Every endpoint that touches `Workspace`, `BaselineEditableHandles` or
+  `BaseRevision` (Get, Validate, Move, Transfer, Add, Update, Remove, Save,
+  template Export / Apply) acquires the lock first and unlocks on return. The
+  multi-step `SaveInventoryWorkspaceChanges` flow now holds the lock across
+  apply → rebuild snapshot → regenerate baseline, so no peer can observe a
+  half-replaced Workspace or a baseline map in the middle of initialisation.
+- Added per-character `lifecycleMu [10]sync.Mutex` on `App` that serialises
+  every session lifecycle transition for a given slot (`Start` replacement,
+  `Discard`, `clearAllEditSessions`). The new lock closes the cross-session
+  slot race that the per-session mutex alone could not cover: a replacement
+  `StartInventoryEditSession(charIdx)` now evicts the prior session under
+  the registry lock, then drains it via `closeSession` BEFORE calling
+  `editor.StartSession` on `a.save.Slots[charIdx]`, so the new snapshot is
+  built off a quiesced slot — never alongside a prior session's in-flight
+  `SaveInventoryWorkspaceChanges` mutating the same slot. `Discard` and
+  `clearAllEditSessions` take the same lifecycle lock(s) before draining,
+  so a new `Start` for the same character blocks until the orphaned Save
+  has released its per-session lock. Lock order is strict and global:
+  `lifecycleMu[charIdx]` → `editSessionsMu` → `sess.Acquire()`.
+  `clearAllEditSessions` acquires all 10 lifecycle locks in ascending order
+  and releases them in descending order so no reverse-cycle deadlock is
+  reachable from concurrent `Start` / `Discard`.
+- `StartInventoryEditSession` preserves its replacement / refresh semantics
+  (the call always returns a fresh post-event snapshot, never a stale dirty
+  workspace) but performs the registry eviction, prior-session drain, and
+  publication as a single lifecycle-locked sequence.
+- `DiscardInventoryEditSession` and `clearAllEditSessions` evict under the
+  registry lock and then Close each affected session — Acquire blocks until any
+  in-flight mutator finishes, so once the call returns no orphan goroutine is
+  still writing. A subsequent endpoint call against the closed session
+  deterministically returns the existing `inventory edit session %q not found`
+  wire error, matching the regex the frontend's `useInventoryWorkspace`
+  self-heal path already keys on.
+- Tests (Go): added `app_inventory_session_concurrency_test.go` with nine
+  scenarios covering concurrent same-char Start (the original crash signature),
+  concurrent mutations, Save vs mutation, Discard vs mutation, clearAll vs
+  mutation, the Close/Acquire contract, and three lifecycle scenarios that
+  park a fake Save by holding the per-session lock directly and assert that
+  a replacement Start / a Discard+Start / a clearAll+Start cannot complete
+  until the simulated Save releases. All pass under
+  `go test -race -run TestInventorySession_ -count=10 .`. Existing sequential
+  session tests, the full `go test . ./backend/... ./tests/...` suite (incl.
+  `TestRoundTripPC`), `go vet`, `npx tsc --noEmit` and the full Vitest suite
+  (153 tests) remain green.
+- No behavioural change to the duplicate-acquisition-index WARN flow in
+  `AddItemsToCharacter`, `RepairDuplicateInventoryIndices`, the DatabaseTab
+  `RepairPrompt` UI or its tests — those live in a different subsystem and
+  were explicitly out of scope.
+
 ### chore(cleanup): remove dead AoW-flags trio and orphaned backing
 
 Removed the unreachable public `AoW-flags trio` App/Wails endpoints

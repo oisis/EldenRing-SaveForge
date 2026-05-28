@@ -1,20 +1,76 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 )
 
+// acquireSession looks up a session by ID under the registry mutex and
+// then takes the per-session lock. The two locks are deliberately not
+// held simultaneously: registry lock is short-lived (just the map probe)
+// so concurrent StartInventoryEditSession for a different character is
+// not blocked by a long-running Save on this one.
+//
+// A missing session ID and a closed session both map to the same
+// "session ... not found" wire error: the frontend hook
+// (useInventoryWorkspace.runSessionOp) self-heals on that exact phrase
+// by restarting the session, which is the right recovery for both
+// causes from the UI's perspective.
+//
+// On nil error the caller owns the session lock and MUST release it via
+// sess.Unlock() (typically defer).
+func (a *App) acquireSession(sessionID string) (*editor.InventoryEditSession, error) {
+	a.editSessionsMu.Lock()
+	sess, ok := a.editSessions[sessionID]
+	a.editSessionsMu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("inventory edit session %q not found", sessionID)
+	}
+	if err := sess.Acquire(); err != nil {
+		// Either ErrSessionClosed (Discard / clearAllEditSessions raced
+		// us between the registry probe and Acquire) — surface the same
+		// wire shape as "not found" for the frontend self-heal path.
+		if errors.Is(err, editor.ErrSessionClosed) {
+			return nil, fmt.Errorf("inventory edit session %q not found", sessionID)
+		}
+		return nil, err
+	}
+	return sess, nil
+}
+
 // StartInventoryEditSession builds a read-only workspace snapshot for the
 // given character slot and registers it as the active session for that
 // character. If a session already exists for the same charIdx it is
-// replaced.
+// replaced atomically.
 //
 // Phase 1 contract: the slot is not mutated, no undo is pushed, no rebuild
 // is performed. Future phases will accept mutations on the returned
 // session and only then call into the rebuild pipeline.
+//
+// Lifecycle concurrency contract:
+//   - Holds lifecycleMu[charIdx] across the entire replacement sequence
+//     so a concurrent Start, Discard, or clearAllEditSessions for the
+//     same character is serialised. Different characters take different
+//     lifecycle locks and run independently.
+//   - The prior session for this charIdx (if any) is evicted from the
+//     registry FIRST, then closeSession is awaited. closeSession blocks
+//     on the per-session mutex, which a peer SaveInventoryWorkspaceChanges
+//     holds for the entire apply → rebuild snapshot → regenerate baseline
+//     sequence. As a result editor.StartSession (which reads
+//     a.save.Slots[charIdx]) is invoked ONLY after the previous session
+//     has finished mutating the same slot — no torn read on slot.Data /
+//     slot.GaMap / slot.Inventory / slot.Storage.
+//   - The new session is published under editSessionsMu (short
+//     critical section, registry maps only) so the original
+//     concurrent map writes crash signature is also covered.
+//   - Replacement semantics are preserved: the call always returns a
+//     fresh snapshot of the slot as it stands AFTER any prior Save has
+//     drained, never the prior session's dirty workspace. SortOrderTab's
+//     effect (re-runs on charIndex / inventoryVersion change) still gets
+//     the post-event snapshot it depends on.
 func (a *App) StartInventoryEditSession(charIdx int) (editor.InventoryWorkspaceSnapshot, error) {
 	if a.save == nil {
 		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("no save loaded")
@@ -22,33 +78,77 @@ func (a *App) StartInventoryEditSession(charIdx int) (editor.InventoryWorkspaceS
 	if charIdx < 0 || charIdx >= len(a.save.Slots) {
 		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("invalid character index %d", charIdx)
 	}
+
+	a.lifecycleMu[charIdx].Lock()
+	defer a.lifecycleMu[charIdx].Unlock()
+
 	slot := &a.save.Slots[charIdx]
 	if slot.Version == 0 {
 		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("slot %d is empty", charIdx)
 	}
 
+	// Step 1 — evict any prior session for this character from the
+	// registry. We deliberately delete BEFORE building the new snapshot
+	// so peer endpoints holding only the prior session's ID see "not
+	// found" immediately and the frontend self-heal triggers a fresh
+	// Start (which then queues behind us on lifecycleMu).
+	var prior *editor.InventoryEditSession
+	a.editSessionsMu.Lock()
+	if oldID, ok := a.editSessionByChar[charIdx]; ok {
+		if p, ok2 := a.editSessions[oldID]; ok2 {
+			prior = p
+		}
+		delete(a.editSessions, oldID)
+		delete(a.editSessionByChar, charIdx)
+	}
+	a.editSessionsMu.Unlock()
+
+	// Step 2 — drain the prior session BEFORE touching the slot.
+	// closeSession blocks until any in-flight Save (or other mutator)
+	// has released the per-session lock, so editor.StartSession below
+	// reads a quiesced slot.
+	if prior != nil {
+		closeSession(prior)
+	}
+
+	// Step 3 — build the fresh snapshot off the now-quiet slot.
 	sess, err := editor.StartSession(slot, charIdx)
 	if err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 
-	// Replace any existing session for this character.
-	if oldID, ok := a.editSessionByChar[charIdx]; ok {
-		delete(a.editSessions, oldID)
-	}
+	// Step 4 — publish under the registry lock.
+	a.editSessionsMu.Lock()
 	a.editSessions[sess.ID] = sess
 	a.editSessionByChar[charIdx] = sess.ID
+	a.editSessionsMu.Unlock()
 
 	return sess.Workspace, nil
 }
 
+// closeSession waits for any in-flight mutator on a session to drain,
+// then marks it closed so any peer that subsequently calls Acquire
+// fails fast. Used by replacement (StartInventoryEditSession), explicit
+// Discard, and the bulk clearAllEditSessions path.
+func closeSession(s *editor.InventoryEditSession) {
+	if err := s.Acquire(); err == nil {
+		s.Close()
+		s.Unlock()
+	}
+}
+
 // GetInventoryEditSession returns the current workspace snapshot for a
 // session ID. Errors if the session is not active.
+//
+// The snapshot is read under the session lock and returned by value, so
+// the caller receives a self-contained copy that cannot tear under a
+// concurrent mutator.
 func (a *App) GetInventoryEditSession(sessionID string) (editor.InventoryWorkspaceSnapshot, error) {
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
 	}
+	defer sess.Unlock()
 	return sess.Workspace, nil
 }
 
@@ -56,10 +156,11 @@ func (a *App) GetInventoryEditSession(sessionID string) (editor.InventoryWorkspa
 // session's workspace and returns the report. The workspace itself is
 // updated with the latest report so subsequent Get calls see it too.
 func (a *App) ValidateInventoryWorkspace(sessionID string) (editor.WorkspaceValidationReport, error) {
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return editor.WorkspaceValidationReport{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.WorkspaceValidationReport{}, err
 	}
+	defer sess.Unlock()
 	rep := editor.Validate(sess.Workspace)
 	sess.Workspace.Validation = rep
 	return rep, nil
@@ -70,10 +171,11 @@ func (a *App) ValidateInventoryWorkspace(sessionID string) (editor.WorkspaceVali
 // The mutation lives only in RAM — slot.Data is not touched and no
 // rebuild is triggered.
 func (a *App) MoveInventoryWorkspaceItem(sessionID, itemUID, targetContainer string, targetPosition int) (editor.InventoryWorkspaceSnapshot, error) {
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
 	}
+	defer sess.Unlock()
 	ck, err := parseContainerKind(targetContainer)
 	if err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
@@ -89,10 +191,11 @@ func (a *App) MoveInventoryWorkspaceItem(sessionID, itemUID, targetContainer str
 // MoveInventoryWorkspaceItem with targetPosition past the slice length
 // (MoveItem clamps to append).
 func (a *App) TransferInventoryWorkspaceItem(sessionID, itemUID, targetContainer string) (editor.InventoryWorkspaceSnapshot, error) {
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
 	}
+	defer sess.Unlock()
 	ck, err := parseContainerKind(targetContainer)
 	if err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
@@ -109,10 +212,11 @@ func (a *App) TransferInventoryWorkspaceItem(sessionID, itemUID, targetContainer
 // HasGaItem=false — real handle/GaItem allocation happens at Save time
 // (Phase 3+). Slot binary is untouched.
 func (a *App) AddInventoryWorkspaceItem(sessionID string, spec editor.AddItemSpec, targetContainer string, targetPosition int) (editor.InventoryWorkspaceSnapshot, error) {
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
 	}
+	defer sess.Unlock()
 	ck, err := parseContainerKind(targetContainer)
 	if err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
@@ -133,10 +237,11 @@ func (a *App) AddInventoryWorkspaceItem(sessionID string, spec editor.AddItemSpe
 // item, or any invalid patch field (upgrade out of range, unknown
 // infusion, unknown / non-AoW ID).
 func (a *App) UpdateInventoryWorkspaceWeapon(sessionID, itemUID string, patch editor.WeaponPatch) (editor.InventoryWorkspaceSnapshot, error) {
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
 	}
+	defer sess.Unlock()
 	if err := editor.UpdateWeapon(&sess.Workspace, itemUID, patch); err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
@@ -147,10 +252,11 @@ func (a *App) UpdateInventoryWorkspaceWeapon(sessionID, itemUID string, patch ed
 // session's workspace by UID. Pass-through (unsupported) records are
 // unaffected.
 func (a *App) RemoveInventoryWorkspaceItem(sessionID, itemUID string) (editor.InventoryWorkspaceSnapshot, error) {
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
 	}
+	defer sess.Unlock()
 	if err := editor.RemoveItem(&sess.Workspace, itemUID); err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
@@ -189,11 +295,20 @@ func parseContainerKind(s string) (editor.ContainerKind, error) {
 //     handle map regenerated.
 //   - pushUndo runs first so the user can revert via the existing undo
 //     stack.
+//
+// Concurrency contract (this fix):
+//   - The session lock is held across the entire flow (apply → rebuild
+//     snapshot → regenerate baseline). No peer mutator can observe a
+//     partially-replaced Workspace or a half-initialised
+//     BaselineEditableHandles map — historically the rebuild loop at the
+//     end could race a concurrent AddInventoryWorkspaceItem and tear
+//     either the slice or the baseline map.
 func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryWorkspaceSnapshot, error) {
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
 	}
+	defer sess.Unlock()
 	if a.save == nil {
 		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("no save loaded")
 	}
@@ -211,7 +326,7 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 	// revert the entire save via the existing undo button.
 	a.pushUndo(sess.CharacterIndex)
 
-	_, err := editor.ApplyWorkspaceSave(slot, &sess.Workspace, sess.BaselineEditableHandles)
+	_, err = editor.ApplyWorkspaceSave(slot, &sess.Workspace, sess.BaselineEditableHandles)
 	if err != nil {
 		// Determine whether to rollback. Rejection errors return
 		// before any mutation; mutation errors may have partially
@@ -251,15 +366,66 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 // DiscardInventoryEditSession deletes the session by ID. It is a no-op
 // if the session does not exist (idempotent — frontends can call this
 // during cleanup without checking existence first).
+//
+// Lifecycle concurrency contract:
+//   - First takes a short editSessionsMu probe to discover the session's
+//     charIdx (sessionIDs are opaque to the caller).
+//   - Then takes lifecycleMu[charIdx] so a concurrent StartInventoryEditSession
+//     for the same character cannot publish a new session and call
+//     editor.StartSession on the slot while we are still draining the
+//     prior Save.
+//   - Re-probes the registry under editSessionsMu: a parallel
+//     StartInventoryEditSession (also lifecycle-locked, but it would
+//     have run BEFORE us if it won the lifecycle lock) could have
+//     already evicted the same session ID. In that case there is
+//     nothing left for us to delete and Discard is a no-op — exactly
+//     the idempotent behaviour the frontend cleanup path relies on.
+//   - The registry rows are deleted under editSessionsMu, then the
+//     session is closeSession-d outside it. closeSession waits for any
+//     in-flight Save to release the per-session lock, so by the time
+//     Discard returns no orphan goroutine is still mutating the slot.
+//   - Lock order is identical to Start (lifecycleMu[charIdx] →
+//     editSessionsMu → sess.Acquire()), so no reverse-cycle deadlock.
 func (a *App) DiscardInventoryEditSession(sessionID string) error {
-	sess, ok := a.editSessions[sessionID]
+	// Probe charIdx so we know which lifecycle lock to take. Sessions
+	// IDs are unique random hex (editor.NewSessionID), so the same ID
+	// never re-appears under a different charIdx — even if the entry is
+	// later replaced, the charIdx we read here is correct for the
+	// session we eventually close.
+	a.editSessionsMu.Lock()
+	probe, ok := a.editSessions[sessionID]
+	a.editSessionsMu.Unlock()
 	if !ok {
+		return nil
+	}
+	charIdx := probe.CharacterIndex
+	if charIdx < 0 || charIdx >= maxCharacters {
+		// Defensive: a session pointing at an out-of-range character
+		// should be impossible — Start rejects such inputs — but we
+		// would rather no-op than index out of bounds.
+		return nil
+	}
+
+	a.lifecycleMu[charIdx].Lock()
+	defer a.lifecycleMu[charIdx].Unlock()
+
+	// Re-probe under editSessionsMu: a peer Start that won the
+	// lifecycle lock before us would have already evicted this session
+	// ID. In that case the prior session has already been close()-d by
+	// Start and there's nothing left for us to do.
+	a.editSessionsMu.Lock()
+	sess, stillThere := a.editSessions[sessionID]
+	if !stillThere {
+		a.editSessionsMu.Unlock()
 		return nil
 	}
 	delete(a.editSessions, sessionID)
 	if a.editSessionByChar[sess.CharacterIndex] == sessionID {
 		delete(a.editSessionByChar, sess.CharacterIndex)
 	}
+	a.editSessionsMu.Unlock()
+
+	closeSession(sess)
 	return nil
 }
 
