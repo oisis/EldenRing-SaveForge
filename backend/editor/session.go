@@ -4,11 +4,19 @@ import (
 	crand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 )
+
+// ErrSessionClosed is returned by InventoryEditSession.Acquire when the
+// session has been discarded (Close) before the caller could lock it.
+// Callers map this to the same wire-level message as a missing session
+// so the frontend's existing self-heal path treats both identically.
+var ErrSessionClosed = errors.New("inventory edit session is closed")
 
 // InventoryEditSession owns a single workspace snapshot for a character.
 //
@@ -18,13 +26,77 @@ import (
 // and removals against the original load. Phase 3B regenerates this
 // after every successful save so subsequent edits diff against the
 // freshly-reparsed state rather than the original load.
+//
+// Concurrency contract:
+//   - Lifecycle (insert/replace/delete in the App registry) is governed
+//     by a registry-scoped mutex owned by the caller (package main).
+//   - Mutations and reads of Workspace, BaselineEditableHandles and
+//     BaseRevision MUST run under Acquire/Unlock so the multi-step
+//     SaveInventoryWorkspaceChanges flow cannot race with concurrent
+//     mutators or readers. Acquire also enforces the closed-after-Discard
+//     contract: callers that arrive after Close get ErrSessionClosed
+//     instead of touching an orphaned struct.
 type InventoryEditSession struct {
-	ID                      string                   `json:"id"`
-	CharacterIndex          int                      `json:"characterIndex"`
-	CreatedAt               time.Time                `json:"createdAt"`
-	BaseRevision            string                   `json:"baseRevision"`
+	ID                      string                     `json:"id"`
+	CharacterIndex          int                        `json:"characterIndex"`
+	CreatedAt               time.Time                  `json:"createdAt"`
+	BaseRevision            string                     `json:"baseRevision"`
 	Workspace               InventoryWorkspaceSnapshot `json:"workspace"`
-	BaselineEditableHandles map[uint32]ContainerKind `json:"-"`
+	BaselineEditableHandles map[uint32]ContainerKind   `json:"-"`
+
+	// mu serializes every read/write of the mutable session state
+	// (Workspace, BaselineEditableHandles, BaseRevision, closed). The
+	// SaveInventoryWorkspaceChanges path holds it across rollback +
+	// snapshot rebuild + baseline regeneration so no peer ever sees a
+	// half-rewritten workspace or a baseline map in the middle of
+	// initialisation.
+	mu sync.Mutex
+	// closed is set under mu when Discard / clearAllEditSessions wants
+	// to invalidate the session. Acquire checks it after taking the
+	// lock so a mutator that won the lock race against Discard still
+	// fails fast with ErrSessionClosed instead of mutating an orphan.
+	closed bool
+}
+
+// Acquire locks the session for exclusive use. It returns ErrSessionClosed
+// when the session has already been Close()-d, in which case the lock is
+// NOT held and Unlock must NOT be called. On nil error the caller owns the
+// lock and must release it with Unlock — typically via defer.
+func (s *InventoryEditSession) Acquire() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return ErrSessionClosed
+	}
+	return nil
+}
+
+// Unlock releases the session lock acquired by Acquire. It is unsafe to
+// call without a prior successful Acquire (matches sync.Mutex semantics).
+func (s *InventoryEditSession) Unlock() {
+	s.mu.Unlock()
+}
+
+// Close marks the session as invalidated. The caller MUST hold the
+// session lock (acquired via Acquire) — Close itself does not lock so
+// the discard path can mark-and-release in one critical section.
+//
+// Subsequent Acquire calls return ErrSessionClosed. Operations that
+// already passed Acquire continue safely against the (orphan) struct
+// because they hold the lock; once they Unlock the struct is unreachable
+// from the registry and becomes garbage.
+func (s *InventoryEditSession) Close() {
+	s.closed = true
+}
+
+// IsClosed reports whether the session has been Close()-d. The check
+// briefly takes the lock so the result reflects a committed state
+// rather than a half-written one — fine for tests / diagnostics, not a
+// substitute for the Acquire failure path on the mutator hot path.
+func (s *InventoryEditSession) IsClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
 }
 
 // NewSessionID returns a short random hex token used as session identifier.

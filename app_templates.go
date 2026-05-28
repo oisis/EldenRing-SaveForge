@@ -114,10 +114,11 @@ func (a *App) buildAndValidateTemplate(sessionID string, opts BuildTemplateExpor
 	if !opts.IncludeInventory && !opts.IncludeStorage {
 		return nil, nil, fmt.Errorf("ExportBuildTemplate: at least one of includeInventory/includeStorage must be true")
 	}
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return nil, nil, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return nil, nil, err
 	}
+	defer sess.Unlock()
 
 	exportOpts := templates.ExportOptions{
 		IncludeInventory: opts.IncludeInventory,
@@ -325,10 +326,11 @@ func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText strin
 		return ApplyTemplateResult{}, fmt.Errorf("ApplyBuildTemplate: unsupported import mode %q (Phase D only ships %q)", mode, "append")
 	}
 
-	sess, ok := a.editSessions[sessionID]
-	if !ok {
-		return ApplyTemplateResult{}, fmt.Errorf("inventory edit session %q not found", sessionID)
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return ApplyTemplateResult{}, err
 	}
+	defer sess.Unlock()
 
 	tpl, err := templates.ParseBuildTemplateJSON([]byte(jsonText))
 	if err != nil {
@@ -404,7 +406,15 @@ func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText strin
 // non-error sentinel: Applied=false, no preview content. Mirrors the
 // cancel UX of PreviewBuildTemplateImportFromFile.
 func (a *App) ApplyBuildTemplateToWorkspaceFromFile(sessionID string, opts ApplyTemplateOptions) (ApplyTemplateResult, error) {
-	if _, ok := a.editSessions[sessionID]; !ok {
+	// Cheap existence probe under the registry lock so we can fail
+	// before opening the native file dialog. The actual apply path
+	// (ApplyBuildTemplateToWorkspaceJSON) re-acquires the session under
+	// its own per-session lock; we deliberately do NOT hold either lock
+	// across the dialog.
+	a.editSessionsMu.Lock()
+	_, ok := a.editSessions[sessionID]
+	a.editSessionsMu.Unlock()
+	if !ok {
 		return ApplyTemplateResult{}, fmt.Errorf("inventory edit session %q not found", sessionID)
 	}
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
@@ -435,8 +445,11 @@ func cancelledApplyResult(a *App, sessionID string) ApplyTemplateResult {
 		Preview: cancelledPreviewReport(),
 		Applied: false,
 	}
-	if sess, ok := a.editSessions[sessionID]; ok {
+	// Read the workspace echo under the per-session lock — Discard or a
+	// concurrent Save could otherwise tear the snapshot mid-copy.
+	if sess, err := a.acquireSession(sessionID); err == nil {
 		res.Workspace = sess.Workspace
+		sess.Unlock()
 	}
 	return res
 }
