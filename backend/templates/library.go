@@ -286,6 +286,36 @@ func (l *TemplateLibrary) ExportTemplateToFile(id, path string) error {
 	return nil
 }
 
+// ExportTemplateToYAMLFile copies a stored template to an arbitrary
+// path, serialised as YAML rather than JSON. The library's internal
+// JSON file and _index.json are not touched — this is purely a
+// second public-share format for the same v1 payload. Mirrors the
+// concurrency and atomic-write contract of ExportTemplateToFile.
+func (l *TemplateLibrary) ExportTemplateToYAMLFile(id, path string) error {
+	if path == "" {
+		return fmt.Errorf("ExportTemplateToYAMLFile: empty destination path")
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entry, err := l.findEntryLocked(id)
+	if err != nil {
+		return err
+	}
+	src := filepath.Join(l.rootDir, entry.Filename)
+	tpl, err := readAndValidateTemplate(src)
+	if err != nil {
+		return fmt.Errorf("ExportTemplateToYAMLFile: %w", err)
+	}
+	data, err := MarshalBuildTemplateYAML(tpl)
+	if err != nil {
+		return fmt.Errorf("ExportTemplateToYAMLFile: marshal: %w", err)
+	}
+	if err := atomicWriteFile(path, data, 0644); err != nil {
+		return err
+	}
+	return nil
+}
+
 // RebuildIndex scans the rootDir for valid template JSON files and
 // regenerates _index.json from scratch. Files that fail to parse or
 // validate are skipped — they remain on disk but do not appear in the

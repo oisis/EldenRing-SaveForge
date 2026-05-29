@@ -311,6 +311,86 @@ func TestLibrary_AtomicWrite_LeavesNoTempFileOnSuccess(t *testing.T) {
 	}
 }
 
+func TestLibrary_ExportTemplateToYAMLFile_RoundTrips(t *testing.T) {
+	lib := NewTemplateLibrary(t.TempDir())
+	entry, err := lib.SaveTemplate(makeTemplate("yaml share"))
+	if err != nil {
+		t.Fatalf("SaveTemplate: %v", err)
+	}
+	dest := filepath.Join(t.TempDir(), "exported.yaml")
+	if err := lib.ExportTemplateToYAMLFile(entry.ID, dest); err != nil {
+		t.Fatalf("ExportTemplateToYAMLFile: %v", err)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read exported YAML: %v", err)
+	}
+	got, err := ParseBuildTemplateYAML(data)
+	if err != nil {
+		t.Fatalf("ParseBuildTemplateYAML on exported file: %v\nyaml:\n%s", err, data)
+	}
+	if got.Schema != SchemaKey || got.Version != SchemaVersion {
+		t.Errorf("exported YAML schema drift: %s/%d", got.Schema, got.Version)
+	}
+	if got.Metadata == nil || got.Metadata.Name != "yaml share" {
+		t.Errorf("metadata name lost across YAML export: %#v", got.Metadata)
+	}
+	if got.Sections.InventoryWorkspace == nil || len(got.Sections.InventoryWorkspace.InventoryItems) != 1 {
+		t.Errorf("inventory items lost across YAML export: %#v", got.Sections.InventoryWorkspace)
+	}
+
+	if err := lib.ExportTemplateToYAMLFile("missing-id", dest); err == nil {
+		t.Errorf("expected error for unknown id")
+	}
+	if err := lib.ExportTemplateToYAMLFile(entry.ID, ""); err == nil {
+		t.Errorf("expected error for empty path")
+	}
+}
+
+// TestLibrary_ExportTemplateToYAMLFile_DoesNotMutateLibraryEntry asserts
+// that writing a public YAML copy does NOT touch the library's internal
+// JSON file, the index, or any other on-disk state. The YAML export is
+// a one-way share operation.
+func TestLibrary_ExportTemplateToYAMLFile_DoesNotMutateLibraryEntry(t *testing.T) {
+	lib := NewTemplateLibrary(t.TempDir())
+	entry, err := lib.SaveTemplate(makeTemplate("immutable"))
+	if err != nil {
+		t.Fatalf("SaveTemplate: %v", err)
+	}
+	libDir := lib.RootDir()
+	internalJSONPath := filepath.Join(libDir, entry.Filename)
+	indexPath := filepath.Join(libDir, LibraryIndexFile)
+
+	jsonBefore, err := os.ReadFile(internalJSONPath)
+	if err != nil {
+		t.Fatalf("read internal json before: %v", err)
+	}
+	idxBefore, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("read index before: %v", err)
+	}
+
+	dest := filepath.Join(t.TempDir(), "exported.yaml")
+	if err := lib.ExportTemplateToYAMLFile(entry.ID, dest); err != nil {
+		t.Fatalf("ExportTemplateToYAMLFile: %v", err)
+	}
+
+	jsonAfter, err := os.ReadFile(internalJSONPath)
+	if err != nil {
+		t.Fatalf("read internal json after: %v", err)
+	}
+	idxAfter, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatalf("read index after: %v", err)
+	}
+	if string(jsonBefore) != string(jsonAfter) {
+		t.Errorf("internal JSON file mutated by YAML export")
+	}
+	if string(idxBefore) != string(idxAfter) {
+		t.Errorf("_index.json mutated by YAML export")
+	}
+}
+
 func TestDefaultTemplateLibraryDir_ReturnsPathUnderConfigDir(t *testing.T) {
 	dir, err := DefaultTemplateLibraryDir()
 	if err != nil {

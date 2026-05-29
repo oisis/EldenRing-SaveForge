@@ -40,37 +40,37 @@ const (
 // loadout. Only stable game-content identifiers are stored; nothing in
 // this struct is bound to a specific source save.
 type BuildTemplate struct {
-	Schema     string            `json:"schema"`
-	Version    int               `json:"version"`
-	CreatedAt  string            `json:"createdAt"`
-	AppVersion string            `json:"appVersion,omitempty"`
-	Metadata   *TemplateMetadata `json:"metadata,omitempty"`
-	Sections   TemplateSections  `json:"sections"`
+	Schema     string            `json:"schema" yaml:"schema"`
+	Version    int               `json:"version" yaml:"version"`
+	CreatedAt  string            `json:"createdAt" yaml:"createdAt"`
+	AppVersion string            `json:"appVersion,omitempty" yaml:"appVersion,omitempty"`
+	Metadata   *TemplateMetadata `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Sections   TemplateSections  `json:"sections" yaml:"sections"`
 }
 
 // TemplateMetadata is purely informational. None of these fields drive
 // import behavior; they exist so a user can label and discover templates.
 type TemplateMetadata struct {
-	Name                 string   `json:"name,omitempty"`
-	Description          string   `json:"description,omitempty"`
-	Author               string   `json:"author,omitempty"`
-	Tags                 []string `json:"tags,omitempty"`
-	SourceCharacterIndex int      `json:"sourceCharacterIndex,omitempty"`
-	SourceCharacterName  string   `json:"sourceCharacterName,omitempty"`
+	Name                 string   `json:"name,omitempty" yaml:"name,omitempty"`
+	Description          string   `json:"description,omitempty" yaml:"description,omitempty"`
+	Author               string   `json:"author,omitempty" yaml:"author,omitempty"`
+	Tags                 []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+	SourceCharacterIndex int      `json:"sourceCharacterIndex,omitempty" yaml:"sourceCharacterIndex,omitempty"`
+	SourceCharacterName  string   `json:"sourceCharacterName,omitempty" yaml:"sourceCharacterName,omitempty"`
 }
 
 // TemplateSections groups payload sections by stable key. Phase A defines
 // only inventory.workspace. Future sections (character.profile, etc.)
 // extend this struct and are gated by section-level $enabled flags.
 type TemplateSections struct {
-	InventoryWorkspace *InventoryWorkspaceSection `json:"inventory.workspace,omitempty"`
+	InventoryWorkspace *InventoryWorkspaceSection `json:"inventory.workspace,omitempty" yaml:"inventory.workspace,omitempty"`
 }
 
 // InventoryWorkspaceSection is the Phase A payload — items from the
 // editor workspace's inventory and storage containers.
 type InventoryWorkspaceSection struct {
-	InventoryItems []TemplateItem `json:"inventoryItems"`
-	StorageItems   []TemplateItem `json:"storageItems"`
+	InventoryItems []TemplateItem `json:"inventoryItems" yaml:"inventoryItems"`
+	StorageItems   []TemplateItem `json:"storageItems" yaml:"storageItems"`
 }
 
 // TemplateItem describes a single portable inventory entry.
@@ -86,15 +86,15 @@ type InventoryWorkspaceSection struct {
 // save-local. Including them would tie a template to one save's GaItem
 // layout, defeating portability.
 type TemplateItem struct {
-	BaseItemID   uint32  `json:"baseItemID"`
-	Name         string  `json:"name,omitempty"`
-	Category     string  `json:"category,omitempty"`
-	Quantity     uint32  `json:"quantity"`
-	Upgrade      int     `json:"upgrade,omitempty"`
-	InfusionName string  `json:"infusionName,omitempty"`
-	AoWItemID    *uint32 `json:"aowItemID,omitempty"`
-	Container    string  `json:"container"`
-	Position     int     `json:"position"`
+	BaseItemID   uint32  `json:"baseItemID" yaml:"baseItemID"`
+	Name         string  `json:"name,omitempty" yaml:"name,omitempty"`
+	Category     string  `json:"category,omitempty" yaml:"category,omitempty"`
+	Quantity     uint32  `json:"quantity" yaml:"quantity"`
+	Upgrade      int     `json:"upgrade,omitempty" yaml:"upgrade,omitempty"`
+	InfusionName string  `json:"infusionName,omitempty" yaml:"infusionName,omitempty"`
+	AoWItemID    *uint32 `json:"aowItemID,omitempty" yaml:"aowItemID,omitempty"`
+	Container    string  `json:"container" yaml:"container"`
+	Position     int     `json:"position" yaml:"position"`
 }
 
 // ExportWarning is a non-fatal note produced during export. UI surfaces

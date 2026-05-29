@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"regexp"
 	"strings"
@@ -239,6 +240,14 @@ type LoadedTemplatePreview struct {
 	Path   string                        `json:"path,omitempty"`
 }
 
+// maxYAMLImportBytes caps the byte length of a public YAML template
+// file accepted by PreviewBuildTemplateImportYAMLFromFile. 1 MiB is
+// >20× the size of a typical v1 inventory-only template and provides
+// a clean prophylactic against malicious or pathological YAML
+// payloads. The JSON import path is intentionally NOT capped in this
+// phase to avoid changing existing behaviour.
+const maxYAMLImportBytes int64 = 1 << 20
+
 // PreviewBuildTemplateImportFromFile opens a native file dialog, reads
 // the chosen JSON file, and runs the same dry-run preview as
 // PreviewBuildTemplateImportJSON. Cancellation (empty path) is not an
@@ -276,6 +285,134 @@ func (a *App) PreviewBuildTemplateImportFromFile() (LoadedTemplatePreview, error
 		JSON:   string(data),
 		Path:   path,
 	}, nil
+}
+
+// PreviewBuildTemplateImportYAMLFromFile is the YAML twin of
+// PreviewBuildTemplateImportFromFile. It opens a native open-file
+// dialog filtered to .yaml/.yml, enforces a 1 MiB size cap, parses
+// the YAML into a BuildTemplate with strict-mode decoding, and runs
+// the same per-item preview validator as the JSON path.
+//
+// Anti-TOCTOU contract: the returned LoadedTemplatePreview.JSON field
+// carries a canonical JSON re-serialisation of the successfully parsed
+// template. The frontend is expected to hand exactly those bytes back
+// to SaveImportedBuildTemplateJSONToLibrary if the user chooses to
+// save the imported template to the local library — there is no
+// second file read between Preview and Save, so the file on disk
+// cannot be swapped under us.
+//
+// Cancellation surfaces as a sentinel result with the cancelled
+// report and empty JSON/Path, mirroring PreviewBuildTemplateImportFromFile.
+// Parse / validation failures are reported as IssueCodeStructureInvalid
+// inside the report rather than as a Go error so the UI can render
+// "bad YAML" and "bad DB lookup" through the same panel.
+func (a *App) PreviewBuildTemplateImportYAMLFromFile() (LoadedTemplatePreview, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Preview Build Template (YAML)",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Build Template YAML (*.yaml, *.yml)", Pattern: "*.yaml;*.yml"},
+		},
+	})
+	if err != nil {
+		return LoadedTemplatePreview{}, err
+	}
+	if path == "" {
+		return LoadedTemplatePreview{Report: cancelledPreviewReport()}, nil
+	}
+	data, err := readYAMLFileCapped(path)
+	if err != nil {
+		return LoadedTemplatePreview{}, err
+	}
+	return previewYAMLPayload(data, path), nil
+}
+
+// previewYAMLPayload runs the YAML parse + structural + per-item
+// validators in the same shape as PreviewBuildTemplateImportJSON and
+// returns the bundle the frontend stores between Preview and Save.
+// Pure function — does not touch any session, save, or filesystem.
+func previewYAMLPayload(data []byte, path string) LoadedTemplatePreview {
+	tpl, err := templates.ParseBuildTemplateYAML(data)
+	if err != nil {
+		return LoadedTemplatePreview{
+			Report: templates.ImportPreviewReport{
+				OK: false,
+				Errors: []templates.ImportPreviewIssue{{
+					Severity: "error",
+					Code:     templates.IssueCodeStructureInvalid,
+					Message:  err.Error(),
+				}},
+				Warnings: []templates.ImportPreviewIssue{},
+				Summary:  templates.ImportPreviewSummary{},
+			},
+			Path: path,
+		}
+	}
+	canonical, err := json.MarshalIndent(tpl, "", "  ")
+	if err != nil {
+		return LoadedTemplatePreview{
+			Report: templates.ImportPreviewReport{
+				OK: false,
+				Errors: []templates.ImportPreviewIssue{{
+					Severity: "error",
+					Code:     templates.IssueCodeStructureInvalid,
+					Message:  fmt.Sprintf("re-encode parsed YAML as canonical JSON: %s", err.Error()),
+				}},
+				Warnings: []templates.ImportPreviewIssue{},
+				Summary:  templates.ImportPreviewSummary{},
+			},
+			Path: path,
+		}
+	}
+	report := templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: "append"})
+	return LoadedTemplatePreview{
+		Report: report,
+		JSON:   string(canonical),
+		Path:   path,
+	}
+}
+
+// readYAMLFileCapped reads up to maxYAMLImportBytes+1 bytes from path
+// and errors out if the file is larger than the cap. The +1 read lets
+// us distinguish "exactly at the cap" from "exceeds the cap" without a
+// second Stat call.
+func readYAMLFileCapped(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("read template: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+	data, err := readAllUpTo(f, maxYAMLImportBytes+1)
+	if err != nil {
+		return nil, fmt.Errorf("read template: %w", err)
+	}
+	if int64(len(data)) > maxYAMLImportBytes {
+		return nil, fmt.Errorf("read template: file exceeds %d byte limit for YAML import", maxYAMLImportBytes)
+	}
+	return data, nil
+}
+
+// readAllUpTo drains r until EOF or until limit bytes have been read,
+// whichever comes first. Returned slice may be up to limit bytes long.
+func readAllUpTo(r io.Reader, limit int64) ([]byte, error) {
+	buf := make([]byte, 0, 4096)
+	chunk := make([]byte, 4096)
+	for int64(len(buf)) < limit {
+		remaining := limit - int64(len(buf))
+		if remaining < int64(len(chunk)) {
+			chunk = chunk[:remaining]
+		}
+		n, err := r.Read(chunk)
+		if n > 0 {
+			buf = append(buf, chunk[:n]...)
+		}
+		if err != nil {
+			if err == io.EOF {
+				return buf, nil
+			}
+			return buf, err
+		}
+	}
+	return buf, nil
 }
 
 // cancelledPreviewReport is the sentinel returned when the user
@@ -783,6 +920,71 @@ func (a *App) ExportLibraryBuildTemplateToFile(id string) (BuildTemplateExportRe
 	return BuildTemplateExportResult{Path: path}, nil
 }
 
+// ExportLibraryBuildTemplateAsYAMLToFile is the YAML twin of
+// ExportLibraryBuildTemplateToFile. The library entry on disk is not
+// touched — this only writes a second, public-share-friendly YAML copy
+// to the user-chosen path. Cancellation surfaces as an empty Path + nil
+// error, matching the JSON helper.
+func (a *App) ExportLibraryBuildTemplateAsYAMLToFile(id string) (BuildTemplateExportResult, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return BuildTemplateExportResult{}, err
+	}
+	tpl, err := lib.LoadTemplate(id)
+	if err != nil {
+		return BuildTemplateExportResult{}, fmt.Errorf("ExportLibraryBuildTemplateAsYAMLToFile: %w", err)
+	}
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export Build Template (YAML)",
+		DefaultFilename: defaultTemplateFilenameYAML(tpl),
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Build Template YAML (*.yaml, *.yml)", Pattern: "*.yaml;*.yml"},
+		},
+	})
+	if err != nil {
+		return BuildTemplateExportResult{}, err
+	}
+	if path == "" {
+		return BuildTemplateExportResult{}, nil
+	}
+	if err := lib.ExportTemplateToYAMLFile(id, path); err != nil {
+		return BuildTemplateExportResult{}, err
+	}
+	return BuildTemplateExportResult{Path: path}, nil
+}
+
+// SaveImportedBuildTemplateJSONToLibrary persists a previously-previewed
+// template payload to the local library. The caller is expected to pass
+// the canonical JSON returned by either PreviewBuildTemplateImportJSON,
+// PreviewBuildTemplateImportFromFile, or PreviewBuildTemplateImportYAMLFromFile.
+//
+// Anti-TOCTOU: parsing+validation re-runs against the exact bytes the
+// frontend held since Preview, so the file on disk (for the YAML import
+// path) cannot be swapped under us. The endpoint also re-runs the
+// per-item DB / AoW preview so that a template that became invalid
+// between Preview and Save (e.g. DB hotpatch) is refused.
+//
+// On disk the library stays JSON-internal: the parsed BuildTemplate is
+// handed straight to Library.SaveTemplate, which writes JSON via the
+// existing atomicWriteFile path. _index.json is updated through the
+// same mechanism. No sessionID required — this is a global, workspace-
+// independent operation.
+func (a *App) SaveImportedBuildTemplateJSONToLibrary(jsonText string) (templates.LibraryTemplateEntry, error) {
+	tpl, err := templates.ParseBuildTemplateJSON([]byte(jsonText))
+	if err != nil {
+		return templates.LibraryTemplateEntry{}, fmt.Errorf("SaveImportedBuildTemplateJSONToLibrary: %w", err)
+	}
+	report := templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: "append"})
+	if !report.OK {
+		return templates.LibraryTemplateEntry{}, fmt.Errorf("SaveImportedBuildTemplateJSONToLibrary: imported template has %d blocking issue(s); refusing to save", len(report.Errors))
+	}
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return templates.LibraryTemplateEntry{}, err
+	}
+	return lib.SaveTemplate(tpl)
+}
+
 // filenameSanitizer strips anything that would be unsafe in a filename
 // across the three desktop OSes. Sequences of unsafe characters collapse
 // to a single dash, and surrounding dashes/whitespace are trimmed.
@@ -809,4 +1011,11 @@ func defaultTemplateFilename(tpl *templates.BuildTemplate) string {
 		return "saveforge-build-template.json"
 	}
 	return stem + ".json"
+}
+
+// defaultTemplateFilenameYAML mirrors defaultTemplateFilename but
+// produces a .yaml suffix for the public YAML export endpoint.
+func defaultTemplateFilenameYAML(tpl *templates.BuildTemplate) string {
+	base := defaultTemplateFilename(tpl)
+	return strings.TrimSuffix(base, ".json") + ".yaml"
 }

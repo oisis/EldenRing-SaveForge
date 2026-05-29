@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/templates"
@@ -197,6 +198,329 @@ func TestRenameBuildTemplateInLibrary_AcceptsNilTags(t *testing.T) {
 	}
 	if len(updated.Tags) != 0 {
 		t.Errorf("nil tags should normalise to empty: %+v", updated.Tags)
+	}
+}
+
+func TestExportLibraryBuildTemplateAsYAMLToFile_ViaLibraryHelper(t *testing.T) {
+	// Bypass runtime.SaveFileDialog (needs Wails ctx) and exercise the
+	// underlying library helper directly. Matches the JSON twin's
+	// test pattern.
+	app, _, id := libraryFixture(t)
+	dest := filepath.Join(t.TempDir(), "exported.yaml")
+	if err := app.templateLibrary.ExportTemplateToYAMLFile(id, dest); err != nil {
+		t.Fatalf("ExportTemplateToYAMLFile: %v", err)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("read exported: %v", err)
+	}
+	tpl, err := templates.ParseBuildTemplateYAML(data)
+	if err != nil {
+		t.Fatalf("ParseBuildTemplateYAML: %v\nyaml:\n%s", err, data)
+	}
+	if tpl.Schema != templates.SchemaKey {
+		t.Errorf("exported YAML has wrong schema: %q", tpl.Schema)
+	}
+}
+
+func TestDefaultTemplateFilenameYAML_EndsInYaml(t *testing.T) {
+	tpl := &templates.BuildTemplate{
+		Schema: templates.SchemaKey, Version: templates.SchemaVersion,
+		Metadata: &templates.TemplateMetadata{Name: "Greatsword RL150"},
+	}
+	got := defaultTemplateFilenameYAML(tpl)
+	if !strings.HasSuffix(got, ".yaml") {
+		t.Errorf("default YAML filename does not end with .yaml: %q", got)
+	}
+	if strings.Contains(got, ".json") {
+		t.Errorf("default YAML filename still contains .json: %q", got)
+	}
+
+	// Empty metadata fallback also lands on .yaml.
+	fallback := defaultTemplateFilenameYAML(&templates.BuildTemplate{})
+	if !strings.HasSuffix(fallback, ".yaml") {
+		t.Errorf("fallback YAML filename does not end with .yaml: %q", fallback)
+	}
+}
+
+func TestPreviewYAMLPayload_HappyPath(t *testing.T) {
+	// End-to-end: export workspace as JSON, transcode to YAML, then
+	// run the YAML preview helper. Mirrors the JSON happy-path test.
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	exp, err := app.ExportBuildTemplateJSON(snap.SessionID, BuildTemplateExportOptions{IncludeInventory: true})
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	tpl, err := templates.ParseBuildTemplateJSON([]byte(exp.JSON))
+	if err != nil {
+		t.Fatalf("parse JSON: %v", err)
+	}
+	yamlBytes, err := templates.MarshalBuildTemplateYAML(tpl)
+	if err != nil {
+		t.Fatalf("MarshalBuildTemplateYAML: %v", err)
+	}
+
+	bundle := previewYAMLPayload(yamlBytes, "/fake/path.yaml")
+	if !bundle.Report.OK {
+		t.Fatalf("preview not OK: %+v", bundle.Report.Errors)
+	}
+	if bundle.JSON == "" {
+		t.Fatal("previewYAMLPayload must return canonical JSON for anti-TOCTOU")
+	}
+	if bundle.Path != "/fake/path.yaml" {
+		t.Errorf("path not echoed: %q", bundle.Path)
+	}
+	// Canonical JSON must round-trip through the JSON parser cleanly.
+	if _, err := templates.ParseBuildTemplateJSON([]byte(bundle.JSON)); err != nil {
+		t.Errorf("canonical JSON does not re-parse: %v", err)
+	}
+}
+
+func TestPreviewYAMLPayload_MalformedReturnsStructureInvalid(t *testing.T) {
+	bundle := previewYAMLPayload([]byte("not: [valid"), "/x.yaml")
+	if bundle.Report.OK {
+		t.Fatal("expected NOT-OK report for malformed YAML")
+	}
+	if len(bundle.Report.Errors) != 1 || bundle.Report.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected single structure_invalid error, got %+v", bundle.Report.Errors)
+	}
+	if bundle.JSON != "" {
+		t.Errorf("malformed YAML must not produce canonical JSON, got %q", bundle.JSON)
+	}
+}
+
+func TestPreviewYAMLPayload_RejectsUnknownField(t *testing.T) {
+	payload := []byte(`schema: saveforge.build-template
+version: 1
+createdAt: "2026-05-17T12:34:56Z"
+extraGarbage: true
+sections:
+  inventory.workspace:
+    inventoryItems:
+      - baseItemID: 1000000
+        quantity: 1
+        container: inventory
+        position: 0
+    storageItems: []
+`)
+	bundle := previewYAMLPayload(payload, "")
+	if bundle.Report.OK {
+		t.Fatal("expected NOT-OK report for unknown field")
+	}
+	if bundle.Report.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected structure_invalid, got %+v", bundle.Report.Errors)
+	}
+}
+
+// TestPreviewYAMLPayload_RejectsMultiDocument confirms the YAML preview
+// helper surfaces multi-document rejection through the existing
+// malformed-payload UX (a NOT-OK report with a single structure_invalid
+// error). Anti-confused-deputy guarantee must hold end-to-end, not just
+// at the codec layer.
+func TestPreviewYAMLPayload_RejectsMultiDocument(t *testing.T) {
+	payload := []byte(`schema: saveforge.build-template
+version: 1
+createdAt: "2026-05-17T12:34:56Z"
+sections:
+  inventory.workspace:
+    inventoryItems:
+      - baseItemID: 1000000
+        quantity: 1
+        container: inventory
+        position: 0
+    storageItems: []
+---
+schema: hidden-second-document
+version: 42
+`)
+	bundle := previewYAMLPayload(payload, "/x.yaml")
+	if bundle.Report.OK {
+		t.Fatal("expected NOT-OK report for multi-document YAML")
+	}
+	if len(bundle.Report.Errors) != 1 || bundle.Report.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected single structure_invalid error, got %+v", bundle.Report.Errors)
+	}
+	if !strings.Contains(bundle.Report.Errors[0].Message, "multi-document YAML payloads are not supported") {
+		t.Errorf("error message must surface multi-document rejection, got %q", bundle.Report.Errors[0].Message)
+	}
+	if bundle.JSON != "" {
+		t.Errorf("multi-document YAML must not produce canonical JSON, got %q", bundle.JSON)
+	}
+}
+
+func TestReadYAMLFileCapped_RejectsOversize(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.yaml")
+	oversize := make([]byte, maxYAMLImportBytes+10)
+	for i := range oversize {
+		oversize[i] = 'a'
+	}
+	if err := os.WriteFile(path, oversize, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if _, err := readYAMLFileCapped(path); err == nil {
+		t.Fatal("expected error for oversize YAML")
+	}
+}
+
+func TestReadYAMLFileCapped_AcceptsAtLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ok.yaml")
+	atLimit := make([]byte, maxYAMLImportBytes)
+	for i := range atLimit {
+		atLimit[i] = 'b'
+	}
+	if err := os.WriteFile(path, atLimit, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	data, err := readYAMLFileCapped(path)
+	if err != nil {
+		t.Fatalf("readYAMLFileCapped at limit failed: %v", err)
+	}
+	if int64(len(data)) != maxYAMLImportBytes {
+		t.Errorf("returned %d bytes, want %d", len(data), maxYAMLImportBytes)
+	}
+}
+
+func TestSaveImportedBuildTemplateJSONToLibrary_PersistsAsJSON(t *testing.T) {
+	app, _, _ := libraryFixture(t)
+	// Use a synthetic library-only template (no session needed). Use a
+	// real, DB-resolvable item so PreviewBuildTemplateImport returns OK.
+	src := &templates.BuildTemplate{
+		Schema:    templates.SchemaKey,
+		Version:   templates.SchemaVersion,
+		CreatedAt: "2026-05-17T12:34:56Z",
+		Metadata: &templates.TemplateMetadata{
+			Name:        "imported",
+			Description: "via SaveImportedBuildTemplateJSONToLibrary",
+		},
+		Sections: templates.TemplateSections{
+			InventoryWorkspace: &templates.InventoryWorkspaceSection{
+				InventoryItems: []templates.TemplateItem{{
+					BaseItemID: testWeapons[0].itemID,
+					Quantity:   1,
+					Container:  templates.ContainerInventory,
+					Position:   0,
+				}},
+				StorageItems: []templates.TemplateItem{},
+			},
+		},
+	}
+	canonicalJSON, err := json.MarshalIndent(src, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	entry, err := app.SaveImportedBuildTemplateJSONToLibrary(string(canonicalJSON))
+	if err != nil {
+		t.Fatalf("SaveImportedBuildTemplateJSONToLibrary: %v", err)
+	}
+	if entry.ID == "" {
+		t.Fatal("entry.ID empty")
+	}
+	if entry.Name != "imported" {
+		t.Errorf("Name=%q want imported", entry.Name)
+	}
+
+	// Library now has the fixture + the imported entry; both must be
+	// loadable through the existing library load flow as JSON.
+	listing, err := app.ListBuildTemplateLibrary()
+	if err != nil {
+		t.Fatalf("ListBuildTemplateLibrary: %v", err)
+	}
+	if len(listing) != 2 {
+		t.Fatalf("want 2 entries (fixture + imported), got %d", len(listing))
+	}
+	loaded, err := app.templateLibrary.LoadTemplate(entry.ID)
+	if err != nil {
+		t.Fatalf("LoadTemplate: %v", err)
+	}
+	if loaded.Schema != templates.SchemaKey {
+		t.Errorf("loaded back wrong schema: %q", loaded.Schema)
+	}
+
+	// File on disk must end with .json — library storage stays JSON-internal.
+	if !strings.HasSuffix(entry.Filename, ".json") {
+		t.Errorf("library file should end with .json, got %q", entry.Filename)
+	}
+}
+
+func TestSaveImportedBuildTemplateJSONToLibrary_RejectsInvalidJSON(t *testing.T) {
+	app, _, _ := libraryFixture(t)
+	if _, err := app.SaveImportedBuildTemplateJSONToLibrary("not json"); err == nil {
+		t.Fatal("expected error for malformed JSON")
+	}
+}
+
+func TestSaveImportedBuildTemplateJSONToLibrary_RejectsWrongSchema(t *testing.T) {
+	app, _, _ := libraryFixture(t)
+	bad := `{"schema":"wrong","version":1,"createdAt":"2026-05-17T12:34:56Z","sections":{"inventory.workspace":{"inventoryItems":[{"baseItemID":15990336,"quantity":1,"container":"inventory","position":0}],"storageItems":[]}}}`
+	if _, err := app.SaveImportedBuildTemplateJSONToLibrary(bad); err == nil {
+		t.Fatal("expected error for wrong schema")
+	}
+}
+
+func TestSaveImportedBuildTemplateJSONToLibrary_RejectsBlockingPreview(t *testing.T) {
+	// A structurally valid template that references an unknown item ID
+	// should be refused — PreviewBuildTemplateImport flags unknown_item.
+	app, _, _ := libraryFixture(t)
+	src := &templates.BuildTemplate{
+		Schema:    templates.SchemaKey,
+		Version:   templates.SchemaVersion,
+		CreatedAt: "2026-05-17T12:34:56Z",
+		Metadata:  &templates.TemplateMetadata{Name: "bad item"},
+		Sections: templates.TemplateSections{
+			InventoryWorkspace: &templates.InventoryWorkspaceSection{
+				InventoryItems: []templates.TemplateItem{{
+					BaseItemID: 0xDEADBEEF, // not a real item
+					Quantity:   1,
+					Container:  templates.ContainerInventory,
+					Position:   0,
+				}},
+				StorageItems: []templates.TemplateItem{},
+			},
+		},
+	}
+	canonicalJSON, _ := json.MarshalIndent(src, "", "  ")
+	if _, err := app.SaveImportedBuildTemplateJSONToLibrary(string(canonicalJSON)); err == nil {
+		t.Fatal("expected error for template with blocking preview issues")
+	}
+}
+
+func TestSaveImportedBuildTemplateJSONToLibrary_NoSessionRequired(t *testing.T) {
+	// Build a fresh app with NO sessions started. The endpoint must
+	// still work — saving to library is workspace-independent.
+	app := inventoryOrderFixture(testWeapons)
+	app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
+
+	src := &templates.BuildTemplate{
+		Schema:    templates.SchemaKey,
+		Version:   templates.SchemaVersion,
+		CreatedAt: "2026-05-17T12:34:56Z",
+		Metadata:  &templates.TemplateMetadata{Name: "no-session"},
+		Sections: templates.TemplateSections{
+			InventoryWorkspace: &templates.InventoryWorkspaceSection{
+				InventoryItems: []templates.TemplateItem{{
+					BaseItemID: testWeapons[0].itemID,
+					Quantity:   1,
+					Container:  templates.ContainerInventory,
+					Position:   0,
+				}},
+				StorageItems: []templates.TemplateItem{},
+			},
+		},
+	}
+	canonicalJSON, _ := json.MarshalIndent(src, "", "  ")
+	entry, err := app.SaveImportedBuildTemplateJSONToLibrary(string(canonicalJSON))
+	if err != nil {
+		t.Fatalf("SaveImportedBuildTemplateJSONToLibrary without session: %v", err)
+	}
+	if entry.Name != "no-session" {
+		t.Errorf("Name=%q want no-session", entry.Name)
 	}
 }
 
