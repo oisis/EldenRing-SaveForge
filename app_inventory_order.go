@@ -78,15 +78,30 @@ func tabCategorySet(tab string) (map[string]bool, error) {
 // The weapons tab excludes technical Unarmed placeholders.
 // Storage items are never included.
 func (a *App) GetInventoryOrder(charIdx int, tab string) ([]InventoryOrderItem, error) {
-	categories, err := tabCategorySet(tab)
-	if err != nil {
-		return nil, err
-	}
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= len(a.save.Slots) {
 		return nil, fmt.Errorf("invalid character index %d", charIdx)
+	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
+	return a.getInventoryOrderLocked(charIdx, tab)
+}
+
+// getInventoryOrderLocked is the internal read-only worker for
+// GetInventoryOrder and GetWeaponInventoryOrder.
+//
+// Contract: caller MUST have validated `a.save != nil` and `charIdx` in
+// range, and MUST hold exclusive access to slot[charIdx]. In the upcoming
+// lock phase the caller will hold saveMu.RLock + slotMu[charIdx]. The
+// helper performs only reads — no slot mutation, no pushUndo.
+func (a *App) getInventoryOrderLocked(charIdx int, tab string) ([]InventoryOrderItem, error) {
+	categories, err := tabCategorySet(tab)
+	if err != nil {
+		return nil, err
 	}
 	slot := &a.save.Slots[charIdx]
 	if slot.Version == 0 {
@@ -162,12 +177,16 @@ func (a *App) GetStorageOrder(charIdx int, tab string) ([]InventoryOrderItem, er
 	if err != nil {
 		return nil, err
 	}
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= len(a.save.Slots) {
 		return nil, fmt.Errorf("invalid character index %d", charIdx)
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 	slot := &a.save.Slots[charIdx]
 	if slot.Version == 0 {
 		return nil, fmt.Errorf("slot %d is empty", charIdx)
@@ -253,15 +272,30 @@ func (a *App) GetStorageOrder(charIdx int, tab string) ([]InventoryOrderItem, er
 // Only InventoryItem.Index values are changed. GaItems, handles, quantities,
 // equipped slots, AoW handles, KeyItems, and storage are untouched.
 func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32) error {
-	categories, err := tabCategorySet(tab)
-	if err != nil {
-		return err
-	}
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= len(a.save.Slots) {
 		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
+	return a.reorderInventoryLocked(charIdx, tab, orderedHandles)
+}
+
+// reorderInventoryLocked is the internal worker for ReorderInventory and
+// ReorderWeaponInventory.
+//
+// Contract: caller MUST have validated `a.save != nil` and `charIdx` in
+// range, and MUST hold exclusive access to slot[charIdx]. In the upcoming
+// lock phase the caller will hold saveMu.RLock + slotMu[charIdx]. The helper
+// takes exactly one pushUndoLocked snapshot per invocation.
+func (a *App) reorderInventoryLocked(charIdx int, tab string, orderedHandles []uint32) error {
+	categories, err := tabCategorySet(tab)
+	if err != nil {
+		return err
 	}
 	slot := &a.save.Slots[charIdx]
 	if slot.Version == 0 {
@@ -378,7 +412,7 @@ func (a *App) ReorderInventory(charIdx int, tab string, orderedHandles []uint32)
 	}
 
 	// Push undo before any mutation.
-	a.pushUndo(charIdx)
+	a.pushUndoLocked(charIdx)
 
 	// Apply stride-2 indices to slot.Data and in-memory CommonItems.
 	for pos, h := range orderedHandles {
@@ -441,12 +475,16 @@ func (a *App) ReorderStorage(charIdx int, tab string, orderedHandles []uint32) e
 	if err != nil {
 		return err
 	}
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= len(a.save.Slots) {
 		return fmt.Errorf("invalid character index %d", charIdx)
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 	slot := &a.save.Slots[charIdx]
 	if slot.Version == 0 {
 		return fmt.Errorf("slot %d is empty", charIdx)
@@ -565,7 +603,7 @@ func (a *App) ReorderStorage(charIdx int, tab string, orderedHandles []uint32) e
 	}
 
 	// Push undo before any mutation.
-	a.pushUndo(charIdx)
+	a.pushUndoLocked(charIdx)
 
 	// Apply stride-2 indices to slot.Data and in-memory Storage.CommonItems.
 	for pos, h := range orderedHandles {
@@ -603,15 +641,43 @@ func (a *App) ReorderStorage(charIdx int, tab string, orderedHandles []uint32) e
 }
 
 // GetWeaponInventoryOrder returns all weapons in slot charIdx's CommonItems inventory,
-// sorted by AcquisitionIndex ascending. Delegates to GetInventoryOrder("weapons").
+// sorted by AcquisitionIndex ascending.
+//
+// Delegates to the internal locked worker (not the public GetInventoryOrder)
+// to avoid re-entering the public Wails endpoint — which would double-acquire
+// slotMu[charIdx] once the lock phase is introduced.
 func (a *App) GetWeaponInventoryOrder(charIdx int) ([]InventoryOrderItem, error) {
-	return a.GetInventoryOrder(charIdx, "weapons")
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= len(a.save.Slots) {
+		return nil, fmt.Errorf("invalid character index %d", charIdx)
+	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
+	return a.getInventoryOrderLocked(charIdx, "weapons")
 }
 
 // ReorderWeaponInventory rewrites the acquisition indices of all weapons in slot
-// charIdx's CommonItems inventory. Delegates to ReorderInventory("weapons").
+// charIdx's CommonItems inventory.
+//
+// Delegates to the internal locked worker (not the public ReorderInventory)
+// to avoid re-entering the public Wails endpoint — which would double-acquire
+// slotMu[charIdx] once the lock phase is introduced.
 func (a *App) ReorderWeaponInventory(charIdx int, orderedHandles []uint32) error {
-	return a.ReorderInventory(charIdx, "weapons", orderedHandles)
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if charIdx < 0 || charIdx >= len(a.save.Slots) {
+		return fmt.Errorf("invalid character index %d", charIdx)
+	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
+	return a.reorderInventoryLocked(charIdx, "weapons", orderedHandles)
 }
 
 // decodeWeaponUpgradeInfusion extracts upgrade level and infusion name from

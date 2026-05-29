@@ -23,12 +23,16 @@ type PvPPreparationOptions struct {
 // functions to avoid stacking multiple undo entries per module.
 // Returns informational warnings on success; an error if any module fails.
 func (a *App) ApplyPvPPreparation(slotIndex int, opts PvPPreparationOptions) ([]string, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.Version == 0 {
@@ -38,7 +42,7 @@ func (a *App) ApplyPvPPreparation(slotIndex int, opts PvPPreparationOptions) ([]
 		return nil, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	flags := slot.Data[slot.EventFlagsOffset:]
 	var warnings []string

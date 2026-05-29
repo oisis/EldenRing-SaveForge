@@ -99,6 +99,8 @@ func findPresetByName(name string) *data.AppearancePreset {
 // ApplyPresetToCharacter applies a named appearance preset directly to a character's FaceData
 // blob, replicating the appearance-change behaviour of SetCharacterGender but for any preset.
 func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
@@ -111,13 +113,16 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 		return fmt.Errorf("preset %q not found", presetName)
 	}
 
+	a.slotMu[charIndex].Lock()
+	defer a.slotMu[charIndex].Unlock()
+
 	slot := &a.save.Slots[charIndex]
 	fd := slot.FaceDataStart()
 	if fd < 0 || fd+core.FaceDataBlobSize > len(slot.Data) {
 		return fmt.Errorf("FaceData blob out of bounds: start=0x%X", fd)
 	}
 
-	a.pushUndo(charIndex)
+	a.pushUndoLocked(charIndex)
 	writePresetAppearance(slot, fd, preset)
 	return nil
 }
@@ -125,6 +130,8 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 // SetCharacterGender changes the body type of a character and applies the default appearance
 // preset for the target gender (Geralt for male, Ciri for female).
 func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
@@ -134,6 +141,8 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 	if targetGender > 1 {
 		return fmt.Errorf("invalid gender: 0=female, 1=male")
 	}
+	a.slotMu[charIndex].Lock()
+	defer a.slotMu[charIndex].Unlock()
 
 	var defaultName string
 	if targetGender == 1 {
@@ -153,7 +162,7 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 		return fmt.Errorf("FaceData blob out of bounds: start=0x%X", fd)
 	}
 
-	a.pushUndo(charIndex)
+	a.pushUndoLocked(charIndex)
 	writePresetAppearance(slot, fd, preset)
 	return nil
 }
@@ -237,20 +246,31 @@ func (a *App) applyMemoryStonesToSlot(slot *core.SaveSlot, desired uint32) error
 }
 
 func (a *App) ExportCharacterPresetToFile(charIdx int, addSettings vm.PresetAddSettings) (string, error) {
+	// Phase 1: read the slot and build the preset entirely under
+	// saveMu.RLock + slotMu[charIdx]. The dialog and WriteFile run AFTER
+	// the locks are released so blocking UX never holds them.
+	a.saveMu.RLock()
 	if a.save == nil {
+		a.saveMu.RUnlock()
 		return "", fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
+		a.saveMu.RUnlock()
 		return "", fmt.Errorf("invalid character index")
 	}
+	a.slotMu[charIdx].Lock()
 	slot := &a.save.Slots[charIdx]
 	name := core.UTF16ToString(slot.Player.CharacterName[:])
 	if name == "" {
+		a.slotMu[charIdx].Unlock()
+		a.saveMu.RUnlock()
 		return "", fmt.Errorf("slot %d is empty", charIdx)
 	}
 
 	charVM, err := vm.MapParsedSlotToVM(slot)
 	if err != nil {
+		a.slotMu[charIdx].Unlock()
+		a.saveMu.RUnlock()
 		return "", fmt.Errorf("failed to map slot to VM: %w", err)
 	}
 
@@ -261,7 +281,11 @@ func (a *App) ExportCharacterPresetToFile(charIdx int, addSettings vm.PresetAddS
 	if err == nil {
 		preset.World = worldData
 	}
+	a.slotMu[charIdx].Unlock()
+	a.saveMu.RUnlock()
 
+	// Phase 2: marshal + dialog + write — all on the local `preset`,
+	// no shared state touched.
 	jsonData, err := json.MarshalIndent(preset, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal preset: %w", err)
@@ -358,20 +382,39 @@ func (a *App) ValidateCharacterPreset(preset vm.CharacterPreset) []string {
 	return vm.ValidatePreset(&preset)
 }
 
+// ApplyCharacterPreset is the public Wails entry point. It performs preflight
+// validation and takes saveMu.RLock + slotMu[charIdx], then delegates the
+// actual mutation to applyCharacterPresetLocked. Internal callers
+// (ApplyBuiltinCharacterPresetStats / Inventory) take the same locks
+// themselves and call the worker directly to avoid double-acquire.
 func (a *App) ApplyCharacterPreset(charIdx int, preset vm.CharacterPreset, opts vm.ApplyOptions) (*vm.PresetApplyResult, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
 		return nil, fmt.Errorf("invalid character index")
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
+	return a.applyCharacterPresetLocked(charIdx, preset, opts)
+}
+
+// applyCharacterPresetLocked is the internal worker for ApplyCharacterPreset.
+//
+// Contract: caller MUST have validated `a.save != nil` and `charIdx` in range,
+// and MUST hold a.saveMu.RLock + a.slotMu[charIdx].Lock for the entire call.
+// The helper takes a single pushUndoLocked snapshot and never recurses into
+// a public endpoint.
+func (a *App) applyCharacterPresetLocked(charIdx int, preset vm.CharacterPreset, opts vm.ApplyOptions) (*vm.PresetApplyResult, error) {
 	slot := &a.save.Slots[charIdx]
 	slotName := core.UTF16ToString(slot.Player.CharacterName[:])
 	if slotName == "" {
 		return nil, fmt.Errorf("slot %d is empty", charIdx)
 	}
 
-	a.pushUndo(charIdx)
+	a.pushUndoLocked(charIdx)
 	snapshot := core.SnapshotSlot(slot)
 
 	result := &vm.PresetApplyResult{}

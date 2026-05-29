@@ -30,10 +30,10 @@ type BuildTemplateExportOptions struct {
 // by the file-writing endpoint; JSON is filled by the JSON-only endpoint
 // (used by tests and any future "copy to clipboard" UI affordance).
 type BuildTemplateExportResult struct {
-	Path         string                     `json:"path,omitempty"`
-	JSON         string                     `json:"json,omitempty"`
-	Warnings     []templates.ExportWarning  `json:"warnings,omitempty"`
-	SkippedItems int                        `json:"skippedItems"`
+	Path         string                    `json:"path,omitempty"`
+	JSON         string                    `json:"json,omitempty"`
+	Warnings     []templates.ExportWarning `json:"warnings,omitempty"`
+	SkippedItems int                       `json:"skippedItems"`
 }
 
 // ExportBuildTemplateJSON returns the template payload as a JSON string
@@ -48,7 +48,13 @@ type BuildTemplateExportResult struct {
 //   - A dirty workspace is a valid export source — exporting before
 //     Save is the whole point of the feature.
 func (a *App) ExportBuildTemplateJSON(sessionID string, opts BuildTemplateExportOptions) (BuildTemplateExportResult, error) {
+	// saveMu.RLock pins a.save for the slot-name read inside
+	// sourceCharacterName (called transitively by buildAndValidateTemplate).
+	// Released before marshalling — the rest works on local template data
+	// and never touches a.save.
+	a.saveMu.RLock()
 	tpl, report, err := a.buildAndValidateTemplate(sessionID, opts)
+	a.saveMu.RUnlock()
 	if err != nil {
 		return BuildTemplateExportResult{}, err
 	}
@@ -71,7 +77,11 @@ func (a *App) ExportBuildTemplateJSON(sessionID string, opts BuildTemplateExport
 // pattern; templates are not secrets and may be shared with other
 // SaveForge users.
 func (a *App) ExportBuildTemplateToFile(sessionID string, opts BuildTemplateExportOptions) (BuildTemplateExportResult, error) {
+	// saveMu.RLock around buildAndValidateTemplate only — dialog and
+	// disk write run unlocked. See ExportBuildTemplateJSON.
+	a.saveMu.RLock()
 	tpl, report, err := a.buildAndValidateTemplate(sessionID, opts)
+	a.saveMu.RUnlock()
 	if err != nil {
 		return BuildTemplateExportResult{}, err
 	}
@@ -148,10 +158,19 @@ func (a *App) buildAndValidateTemplate(sessionID string, opts BuildTemplateExpor
 // index. Returns empty when no save is loaded or the slot index is out
 // of range; the template metadata field is optional and the exporter
 // tolerates an empty string.
+//
+// Contract: caller MUST hold a.saveMu.RLock so the a.save pointer cannot
+// be swapped under us. The helper takes slotMu[charIdx] itself for the
+// duration of the name read so a concurrent non-session writer (e.g.
+// SaveCharacter renaming the character) cannot torn the UTF16 bytes —
+// taking slotMu AFTER the caller's saveMu.RLock + sess.mu respects the
+// global lock order saveMu → sess.mu → slotMu.
 func (a *App) sourceCharacterName(charIdx int) string {
 	if a.save == nil || charIdx < 0 || charIdx >= len(a.save.Slots) {
 		return ""
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 	return core.UTF16ToString(a.save.Slots[charIdx].Player.CharacterName[:])
 }
 
@@ -305,12 +324,12 @@ type ApplyTemplateResult struct {
 //
 // Validation order (each level returns early without mutation when it
 // fails):
-//   1. Mode whitelist ("" or "append").
-//   2. Session exists.
-//   3. ParseBuildTemplateJSON (schema/structure).
-//   4. PreviewBuildTemplateImport (per-item DB + AoW compat).
-//   5. Capacity preflight (inventory + storage container slot caps).
-//   6. RAM apply via editor.AddItem and editor.UpdateWeapon.
+//  1. Mode whitelist ("" or "append").
+//  2. Session exists.
+//  3. ParseBuildTemplateJSON (schema/structure).
+//  4. PreviewBuildTemplateImport (per-item DB + AoW compat).
+//  5. Capacity preflight (inventory + storage container slot caps).
+//  6. RAM apply via editor.AddItem and editor.UpdateWeapon.
 //
 // Returning (ApplyTemplateResult, nil) with Applied=false is the
 // expected "blocked by preview" outcome — the Go error channel is
@@ -605,7 +624,11 @@ func (a *App) ensureTemplateLibrary() (*templates.TemplateLibrary, error) {
 // the local library. Returns the new index entry. Workspace and save
 // are untouched.
 func (a *App) SaveBuildTemplateToLibrary(sessionID string, opts BuildTemplateExportOptions) (templates.LibraryTemplateEntry, error) {
+	// saveMu.RLock around buildAndValidateTemplate only — library write
+	// runs unlocked. See ExportBuildTemplateJSON.
+	a.saveMu.RLock()
 	tpl, _, err := a.buildAndValidateTemplate(sessionID, opts)
+	a.saveMu.RUnlock()
 	if err != nil {
 		return templates.LibraryTemplateEntry{}, err
 	}
@@ -787,4 +810,3 @@ func defaultTemplateFilename(tpl *templates.BuildTemplate) string {
 	}
 	return stem + ".json"
 }
-

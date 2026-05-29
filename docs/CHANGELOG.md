@@ -4,6 +4,132 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(save-state): serialize concurrent save and slot access
+
+Closed the remaining whole-save / per-slot / favorites / source-save /
+deploy concurrency holes that the previous inventory-session fix left
+open. Wails dispatches every bound endpoint in its own goroutine, so
+without these locks a `SelectAndOpenSave` could swap `a.save` under a
+non-session writer mid-mutation, two non-session writers / readers
+could race the same character's `GaMap` and inventory bytes, the
+favorites endpoints could panic with `concurrent map writes` on
+`favSlotNames`, the diff loop could dereference an `a.sourceSave`
+that had just been replaced, and the deploy temp-file MD5 could be
+computed over `UserData10` bytes that a parallel favorites writer
+was zeroing out.
+
+- Added four App-level mutexes with a strict global lock order
+  `saveMu → lifecycleMu → editSessionsMu → sess.mu → favMu →
+  sourceSaveMu → slotMu[i]` (slotMu acquired ascending, released
+  descending). Lifetimes and helper contracts documented inline on
+  `App` in `app.go`:
+  - `saveMu sync.RWMutex` — guards the `a.save` pointer plus the
+    whole-save metadata mutated outside a single slot (`UserData11`,
+    `SteamID`, `Platform`, `IV`, `Encrypted`, `lastSavePath`).
+  - `slotMu [10]sync.Mutex` — guards per-character data
+    (`Slots[i]`, `ActiveSlots[i]`, `ProfileSummaries[i]`,
+    `undoStacks[i]`); always held in addition to `saveMu.RLock`,
+    never alone. Multi-slot operations use `lockAllSlots` /
+    `unlockAllSlots` / `lockSlotPair` helpers so the ascending /
+    descending invariant holds across every caller
+    (`CleanResidualSlots`, `GetActiveSlots`, `GetCharacterNames`,
+    `AuditLoadedSaveIssues`, `GetSaveDiffSummary`, `writeTempSave`,
+    `CloneSlot`).
+  - `favMu sync.RWMutex` — guards the favorites blob in
+    `a.save.UserData10` plus the `a.favSlotNames` map; closes the
+    `concurrent map writes` panic on favSlotNames between
+    `RemoveFavoritePreset` and `WriteSelectedToFavorites`.
+  - `sourceSaveMu sync.RWMutex` — guards the `a.sourceSave`
+    pointer plus every dereference by the diff / source-active-slots
+    endpoints.
+- Extracted `installLoadedSave` / `installSourceSave` so the file
+  dialog, download, decrypt and parse phases run lock-free; the
+  helpers run only the atomic commit (pointer swap + derived-state
+  reset of `lastSavePath`, `favSlotNames`, undo, edit sessions) under
+  exclusive `saveMu.Lock` / `sourceSaveMu.Lock`. Both helpers carry
+  caller-contract docs forbidding lock re-acquisition inside.
+- Refactored every public endpoint that previously inlined a
+  multi-step body into a thin wrapper that takes the appropriate
+  locks and delegates to a `…Locked` internal worker: `getItemListLocked`,
+  `getInventoryOrderLocked`, `reorderInventoryLocked`,
+  `applyCharacterPresetLocked`, `bulkSetCookbooksUnlockedLocked`,
+  `bulkSetBellBearingsLocked`, `setNetworkParamsLocked`,
+  `getSlotDiffLocked`, `sourceCharacterName`. Sibling public endpoints
+  (e.g. `ApplyBuiltinCharacterPresetStats`, `SetCookbookUnlocked`,
+  `GetWeaponInventoryOrder`, `ResetNetworkParams`, `GetItemListChunk`,
+  `GetSaveDiffSummary`) call the locked worker directly so the same
+  goroutine never re-enters the public endpoint and double-acquires a
+  non-reentrant mutex (Go `sync.Mutex` / `sync.RWMutex.RLock` are not
+  reentrant).
+- `SaveInventoryWorkspaceChanges` now takes
+  `saveMu.RLock + sess.mu + slotMu[charIdx]` across the entire apply
+  → rebuild snapshot → regenerate baseline pass, so non-session
+  mutators / readers of the same slot (e.g. `AddItemsToCharacter`,
+  `BulkSetCookbooksUnlocked`, `GetInventoryOrder`) cannot race the
+  session's `GaMap` / inventory rewrite. The original per-session lock
+  remains; this just extends the protection to the cross-mutator case
+  the per-session lock could not cover.
+- `WriteSave` no longer holds `saveMu` across the file dialog /
+  backup I/O. It snapshots `expected := a.save` under a brief
+  `saveMu.RLock`, releases, then runs dialog + backup unlocked. The
+  new internal `writeSaveCore(path, platform, expected)` re-acquires
+  `saveMu.Lock` and verifies `a.save == expected`; on mismatch it
+  returns an `active save changed while the save dialog was open;
+  write to %q aborted to avoid overwriting it with the wrong save`
+  error WITHOUT mutating `Platform` / `IV` / `Encrypted`, WITHOUT
+  calling `SaveFile`, and WITHOUT touching undo or `lastSavePath`.
+  This blocks the race where a concurrent `SelectAndOpenSave` /
+  `DownloadRemoteSave` would otherwise cause save B to be serialised
+  under the path picked for save A.
+- `writeTempSave` (used by `DeploySave` / `DeployAndLaunch`) takes
+  `saveMu.RLock → favMu.RLock → lockAllSlots` for the full
+  `a.save.SaveFile(tmpPath)` pass. The favorites region of
+  `UserData10` (`0x154..0x1324`, 15 preset slots) is read into the
+  PC MD5 / PS4 WriteBytes pass; without `favMu.RLock` a parallel
+  `RemoveFavoritePreset` / `WriteSelectedToFavorites` (both run under
+  `saveMu.RLock + favMu.Lock`, neither takes `slotMu`) could mutate
+  the preset bytes mid-serialisation and produce a deployed `.sl2`
+  whose `UserData10` bytes disagreed with the embedded PC MD5.
+  `flushMetadata` writes only into SteamID `[0x00..0x08)` and
+  ActiveSlots / ProfileSummaries `[0x1954..0x3CDE)`, which is
+  disjoint from the favorites region, so `favMu.RLock` (shared,
+  not exclusive) is the minimal lock required: `writeTempSave` is a
+  reader of favorites bytes and a writer of metadata bytes whose
+  ranges no favorites endpoint touches.
+- Tests (Go): added four concurrency test files in `package main`
+  with 15 scenarios:
+  - `app_slot_lock_concurrency_test.go` — slotMu coverage:
+    AddItemsToCharacter, BulkSetCookbooksUnlocked, GetInventoryOrder,
+    StartInventoryEditSession, SaveInventoryWorkspaceChanges (the
+    mandatory cross-mutator gate), two-mutators-same-slot race
+    freedom, different-character parallelism, and
+    GetActiveSlots-blocks-on-any-slotMu via `lockAllSlots`.
+  - `app_save_lifecycle_concurrency_test.go` — installLoadedSave
+    drains active `saveMu.RLock` readers before swapping the pointer;
+    `writeSaveCore` aborts cleanly when `a.save` changed during a
+    simulated dialog and leaves the file system, save metadata and
+    undo stack untouched (uses `t.TempDir()`).
+  - `app_favorites_concurrency_test.go` — RemoveFavoritePreset
+    blocks on `favMu.Lock`; parallel Remove / Write / Read endpoints
+    are race-free under the detector; the mandatory deploy gate uses
+    a `slotMu[0]` park + `favMu.TryLock` probe to deterministically
+    prove `writeTempSave` has acquired `favMu.RLock` before a
+    favorites writer fires, then asserts the writer is blocked until
+    `writeTempSave` releases.
+  - `app_source_save_concurrency_test.go` — GetSlotDiff blocks on
+    `sourceSaveMu`; installSourceSave drains active
+    `sourceSaveMu.RLock` readers before swapping the pointer.
+- All 15 new tests pass under
+  `go test -race -count=10 -run 'TestSlot_|TestSaveLifecycle_|TestWriteSave_|TestFavorites_|TestDeploy_|TestSourceSave_' .`
+  (≈69 s). The existing nine `TestInventorySession_` scenarios remain
+  green under `-race -count=10` (≈31 s). The full canonical suite
+  (`go test . ./backend/... ./tests/...`, `TestRoundTripPC`, `go vet`,
+  `go build`, `npx tsc --noEmit`, the 153-test Vitest suite) is green.
+- No behavioural change to the duplicate-acquisition-index WARN flow,
+  the DatabaseTab RepairPrompt UI, the templateLibrary lazy init,
+  the frontend `StartInventoryEditSession` guard or any public
+  Wails endpoint signature — those were explicitly out of scope.
+
 ### fix(inventory-session): serialize concurrent workspace session access
 
 Fixed the backend crash `fatal error: concurrent map writes` originating in

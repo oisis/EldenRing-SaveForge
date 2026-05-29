@@ -72,6 +72,13 @@ func (a *App) acquireSession(sessionID string) (*editor.InventoryEditSession, er
 //     effect (re-runs on charIndex / inventoryVersion change) still gets
 //     the post-event snapshot it depends on.
 func (a *App) StartInventoryEditSession(charIdx int) (editor.InventoryWorkspaceSnapshot, error) {
+	// saveMu.RLock pins the a.save pointer for the entire Start flow so a
+	// concurrent SelectAndOpenSave / DownloadRemoteSave cannot swap the
+	// underlying SaveFile while we are evicting the prior session and
+	// snapshotting the slot.
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+
 	if a.save == nil {
 		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("no save loaded")
 	}
@@ -83,9 +90,6 @@ func (a *App) StartInventoryEditSession(charIdx int) (editor.InventoryWorkspaceS
 	defer a.lifecycleMu[charIdx].Unlock()
 
 	slot := &a.save.Slots[charIdx]
-	if slot.Version == 0 {
-		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("slot %d is empty", charIdx)
-	}
 
 	// Step 1 — evict any prior session for this character from the
 	// registry. We deliberately delete BEFORE building the new snapshot
@@ -111,8 +115,18 @@ func (a *App) StartInventoryEditSession(charIdx int) (editor.InventoryWorkspaceS
 		closeSession(prior)
 	}
 
-	// Step 3 — build the fresh snapshot off the now-quiet slot.
+	// Step 3 — build the fresh snapshot off the now-quiet slot. slotMu
+	// blocks any concurrent non-session writer/reader (AddItems,
+	// BulkSetCookbooks, GetInventoryOrder, …) from racing the BuildSnapshot
+	// read inside editor.StartSession. The slot.Version emptiness check
+	// must live here too — it reads slot fields and so needs slotMu.
+	a.slotMu[charIdx].Lock()
+	if slot.Version == 0 {
+		a.slotMu[charIdx].Unlock()
+		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("slot %d is empty", charIdx)
+	}
 	sess, err := editor.StartSession(slot, charIdx)
+	a.slotMu[charIdx].Unlock()
 	if err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
@@ -304,6 +318,14 @@ func parseContainerKind(s string) (editor.ContainerKind, error) {
 //     end could race a concurrent AddInventoryWorkspaceItem and tear
 //     either the slice or the baseline map.
 func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryWorkspaceSnapshot, error) {
+	// Lock order (consistent across this file): saveMu.RLock →
+	// editSessionsMu (inside acquireSession, short) → sess.mu (inside
+	// acquireSession, long) → slotMu[sess.CharacterIndex]. saveMu.RLock
+	// pins the a.save pointer for the entire commit so a concurrent
+	// SelectAndOpenSave / DownloadRemoteSave cannot swap it under us.
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+
 	sess, err := a.acquireSession(sessionID)
 	if err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
@@ -317,6 +339,15 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 	}
 	slot := &a.save.Slots[sess.CharacterIndex]
 
+	// slotMu covers the entire mutation + rebuild + baseline pass.
+	// Without it a concurrent non-session writer (AddItemsToCharacter,
+	// BulkSetCookbooksUnlocked, …) could race the GaMap / inventory
+	// rewrite inside ApplyWorkspaceSave with the same `fatal error:
+	// concurrent map writes` signature the original session fix closed
+	// between session peers.
+	a.slotMu[sess.CharacterIndex].Lock()
+	defer a.slotMu[sess.CharacterIndex].Unlock()
+
 	// Atomic snapshot for partial-mutation rollback. Separate from
 	// pushUndo (user-facing) so a mid-save failure doesn't bloat the
 	// undo stack with a half-mutated state.
@@ -324,7 +355,7 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 
 	// User-visible undo: push BEFORE any mutation so the user can
 	// revert the entire save via the existing undo button.
-	a.pushUndo(sess.CharacterIndex)
+	a.pushUndoLocked(sess.CharacterIndex)
 
 	_, err = editor.ApplyWorkspaceSave(slot, &sess.Workspace, sess.BaselineEditableHandles)
 	if err != nil {

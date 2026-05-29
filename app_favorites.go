@@ -19,9 +19,17 @@ type FavoriteSlotInfo struct {
 // GetFavoritesStatus returns the state of all 15 Favorites slots.
 func (a *App) GetFavoritesStatus() []FavoriteSlotInfo {
 	result := make([]FavoriteSlotInfo, core.FavSlotCount)
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return result
 	}
+	// favMu.RLock pairs with the Lock taken by RemoveFavoritePreset /
+	// WriteSelectedToFavorites so a reader cannot iterate favSlotNames or
+	// UserData10.Data while a peer mutates them (the map iteration would
+	// otherwise crash with concurrent-map-writes panic).
+	a.favMu.RLock()
+	defer a.favMu.RUnlock()
 
 	ud := a.save.UserData10.Data
 
@@ -40,12 +48,16 @@ func (a *App) GetFavoritesStatus() []FavoriteSlotInfo {
 
 // RemoveFavoritePreset clears a Favorites slot in UserData10.
 func (a *App) RemoveFavoritePreset(slotIndex int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= core.FavSlotCount {
 		return fmt.Errorf("invalid favorites slot index")
 	}
+	a.favMu.Lock()
+	defer a.favMu.Unlock()
 
 	ud := a.save.UserData10.Data
 	off := core.FavBaseOffset + slotIndex*core.FavSlotSize
@@ -76,6 +88,8 @@ func (a *App) RemoveFavoritePreset(slotIndex int) error {
 // Equipment handles are NOT cleared. The game zeroes gender-specific equipment to avoid
 // model mismatches; we leave gear intact and let the user decide.
 func (a *App) ApplyMirrorFavoriteToCharacter(charIndex, mirrorSlotIndex int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
@@ -85,6 +99,14 @@ func (a *App) ApplyMirrorFavoriteToCharacter(charIndex, mirrorSlotIndex int) err
 	if mirrorSlotIndex < 0 || mirrorSlotIndex >= core.FavSlotCount {
 		return fmt.Errorf("invalid mirror slot index")
 	}
+	// Lock order saveMu → favMu → slotMu (per the App-level hierarchy).
+	// favMu.RLock so a concurrent favorites mutator cannot tear the bytes
+	// we are about to copy out of UserData10; slotMu.Lock because we
+	// mutate slot.Data + slot.Player.Gender below.
+	a.favMu.RLock()
+	defer a.favMu.RUnlock()
+	a.slotMu[charIndex].Lock()
+	defer a.slotMu[charIndex].Unlock()
 
 	ud := a.save.UserData10.Data
 	mirrorOff := core.FavBaseOffset + mirrorSlotIndex*core.FavSlotSize
@@ -101,7 +123,7 @@ func (a *App) ApplyMirrorFavoriteToCharacter(charIndex, mirrorSlotIndex int) err
 		return fmt.Errorf("FaceData blob out of bounds: start=0x%X", fd)
 	}
 
-	a.pushUndo(charIndex)
+	a.pushUndoLocked(charIndex)
 
 	// Model IDs (32 B): preset[0x24..0x44] → slot[fd+0x10..0x30]
 	copy(slot.Data[fd+core.FDOffFaceModel:fd+core.FDOffFaceModel+32],
@@ -139,6 +161,8 @@ func (a *App) ApplyMirrorFavoriteToCharacter(charIndex, mirrorSlotIndex int) err
 // WriteSelectedToFavorites writes selected presets to the next available safe Favorites slots.
 // Returns the number of presets written.
 func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return 0, fmt.Errorf("no save loaded")
 	}
@@ -148,6 +172,13 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 	if len(presetNames) == 0 {
 		return 0, nil
 	}
+	// Lock order saveMu → favMu → slotMu. favMu.Lock because we mutate
+	// UserData10 bytes AND favSlotNames; slotMu.Lock because we read
+	// FaceData from the character slot.
+	a.favMu.Lock()
+	defer a.favMu.Unlock()
+	a.slotMu[charIndex].Lock()
+	defer a.slotMu[charIndex].Unlock()
 
 	ud := a.save.UserData10.Data
 	slot := &a.save.Slots[charIndex]

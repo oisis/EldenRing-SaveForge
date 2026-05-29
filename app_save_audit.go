@@ -33,9 +33,16 @@ func fixLocationForCode(code string) string {
 // read-only — no session, no mutation. The frontend calls it before a file save
 // so it can show the user what is wrong (and where to fix it) without blocking.
 func (a *App) AuditLoadedSaveIssues() ([]SaveIssue, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
+	// Multi-slot reader — every Slots[i] is read under its slotMu[i].
+	// Take all 10 ascending so the audit sees a consistent snapshot
+	// across every slot at the same wall-clock instant.
+	a.lockAllSlots()
+	defer a.unlockAllSlots()
 	var issues []SaveIssue
 	for i := range a.save.Slots {
 		slot := &a.save.Slots[i]
