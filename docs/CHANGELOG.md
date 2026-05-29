@@ -4,6 +4,91 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(save-integrity): detect and repair duplicate inventory acquisition indices on load
+
+Treated duplicate inventory acquisition indices as a save-integrity issue
+instead of silently tolerating them. Older SaveForge revisions could
+leave a slot with duplicated `InventoryItem.Index` values; whether the
+game silently accepts such a save is unverified, so the editor now
+blocks editing until the user explicitly repairs it.
+
+- Added `GetSaveInventoryIntegrityReport()` (`app_save_integrity.go`),
+  a read-only scan over every populated character slot
+  (`slot.Version != 0`) that calls `core.ScanDuplicateInventoryIndices`
+  on `Inventory.CommonItems` + `Inventory.KeyItems` and returns
+  `SaveInventoryIntegrityReport{ Clean, Slots[] }`. Storage is
+  intentionally out of scope at this stage.
+- Per-slot DTO carries `SlotIndex`, `CharacterName`, `Active` (mirrored
+  from `a.save.ActiveSlots[i]` so the UI can label phantom / residual
+  slots), `DuplicateEntryCount` (additional occurrences beyond the
+  first), `ConflictingIndexCount` (distinct duplicated Index values),
+  and `Conflicts[]` grouped per acquisition Index. Each
+  `InventoryIntegrityConflictItem` enriches the row through
+  `slot.GaMap[handle]` first then `db.HandleToItemID` fallback, so
+  weapons / armor / Ashes of War report the encoded `ItemID` (upgrade
+  level + infusion) and not just the base ID. Unknown items keep
+  `ItemID` + `Handle` for hex fallback (`Unknown=true`) instead of
+  being dropped.
+- Added `CloseSave()` (`app_save_close.go`) — an idempotent drop of the
+  active save that mirrors `installLoadedSave`'s reset surface
+  (`a.save = nil`, `lastSavePath`, `favSlotNames`, undo stacks, edit
+  sessions) under exclusive `a.saveMu`. Deliberately does NOT touch
+  `a.sourceSave` (independent read-only handle owned by Character
+  Importer).
+- `AddItemsToCharacter` is now fail-closed: when
+  `core.ScanDuplicateInventoryIndices(slot)` reports any duplicate
+  before mutation, the endpoint returns
+  `"inventory integrity issue: slot N contains X duplicate acquisition
+  entries; repair is required before adding items"` without pushing
+  undo, snapshotting the slot or adding any items. Post-mutation
+  validation switched to `core.ValidatePostMutation(slot)` (no
+  baseline). Removed the legacy
+  `"tolerating (game accepts them)"` warning and the
+  `dupBaseline` map entirely.
+- Removed `core.ValidatePostMutationBaseline` — only caller delegated
+  to it with `nil`, the "tolerate pre-existing duplicates" use case
+  no longer exists, and the comment falsely cited
+  `spec/52` as justification for legal duplicates (spec/52 actually
+  describes stride-2 as a *uniqueness-guaranteeing* write model).
+- Wired the load-time gate end-to-end in the UI: new
+  `InventoryIntegrityModal` (`frontend/src/components/integrity/`) is a
+  blocking modal shown by `App.tsx::finalizeLoadedSaveWithIntegrityCheck`
+  after every successful main-save load — both `SelectAndOpenSave` and
+  the deploy paths (`DownloadRemoteSave`, `CloseAndDownload`) — via the
+  new `SettingsTab` `onAfterLoad` callback. The modal lists each
+  affected slot (active character name OR
+  `Inactive residual slot N`), the duplicate / conflicting counters
+  and an opt-in `Show affected items` panel that groups items per
+  acquisition Index with weapon upgrade / infusion / hex-ID fallback.
+- `Repair duplicates` button in the modal calls
+  `RepairDuplicateInventoryIndices(slotIndex)` for every affected
+  slot, re-scans through the same endpoint, unblocks the editor only
+  when the re-scan returns `Clean=true` and shows a factual error
+  otherwise. `Close save` calls the new `CloseSave()` endpoint and
+  resets the editor to the no-save state. No automatic write — the
+  user keeps a backup and saves the repaired file manually.
+- Removed the now-unreachable `frontend/src/components/database/`
+  `RepairPrompt.tsx` together with its `DatabaseTab` plumbing
+  (`isDuplicateInventoryIndexError`, `repairPrompt` state,
+  `handleRepairAndRetry`, `handleRepairCancel`, render block) and the
+  two `DatabaseTab.test.tsx` cases that drove the legacy retry flow
+  through a mocked `AddItemsToCharacter` rejection. The backend
+  `RepairDuplicateInventoryIndices` endpoint is unchanged — it now
+  feeds the new load-time modal instead.
+- Backend tests added or strengthened in `app_save_integrity_test.go`,
+  `app_save_close_test.go` and `app_additems_duplicate_index_test.go`
+  (cross-scope conflicts, empty-handle filtering, inactive residual
+  slots, GaMap-aware weapon upgrade / infusion, KeyItems pre-flight
+  rejection, CloseSave idempotency / undo / sessions / source-save
+  isolation). Frontend `InventoryIntegrityModal.test.tsx` covers
+  rendering, counters, residual labelling, affected-items grouping,
+  unknown fallback, weapon enrichment, button callbacks and busy
+  state.
+- Out of scope for this fix (called out explicitly so a follow-up can
+  pick them up): storage duplicate scan / repair, source-save
+  integrity check for Character Importer, an Open read-only mode for
+  the integrity modal.
+
 ### fix(save-state): serialize concurrent save and slot access
 
 Closed the remaining whole-save / per-slot / favorites / source-save /

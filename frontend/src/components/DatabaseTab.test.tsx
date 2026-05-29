@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { db } from '../../wailsjs/go/models';
 import type { AddSettings } from '../App';
@@ -34,7 +34,6 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     GetInfuseTypes: vi.fn(),
     AddItemsToCharacter: vi.fn(),
     GetCharacter: vi.fn(),
-    RepairDuplicateInventoryIndices: vi.fn(),
 }));
 
 vi.mock('../lib/toast', () => {
@@ -104,7 +103,6 @@ beforeEach(() => {
         added: 1, requested: 1, trimmed: [], capHit: '',
         freeInv: 0, freeStore: 0, neededInv: 0, neededStore: 0,
     });
-    mocks.RepairDuplicateInventoryIndices.mockResolvedValue({ changed: 0, changes: [] });
 });
 
 afterEach(() => {
@@ -192,67 +190,12 @@ describe('DatabaseTab', () => {
         expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1);
     });
 
-    // repair prompt: a duplicate acquisition-index error from the first add opens
-    // the (purely presentational) repair prompt. The repair prompt keeps the
-    // confirm modal mounted underneath, so both have a "Cancel" button — scope
-    // queries to the prompt card to target the right one.
-    it('repair prompt: Cancel aborts without repairing or retrying', async () => {
-        // String(err) includes 'duplicate acquisition index', which
-        // isDuplicateInventoryIndexError matches → handleAdd opens the prompt.
-        mocks.AddItemsToCharacter.mockRejectedValueOnce(new Error('duplicate acquisition index'));
-
-        renderTab();
-        fireEvent.click(await screen.findByRole('button', { name: /Add Favorites/i }));
-        fireEvent.click(await screen.findByRole('button', { name: 'Add Anyway' }));
-        fireEvent.click(await screen.findByRole('button', { name: /^Add$/ }));
-
-        // First (and only) add attempt threw the recoverable duplicate-index error.
-        await waitFor(() =>
-            expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1));
-
-        // The actual repair prompt title is rendered.
-        const heading = await screen.findByText('Inventory index repair required');
-        const promptCard = heading.closest('.bg-card') as HTMLElement;
-
-        // Cancel delegates to handleRepairCancel: closes the prompt, no repair.
-        fireEvent.click(within(promptCard).getByRole('button', { name: 'Cancel' }));
-        await waitFor(() =>
-            expect(screen.queryByText('Inventory index repair required')).not.toBeInTheDocument());
-
-        // Cancel never repairs and never retries the add.
-        expect(mocks.RepairDuplicateInventoryIndices).not.toHaveBeenCalled();
-        expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1);
-    });
-
-    // repair prompt: Repair & Retry runs the repair endpoint once, then re-runs
-    // handleAdd against the preserved confirm-modal selection.
-    it('repair prompt: Repair & Retry repairs once and retries the add', async () => {
-        // First add throws duplicate-index; the retry add falls back to the
-        // beforeEach success default (added: 1). Repair resolves from beforeEach.
-        mocks.AddItemsToCharacter.mockRejectedValueOnce(new Error('duplicate acquisition index'));
-
-        renderTab();
-        fireEvent.click(await screen.findByRole('button', { name: /Add Favorites/i }));
-        fireEvent.click(await screen.findByRole('button', { name: 'Add Anyway' }));
-        fireEvent.click(await screen.findByRole('button', { name: /^Add$/ }));
-
-        const heading = await screen.findByText('Inventory index repair required');
-        const promptCard = heading.closest('.bg-card') as HTMLElement;
-
-        // Repair & Retry is unique to the prompt card.
-        fireEvent.click(within(promptCard).getByRole('button', { name: 'Repair & Retry' }));
-
-        // Repair endpoint called exactly once with the current charIndex.
-        await waitFor(() =>
-            expect(mocks.RepairDuplicateInventoryIndices).toHaveBeenCalledTimes(1));
-        expect(mocks.RepairDuplicateInventoryIndices).toHaveBeenCalledWith(0);
-
-        // The original add is retried: two AddItemsToCharacter calls total.
-        await waitFor(() =>
-            expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(2));
-
-        // Successful repair + retry closes the prompt.
-        await waitFor(() =>
-            expect(screen.queryByText('Inventory index repair required')).not.toBeInTheDocument());
-    });
+    // NOTE: the legacy "Repair & Retry" prompt that fired on a duplicate
+    // acquisition-index error from AddItemsToCharacter was removed together
+    // with the AddItems tolerance flow (see fix(save-integrity)). Duplicate
+    // acquisition indices are now caught BEFORE editing by the load-time
+    // InventoryIntegrityModal in App.tsx — covered by its own component
+    // tests — so this tab no longer routes the integrity-issue error to a
+    // retry-style prompt. handleAdd's catch path drops it into the generic
+    // error modal instead.
 });

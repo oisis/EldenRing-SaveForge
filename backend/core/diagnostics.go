@@ -363,19 +363,13 @@ func ScanDuplicateInventoryIndices(slot *SaveSlot) []DuplicateInventoryIndexIssu
 // ValidatePostMutation performs fast invariant checks after a slot mutation.
 // Only checks crash-causing conditions — not full diagnostic scan.
 // Returns nil if all checks pass, or a slice of violations.
+//
+// Fail-closed: every duplicate acquisition Index across Inventory.CommonItems
+// + KeyItems is reported. Callers run a fail-closed pre-flight
+// (ScanDuplicateInventoryIndices) before mutating and refuse to proceed when
+// the slot already holds duplicates, so any duplicate observed here was
+// introduced by the mutation itself and must roll back.
 func ValidatePostMutation(slot *SaveSlot) []IntegrityError {
-	return ValidatePostMutationBaseline(slot, nil)
-}
-
-// ValidatePostMutationBaseline is ValidatePostMutation with a tolerance set:
-// duplicate Index values listed in ignoreDupIndex (acquisition indices that
-// were ALREADY duplicated before the mutation) are not reported. The game
-// tolerates pre-existing duplicate acquisition indices (a real console save
-// can carry hundreds — see spec/52); only duplicates the mutation itself
-// introduces are crash-relevant. Adds never reuse an existing Index, so a
-// clean mutation never trips this even with ignoreDupIndex empty. Pass nil to
-// flag every duplicate (identical to the historical behaviour).
-func ValidatePostMutationBaseline(slot *SaveSlot, ignoreDupIndex map[uint32]bool) []IntegrityError {
 	var errs []IntegrityError
 
 	// 1. Every non-empty inventory handle must exist in GaMap (for non-stackable types).
@@ -400,7 +394,7 @@ func ValidatePostMutationBaseline(slot *SaveSlot, ignoreDupIndex map[uint32]bool
 		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
 			continue
 		}
-		if indexSeen[item.Index] && !ignoreDupIndex[item.Index] {
+		if indexSeen[item.Index] {
 			errs = append(errs, IntegrityError{
 				Check:   "duplicate_index",
 				Message: fmt.Sprintf("duplicate Index %d in inventory common (handle 0x%08X)", item.Index, item.GaItemHandle),
@@ -412,7 +406,7 @@ func ValidatePostMutationBaseline(slot *SaveSlot, ignoreDupIndex map[uint32]bool
 		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
 			continue
 		}
-		if indexSeen[item.Index] && !ignoreDupIndex[item.Index] {
+		if indexSeen[item.Index] {
 			errs = append(errs, IntegrityError{
 				Check:   "duplicate_index",
 				Message: fmt.Sprintf("duplicate Index %d in inventory key (handle 0x%08X)", item.Index, item.GaItemHandle),

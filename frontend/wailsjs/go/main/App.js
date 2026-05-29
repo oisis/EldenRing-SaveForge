@@ -82,6 +82,10 @@ export function CloseRemoteGame(arg1) {
   return window['go']['main']['App']['CloseRemoteGame'](arg1);
 }
 
+export function CloseSave() {
+  return window['go']['main']['App']['CloseSave']();
+}
+
 export function DeleteBuildTemplateFromLibrary(arg1) {
   return window['go']['main']['App']['DeleteBuildTemplateFromLibrary'](arg1);
 }
@@ -228,6 +232,10 @@ export function GetQuestProgress(arg1, arg2) {
 
 export function GetSaveDiffSummary() {
   return window['go']['main']['App']['GetSaveDiffSummary']();
+}
+
+export function GetSaveInventoryIntegrityReport() {
+  return window['go']['main']['App']['GetSaveInventoryIntegrityReport']();
 }
 
 export function GetSlotCapacity(arg1) {

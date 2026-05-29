@@ -1,7 +1,7 @@
 import {useEffect, useState, useMemo, useRef, useDeferredValue} from 'react';
 import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, GetCharacter, RepairDuplicateInventoryIndices} from '../../wailsjs/go/main/App';
+import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, GetCharacter} from '../../wailsjs/go/main/App';
 import {db, vm} from '../../wailsjs/go/models';
 import type {AddSettings} from '../App';
 import {CategorySelect, CATEGORY_VALUES} from './CategorySelect';
@@ -11,15 +11,6 @@ import {useFavorites} from '../state/favorites';
 import {ItemDetailPanel} from './ItemDetailPanel';
 import {BanRiskWarningModal} from './database/BanRiskWarningModal';
 import {ErrorModal} from './database/ErrorModal';
-import {RepairPrompt} from './database/RepairPrompt';
-
-// Pre-flight guard in AddItemsToCharacter rejects mutations on saves that
-// already have duplicate inventory acquisition indices. Match the marker phrase
-// the backend uses so the UI can offer a one-click repair instead of a
-// confusing "post-mutation validation failed" rollback message.
-function isDuplicateInventoryIndexError(msg: string): boolean {
-    return msg.includes('duplicate acquisition index') || msg.includes('Run inventory index repair');
-}
 
 // Categories whose tab has sub-groupings — drives the Sub-Category column visibility.
 const CATEGORIES_WITH_SUBGROUPS = new Set([
@@ -96,10 +87,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const [isSaving, setIsSaving] = useState(false);
     const [brokenIcons, setBrokenIcons] = useState<Set<string>>(new Set());
     const [errorModal, setErrorModal] = useState<{title: string; message: string} | null>(null);
-    // Repair prompt: open when AddItemsToCharacter aborts due to pre-existing
-    // duplicate inventory indices. Keeps confirmModal intact so Repair & Retry
-    // can re-run handleAdd with the same selection / qty inputs.
-    const [repairPrompt, setRepairPrompt] = useState<{ retrying: boolean } | null>(null);
 
     // Quantity state for modal
     const [addToInv, setAddToInv] = useState(true);
@@ -386,53 +373,14 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             setSelectedDbItems(new Set());
             onItemsAdded?.();
         } catch (err) {
-            const msg = String(err);
-            // Duplicate-index pre-flight: keep confirmModal so Repair & Retry
-            // can rerun handleAdd with the same state. Cancel will close both.
-            if (isDuplicateInventoryIndexError(msg)) {
-                setRepairPrompt({ retrying: false });
-                return;
-            }
             setConfirmModal(null);
             setErrorModal({
                 title: 'Add Failed',
-                message: msg,
+                message: String(err),
             });
         } finally {
             setIsSaving(false);
         }
-    };
-
-    // Handler for the repair prompt's "Repair & Retry" button. Invokes the
-    // backend repair endpoint (which pushes its own undo entry only when it
-    // actually rewrites indices) and then re-runs handleAdd against the
-    // preserved confirmModal selection. Manual user action only — never
-    // triggered automatically.
-    const handleRepairAndRetry = async () => {
-        if (!repairPrompt || repairPrompt.retrying) return;
-        setRepairPrompt({ retrying: true });
-        try {
-            const report = await RepairDuplicateInventoryIndices(charIndex);
-            if (report.changed > 0) {
-                toast.success(`Repaired ${report.changed} duplicate inventory index entries.`);
-            } else {
-                toast('No duplicate inventory indices found.');
-            }
-            setRepairPrompt(null);
-            await handleAdd();
-        } catch (err) {
-            setRepairPrompt(null);
-            setConfirmModal(null);
-            setErrorModal({
-                title: 'Repair Failed',
-                message: String(err),
-            });
-        }
-    };
-
-    const handleRepairCancel = () => {
-        setRepairPrompt(null);
-        setConfirmModal(null);
     };
 
     const openModal = (items: db.ItemEntry[]) => {
@@ -524,15 +472,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                     title={errorModal.title}
                     message={errorModal.message}
                     onClose={() => setErrorModal(null)}
-                />
-            )}
-
-            {/* Repair Prompt — duplicate inventory index pre-flight blocked the add */}
-            {repairPrompt && (
-                <RepairPrompt
-                    retrying={repairPrompt.retrying}
-                    onRepairAndRetry={handleRepairAndRetry}
-                    onCancel={handleRepairCancel}
                 />
             )}
 

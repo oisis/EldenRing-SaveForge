@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetActiveSlots, SetSlotActivity, GetCharacterNames, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetSlotDiff, GetSaveDiffSummary, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetActiveSlots, SetSlotActivity, GetCharacterNames, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetSlotDiff, GetSaveDiffSummary, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -15,6 +15,7 @@ import {SortOrderTab} from './components/SortOrderTab';
 
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
+import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
 import {db} from '../wailsjs/go/models';
 
 type Theme = 'light' | 'dark' | 'golden';
@@ -95,6 +96,21 @@ function App() {
     const [saveIssuesModal, setSaveIssuesModal] = useState<main.SaveIssue[] | null>(null);
     const [saveDataRevision, setSaveDataRevision] = useState(0);
     const [pvpOpts, setPvpOpts] = useState<PvPOptions>(DEFAULT_PVP_OPTIONS);
+    // Load-time inventory integrity gate. When the loaded save contains
+    // duplicate acquisition indices, integrityReport is set to the dirty
+    // report and the InventoryIntegrityModal blocks every editing path
+    // (tabs + Save button) until the user runs Repair (and re-scan returns
+    // Clean=true) or chooses Close save. integrityBusy / integrityError
+    // back the modal's repair/close UX.
+    const [integrityReport, setIntegrityReport] = useState<main.SaveInventoryIntegrityReport | null>(null);
+    const [integrityBusy, setIntegrityBusy] = useState(false);
+    const [integrityError, setIntegrityError] = useState<string | null>(null);
+    // pendingPlatform captures the platform string returned by the load
+    // endpoint while the integrity modal is gating the user. On successful
+    // repair we promote it to the live `platform` state so the editor opens
+    // with the same platform the user originally loaded.
+    const [pendingPlatform, setPendingPlatform] = useState<string | null>(null);
+    const integrityBlocking = integrityReport !== null && !integrityReport.clean;
 
     const refreshUndoDepth = useCallback(() => {
         if (!platform) { setUndoDepth(0); return; }
@@ -167,14 +183,113 @@ function App() {
         GetSlotCapacity(selectedChar).then(setCapacity).catch(() => setCapacity(null));
     }, [selectedChar, platform, inventoryVersion]);
 
-    const handleOpenSave = async () => {
+    // Shared post-load gate: runs the inventory integrity scan on every freshly
+    // loaded main save (local file dialog or remote download). On a clean save
+    // the normal editor state is materialised; on a dirty save the platform
+    // stays null and the blocking modal opens until Repair clears the issue or
+    // Close save drops the file.
+    const finalizeLoadedSaveWithIntegrityCheck = useCallback(async (plat: string) => {
+        setIntegrityError(null);
+        let report: main.SaveInventoryIntegrityReport;
         try {
-            const plat = await SelectAndOpenSave();
+            report = await GetSaveInventoryIntegrityReport();
+        } catch (err) {
+            // Surface as a blocking error: we cannot certify the save is safe
+            // to edit, so the user must close it (or reload) explicitly.
+            toast.error('Inventory integrity verification failed: ' + String(err));
+            // Attempt to drop the loaded save from backend memory so a stale
+            // (potentially malformed) handle does not linger after a failed
+            // verification. UI stays in the no-save state in either branch.
+            try {
+                await CloseSave();
+            } catch (closeErr) {
+                toast.error('Failed to close the loaded save after inventory integrity verification failed: ' + String(closeErr));
+            }
+            setPlatform(null);
+            setIntegrityReport(null);
+            return;
+        }
+        if (report.clean) {
+            setIntegrityReport(null);
+            setPendingPlatform(null);
             setPlatform(plat);
             setSaveLoadKey(k => k + 1);
             refreshSlots();
+            return;
+        }
+        // Dirty: keep platform null so tabs/Save remain hidden; let the modal drive next step.
+        setIntegrityReport(report);
+        setPendingPlatform(plat);
+        setPlatform(null);
+    }, []);
+
+    const handleOpenSave = async () => {
+        try {
+            const plat = await SelectAndOpenSave();
+            await finalizeLoadedSaveWithIntegrityCheck(plat);
         } catch (err) {
             toast.error(String(err));
+        }
+    };
+
+    const handleRepairIntegrity = async () => {
+        if (!integrityReport || integrityBusy) return;
+        setIntegrityBusy(true);
+        setIntegrityError(null);
+        try {
+            for (const slot of integrityReport.slots) {
+                await RepairDuplicateInventoryIndices(slot.slotIndex);
+            }
+            const rescan = await GetSaveInventoryIntegrityReport();
+            if (rescan.clean) {
+                setIntegrityReport(null);
+                if (pendingPlatform) {
+                    setPlatform(pendingPlatform);
+                }
+                setPendingPlatform(null);
+                setSaveLoadKey(k => k + 1);
+                refreshSlots();
+                toast.success('Inventory acquisition indices repaired successfully. Save the file to write repaired changes.');
+            } else {
+                setIntegrityReport(rescan);
+                setIntegrityError('Repair did not resolve all duplicate inventory acquisition indices. Saving remains blocked.');
+            }
+        } catch (err) {
+            // A repair call rejected (possibly after one or more earlier
+            // slots already succeeded). Refresh the report so the modal
+            // reflects the actual remaining issues; never promote platform
+            // here, even if the refreshed scan happens to come back clean.
+            // The user must explicitly choose Repair again or Close save.
+            let repairMsg = 'Repair failed: ' + String(err);
+            try {
+                const rescan = await GetSaveInventoryIntegrityReport();
+                setIntegrityReport(rescan);
+            } catch (rescanErr) {
+                repairMsg += ' (and integrity re-scan also failed: ' + String(rescanErr) + ')';
+            }
+            setIntegrityError(repairMsg);
+        } finally {
+            setIntegrityBusy(false);
+        }
+    };
+
+    const handleCloseSaveFromIntegrity = async () => {
+        if (integrityBusy) return;
+        setIntegrityBusy(true);
+        setIntegrityError(null);
+        try {
+            await CloseSave();
+            setIntegrityReport(null);
+            setPendingPlatform(null);
+            setPlatform(null);
+            setActiveSlots([]);
+            setCharacterNames([]);
+            setSelectedChar(0);
+            setSaveLoadKey(k => k + 1);
+        } catch (err) {
+            setIntegrityError('Close save failed: ' + String(err));
+        } finally {
+            setIntegrityBusy(false);
         }
     };
 
@@ -455,10 +570,9 @@ function App() {
                                     debugMode={debugMode}
                                     setDebugMode={setDebugMode}
                                     platform={platform}
-                                    setPlatform={setPlatform}
-                                    refreshSlots={refreshSlots}
                                     selectedDeployTarget={selectedDeployTarget}
                                     setSelectedDeployTarget={setSelectedDeployTarget}
+                                    onAfterLoad={finalizeLoadedSaveWithIntegrityCheck}
                                 />
                             </div>
                         ) : !platform ? (
@@ -795,6 +909,15 @@ function App() {
                     </div>
                 </div>
             </div>
+        )}
+        {integrityBlocking && integrityReport && (
+            <InventoryIntegrityModal
+                report={integrityReport}
+                busy={integrityBusy}
+                errorMessage={integrityError ?? undefined}
+                onRepair={handleRepairIntegrity}
+                onCloseSave={handleCloseSaveFromIntegrity}
+            />
         )}
         <ToastBar sidebarWidth={256} />
         </div>
