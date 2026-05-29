@@ -19,10 +19,15 @@ interface SettingsTabProps {
     debugMode: boolean;
     setDebugMode: (value: boolean) => void;
     platform: string | null;
-    setPlatform: (platform: string | null) => void;
-    refreshSlots: () => void;
     selectedDeployTarget: string;
     setSelectedDeployTarget: (v: string) => void;
+    // Required: triggered after every successful remote download /
+    // close-and-download so App runs the shared load-time integrity gate
+    // (same flow as local SelectAndOpenSave). Required (not optional) so
+    // no future caller can wire SettingsTab in a way that bypasses the
+    // integrity gate — the editor is revealed only after this callback
+    // certifies the save is clean.
+    onAfterLoad: (platform: string) => Promise<void> | void;
 }
 
 const EMPTY_SSH_TARGET: deploy.Target = new deploy.Target({
@@ -42,8 +47,9 @@ const EMPTY_LOCAL_TARGET: deploy.Target = new deploy.Target({
 export function SettingsTab({
     theme, setTheme, columnVisibility, setColumnVisibility,
     showFlaggedItems, setShowFlaggedItems, debugMode, setDebugMode,
-    platform, setPlatform, refreshSlots,
+    platform,
     selectedDeployTarget: selectedTarget, setSelectedDeployTarget: setSelectedTarget,
+    onAfterLoad,
 }: SettingsTabProps) {
     const safetyMode = useSafetyMode();
     const [steamIdInput, setSteamIdInput] = useState('');
@@ -119,7 +125,11 @@ export function SettingsTab({
     const handleDownload = async () => {
         if (!selectedTarget) return; setDeploying(true);
         const tid = toast.loading('Downloading...');
-        try { const plat = await DownloadRemoteSave(selectedTarget); setPlatform(plat); refreshSlots(); toast.success('Downloaded & loaded', { id: tid }); }
+        try {
+            const plat = await DownloadRemoteSave(selectedTarget);
+            toast.success('Downloaded & loaded', { id: tid });
+            await onAfterLoad(plat);
+        }
         catch (e) { toast.error(String(e), { id: tid }); }
         finally { setDeploying(false); }
     };
@@ -141,7 +151,11 @@ export function SettingsTab({
     const handleCloseAndDownload = async () => {
         if (!selectedTarget) return; setDeploying(true);
         const tid = toast.loading('Close → Download...');
-        try { const plat = await CloseAndDownload(selectedTarget); setPlatform(plat); refreshSlots(); toast.success('Game closed & save loaded', { id: tid }); }
+        try {
+            const plat = await CloseAndDownload(selectedTarget);
+            toast.success('Game closed & save loaded', { id: tid });
+            await onAfterLoad(plat);
+        }
         catch (e) { toast.error(String(e), { id: tid }); }
         finally { setDeploying(false); }
     };

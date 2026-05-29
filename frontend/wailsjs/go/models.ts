@@ -1383,6 +1383,69 @@ export namespace main {
 	        this.name = source["name"];
 	    }
 	}
+	export class InventoryIntegrityConflictItem {
+	    scope: string;
+	    row: number;
+	    handle: number;
+	    itemId: number;
+	    name: string;
+	    category: string;
+	    quantity: number;
+	    currentUpgrade: number;
+	    infusionName: string;
+	    unknown: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new InventoryIntegrityConflictItem(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.row = source["row"];
+	        this.handle = source["handle"];
+	        this.itemId = source["itemId"];
+	        this.name = source["name"];
+	        this.category = source["category"];
+	        this.quantity = source["quantity"];
+	        this.currentUpgrade = source["currentUpgrade"];
+	        this.infusionName = source["infusionName"];
+	        this.unknown = source["unknown"];
+	    }
+	}
+	export class InventoryIntegrityConflict {
+	    index: number;
+	    items: InventoryIntegrityConflictItem[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InventoryIntegrityConflict(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.index = source["index"];
+	        this.items = this.convertValues(source["items"], InventoryIntegrityConflictItem);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class InventoryOrderItem {
 	    handle: number;
 	    itemId: number;
@@ -1488,6 +1551,78 @@ export namespace main {
 	        this.summoningPools = source["summoningPools"];
 	        this.sitesOfGrace = source["sitesOfGrace"];
 	    }
+	}
+	export class SlotInventoryIntegrityReport {
+	    slotIndex: number;
+	    characterName: string;
+	    active: boolean;
+	    duplicateEntryCount: number;
+	    conflictingIndexCount: number;
+	    conflicts: InventoryIntegrityConflict[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SlotInventoryIntegrityReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slotIndex = source["slotIndex"];
+	        this.characterName = source["characterName"];
+	        this.active = source["active"];
+	        this.duplicateEntryCount = source["duplicateEntryCount"];
+	        this.conflictingIndexCount = source["conflictingIndexCount"];
+	        this.conflicts = this.convertValues(source["conflicts"], InventoryIntegrityConflict);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class SaveInventoryIntegrityReport {
+	    clean: boolean;
+	    slots: SlotInventoryIntegrityReport[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveInventoryIntegrityReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.clean = source["clean"];
+	        this.slots = this.convertValues(source["slots"], SlotInventoryIntegrityReport);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class SaveIssue {
 	    slot: number;

@@ -549,24 +549,16 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 	slot := &a.save.Slots[charIdx]
 
-	// PRE-FLIGHT: the game tolerates pre-existing duplicate acquisition indices
-	// (a genuine console save can carry hundreds — see spec/52). Renumbering them
-	// is what corrupts the save (CE-108255-1), so we do NOT block or repair here.
-	// Instead we record the already-duplicated indices as a tolerance baseline:
-	// the add assigns fresh unique indices to new items and never touches the
-	// existing records, so the post-mutation validator must only flag duplicates
-	// the mutation itself introduces (baseline excluded).
-	var dupBaseline map[uint32]bool
+	// PRE-FLIGHT (fail-closed): refuse to mutate a slot that already holds
+	// duplicate acquisition indices. The duplicates almost certainly originate
+	// from an older SaveForge revision; whether the game would silently accept
+	// such a save is unverified, so we treat the state as a save-integrity
+	// issue and require an explicit repair (RepairDuplicateInventoryIndices)
+	// before any further inventory mutation. Never auto-repairs here.
 	if dups := core.ScanDuplicateInventoryIndices(slot); len(dups) > 0 {
-		dupBaseline = make(map[uint32]bool, len(dups))
-		for _, d := range dups {
-			dupBaseline[d.Index] = true
-		}
-		if a.ctx != nil {
-			runtime.LogWarningf(a.ctx,
-				"AddItemsToCharacter: slot %d has %d pre-existing duplicate acquisition index(es); tolerating (game accepts them) and adding items with fresh unique indices",
-				charIdx, len(dups))
-		}
+		return result, fmt.Errorf(
+			"inventory integrity issue: slot %d contains %d duplicate acquisition entries; repair is required before adding items",
+			charIdx, len(dups))
 	}
 
 	// Build maps from current inventory/storage state:
@@ -847,10 +839,11 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	// RECONCILE: fix storage header count (blind +1 increment may drift).
 	core.ReconcileStorageHeader(slot)
 
-	// POST-VALIDATION: check invariants after mutation. Pre-existing duplicate
-	// indices (dupBaseline) are tolerated; only duplicates introduced by this
-	// add would trip the check and roll back.
-	if violations := core.ValidatePostMutationBaseline(slot, dupBaseline); len(violations) > 0 {
+	// POST-VALIDATION: check invariants after mutation. The pre-flight guard
+	// guarantees the slot was free of duplicate acquisition indices on entry,
+	// so any duplicate detected here was introduced by this add and must roll
+	// back the entire batch.
+	if violations := core.ValidatePostMutation(slot); len(violations) > 0 {
 		core.RestoreSlot(slot, snapshot)
 		return result, fmt.Errorf("rollback: post-mutation validation failed: %s", violations[0].Error())
 	}
@@ -1706,6 +1699,6 @@ func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexR
 }
 
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, core.InventoryIndexRepairReport, core.InventoryIndexRepairChange) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, core.InventoryIndexRepairReport{}, core.InventoryIndexRepairChange{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, core.InventoryIndexRepairReport, core.InventoryIndexRepairChange, SaveInventoryIntegrityReport, SlotInventoryIntegrityReport, InventoryIntegrityConflict, InventoryIntegrityConflictItem) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, core.InventoryIndexRepairReport{}, core.InventoryIndexRepairChange{}, SaveInventoryIntegrityReport{}, SlotInventoryIntegrityReport{}, InventoryIntegrityConflict{}, InventoryIntegrityConflictItem{}
 }

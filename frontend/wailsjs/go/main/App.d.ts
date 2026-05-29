@@ -48,6 +48,8 @@ export function CloseAndDownload(arg1:string):Promise<string>;
 
 export function CloseRemoteGame(arg1:string):Promise<string>;
 
+export function CloseSave():Promise<void>;
+
 export function DeleteBuildTemplateFromLibrary(arg1:string):Promise<void>;
 
 export function DeleteDeployTarget(arg1:string):Promise<void>;
@@ -121,6 +123,8 @@ export function GetQuestNPCs():Promise<Array<string>>;
 export function GetQuestProgress(arg1:number,arg2:string):Promise<db.QuestNPC>;
 
 export function GetSaveDiffSummary():Promise<Array<main.SlotDiffSummary>>;
+
+export function GetSaveInventoryIntegrityReport():Promise<main.SaveInventoryIntegrityReport>;
 
 export function GetSlotCapacity(arg1:number):Promise<main.SlotCapacity>;
 
