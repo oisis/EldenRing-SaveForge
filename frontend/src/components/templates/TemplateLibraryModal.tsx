@@ -36,6 +36,15 @@ interface Props {
     // raise a toast or other ambient signal. Receives the post-rebuild
     // entry list for parity with the modal's internal state.
     onRefreshed?: (entries: templates.LibraryTemplateEntry[]) => void;
+    // allowApply gates the Apply action. The global Templates shell mounted
+    // from the sidebar has no active InventoryEditSession, so it passes
+    // false to suppress the action entirely (rather than rendering a
+    // permanently-disabled button). Defaults to true to preserve the
+    // existing SortOrderTab caller behavior.
+    allowApply?: boolean;
+    // title overrides the modal headline. Defaults to the v1 wording so
+    // existing callers are unaffected; the global shell passes "Templates".
+    title?: string;
 }
 
 export function TemplateLibraryModal({
@@ -47,6 +56,8 @@ export function TemplateLibraryModal({
     onExportedToFile,
     onDeleted,
     onRefreshed,
+    allowApply = true,
+    title = 'Build Template Library',
 }: Props) {
     const [entries, setEntries] = useState<templates.LibraryTemplateEntry[]>([]);
     const [loading, setLoading] = useState(false);
@@ -199,7 +210,7 @@ export function TemplateLibraryModal({
             data-testid="template-library-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Build Template Library"
+            aria-label={title}
             ref={dialogRef}
             tabIndex={-1}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
@@ -207,7 +218,7 @@ export function TemplateLibraryModal({
             <div className="w-full max-w-3xl rounded-lg bg-card border border-border/60 shadow-xl">
                 <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                        <h2 className="text-sm font-black uppercase tracking-wider">Build Template Library</h2>
+                        <h2 className="text-sm font-black uppercase tracking-wider">{title}</h2>
                         <p className="mt-1 text-[11px] text-muted-foreground">
                             Saved templates from this device. Apply to workspace stages a RAM-only change — click
                             <strong className="px-1">Save changes</strong>
@@ -305,15 +316,17 @@ export function TemplateLibraryModal({
                                                     >
                                                         Preview
                                                     </button>
-                                                    <button
-                                                        type="button"
-                                                        data-testid="library-apply"
-                                                        disabled={busy || !sessionID}
-                                                        onClick={() => onApply(entry)}
-                                                        className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded bg-green-700/80 text-white hover:bg-green-700 disabled:opacity-40"
-                                                    >
-                                                        Apply
-                                                    </button>
+                                                    {allowApply && (
+                                                        <button
+                                                            type="button"
+                                                            data-testid="library-apply"
+                                                            disabled={busy || !sessionID}
+                                                            onClick={() => onApply(entry)}
+                                                            className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded bg-green-700/80 text-white hover:bg-green-700 disabled:opacity-40"
+                                                        >
+                                                            Apply
+                                                        </button>
+                                                    )}
                                                     <button
                                                         type="button"
                                                         data-testid="library-export"

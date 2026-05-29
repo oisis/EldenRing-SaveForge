@@ -308,6 +308,37 @@ describe('TemplateLibraryModal — Empty state and library path', () => {
     });
 });
 
+describe('TemplateLibraryModal — allowApply gate', () => {
+    it('renders Apply by default (existing caller behavior)', async () => {
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        const applyBtns = await screen.findAllByTestId('library-apply');
+        expect(applyBtns.length).toBeGreaterThan(0);
+    });
+
+    it('hides Apply when allowApply={false}', async () => {
+        render(<TemplateLibraryModal {...defaultProps({ allowApply: false })} />);
+        await screen.findAllByTestId('library-entry');
+        expect(screen.queryByTestId('library-apply')).not.toBeInTheDocument();
+    });
+
+    it('keeps session-independent actions available when allowApply={false}', async () => {
+        render(<TemplateLibraryModal {...defaultProps({ allowApply: false })} />);
+        await screen.findAllByTestId('library-entry');
+        expect(screen.getAllByTestId('library-preview').length).toBeGreaterThan(0);
+        expect(screen.getAllByTestId('library-export').length).toBeGreaterThan(0);
+        expect(screen.getAllByTestId('library-rename').length).toBeGreaterThan(0);
+        expect(screen.getAllByTestId('library-delete').length).toBeGreaterThan(0);
+        expect(screen.getByTestId('library-refresh')).toBeInTheDocument();
+    });
+
+    it('uses the custom title when provided', async () => {
+        render(<TemplateLibraryModal {...defaultProps({ title: 'Templates' })} />);
+        const dialog = await screen.findByRole('dialog');
+        expect(dialog).toHaveAttribute('aria-label', 'Templates');
+        expect(dialog).toHaveTextContent('Templates');
+    });
+});
+
 describe('TemplateLibraryModal — Export to file', () => {
     it('calls ExportLibraryBuildTemplateToFile and forwards result via onExportedToFile', async () => {
         mocks.ExportLibraryBuildTemplateToFile.mockResolvedValue({

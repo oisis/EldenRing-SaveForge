@@ -16,6 +16,7 @@ import {SortOrderTab} from './components/SortOrderTab';
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
+import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
 import {db} from '../wailsjs/go/models';
 
 type Theme = 'light' | 'dark' | 'golden';
@@ -111,6 +112,7 @@ function App() {
     // with the same platform the user originally loaded.
     const [pendingPlatform, setPendingPlatform] = useState<string | null>(null);
     const integrityBlocking = integrityReport !== null && !integrityReport.clean;
+    const [templatesShellOpen, setTemplatesShellOpen] = useState(false);
 
     const refreshUndoDepth = useCallback(() => {
         if (!platform) { setUndoDepth(0); return; }
@@ -501,6 +503,15 @@ function App() {
                 </div>
                 
                 <div className="p-4 border-t border-border bg-muted/5 space-y-3">
+                    <button
+                        type="button"
+                        data-testid="open-templates-shell"
+                        onClick={() => setTemplatesShellOpen(true)}
+                        disabled={saving || integrityBlocking}
+                        className="w-full border border-blue-500/40 bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 font-black py-2 rounded-lg text-[8px] uppercase tracking-[0.15em] transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        Templates
+                    </button>
                     {platform && (
                         <button onClick={handleSaveAs} disabled={saving}
                             className="w-full bg-primary text-primary-foreground font-black py-2 rounded-lg text-[8px] uppercase tracking-[0.15em] shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center space-x-1.5">
@@ -918,6 +929,9 @@ function App() {
                 onRepair={handleRepairIntegrity}
                 onCloseSave={handleCloseSaveFromIntegrity}
             />
+        )}
+        {templatesShellOpen && (
+            <TemplatesShellModal onClose={() => setTemplatesShellOpen(false)} />
         )}
         <ToastBar sidebarWidth={256} />
         </div>
