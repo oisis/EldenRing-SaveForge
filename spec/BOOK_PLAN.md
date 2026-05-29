@@ -77,7 +77,7 @@ After all phases, `spec/` should consist of 30 chapters + 7 appendices, divided 
 | C | Verification methodology | 99 |
 | D | Parameter softcaps & quick reference | 26 (remainder after extracting attributes to Ch.5) |
 | E | Research log — negative results | 30 (full), 42 |
-| F | Planned features | 37, 38 |
+| F | Planned features | 37, 38, 56 |
 
 **Consolidation**: 47 documents → 30 chapters + 6 appendices (1.6×).
 

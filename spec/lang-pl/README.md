@@ -214,6 +214,7 @@ Design doci bez implementacji w kodzie.
 |---|---|---|---|
 | 37 | [Character Presets (JSON)](37-character-presets.md) | `needs verification` ⚠️ | `backend/vm/preset.go` ma `CharacterPreset/VMToPreset/PresetToVM/ValidatePreset`, ale doc deklaruje „Planowany". Wymaga weryfikacji per faza. |
 | 38 | [Boss Multi-Flag](38-boss-multiflag.md) | `planned` | Kod ma 1-flag model; design wymaga `EventFlags []uint32` (nie wdrożone) |
+| 56 | [Templates v2 — Planned Extension](56-templates-v2.md) | `planned` | Addytywne rozszerzenie [55](55-build-template.md): publiczny format YAML, sidebar entry, sekcje profile/stats/equipment/talismans/spells, granular selection, import z pliku/URL, weapon level override, single-character first, multi-character pack później. Brak zmiany kodu na razie. |
 
 ### Appendix (planowany)
 

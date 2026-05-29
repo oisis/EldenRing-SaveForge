@@ -77,7 +77,7 @@ Po wszystkich fazach `spec/lang-pl/` ma się składać z 30 rozdziałów + 7 za�
 | C | Verification methodology | 99 |
 | D | Parameter softcaps & quick reference | 26 (reszta po wyjęciu atrybutów do Ch.5) |
 | E | Research log — negative results | 30 (pełny), 42 |
-| F | Planned features | 37, 38 |
+| F | Planned features | 37, 38, 56 |
 
 **Konsolidacja**: 47 dokumentów → 30 rozdziałów + 6 załączników (1.6×).
 
