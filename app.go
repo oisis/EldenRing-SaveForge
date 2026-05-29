@@ -104,6 +104,54 @@ type App struct {
 	// needs it calls ensureTemplateLibrary. Tests may pre-populate this
 	// field via a non-default rootDir.
 	templateLibrary *templates.TemplateLibrary
+
+	// --- Save / slot / favorites / source-save locks (Phase 2) ---
+	//
+	// These mutexes were introduced together to close the cross-endpoint
+	// concurrency holes that the previous inventory-session fix left open
+	// (whole-save replacement vs in-flight slot operations, GaMap
+	// concurrent-map-writes between session Save and non-session mutators,
+	// favSlotNames concurrent-map-writes between favorites endpoints,
+	// sourceSave use-after-replace).
+	//
+	// Lock order — taken in increasing order, released in reverse — is:
+	//   1. saveMu                 (whole-save lifecycle + metadata)
+	//   2. lifecycleMu[i]         (session lifecycle per slot — existing)
+	//   3. editSessionsMu         (session registry, short — existing)
+	//   4. sess.mu                (per-session workspace state — existing)
+	//   5. favMu                  (UserData10 + favSlotNames)
+	//   6. sourceSaveMu           (a.sourceSave pointer + content)
+	//   7. slotMu[i]              (per-slot data, ascending i)
+	// Multi-slot operations take slotMu in strictly ascending index order
+	// and release in descending order (see lockAllSlots / lockSlotPair).
+	// sync.RWMutex is NOT treated as reentrant: never call RLock while
+	// already holding RLock on the same RWMutex on the same goroutine.
+	//
+	// saveMu protects:
+	//   - the a.save pointer itself (replaced by installLoadedSave under Lock);
+	//   - whole-save metadata mutated outside of a single slot:
+	//     UserData11 (network params), SteamID, Platform, IV, Encrypted,
+	//     lastSavePath. Writers take saveMu.Lock(); readers RLock().
+	saveMu sync.RWMutex
+	// slotMu[i] protects the per-character data of Slots[i] as well as
+	// ActiveSlots[i], ProfileSummaries[i] and undoStacks[i] — every field
+	// keyed by character index. Always held in ADDITION to saveMu.RLock
+	// (or under saveMu.Lock for multi-slot lifecycle), never alone.
+	slotMu [maxCharacters]sync.Mutex
+	// favMu serialises access to the favorites blob inside the current
+	// save: a.save.UserData10 (raw bytes mutated element-level by the
+	// favorites endpoints) and a.favSlotNames (Go map indexed by the
+	// favorite slot id). Concurrent map writes on favSlotNames would
+	// otherwise crash the process. Taken AFTER sess.mu, BEFORE slotMu[i]
+	// when both apply (see ApplyMirrorFavoriteToCharacter,
+	// WriteSelectedToFavorites).
+	favMu sync.RWMutex
+	// sourceSaveMu protects the a.sourceSave pointer (installed by
+	// SelectAndOpenSourceSave) and every dereference of its slots from the
+	// diff / source-active-slots endpoints. Independent of saveMu because
+	// the source save is loaded only for diff/import preview — it is never
+	// mutated by user actions on the active save.
+	sourceSaveMu sync.RWMutex
 }
 
 // NewApp creates a new App struct
@@ -168,12 +216,34 @@ func (a *App) SelectAndOpenSave() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	a.save = save
+	// Commit phase: exclusive saveMu blocks every reader/writer of the old
+	// a.save while the pointer swap + derived-state reset run. installLoadedSave
+	// also resets favSlotNames; favMu is intentionally NOT taken here — every
+	// favorites endpoint enters via saveMu.RLock first, so saveMu.Lock alone
+	// guarantees no favorites endpoint is mid-flight.
+	a.saveMu.Lock()
+	a.installLoadedSave(save, path)
+	a.saveMu.Unlock()
+	return string(save.Platform), nil
+}
+
+// installLoadedSave swaps the active save pointer to candidate and resets
+// every piece of derived state that was scoped to the previous save:
+// lastSavePath, favSlotNames, undo stacks, edit sessions.
+//
+// Contract: caller MUST run dialog / file I/O / decrypt / parse OUTSIDE
+// this helper — pass a fully-prepared *core.SaveFile and only invoke the
+// helper for the atomic commit phase. Caller MUST hold a.saveMu.Lock for
+// the entire call; the helper itself does not acquire it. Holding saveMu
+// exclusively is sufficient to also serialise the favSlotNames reset
+// against favorites endpoints (which all enter via saveMu.RLock first),
+// so favMu is intentionally not re-acquired here.
+func (a *App) installLoadedSave(candidate *core.SaveFile, path string) {
+	a.save = candidate
 	a.lastSavePath = path
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	a.clearAllEditSessions()
-	return string(save.Platform), nil
 }
 
 // SelectAndOpenSourceSave opens a native file dialog and loads the selected source save for import
@@ -196,18 +266,39 @@ func (a *App) SelectAndOpenSourceSave() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	a.sourceSave = save
+	// Commit phase: sourceSaveMu.Lock blocks every reader of the old
+	// a.sourceSave (GetSourceActiveSlots, GetSlotDiff, GetSaveDiffSummary)
+	// while the pointer is swapped. We do NOT take saveMu.RLock here
+	// because the endpoint touches only a.sourceSave; the active save is
+	// untouched.
+	a.sourceSaveMu.Lock()
+	a.installSourceSave(save)
+	a.sourceSaveMu.Unlock()
 	return string(save.Platform), nil
+}
+
+// installSourceSave swaps the source save pointer to candidate.
+//
+// Contract: caller MUST run dialog / file I/O / decrypt / parse OUTSIDE
+// this helper — pass a fully-prepared *core.SaveFile and only invoke the
+// helper for the atomic commit phase. Caller MUST hold a.sourceSaveMu.Lock
+// for the entire call; the helper itself does not acquire it.
+func (a *App) installSourceSave(candidate *core.SaveFile) {
+	a.sourceSave = candidate
 }
 
 // GetCharacter returns the ViewModel for a specific slot
 func (a *App) GetCharacter(index int) (*vm.CharacterViewModel, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if index < 0 || index >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[index].Lock()
+	defer a.slotMu[index].Unlock()
 
 	slot := a.save.Slots[index]
 	return vm.MapParsedSlotToVM(&slot)
@@ -215,6 +306,8 @@ func (a *App) GetCharacter(index int) (*vm.CharacterViewModel, error) {
 
 // SaveCharacter updates the raw slot data from the ViewModel
 func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
@@ -222,7 +315,10 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 		return fmt.Errorf("invalid slot index")
 	}
 
-	a.pushUndo(index)
+	a.slotMu[index].Lock()
+	defer a.slotMu[index].Unlock()
+
+	a.pushUndoLocked(index)
 
 	// 1. Update the slot data
 	if err := vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index]); err != nil {
@@ -255,11 +351,25 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 	return nil
 }
 
-// WriteSave writes the current save state to a file
+// WriteSave writes the current save state to a file.
+//
+// The dialog and on-disk backup happen OUTSIDE saveMu so that blocking UX
+// (file dialog, backup I/O) never holds the whole-save write lock. Before
+// the dialog we snapshot the active save pointer under saveMu.RLock; the
+// snapshot is then passed to writeSaveCore, which under saveMu.Lock
+// verifies that a.save still refers to the same instance. If a concurrent
+// SelectAndOpenSave / DownloadRemoteSave replaced a.save while the user
+// was choosing the destination path, writeSaveCore aborts with a clear
+// error WITHOUT touching the file or mutating any metadata — i.e. it
+// refuses to silently serialise save B under a path picked for save A.
 func (a *App) WriteSave(platform string) error {
+	a.saveMu.RLock()
 	if a.save == nil {
+		a.saveMu.RUnlock()
 		return fmt.Errorf("no save loaded")
 	}
+	expected := a.save
+	a.saveMu.RUnlock()
 
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title: "Save Elden Ring Save File",
@@ -283,6 +393,31 @@ func (a *App) WriteSave(platform string) error {
 		if err := core.PruneBackups(path, 10); err != nil {
 			fmt.Printf("Warning: failed to prune old backups: %v\n", err)
 		}
+	}
+
+	return a.writeSaveCore(path, platform, expected)
+}
+
+// writeSaveCore performs the in-memory mutation of a.save (Platform / IV /
+// Encrypted), serializes it to disk and resets undo state + lastSavePath.
+//
+// Acquires a.saveMu.Lock() for the entire critical section. Caller MUST
+// have performed dialog / backup work BEFORE invoking this helper, and
+// MUST pass `expected` — the *core.SaveFile snapshot taken before the
+// dialog. When a concurrent SelectAndOpenSave / DownloadRemoteSave
+// replaced a.save during the dialog wait, the identity check fails fast:
+// no metadata is mutated, no file is written, the helper returns a
+// user-facing error instead of silently writing save B to a path picked
+// for save A.
+func (a *App) writeSaveCore(path string, platform string, expected *core.SaveFile) error {
+	a.saveMu.Lock()
+	defer a.saveMu.Unlock()
+
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if a.save != expected {
+		return fmt.Errorf("active save changed while the save dialog was open; write to %q aborted to avoid overwriting it with the wrong save", path)
 	}
 
 	// Apply target platform — enables cross-platform conversion.
@@ -311,16 +446,34 @@ func (a *App) WriteSave(platform string) error {
 
 // GetItemList returns a list of items for a given category, filtered by the loaded save's platform.
 func (a *App) GetItemList(category string) []db.ItemEntry {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	return a.getItemListLocked(category)
+}
+
+// GetItemListChunk is the progressive-load alias for GetItemList.
+//
+// Delegates to the internal locked worker (not the public GetItemList) to
+// avoid nested saveMu.RLock on a single goroutine — sync.RWMutex is not
+// treated as reentrant.
+func (a *App) GetItemListChunk(category string) []db.ItemEntry {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	return a.getItemListLocked(category)
+}
+
+// getItemListLocked is the internal read-only worker for GetItemList and
+// GetItemListChunk.
+//
+// Contract: caller MUST hold a.saveMu.RLock for the duration of the call so
+// the a.save / a.save.Platform read is stable. The database lookup itself
+// is on static data and needs no lock.
+func (a *App) getItemListLocked(category string) []db.ItemEntry {
 	platform := "PS4"
 	if a.save != nil {
 		platform = string(a.save.Platform)
 	}
 	return db.GetItemsByCategory(category, platform)
-}
-
-// GetItemListChunk is the progressive-load alias for GetItemList.
-func (a *App) GetItemListChunk(category string) []db.ItemEntry {
-	return a.GetItemList(category)
 }
 
 // GetItemDetail returns full item data (description, stats) for a single base item ID.
@@ -382,12 +535,17 @@ func clampUpgrade(requested, max int) int {
 func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int) (AddResult, error) {
 	result := AddResult{Requested: len(itemIDs)}
 
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return result, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
 		return result, fmt.Errorf("invalid character index")
 	}
+
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 
 	slot := &a.save.Slots[charIdx]
 
@@ -581,7 +739,7 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	}
 
 	// SNAPSHOT: deep copy slot state before mutation.
-	a.pushUndo(charIdx)
+	a.pushUndoLocked(charIdx)
 	snapshot := core.SnapshotSlot(slot)
 
 	// MUTATE: batch add all items (one RebuildSlotFull instead of N).
@@ -714,13 +872,17 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 // RemoveItemsFromCharacter removes items by handle from inventory, storage, or both.
 func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInventory, fromStorage bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
 		return fmt.Errorf("invalid character index")
 	}
-	a.pushUndo(charIdx)
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
+	a.pushUndoLocked(charIdx)
 
 	slot := &a.save.Slots[charIdx]
 
@@ -809,12 +971,16 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 // Undo snapshot is pushed only when at least one handle was actually moved.
 func (a *App) MoveItemsBetweenInventoryAndStorage(charIdx int, handles []uint32, direction string) (core.TransferResult, error) {
 	empty := core.TransferResult{}
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return empty, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= len(a.save.Slots) {
 		return empty, fmt.Errorf("invalid character index %d", charIdx)
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 	var dir core.TransferDirection
 	switch direction {
 	case "to-storage":
@@ -865,7 +1031,7 @@ func (a *App) MoveItemsBetweenInventoryAndStorage(charIdx int, handles []uint32,
 		}
 	}
 	if willMutate {
-		a.pushUndo(charIdx)
+		a.pushUndoLocked(charIdx)
 	}
 
 	// Resolve per-handle destination caps for quantity-merge items only
@@ -932,6 +1098,8 @@ func (a *App) ImportCharacter(srcIdx, destIdx int) error {
 
 // CloneSlot copies an existing character slot to an empty destination slot within the same save.
 func (a *App) CloneSlot(srcIdx, destIdx int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
@@ -941,6 +1109,11 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 	if srcIdx == destIdx {
 		return fmt.Errorf("source and destination must differ")
 	}
+	// Two distinct slots — take both slotMu locks in ascending order via
+	// the helper so multi-slot operations cannot deadlock with each other.
+	unlock := a.lockSlotPair(srcIdx, destIdx)
+	defer unlock()
+
 	srcName := core.UTF16ToString(a.save.Slots[srcIdx].Player.CharacterName[:])
 	if srcName == "" {
 		return fmt.Errorf("source slot %d is empty", srcIdx)
@@ -950,7 +1123,7 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 		return fmt.Errorf("destination slot %d is not empty", destIdx)
 	}
 
-	a.pushUndo(destIdx)
+	a.pushUndoLocked(destIdx)
 
 	src := a.save.Slots[srcIdx]
 
@@ -978,19 +1151,23 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 // block, active flag, full ProfileSummary region). Subsequent slots are NOT
 // shifted down (the game uses independent per-slot active flags; gaps are valid).
 func (a *App) DeleteSlot(idx int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if idx < 0 || idx >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[idx].Lock()
+	defer a.slotMu[idx].Unlock()
 	// Occupied = active flag set OR residual data left by an in-game deletion.
 	// Including residual lets the user clear a phantom slot the game ignores.
 	if !a.save.ActiveSlots[idx] && !a.save.SlotHasResidualData(idx) {
 		return fmt.Errorf("slot %d is already empty", idx)
 	}
 
-	a.pushUndo(idx)
+	a.pushUndoLocked(idx)
 	a.save.ClearSlot(idx)
 	return nil
 }
@@ -999,12 +1176,18 @@ func (a *App) DeleteSlot(idx int) error {
 // character data (a phantom produced when a character was deleted in-game but its
 // data block / summary were never cleared). Returns the number of slots cleaned.
 func (a *App) CleanResidualSlots() (int, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return 0, fmt.Errorf("no save loaded")
 	}
+	// Multi-slot writer — take every slotMu rosnąco. core.CleanResidualSlots
+	// may touch any subset of slots so we need them all under lock.
+	a.lockAllSlots()
+	defer a.unlockAllSlots()
 	for i := 0; i < 10; i++ {
 		if a.save.SlotHasResidualData(i) {
-			a.pushUndo(i)
+			a.pushUndoLocked(i)
 		}
 	}
 	return a.save.CleanResidualSlots(), nil
@@ -1014,11 +1197,20 @@ func (a *App) CleanResidualSlots() (int, error) {
 // the per-slot active flag (0x1954) — exactly what the game's character-select
 // reads. A slot with residual data but a cleared flag (phantom) reports inactive,
 // so the UI roster matches the console.
+//
+// Multi-slot reader: takes saveMu.RLock + every slotMu[0..9] (ascending) so
+// the returned snapshot is consistent with the slotMu policy that protects
+// ActiveSlots[i] writes (SetSlotActivity, CloneSlot, DeleteSlot,
+// CleanResidualSlots).
 func (a *App) GetActiveSlots() []bool {
 	active := make([]bool, 10)
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return active
 	}
+	a.lockAllSlots()
+	defer a.unlockAllSlots()
 	copy(active, a.save.ActiveSlots[:])
 	return active
 }
@@ -1032,9 +1224,16 @@ func (a *App) GetCharacterNames() []string {
 	for i := range names {
 		names[i] = "Empty Slot"
 	}
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return names
 	}
+	// Multi-slot reader — every Slots[i].Player.CharacterName,
+	// ProfileSummaries[i].CharacterName and ActiveSlots[i] are protected
+	// by their respective slotMu[i]. Take all 10 ascending.
+	a.lockAllSlots()
+	defer a.unlockAllSlots()
 	for i := 0; i < 10; i++ {
 		if !a.save.ActiveSlots[i] {
 			continue
@@ -1053,6 +1252,8 @@ func (a *App) GetCharacterNames() []string {
 // GetSourceActiveSlots returns the activity status of all 10 slots in the source file
 func (a *App) GetSourceActiveSlots() []bool {
 	active := make([]bool, 10)
+	a.sourceSaveMu.RLock()
+	defer a.sourceSaveMu.RUnlock()
 	if a.sourceSave == nil {
 		return active
 	}
@@ -1065,15 +1266,24 @@ func (a *App) GetSourceActiveSlots() []bool {
 
 // SetSlotActivity toggles a slot's active status
 func (a *App) SetSlotActivity(index int, active bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
+	if index < 0 || index >= 10 {
+		return fmt.Errorf("invalid slot index %d", index)
+	}
+	a.slotMu[index].Lock()
+	defer a.slotMu[index].Unlock()
 	a.save.ActiveSlots[index] = active
 	return nil
 }
 
 // GetSteamIDString returns the SteamID as a decimal string to avoid JS float64 precision loss.
 func (a *App) GetSteamIDString() string {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return ""
 	}
@@ -1082,6 +1292,8 @@ func (a *App) GetSteamIDString() string {
 
 // SetSteamIDFromString parses a decimal string and updates the SteamID.
 func (a *App) SetSteamIDFromString(s string) error {
+	a.saveMu.Lock()
+	defer a.saveMu.Unlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
@@ -1093,8 +1305,16 @@ func (a *App) SetSteamIDFromString(s string) error {
 	return nil
 }
 
-// pushUndo takes a deep-copy snapshot of the given slot and pushes it onto the undo stack.
-func (a *App) pushUndo(idx int) {
+// pushUndoLocked takes a deep-copy snapshot of the given slot and pushes it
+// onto the undo stack.
+//
+// Contract: caller MUST hold exclusive access to slot[idx] for the duration
+// of this call. Today serialization is provided implicitly by the Wails
+// dispatch model + per-endpoint defensive checks; in the upcoming slot-lock
+// phase the caller will hold slotMu[idx]. The "Locked" suffix marks that
+// this helper neither acquires that lock nor takes a snapshot of the undo
+// stack itself — so it must not be called concurrently for the same idx.
+func (a *App) pushUndoLocked(idx int) {
 	slot := &a.save.Slots[idx]
 
 	// Deep copy Data
@@ -1145,14 +1365,59 @@ func (a *App) pushUndo(idx int) {
 	a.undoStacks[idx] = append(stack, snap)
 }
 
+// lockAllSlots takes every slotMu[0..maxCharacters-1] in strictly ascending
+// index order. Caller MUST call unlockAllSlots (typically via defer) on the
+// same goroutine to release them in descending order. Used by multi-slot
+// operations (CleanResidualSlots, GetActiveSlots, GetCharacterNames,
+// AuditLoadedSaveIssues, writeTempSave) so they cannot deadlock with each
+// other — the rosnąco rule is invariant across every multi-slot caller.
+func (a *App) lockAllSlots() {
+	for i := 0; i < maxCharacters; i++ {
+		a.slotMu[i].Lock()
+	}
+}
+
+// unlockAllSlots releases every slotMu acquired by lockAllSlots, in
+// descending order. Safe to defer immediately after lockAllSlots().
+func (a *App) unlockAllSlots() {
+	for i := maxCharacters - 1; i >= 0; i-- {
+		a.slotMu[i].Unlock()
+	}
+}
+
+// lockSlotPair takes slotMu[a] and slotMu[b] in ascending order. When the
+// two indices are equal it acquires only one lock — Go's sync.Mutex is not
+// reentrant, so double-acquiring would deadlock. Returns an unlock closure
+// that releases in the correct (descending) order. Used by CloneSlot.
+func (a *App) lockSlotPair(idx1, idx2 int) (unlock func()) {
+	if idx1 == idx2 {
+		a.slotMu[idx1].Lock()
+		return func() { a.slotMu[idx1].Unlock() }
+	}
+	lo, hi := idx1, idx2
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	a.slotMu[lo].Lock()
+	a.slotMu[hi].Lock()
+	return func() {
+		a.slotMu[hi].Unlock()
+		a.slotMu[lo].Unlock()
+	}
+}
+
 // RevertSlot pops the last snapshot from the undo stack and restores the slot.
 func (a *App) RevertSlot(idx int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if idx < 0 || idx >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[idx].Lock()
+	defer a.slotMu[idx].Unlock()
 	stack := a.undoStacks[idx]
 	if len(stack) == 0 {
 		return fmt.Errorf("nothing to undo for slot %d", idx)
@@ -1189,9 +1454,13 @@ func (a *App) RevertSlot(idx int) error {
 
 // GetUndoDepth returns the number of undo snapshots available for a slot.
 func (a *App) GetUndoDepth(idx int) int {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil || idx < 0 || idx >= 10 {
 		return 0
 	}
+	a.slotMu[idx].Lock()
+	defer a.slotMu[idx].Unlock()
 	return len(a.undoStacks[idx])
 }
 
@@ -1249,6 +1518,8 @@ func (a *App) clearAllEditSessions() {
 
 // GetNetworkParams reads the current invasion matchmaking parameters from the save's regulation.
 func (a *App) GetNetworkParams() (*core.NetworkParamValues, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
@@ -1260,9 +1531,36 @@ func (a *App) GetNetworkParams() (*core.NetworkParamValues, error) {
 
 // SetNetworkParams patches the invasion matchmaking parameters in the save's regulation.
 func (a *App) SetNetworkParams(params core.NetworkParamValues) error {
+	a.saveMu.Lock()
+	defer a.saveMu.Unlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
+	return a.setNetworkParamsLocked(params)
+}
+
+// ResetNetworkParams restores vanilla defaults for all network parameters.
+//
+// Delegates to the internal locked worker (not the public SetNetworkParams)
+// to avoid double-acquire of saveMu.Lock (sync.RWMutex.Lock is not
+// reentrant).
+func (a *App) ResetNetworkParams() error {
+	a.saveMu.Lock()
+	defer a.saveMu.Unlock()
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	return a.setNetworkParamsLocked(core.NetworkParamDefaults())
+}
+
+// setNetworkParamsLocked is the internal worker for SetNetworkParams and
+// ResetNetworkParams.
+//
+// Contract: caller MUST have validated `a.save != nil` and MUST hold
+// a.saveMu.Lock for the entire call. The helper reassigns the
+// a.save.UserData11 slice header — not safe for concurrent readers without
+// that exclusive lock.
+func (a *App) setNetworkParamsLocked(params core.NetworkParamValues) error {
 	if len(a.save.UserData11) == 0 {
 		return fmt.Errorf("save has no UserData11 (regulation)")
 	}
@@ -1273,11 +1571,6 @@ func (a *App) SetNetworkParams(params core.NetworkParamValues) error {
 	}
 	a.save.UserData11 = patched
 	return nil
-}
-
-// ResetNetworkParams restores vanilla defaults for all network parameters.
-func (a *App) ResetNetworkParams() error {
-	return a.SetNetworkParams(core.NetworkParamDefaults())
 }
 
 // GetNetworkPreset returns preset values by name without applying them.
@@ -1322,12 +1615,16 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 // availability stats for every Ash of War present in the slot.
 // AoW items absent from the slot are not included — the frontend treats absence as missing.
 func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
 		return nil, fmt.Errorf("invalid character index %d", charIdx)
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 	slot := &a.save.Slots[charIdx]
 	rawCopies := core.ScanAoWAvailability(slot)
 
@@ -1381,19 +1678,23 @@ func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error)
 // save/upload flow.
 func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexRepairReport, error) {
 	var empty core.InventoryIndexRepairReport
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return empty, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
 		return empty, fmt.Errorf("invalid character index")
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 	slot := &a.save.Slots[charIdx]
 
 	if pre := core.ScanDuplicateInventoryIndices(slot); len(pre) == 0 {
 		return empty, nil
 	}
 
-	a.pushUndo(charIdx)
+	a.pushUndoLocked(charIdx)
 	report, err := core.RepairDuplicateInventoryIndices(slot)
 	if err != nil {
 		return empty, err

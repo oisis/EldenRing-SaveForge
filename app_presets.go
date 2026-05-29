@@ -176,18 +176,25 @@ func (a *App) GetBuiltinCharacterPreset(id string) (*vm.CharacterPreset, error) 
 // Inventory, storage, and world state are never modified.
 // Uses KeepName=true to preserve the existing character name.
 func (a *App) ApplyBuiltinCharacterPresetStats(charIdx int, id string) (*vm.PresetApplyResult, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 	for _, p := range builtinCharacterPresets {
 		if p.info.ID == id {
 			if !isStatOnlyPreset(p.preset) {
 				return nil, fmt.Errorf("preset %q is not stat-only", id)
 			}
-			return a.ApplyCharacterPreset(charIdx, p.preset, vm.ApplyOptions{
+			// Call the internal worker directly: re-entering the public
+			// ApplyCharacterPreset would double-acquire slotMu (sync.Mutex
+			// is not reentrant). The wrapper already holds the locks.
+			return a.applyCharacterPresetLocked(charIdx, p.preset, vm.ApplyOptions{
 				ReplaceStats:     true,
 				ReplaceInventory: false,
 				ReplaceStorage:   false,
@@ -223,18 +230,24 @@ func isInventoryCompatiblePreset(p vm.CharacterPreset) bool {
 //   - Preset items are then added to the now-empty inventory.
 //   - This is a FULL REPLACE — destructive. The user must backup the save first.
 func (a *App) ApplyBuiltinCharacterPresetInventory(charIdx int, id string) (*vm.PresetApplyResult, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[charIdx].Lock()
+	defer a.slotMu[charIdx].Unlock()
 	for _, p := range builtinCharacterPresets {
 		if p.info.ID == id {
 			if !isInventoryCompatiblePreset(p.preset) {
 				return nil, fmt.Errorf("preset %q is not inventory-compatible (may have storage, world, or infused items)", id)
 			}
-			return a.ApplyCharacterPreset(charIdx, p.preset, vm.ApplyOptions{
+			// See ApplyBuiltinCharacterPresetStats: bypass the public
+			// entry point to avoid double-acquire of slotMu.
+			return a.applyCharacterPresetLocked(charIdx, p.preset, vm.ApplyOptions{
 				ReplaceStats:     false,
 				ReplaceInventory: true,
 				ReplaceStorage:   false,

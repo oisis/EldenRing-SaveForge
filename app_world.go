@@ -12,12 +12,16 @@ import (
 
 // GetGraces returns all Sites of Grace with visited state from the specified character slot
 func (a *App) GetGraces(slotIndex int) ([]db.GraceEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	graces := db.GetAllGraces()
@@ -41,14 +45,18 @@ func (a *App) GetGraces(slotIndex int) ([]db.GraceEntry, error) {
 // Does not touch LastRestedGrace — the game updates that automatically on arrival.
 // Does not persist the in-world object visual state — EMEVD derives it from the EventFlag at area load.
 func (a *App) SetGraceVisited(slotIndex int, graceID uint32, visited bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -85,12 +93,16 @@ func (a *App) SetGraceVisited(slotIndex int, graceID uint32, visited bool) error
 
 // GetBosses returns all boss encounters with defeated state from the specified character slot
 func (a *App) GetBosses(slotIndex int) ([]db.BossEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	bosses := db.GetAllBosses()
@@ -111,14 +123,18 @@ func (a *App) GetBosses(slotIndex int) ([]db.BossEntry, error) {
 
 // SetBossDefeated sets or clears the defeated flag for a boss in the specified character slot
 func (a *App) SetBossDefeated(slotIndex int, bossID uint32, defeated bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -134,12 +150,16 @@ func (a *App) SetBossDefeated(slotIndex int, bossID uint32, defeated bool) error
 
 // GetSummoningPools returns all summoning pools with activation state from the specified character slot
 func (a *App) GetSummoningPools(slotIndex int) ([]db.SummoningPoolEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	pools := db.GetAllSummoningPools()
@@ -160,14 +180,18 @@ func (a *App) GetSummoningPools(slotIndex int) ([]db.SummoningPoolEntry, error) 
 
 // SetSummoningPoolActivated sets or clears the activation flag for a summoning pool
 func (a *App) SetSummoningPoolActivated(slotIndex int, poolID uint32, activated bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -184,12 +208,16 @@ func (a *App) SetSummoningPoolActivated(slotIndex int, poolID uint32, activated 
 // GetUnlockedRegions returns every known invasion region annotated with the unlock state
 // from the specified character slot's UnlockedRegions list.
 func (a *App) GetUnlockedRegions(slotIndex int) ([]db.RegionEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	entries := db.GetAllRegions()
@@ -209,13 +237,17 @@ func (a *App) GetUnlockedRegions(slotIndex int) ([]db.RegionEntry, error) {
 // and produces a fresh 0x280000-byte buffer that absorbs the size delta in
 // the trailing zero padding.
 func (a *App) SetRegionUnlocked(slotIndex int, regionID uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
-	a.pushUndo(slotIndex)
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.Version == 0 {
@@ -273,13 +305,17 @@ func mergeUnlockedRegions(curatedIDs, existingRaw []uint32) []uint32 {
 // per-area Unlock/Lock and the global Unlock All / Lock All actions. The result
 // is deduped + sorted by core.SetUnlockedRegions.
 func (a *App) BulkSetUnlockedRegions(slotIndex int, regionIDs []uint32) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
-	a.pushUndo(slotIndex)
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.Version == 0 {
@@ -290,12 +326,16 @@ func (a *App) BulkSetUnlockedRegions(slotIndex int, regionIDs []uint32) error {
 
 // GetColosseums returns all colosseums with unlock state from the specified character slot
 func (a *App) GetColosseums(slotIndex int) ([]db.ColosseumEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	colosseums := db.GetAllColosseums()
@@ -316,14 +356,18 @@ func (a *App) GetColosseums(slotIndex int) ([]db.ColosseumEntry, error) {
 
 // SetColosseumUnlocked sets or clears the unlock flag for a colosseum
 func (a *App) SetColosseumUnlocked(slotIndex int, colosseumID uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -366,12 +410,16 @@ func (a *App) SetColosseumUnlocked(slotIndex int, colosseumID uint32, unlocked b
 // GestureGameData is 64×u32 at StorageBoxOffset + DynStorageBox (immediately after storage).
 // Gesture slot IDs vary by body type — some gestures have even/odd variants.
 func (a *App) GetGestures(slotIndex int) ([]db.GestureEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	gestures := db.GetAllGestureSlots()
@@ -416,14 +464,18 @@ func readGestureSlots(slotData []byte, gestureDataOff int) []uint32 {
 // even "body type B" IDs that the game silently ignored, so without this the
 // garbage entries would linger and eat sentinel slots needed for re-unlock.
 func (a *App) SetGestureUnlocked(slotIndex int, gestureID uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	gestureDataOff := slot.StorageBoxOffset + core.DynStorageBox
@@ -486,17 +538,21 @@ func writeGestureSlots(slotData []byte, gestureDataOff int, slots []uint32) {
 // BulkSetGesturesUnlocked adds or removes multiple gestures in a single call.
 // gestureIDs are canonical EvenIDs from the UI; body-type variants are resolved automatically.
 func (a *App) BulkSetGesturesUnlocked(slotIndex int, gestureIDs []uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 	if len(gestureIDs) == 0 {
 		return nil
 	}
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	gestureDataOff := slot.StorageBoxOffset + core.DynStorageBox
@@ -557,12 +613,16 @@ func (a *App) GetQuestNPCs() []string {
 
 // GetQuestProgress returns the quest progression for a specific NPC in a character slot.
 func (a *App) GetQuestProgress(slotIndex int, npcName string) (*db.QuestNPC, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	questSteps, ok := data.QuestData[npcName]
 	if !ok {
@@ -610,12 +670,16 @@ func (a *App) GetQuestProgress(slotIndex int, npcName string) (*db.QuestNPC, err
 
 // SetQuestStep sets all flags for a quest step to their target values.
 func (a *App) SetQuestStep(slotIndex int, npcName string, stepIndex int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	questSteps, ok := data.QuestData[npcName]
 	if !ok {
@@ -625,7 +689,7 @@ func (a *App) SetQuestStep(slotIndex int, npcName string, stepIndex int) error {
 		return fmt.Errorf("invalid step index %d for %s", stepIndex, npcName)
 	}
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -645,12 +709,16 @@ func (a *App) SetQuestStep(slotIndex int, npcName string, stepIndex int) error {
 
 // GetCookbooks returns all cookbooks with unlock state from the specified character slot
 func (a *App) GetCookbooks(slotIndex int) ([]db.CookbookEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	cookbooks := db.GetAllCookbooks()
@@ -669,22 +737,49 @@ func (a *App) GetCookbooks(slotIndex int) ([]db.CookbookEntry, error) {
 	return cookbooks, nil
 }
 
-// SetCookbookUnlocked sets or clears the unlock flag for a cookbook
+// SetCookbookUnlocked sets or clears the unlock flag for a cookbook.
+// Delegates to the internal locked worker so this entry point does not
+// re-enter the public BulkSetCookbooksUnlocked — once slotMu is added the
+// re-entry would double-acquire the per-slot lock.
 func (a *App) SetCookbookUnlocked(slotIndex int, cookbookID uint32, unlocked bool) error {
-	return a.BulkSetCookbooksUnlocked(slotIndex, []uint32{cookbookID}, unlocked)
-}
-
-// BulkSetCookbooksUnlocked sets event flags AND adds/removes inventory items for multiple cookbooks.
-// Single pushUndo — safe for concurrent Wails calls.
-func (a *App) BulkSetCookbooksUnlocked(slotIndex int, cookbookIDs []uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
+	return a.bulkSetCookbooksUnlockedLocked(slotIndex, []uint32{cookbookID}, unlocked)
+}
 
-	a.pushUndo(slotIndex)
+// BulkSetCookbooksUnlocked sets event flags AND adds/removes inventory items for multiple cookbooks.
+// Single pushUndo — safe for concurrent Wails calls.
+func (a *App) BulkSetCookbooksUnlocked(slotIndex int, cookbookIDs []uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if slotIndex < 0 || slotIndex >= 10 {
+		return fmt.Errorf("invalid slot index")
+	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
+	return a.bulkSetCookbooksUnlockedLocked(slotIndex, cookbookIDs, unlocked)
+}
+
+// bulkSetCookbooksUnlockedLocked is the shared worker for SetCookbookUnlocked
+// and BulkSetCookbooksUnlocked.
+//
+// Contract: caller MUST have validated `a.save != nil` and `slotIndex` in
+// range, and MUST hold exclusive access to slot[slotIndex]. In the upcoming
+// lock phase the caller will hold saveMu.RLock + slotMu[slotIndex]. The
+// helper takes exactly one pushUndoLocked snapshot per invocation.
+func (a *App) bulkSetCookbooksUnlockedLocked(slotIndex int, cookbookIDs []uint32, unlocked bool) error {
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -724,12 +819,16 @@ func (a *App) BulkSetCookbooksUnlocked(slotIndex int, cookbookIDs []uint32, unlo
 
 // GetBellBearings returns all bell bearings with unlock state from the specified character slot
 func (a *App) GetBellBearings(slotIndex int) ([]db.BellBearingEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 	slot := &a.save.Slots[slotIndex]
 	entries := db.GetAllBellBearings()
 	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
@@ -750,14 +849,24 @@ func (a *App) GetBellBearings(slotIndex int) ([]db.BellBearingEntry, error) {
 // Twin Maiden Husks, which sets the flag AND consumes the key item from inventory.
 //   - unlocked=true  → set flag, remove the BB key item from inventory/storage
 //   - unlocked=false → clear flag, leave inventory untouched
+//
+// NOTE: this entry point uses its own inline implementation (not the bulk
+// worker) because it propagates db.SetEventFlag errors to the caller, while
+// the bulk path silently tolerates per-flag failures. Keeping the inline
+// implementation preserves the existing single-flag error contract; the
+// upcoming lock phase will wrap this body directly with slotMu[slotIndex].
 func (a *App) SetBellBearingUnlocked(slotIndex int, flagID uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
-	a.pushUndo(slotIndex)
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
+	a.pushUndoLocked(slotIndex)
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
@@ -792,12 +901,16 @@ func syncBellBearingItem(slot *core.SaveSlot, flagID uint32, unlocked bool) {
 
 // GetWhetblades returns all whetblades with unlock state from the specified character slot
 func (a *App) GetWhetblades(slotIndex int) ([]db.WhetbladeEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 	slot := &a.save.Slots[slotIndex]
 	entries := db.GetAllWhetblades()
 	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
@@ -816,14 +929,18 @@ func (a *App) GetWhetblades(slotIndex int) ([]db.WhetbladeEntry, error) {
 // SetWhetbladeUnlocked sets or clears the unlock flag for a whetblade,
 // manages the inventory item, related affinity flags, and the AoW menu flag.
 func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -901,13 +1018,28 @@ func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) 
 // BulkSetBellBearings sets multiple bell bearing flags at once (single undo)
 // and keeps the matching inventory items in sync via syncBellBearingItem.
 func (a *App) BulkSetBellBearings(slotIndex int, flagIDs []uint32, unlocked bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
-	a.pushUndo(slotIndex)
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
+	return a.bulkSetBellBearingsLocked(slotIndex, flagIDs, unlocked)
+}
+
+// bulkSetBellBearingsLocked is the internal worker for BulkSetBellBearings.
+//
+// Contract: caller MUST have validated `a.save != nil` and `slotIndex` in
+// range, and MUST hold exclusive access to slot[slotIndex]. In the upcoming
+// lock phase the caller will hold saveMu.RLock + slotMu[slotIndex]. The
+// helper takes exactly one pushUndoLocked snapshot per invocation and
+// silently tolerates per-flag SetEventFlag failures (bulk semantics).
+func (a *App) bulkSetBellBearingsLocked(slotIndex int, flagIDs []uint32, unlocked bool) error {
+	a.pushUndoLocked(slotIndex)
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
@@ -922,12 +1054,16 @@ func (a *App) BulkSetBellBearings(slotIndex int, flagIDs []uint32, unlocked bool
 
 // GetMapProgress returns all map region flags with their current state
 func (a *App) GetMapProgress(slotIndex int) ([]db.MapEntry, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return nil, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return nil, fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
 	slot := &a.save.Slots[slotIndex]
 	entries := db.GetAllMapEntries()
@@ -949,14 +1085,18 @@ func (a *App) GetMapProgress(slotIndex int) ([]db.MapEntry, error) {
 // SetMapRegionFlags sets or clears both the visible and acquired flags for a map region.
 // Visible flag IDs (62xxx) map to acquired flag IDs (63xxx) via +1000 offset.
 func (a *App) SetMapRegionFlags(slotIndex int, visibleFlagID uint32, enabled bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -984,14 +1124,18 @@ func (a *App) SetMapRegionFlags(slotIndex int, visibleFlagID uint32, enabled boo
 
 // SetMapFlag sets or clears a single map flag
 func (a *App) SetMapFlag(slotIndex int, flagID uint32, enabled bool) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -1008,14 +1152,18 @@ func (a *App) SetMapFlag(slotIndex int, flagID uint32, enabled bool) error {
 // RevealAllMap reveals all map regions (base game + DLC).
 // Internally delegates to revealBaseMap and revealDLCMap to keep the logic separate.
 func (a *App) RevealAllMap(slotIndex int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -1129,14 +1277,18 @@ func putF32(d []byte, off int, v float32) {
 
 // ResetMapExploration clears all map visibility, acquisition, and POI discovery flags
 func (a *App) ResetMapExploration(slotIndex int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -1168,14 +1320,18 @@ func (a *App) ResetMapExploration(slotIndex int) error {
 // RemoveFogOfWar fills the exploration bitfield with 0xFF, removing all Fog of War.
 // See spec/27-map-reveal.md §4 for details.
 func (a *App) RemoveFogOfWar(slotIndex int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
 	if a.save == nil {
 		return fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
 		return fmt.Errorf("invalid slot index")
 	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
 
-	a.pushUndo(slotIndex)
+	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
 	afterRegs, err := resolveAfterRegs(slot)
