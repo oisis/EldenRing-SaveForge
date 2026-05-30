@@ -257,6 +257,107 @@ describe('ImportTemplatePreviewModal — Phase 2B Save to Library', () => {
     });
 });
 
+describe('ImportTemplatePreviewModal — Phase 3D.1 schema v2 metadata', () => {
+    it('renders the Schema v2 version row when summary.version >= 2', () => {
+        const report = makeReport({
+            summary: templates.ImportPreviewSummary.createFrom({
+                inventoryItems: 0,
+                storageItems: 0,
+                weapons: 0,
+                armor: 0,
+                talismans: 0,
+                stackables: 0,
+                aowAssignments: 0,
+                version: 2,
+                selectedSections: ['profile'],
+            }),
+        });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        const versionRow = screen.getByTestId('import-preview-schema-version');
+        expect(versionRow).toHaveTextContent(/v2/i);
+        expect(screen.getByTestId('import-preview-v2-meta')).toBeInTheDocument();
+    });
+
+    it('renders selectedSections only when version >= 2', () => {
+        const report = makeReport({
+            summary: templates.ImportPreviewSummary.createFrom({
+                inventoryItems: 0,
+                storageItems: 0,
+                weapons: 0,
+                armor: 0,
+                talismans: 0,
+                stackables: 0,
+                aowAssignments: 0,
+                version: 2,
+                selectedSections: ['profile', 'stats'],
+            }),
+        });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        const sectionRow = screen.getByTestId('import-preview-selected-sections');
+        expect(sectionRow).toHaveTextContent(/profile/);
+        expect(sectionRow).toHaveTextContent(/stats/);
+    });
+
+    it('renders profileFieldsPresent and statFieldsPresent when non-empty', () => {
+        const report = makeReport({
+            summary: templates.ImportPreviewSummary.createFrom({
+                inventoryItems: 0,
+                storageItems: 0,
+                weapons: 0,
+                armor: 0,
+                talismans: 0,
+                stackables: 0,
+                aowAssignments: 0,
+                version: 2,
+                selectedSections: ['profile', 'stats'],
+                profileFieldsPresent: ['level', 'runes', 'name'],
+                statFieldsPresent: ['vigor', 'mind', 'endurance'],
+            }),
+        });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        const profileRow = screen.getByTestId('import-preview-profile-fields');
+        expect(profileRow).toHaveTextContent(/level/);
+        expect(profileRow).toHaveTextContent(/runes/);
+        expect(profileRow).toHaveTextContent(/name/);
+        const statRow = screen.getByTestId('import-preview-stat-fields');
+        expect(statRow).toHaveTextContent(/vigor/);
+        expect(statRow).toHaveTextContent(/mind/);
+        expect(statRow).toHaveTextContent(/endurance/);
+    });
+
+    it('keeps v1 previews quiet — no Schema v1 row and no selected-sections row', () => {
+        const report = makeReport({
+            summary: templates.ImportPreviewSummary.createFrom({
+                inventoryItems: 12,
+                storageItems: 3,
+                weapons: 4,
+                armor: 1,
+                talismans: 0,
+                stackables: 0,
+                aowAssignments: 0,
+                version: 1,
+                selectedSections: ['inventory.workspace'],
+            }),
+        });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        expect(screen.queryByTestId('import-preview-v2-meta')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-schema-version')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-selected-sections')).not.toBeInTheDocument();
+        // Existing summary content remains visible.
+        const summary = screen.getByTestId('import-preview-summary');
+        expect(summary).toHaveTextContent(/Inventory items:.*12/);
+        expect(summary).toHaveTextContent(/Storage items:.*3/);
+    });
+
+    it('omits the v2 meta block entirely when summary.version is undefined and no profile/stat fields', () => {
+        render(<ImportTemplatePreviewModal report={makeReport()} onClose={() => {}} />);
+        expect(screen.queryByTestId('import-preview-v2-meta')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-schema-version')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-profile-fields')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-stat-fields')).not.toBeInTheDocument();
+    });
+});
+
 describe('isCancelledPreview', () => {
     it('returns true for the cancelled sentinel report', () => {
         expect(

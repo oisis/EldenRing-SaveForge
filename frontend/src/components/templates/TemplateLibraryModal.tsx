@@ -320,6 +320,8 @@ export function TemplateLibraryModal({
                                 const busy = busyID === entry.id;
                                 const editing = editingID === entry.id;
                                 const confirming = confirmDeleteID === entry.id;
+                                const isV2 = (entry.version ?? 0) >= 2;
+                                const applyUnsupportedTitle = 'Apply not supported yet for schema v2';
                                 return (
                                     <li
                                         key={entry.id}
@@ -330,8 +332,20 @@ export function TemplateLibraryModal({
                                         {!editing && (
                                             <div className="flex items-start justify-between gap-2">
                                                 <div className="min-w-0 flex-1">
-                                                    <div className="font-semibold truncate" data-testid="library-entry-name">
-                                                        {entry.name || '(unnamed)'}
+                                                    <div
+                                                        className="font-semibold truncate flex items-center gap-2"
+                                                        data-testid="library-entry-name"
+                                                    >
+                                                        <span className="truncate">{entry.name || '(unnamed)'}</span>
+                                                        {isV2 && (
+                                                            <span
+                                                                data-testid="library-entry-v2-badge"
+                                                                title="Schema v2 template (profile / stats)"
+                                                                className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border border-blue-500/40 bg-blue-500/10 text-blue-600 shrink-0"
+                                                            >
+                                                                v2
+                                                            </span>
+                                                        )}
                                                     </div>
                                                     {entry.description && (
                                                         <div className="text-[11px] text-muted-foreground mt-0.5">
@@ -342,6 +356,11 @@ export function TemplateLibraryModal({
                                                         <span>
                                                             {entry.inventoryItems} inv / {entry.storageItems} storage
                                                         </span>
+                                                        {entry.selectedSections && entry.selectedSections.length > 0 && (
+                                                            <span data-testid="library-entry-sections">
+                                                                sections: {entry.selectedSections.join(', ')}
+                                                            </span>
+                                                        )}
                                                         {entry.tags && entry.tags.length > 0 && (
                                                             <span>tags: {entry.tags.join(', ')}</span>
                                                         )}
@@ -364,8 +383,10 @@ export function TemplateLibraryModal({
                                                         <button
                                                             type="button"
                                                             data-testid="library-apply"
-                                                            disabled={busy || !sessionID}
+                                                            disabled={busy || !sessionID || isV2}
                                                             onClick={() => onApply(entry)}
+                                                            title={isV2 ? applyUnsupportedTitle : undefined}
+                                                            aria-label={isV2 ? applyUnsupportedTitle : 'Apply'}
                                                             className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded bg-green-700/80 text-white hover:bg-green-700 disabled:opacity-40"
                                                         >
                                                             Apply

@@ -40,6 +40,18 @@ export function ImportTemplatePreviewModal({ report, onClose, onApply, applying,
     const warnings = report.warnings ?? [];
     const summary = report.summary;
 
+    // Schema v2 metadata surfaced from ImportPreviewSummary (Phase 3C.0
+    // backend; Phase 3D.0 bindings). v1 reports leave Version=0 and the
+    // string slices empty, so the v2 block stays hidden — keeping the
+    // existing inventory-template UI visually quiet.
+    const schemaVersion = summary?.version ?? 0;
+    const selectedSections = summary?.selectedSections ?? [];
+    const profileFieldsPresent = summary?.profileFieldsPresent ?? [];
+    const statFieldsPresent = summary?.statFieldsPresent ?? [];
+    const isV2 = schemaVersion >= 2;
+    const showV2Meta =
+        isV2 || profileFieldsPresent.length > 0 || statFieldsPresent.length > 0;
+
     return (
         <div
             data-testid="import-preview-modal"
@@ -70,6 +82,41 @@ export function ImportTemplatePreviewModal({ report, onClose, onApply, applying,
                 </div>
 
                 <div className="px-4 py-3 space-y-3 overflow-y-auto text-[12px]">
+                    {/* Schema v2 metadata. Rendered only when the report
+                        actually carries v2-shaped data — v1 reports keep
+                        their existing minimal layout untouched. */}
+                    {showV2Meta && (
+                        <section
+                            data-testid="import-preview-v2-meta"
+                            aria-label="Schema v2 metadata"
+                            className="space-y-0.5"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
+                                Schema
+                            </h3>
+                            {isV2 && (
+                                <div data-testid="import-preview-schema-version">
+                                    Schema: <span className="font-bold">v{schemaVersion}</span>
+                                </div>
+                            )}
+                            {isV2 && selectedSections.length > 0 && (
+                                <div data-testid="import-preview-selected-sections">
+                                    Sections: <span className="font-bold">{selectedSections.join(', ')}</span>
+                                </div>
+                            )}
+                            {profileFieldsPresent.length > 0 && (
+                                <div data-testid="import-preview-profile-fields">
+                                    Profile fields: <span className="font-bold">{profileFieldsPresent.join(', ')}</span>
+                                </div>
+                            )}
+                            {statFieldsPresent.length > 0 && (
+                                <div data-testid="import-preview-stat-fields">
+                                    Stats: <span className="font-bold">{statFieldsPresent.join(', ')}</span>
+                                </div>
+                            )}
+                        </section>
+                    )}
+
                     {/* Summary */}
                     <section data-testid="import-preview-summary" aria-label="Summary">
                         <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Summary</h3>

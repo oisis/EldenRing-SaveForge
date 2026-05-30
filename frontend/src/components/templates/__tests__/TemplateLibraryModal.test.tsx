@@ -339,6 +339,115 @@ describe('TemplateLibraryModal — allowApply gate', () => {
     });
 });
 
+describe('TemplateLibraryModal — Phase 3D.1 schema v2 surface', () => {
+    const v1Entry = {
+        id: 'tpl-v1',
+        name: 'V1 Inventory Pack',
+        description: '',
+        tags: [],
+        filename: 'tpl-v1.json',
+        createdAt: '2026-05-01T10:00:00Z',
+        updatedAt: '2026-05-01T10:00:00Z',
+        inventoryItems: 4,
+        storageItems: 0,
+        warnings: 0,
+        version: 1,
+        selectedSections: ['inventory.workspace'],
+    };
+    const v2Entry = {
+        id: 'tpl-v2',
+        name: 'V2 Profile + Stats',
+        description: 'schema v2 sample',
+        tags: ['build'],
+        filename: 'tpl-v2.json',
+        createdAt: '2026-05-10T12:00:00Z',
+        updatedAt: '2026-05-10T12:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['profile', 'stats'],
+    };
+
+    it('renders a v2 badge for entries with version >= 2 and none for v1', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v1Entry, v2Entry]);
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        await screen.findAllByTestId('library-entry');
+        const badges = screen.getAllByTestId('library-entry-v2-badge');
+        expect(badges).toHaveLength(1);
+        expect(badges[0]).toHaveTextContent(/v2/i);
+        const v1Row = screen.getAllByTestId('library-entry')[0];
+        expect(v1Row).not.toContainElement(badges[0]);
+    });
+
+    it('omits the v2 badge when entry.version is undefined (legacy entries)', async () => {
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        await screen.findAllByTestId('library-entry');
+        expect(screen.queryByTestId('library-entry-v2-badge')).not.toBeInTheDocument();
+    });
+
+    it('renders selectedSections list when present on the entry', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v1Entry, v2Entry]);
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        await screen.findAllByTestId('library-entry');
+        const sectionRows = screen.getAllByTestId('library-entry-sections');
+        expect(sectionRows).toHaveLength(2);
+        expect(sectionRows[0]).toHaveTextContent(/inventory\.workspace/);
+        expect(sectionRows[1]).toHaveTextContent(/profile/);
+        expect(sectionRows[1]).toHaveTextContent(/stats/);
+    });
+
+    it('disables Apply for v2 entries with the unsupported tooltip and does not call onApply', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2Entry]);
+        const onApplied = vi.fn();
+        render(<TemplateLibraryModal {...defaultProps({ onApplied })} />);
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeDisabled();
+        expect(applyBtn).toHaveAttribute('title', 'Apply not supported yet for schema v2');
+        expect(applyBtn).toHaveAttribute('aria-label', 'Apply not supported yet for schema v2');
+        fireEvent.click(applyBtn);
+        expect(mocks.ApplyBuildTemplateFromLibrary).not.toHaveBeenCalled();
+        expect(onApplied).not.toHaveBeenCalled();
+    });
+
+    it('keeps Apply enabled for v1 entries and still calls ApplyBuildTemplateFromLibrary', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v1Entry]);
+        mocks.ApplyBuildTemplateFromLibrary.mockResolvedValue({
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            workspace: { sessionID: 'ses-test' },
+            applied: true,
+        });
+        const onApplied = vi.fn();
+        render(<TemplateLibraryModal {...defaultProps({ onApplied })} />);
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeEnabled();
+        expect(applyBtn).not.toHaveAttribute('title', 'Apply not supported yet for schema v2');
+        await act(async () => {
+            fireEvent.click(applyBtn);
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateFromLibrary).toHaveBeenCalledWith(
+                'ses-test',
+                'tpl-v1',
+                expect.objectContaining({ mode: 'append' }),
+            );
+        });
+        expect(onApplied).toHaveBeenCalled();
+    });
+
+    it('keeps Preview, Export, Rename and Delete available on v2 entries', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2Entry]);
+        const onExportAsYAML = vi.fn();
+        render(<TemplateLibraryModal {...defaultProps({ onExportAsYAML })} />);
+        await screen.findAllByTestId('library-entry');
+        expect(screen.getByTestId('library-preview')).toBeEnabled();
+        expect(screen.getByTestId('library-export')).toBeEnabled();
+        expect(screen.getByTestId('library-export-yaml')).toBeEnabled();
+        expect(screen.getByTestId('library-rename')).toBeEnabled();
+        expect(screen.getByTestId('library-delete')).toBeEnabled();
+    });
+});
+
 describe('TemplateLibraryModal — Export to file', () => {
     it('calls ExportLibraryBuildTemplateToFile and forwards result via onExportedToFile', async () => {
         mocks.ExportLibraryBuildTemplateToFile.mockResolvedValue({
