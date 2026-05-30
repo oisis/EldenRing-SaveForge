@@ -221,7 +221,7 @@ func TestYAML_RejectsWrongSchema(t *testing.T) {
 
 func TestYAML_RejectsUnsupportedVersion(t *testing.T) {
 	tpl := yamlFixtureTemplate()
-	tpl.Version = SchemaVersion + 1
+	tpl.Version = MaxSchemaVersion + 1
 	// Marshal goes through validator → must reject directly.
 	if _, err := MarshalBuildTemplateYAML(tpl); err == nil {
 		t.Fatal("expected MarshalBuildTemplateYAML to refuse unsupported version")
@@ -295,6 +295,192 @@ sections:
 `)
 	if _, err := ParseBuildTemplateYAML(emptySecond); err == nil {
 		t.Error("expected error for trailing empty second document")
+	}
+}
+
+// ─── Phase 3A — schema v2 YAML tests ─────────────────────────────────────
+
+// TestYAMLv2_RoundTrip exercises the v2 codec on a fully-populated
+// template (profile + stats + inventory.workspace, mixed boolean /
+// per-field selection). The decoded copy must validate and survive a
+// re-marshal/decode cycle.
+func TestYAMLv2_RoundTrip(t *testing.T) {
+	tpl := &BuildTemplate{
+		Schema:     SchemaKey,
+		Version:    2,
+		CreatedAt:  "2026-05-30T12:00:00Z",
+		AppVersion: "1.0.0-beta1",
+		Selection: &TemplateSelection{
+			Profile: &SectionSelection{
+				Fields: map[string]bool{
+					"level": true,
+					"runes": true,
+				},
+			},
+			Stats: &SectionSelection{All: true},
+		},
+		Sections: TemplateSections{
+			Profile: &ProfileSection{
+				Level: u32p(150),
+				Runes: u32p(0),
+			},
+			Stats: &StatsSection{
+				Vigor:        u32p(60),
+				Intelligence: u32p(80),
+			},
+		},
+	}
+	data, err := MarshalBuildTemplateYAML(tpl)
+	if err != nil {
+		t.Fatalf("MarshalBuildTemplateYAML: %v", err)
+	}
+	got, err := ParseBuildTemplateYAML(data)
+	if err != nil {
+		t.Fatalf("ParseBuildTemplateYAML: %v\nyaml:\n%s", err, data)
+	}
+	if got.Version != 2 {
+		t.Fatalf("version drift on YAML round-trip: %d\nyaml:\n%s", got.Version, data)
+	}
+	if got.Selection == nil || got.Selection.Stats == nil || !got.Selection.Stats.All {
+		t.Fatalf("stats boolean shortcut lost: %+v\nyaml:\n%s", got.Selection, data)
+	}
+	if got.Selection.Profile == nil || !got.Selection.Profile.Selected("level") {
+		t.Fatalf("profile per-field selection lost: %+v\nyaml:\n%s", got.Selection.Profile, data)
+	}
+	if got.Sections.Profile == nil || got.Sections.Profile.Level == nil || *got.Sections.Profile.Level != 150 {
+		t.Fatalf("profile.level lost: %+v\nyaml:\n%s", got.Sections.Profile, data)
+	}
+	if got.Sections.Stats == nil || got.Sections.Stats.Vigor == nil || *got.Sections.Stats.Vigor != 60 {
+		t.Fatalf("stats.vigor lost: %+v\nyaml:\n%s", got.Sections.Stats, data)
+	}
+}
+
+func TestYAMLv2_AcceptsHandwrittenDocument(t *testing.T) {
+	payload := []byte(`schema: saveforge.build-template
+version: 2
+createdAt: "2026-05-30T12:00:00Z"
+selection:
+  stats: true
+sections:
+  stats:
+    vigor: 60
+    mind: 25
+`)
+	got, err := ParseBuildTemplateYAML(payload)
+	if err != nil {
+		t.Fatalf("ParseBuildTemplateYAML: %v", err)
+	}
+	if got.Version != 2 {
+		t.Fatalf("version: got %d", got.Version)
+	}
+	if got.Selection == nil || got.Selection.Stats == nil || !got.Selection.Stats.All {
+		t.Fatalf("selection.stats boolean shortcut not decoded: %+v", got.Selection)
+	}
+	if got.Sections.Stats == nil || got.Sections.Stats.Vigor == nil || *got.Sections.Stats.Vigor != 60 {
+		t.Fatalf("stats.vigor not decoded: %+v", got.Sections.Stats)
+	}
+}
+
+// TestYAMLv2_RejectsUnknownSelectionSection asserts the strict-decode
+// gate at the TemplateSelection layer: an unknown section key like
+// `selection.equipment` must be refused without ever reaching the
+// SectionSelection custom decoder.
+func TestYAMLv2_RejectsUnknownSelectionSection(t *testing.T) {
+	payload := []byte(`schema: saveforge.build-template
+version: 2
+createdAt: "2026-05-30T12:00:00Z"
+selection:
+  equipment: true
+sections:
+  stats:
+    vigor: 60
+`)
+	if _, err := ParseBuildTemplateYAML(payload); err == nil {
+		t.Fatal("expected strict decode to reject unknown selection section")
+	}
+}
+
+// TestYAMLv2_RejectsUnknownSelectionFieldKey verifies the validator
+// (rather than the decoder) rejects unknown keys inside a per-section
+// selection map — yaml.v3 KnownFields does not propagate into the
+// SectionSelection.Fields map decode.
+func TestYAMLv2_RejectsUnknownSelectionFieldKey(t *testing.T) {
+	payload := []byte(`schema: saveforge.build-template
+version: 2
+createdAt: "2026-05-30T12:00:00Z"
+selection:
+  profile:
+    level: true
+    bogusField: true
+sections:
+  profile:
+    level: 150
+`)
+	if _, err := ParseBuildTemplateYAML(payload); err == nil {
+		t.Fatal("expected validator to reject unknown selection.profile field key")
+	}
+}
+
+func TestYAMLv2_RejectsMissingSelection(t *testing.T) {
+	payload := []byte(`schema: saveforge.build-template
+version: 2
+createdAt: "2026-05-30T12:00:00Z"
+sections:
+  stats:
+    vigor: 60
+`)
+	if _, err := ParseBuildTemplateYAML(payload); err == nil {
+		t.Fatal("expected v2 without selection to be rejected")
+	}
+}
+
+// TestYAMLv2_OmitsForbiddenTechFields is the v2 twin of
+// TestYAML_OmitsForbiddenFields. The v2 encoder must not leak
+// session-/handle-/save-blob-shaped tokens through any of the new
+// section payloads.
+func TestYAMLv2_OmitsForbiddenTechFields(t *testing.T) {
+	tpl := &BuildTemplate{
+		Schema:    SchemaKey,
+		Version:   2,
+		CreatedAt: "2026-05-30T12:00:00Z",
+		Selection: &TemplateSelection{
+			Profile: &SectionSelection{All: true},
+			Stats:   &SectionSelection{All: true},
+		},
+		Sections: TemplateSections{
+			Profile: &ProfileSection{
+				Name:                strp("Tarnished"),
+				Level:               u32p(150),
+				TalismanSlots:       u8p(2),
+				ScadutreeBlessing:   u8p(10),
+				ShadowRealmBlessing: u8p(5),
+			},
+			Stats: &StatsSection{
+				Vigor:        u32p(60),
+				Intelligence: u32p(80),
+			},
+		},
+	}
+	data, err := MarshalBuildTemplateYAML(tpl)
+	if err != nil {
+		t.Fatalf("MarshalBuildTemplateYAML: %v", err)
+	}
+	body := strings.ToLower(string(data))
+	forbidden := []string{
+		"handle",
+		"acquisitionindex",
+		"eventflag",
+		"facedata",
+		"saveblob",
+		"gaitem",
+		"originalhandle",
+		"uid:",
+		"steamid",
+	}
+	for _, needle := range forbidden {
+		if strings.Contains(body, needle) {
+			t.Errorf("forbidden technical token %q leaked into v2 YAML:\n%s", needle, data)
+		}
 	}
 }
 

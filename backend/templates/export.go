@@ -162,6 +162,12 @@ func convertItems(items []editor.EditableItem, container string, report *ExportR
 // any DB lookups. It is the gate used at import time to fail fast on
 // malformed payloads; DB-level checks (item ID exists, AoW compat) are a
 // later phase.
+//
+// Phase 3A dispatches by Version: the v1 branch remains semantically
+// identical to the original validator; the v2 branch is delegated to
+// validateBuildTemplateV2 in schema.go. The shared preamble (nil /
+// schema / version range) stays here so error messages and ordering are
+// unchanged for every v1 caller.
 func ValidateBuildTemplate(tpl *BuildTemplate) error {
 	if tpl == nil {
 		return fmt.Errorf("ValidateBuildTemplate: nil template")
@@ -172,23 +178,26 @@ func ValidateBuildTemplate(tpl *BuildTemplate) error {
 	if tpl.Version <= 0 {
 		return fmt.Errorf("ValidateBuildTemplate: invalid version %d", tpl.Version)
 	}
-	if tpl.Version > SchemaVersion {
-		return fmt.Errorf("ValidateBuildTemplate: unsupported version %d (max supported %d)", tpl.Version, SchemaVersion)
+	if tpl.Version > MaxSchemaVersion {
+		return fmt.Errorf("ValidateBuildTemplate: unsupported version %d (max supported %d)", tpl.Version, MaxSchemaVersion)
 	}
-	if tpl.Sections.InventoryWorkspace == nil {
-		return fmt.Errorf("ValidateBuildTemplate: missing inventory.workspace section")
+	if tpl.Version == 1 {
+		if tpl.Sections.InventoryWorkspace == nil {
+			return fmt.Errorf("ValidateBuildTemplate: missing inventory.workspace section")
+		}
+		sec := tpl.Sections.InventoryWorkspace
+		if len(sec.InventoryItems) == 0 && len(sec.StorageItems) == 0 {
+			return fmt.Errorf("ValidateBuildTemplate: inventory.workspace is empty")
+		}
+		if err := validateItems(sec.InventoryItems, ContainerInventory); err != nil {
+			return err
+		}
+		if err := validateItems(sec.StorageItems, ContainerStorage); err != nil {
+			return err
+		}
+		return nil
 	}
-	sec := tpl.Sections.InventoryWorkspace
-	if len(sec.InventoryItems) == 0 && len(sec.StorageItems) == 0 {
-		return fmt.Errorf("ValidateBuildTemplate: inventory.workspace is empty")
-	}
-	if err := validateItems(sec.InventoryItems, ContainerInventory); err != nil {
-		return err
-	}
-	if err := validateItems(sec.StorageItems, ContainerStorage); err != nil {
-		return err
-	}
-	return nil
+	return validateBuildTemplateV2(tpl)
 }
 
 func validateItems(items []TemplateItem, expectedContainer string) error {

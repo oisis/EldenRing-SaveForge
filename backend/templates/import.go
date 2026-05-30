@@ -168,11 +168,18 @@ func PreviewBuildTemplateImport(tpl *BuildTemplate, opts ImportPreviewOptions) I
 		})
 	}
 
-	sec := tpl.Sections.InventoryWorkspace
-	rep.Summary.InventoryItems = len(sec.InventoryItems)
-	rep.Summary.StorageItems = len(sec.StorageItems)
-	previewItems(sec.InventoryItems, ContainerInventory, &rep)
-	previewItems(sec.StorageItems, ContainerStorage, &rep)
+	// v1 documents are guaranteed by ValidateBuildTemplate to carry a
+	// non-nil InventoryWorkspace; v2 documents may omit it (selection
+	// is the source of truth). Guard so the per-item preview path
+	// stays safe for both shapes — Phase 3A intentionally skips v2-
+	// only sections (profile / stats) here; per-section preview lands
+	// in a later phase together with the apply layer.
+	if sec := tpl.Sections.InventoryWorkspace; sec != nil {
+		rep.Summary.InventoryItems = len(sec.InventoryItems)
+		rep.Summary.StorageItems = len(sec.StorageItems)
+		previewItems(sec.InventoryItems, ContainerInventory, &rep)
+		previewItems(sec.StorageItems, ContainerStorage, &rep)
+	}
 
 	rep.OK = len(rep.Errors) == 0
 	return rep
