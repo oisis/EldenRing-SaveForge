@@ -1321,6 +1321,24 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class BuildTemplateV2ExportOptions {
+	    name: string;
+	    description: string;
+	    author: string;
+	    tags: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new BuildTemplateV2ExportOptions(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.author = source["author"];
+	        this.tags = source["tags"];
+	    }
+	}
 	export class BuiltinCharacterPresetInfo {
 	    id: string;
 	    name: string;
@@ -1738,6 +1756,10 @@ export namespace templates {
 	    talismans: number;
 	    stackables: number;
 	    aowAssignments: number;
+	    version?: number;
+	    selectedSections?: string[];
+	    profileFieldsPresent?: string[];
+	    statFieldsPresent?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ImportPreviewSummary(source);
@@ -1752,6 +1774,10 @@ export namespace templates {
 	        this.talismans = source["talismans"];
 	        this.stackables = source["stackables"];
 	        this.aowAssignments = source["aowAssignments"];
+	        this.version = source["version"];
+	        this.selectedSections = source["selectedSections"];
+	        this.profileFieldsPresent = source["profileFieldsPresent"];
+	        this.statFieldsPresent = source["statFieldsPresent"];
 	    }
 	}
 	export class ImportPreviewReport {
@@ -1802,6 +1828,8 @@ export namespace templates {
 	    inventoryItems: number;
 	    storageItems: number;
 	    warnings: number;
+	    version?: number;
+	    selectedSections?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new LibraryTemplateEntry(source);
@@ -1819,6 +1847,8 @@ export namespace templates {
 	        this.inventoryItems = source["inventoryItems"];
 	        this.storageItems = source["storageItems"];
 	        this.warnings = source["warnings"];
+	        this.version = source["version"];
+	        this.selectedSections = source["selectedSections"];
 	    }
 	}
 

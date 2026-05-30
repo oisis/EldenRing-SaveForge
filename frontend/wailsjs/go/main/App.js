@@ -122,6 +122,14 @@ export function ExportBuildTemplateToFile(arg1, arg2) {
   return window['go']['main']['App']['ExportBuildTemplateToFile'](arg1, arg2);
 }
 
+export function ExportBuildTemplateV2JSONFromCharacter(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportBuildTemplateV2JSONFromCharacter'](arg1, arg2, arg3);
+}
+
+export function ExportBuildTemplateV2YAMLFromCharacter(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExportBuildTemplateV2YAMLFromCharacter'](arg1, arg2, arg3);
+}
+
 export function ExportCharacterPresetToFile(arg1, arg2) {
   return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1, arg2);
 }
@@ -338,6 +346,10 @@ export function PreviewBuildTemplateImportYAMLFromFile() {
   return window['go']['main']['App']['PreviewBuildTemplateImportYAMLFromFile']();
 }
 
+export function PreviewBuildTemplateV2FromCharacter(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PreviewBuildTemplateV2FromCharacter'](arg1, arg2, arg3);
+}
+
 export function RebuildBuildTemplateLibraryIndex() {
   return window['go']['main']['App']['RebuildBuildTemplateLibraryIndex']();
 }
@@ -396,6 +408,10 @@ export function RevertSlot(arg1) {
 
 export function SaveBuildTemplateToLibrary(arg1, arg2) {
   return window['go']['main']['App']['SaveBuildTemplateToLibrary'](arg1, arg2);
+}
+
+export function SaveBuildTemplateV2FromCharacterToLibrary(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveBuildTemplateV2FromCharacterToLibrary'](arg1, arg2, arg3);
 }
 
 export function SaveCharacter(arg1, arg2) {

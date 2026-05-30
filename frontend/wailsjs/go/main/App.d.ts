@@ -68,6 +68,10 @@ export function ExportBuildTemplateJSON(arg1:string,arg2:main.BuildTemplateExpor
 
 export function ExportBuildTemplateToFile(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<main.BuildTemplateExportResult>;
 
+export function ExportBuildTemplateV2JSONFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
+
+export function ExportBuildTemplateV2YAMLFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
+
 export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSettings):Promise<string>;
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
@@ -176,6 +180,8 @@ export function PreviewBuildTemplateImportJSON(arg1:string):Promise<templates.Im
 
 export function PreviewBuildTemplateImportYAMLFromFile():Promise<main.LoadedTemplatePreview>;
 
+export function PreviewBuildTemplateV2FromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<main.LoadedTemplatePreview>;
+
 export function RebuildBuildTemplateLibraryIndex():Promise<Array<templates.LibraryTemplateEntry>>;
 
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
@@ -205,6 +211,8 @@ export function RevealAllMap(arg1:number):Promise<void>;
 export function RevertSlot(arg1:number):Promise<void>;
 
 export function SaveBuildTemplateToLibrary(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<templates.LibraryTemplateEntry>;
+
+export function SaveBuildTemplateV2FromCharacterToLibrary(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<templates.LibraryTemplateEntry>;
 
 export function SaveCharacter(arg1:number,arg2:vm.CharacterViewModel):Promise<void>;
 
