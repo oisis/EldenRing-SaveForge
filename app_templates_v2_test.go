@@ -296,3 +296,300 @@ func TestPreviewBuildTemplateV2FromCharacter_JSONMatchesExport(t *testing.T) {
 		t.Errorf("preview.JSON differs from export output\nexport:  %s\npreview: %s", exported, preview.JSON)
 	}
 }
+
+// ─── Phase 3C.2 — YAML string export + Save to Library ──────────────────
+
+// libraryV2Fixture builds on profileStatsFixture and injects a fresh
+// per-test library directory through Go's t.TempDir so the system config
+// dir is never touched. Mirrors the pattern used in
+// app_templates_library_test.go.
+func libraryV2Fixture(t *testing.T) *App {
+	t.Helper()
+	app := profileStatsFixture()
+	app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
+	return app
+}
+
+func TestExportBuildTemplateV2YAMLFromCharacter_ProfileStatsAll(t *testing.T) {
+	app := profileStatsFixture()
+	sel := `{"profile":true,"stats":true}`
+	yamlText, err := app.ExportBuildTemplateV2YAMLFromCharacter(0, sel, BuildTemplateV2ExportOptions{
+		Name: "YAML v2",
+	})
+	if err != nil {
+		t.Fatalf("YAML Export: %v", err)
+	}
+	if yamlText == "" {
+		t.Fatal("YAML output must be non-empty")
+	}
+	for _, want := range []string{"schema:", "version: 2", "selection:", "sections:"} {
+		if !strings.Contains(yamlText, want) {
+			t.Errorf("YAML missing %q\n%s", want, yamlText)
+		}
+	}
+	tpl, err := templates.ParseBuildTemplateYAML([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ParseBuildTemplateYAML: %v\n%s", err, yamlText)
+	}
+	if tpl.Version != 2 {
+		t.Errorf("Version = %d, want 2", tpl.Version)
+	}
+	if tpl.Sections.Profile == nil || tpl.Sections.Profile.Level == nil || *tpl.Sections.Profile.Level != 50 {
+		t.Errorf("Sections.Profile.Level lost across YAML round-trip: %+v", tpl.Sections.Profile)
+	}
+	if tpl.Sections.Stats == nil || tpl.Sections.Stats.Vigor == nil || *tpl.Sections.Stats.Vigor != 20 {
+		t.Errorf("Sections.Stats.Vigor lost across YAML round-trip: %+v", tpl.Sections.Stats)
+	}
+}
+
+func TestExportBuildTemplateV2YAMLFromCharacter_YAMLAndJSONSemanticallyEquivalent(t *testing.T) {
+	app := profileStatsFixture()
+	sel := `{"profile":true,"stats":true}`
+	opts := BuildTemplateV2ExportOptions{Name: "parity"}
+
+	jsonText, err := app.ExportBuildTemplateV2JSONFromCharacter(0, sel, opts)
+	if err != nil {
+		t.Fatalf("JSON Export: %v", err)
+	}
+	yamlText, err := app.ExportBuildTemplateV2YAMLFromCharacter(0, sel, opts)
+	if err != nil {
+		t.Fatalf("YAML Export: %v", err)
+	}
+
+	tplFromJSON, err := templates.ParseBuildTemplateJSON([]byte(jsonText))
+	if err != nil {
+		t.Fatalf("ParseBuildTemplateJSON: %v", err)
+	}
+	tplFromYAML, err := templates.ParseBuildTemplateYAML([]byte(yamlText))
+	if err != nil {
+		t.Fatalf("ParseBuildTemplateYAML: %v", err)
+	}
+
+	if tplFromJSON.Version != tplFromYAML.Version {
+		t.Errorf("Version mismatch: json=%d yaml=%d", tplFromJSON.Version, tplFromYAML.Version)
+	}
+	if tplFromJSON.Metadata == nil || tplFromYAML.Metadata == nil {
+		t.Fatal("Metadata missing in one of the encodings")
+	}
+	if tplFromJSON.Metadata.SourceCharacterName != tplFromYAML.Metadata.SourceCharacterName {
+		t.Errorf("SourceCharacterName mismatch: json=%q yaml=%q",
+			tplFromJSON.Metadata.SourceCharacterName, tplFromYAML.Metadata.SourceCharacterName)
+	}
+	if tplFromJSON.Selection.Profile.All != tplFromYAML.Selection.Profile.All {
+		t.Errorf("Selection.Profile.All mismatch: json=%v yaml=%v",
+			tplFromJSON.Selection.Profile.All, tplFromYAML.Selection.Profile.All)
+	}
+	if tplFromJSON.Selection.Stats.All != tplFromYAML.Selection.Stats.All {
+		t.Errorf("Selection.Stats.All mismatch: json=%v yaml=%v",
+			tplFromJSON.Selection.Stats.All, tplFromYAML.Selection.Stats.All)
+	}
+	if *tplFromJSON.Sections.Profile.Level != *tplFromYAML.Sections.Profile.Level {
+		t.Errorf("Sections.Profile.Level mismatch")
+	}
+	if *tplFromJSON.Sections.Profile.Runes != *tplFromYAML.Sections.Profile.Runes {
+		t.Errorf("Sections.Profile.Runes mismatch")
+	}
+	if *tplFromJSON.Sections.Stats.Vigor != *tplFromYAML.Sections.Stats.Vigor {
+		t.Errorf("Sections.Stats.Vigor mismatch")
+	}
+	if *tplFromJSON.Sections.Stats.Mind != *tplFromYAML.Sections.Stats.Mind {
+		t.Errorf("Sections.Stats.Mind mismatch")
+	}
+}
+
+func TestExportBuildTemplateV2YAMLFromCharacter_MalformedSelectionRejected(t *testing.T) {
+	app := profileStatsFixture()
+	_, err := app.ExportBuildTemplateV2YAMLFromCharacter(0, "not json", BuildTemplateV2ExportOptions{})
+	if err == nil {
+		t.Fatal("expected error for malformed selection JSON")
+	}
+	if !strings.Contains(err.Error(), "parse selection") {
+		t.Errorf("error must mention parse selection, got %q", err.Error())
+	}
+}
+
+func TestExportBuildTemplateV2YAMLFromCharacter_NoSaveLoadedRejected(t *testing.T) {
+	app := NewApp()
+	_, err := app.ExportBuildTemplateV2YAMLFromCharacter(0, `{"profile":true}`, BuildTemplateV2ExportOptions{})
+	if err == nil {
+		t.Fatal("expected error when no save loaded")
+	}
+	if !strings.Contains(err.Error(), "no save loaded") {
+		t.Errorf("error must mention no save loaded, got %q", err.Error())
+	}
+}
+
+func TestExportBuildTemplateV2YAMLFromCharacter_StatsOutOfRangeRejected(t *testing.T) {
+	app := profileStatsFixture()
+	app.save.Slots[0].Player.Vigor = 100
+	_, err := app.ExportBuildTemplateV2YAMLFromCharacter(0, `{"stats":true}`, BuildTemplateV2ExportOptions{})
+	if err == nil {
+		t.Fatal("expected error for stats out of range")
+	}
+	if !strings.Contains(err.Error(), "build v2 template") {
+		t.Errorf("error must wrap builder failure, got %q", err.Error())
+	}
+}
+
+func TestSaveBuildTemplateV2FromCharacterToLibrary_ProfileStats(t *testing.T) {
+	app := libraryV2Fixture(t)
+	entry, err := app.SaveBuildTemplateV2FromCharacterToLibrary(0,
+		`{"profile":true,"stats":true}`,
+		BuildTemplateV2ExportOptions{Name: "L1 v2"},
+	)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if entry.Version != 2 {
+		t.Errorf("entry.Version = %d, want 2", entry.Version)
+	}
+	want := []string{"profile", "stats"}
+	if len(entry.SelectedSections) != 2 ||
+		entry.SelectedSections[0] != want[0] ||
+		entry.SelectedSections[1] != want[1] {
+		t.Errorf("SelectedSections = %v, want %v", entry.SelectedSections, want)
+	}
+	if entry.InventoryItems != 0 || entry.StorageItems != 0 {
+		t.Errorf("inventory/storage should remain 0 for v2 profile/stats-only, got inv=%d sto=%d",
+			entry.InventoryItems, entry.StorageItems)
+	}
+	if entry.Name != "L1 v2" {
+		t.Errorf("entry.Name = %q, want %q", entry.Name, "L1 v2")
+	}
+	if entry.ID == "" {
+		t.Error("entry.ID must be non-empty")
+	}
+
+	list, err := app.ListBuildTemplateLibrary()
+	if err != nil {
+		t.Fatalf("ListBuildTemplateLibrary: %v", err)
+	}
+	if len(list) != 1 || list[0].ID != entry.ID {
+		t.Errorf("library list does not contain saved entry: %+v", list)
+	}
+}
+
+func TestSaveBuildTemplateV2FromCharacterToLibrary_MetadataPreserved(t *testing.T) {
+	app := libraryV2Fixture(t)
+	entry, err := app.SaveBuildTemplateV2FromCharacterToLibrary(0,
+		`{"profile":true}`,
+		BuildTemplateV2ExportOptions{
+			Name:        "metadata test",
+			Description: "description body",
+			Author:      "OiSiS",
+			Tags:        []string{"v2", "profile"},
+		},
+	)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := app.templateLibrary.LoadTemplate(entry.ID)
+	if err != nil {
+		t.Fatalf("LoadTemplate: %v", err)
+	}
+	if loaded.Metadata == nil {
+		t.Fatal("loaded.Metadata missing")
+	}
+	if loaded.Metadata.Name != "metadata test" {
+		t.Errorf("Metadata.Name = %q", loaded.Metadata.Name)
+	}
+	if loaded.Metadata.Description != "description body" {
+		t.Errorf("Metadata.Description = %q", loaded.Metadata.Description)
+	}
+	if loaded.Metadata.Author != "OiSiS" {
+		t.Errorf("Metadata.Author = %q", loaded.Metadata.Author)
+	}
+	if len(loaded.Metadata.Tags) != 2 || loaded.Metadata.Tags[0] != "v2" || loaded.Metadata.Tags[1] != "profile" {
+		t.Errorf("Metadata.Tags = %v", loaded.Metadata.Tags)
+	}
+	if loaded.Metadata.SourceCharacterIndex != 0 {
+		t.Errorf("SourceCharacterIndex = %d", loaded.Metadata.SourceCharacterIndex)
+	}
+	if loaded.Metadata.SourceCharacterName != "Tester" {
+		t.Errorf("SourceCharacterName = %q", loaded.Metadata.SourceCharacterName)
+	}
+}
+
+func TestSaveBuildTemplateV2FromCharacterToLibrary_MalformedSelectionRejected(t *testing.T) {
+	app := libraryV2Fixture(t)
+	_, err := app.SaveBuildTemplateV2FromCharacterToLibrary(0, "not json", BuildTemplateV2ExportOptions{})
+	if err == nil {
+		t.Fatal("expected error for malformed selection JSON")
+	}
+	list, listErr := app.ListBuildTemplateLibrary()
+	if listErr != nil {
+		t.Fatalf("ListBuildTemplateLibrary: %v", listErr)
+	}
+	if len(list) != 0 {
+		t.Errorf("library must remain empty after rejected save, got %d entries", len(list))
+	}
+}
+
+func TestSaveBuildTemplateV2FromCharacterToLibrary_InvalidCharIndexRejected(t *testing.T) {
+	app := libraryV2Fixture(t)
+	for _, idx := range []int{-1, 10} {
+		idx := idx
+		t.Run(fmt.Sprintf("idx=%d", idx), func(t *testing.T) {
+			_, err := app.SaveBuildTemplateV2FromCharacterToLibrary(idx, `{"profile":true}`, BuildTemplateV2ExportOptions{})
+			if err == nil {
+				t.Fatalf("expected error for invalid charIndex %d", idx)
+			}
+			if !strings.Contains(err.Error(), "invalid slot index") {
+				t.Errorf("error must mention invalid slot index, got %q", err.Error())
+			}
+		})
+	}
+}
+
+func TestSaveBuildTemplateV2FromCharacterToLibrary_NoSaveLoadedRejected(t *testing.T) {
+	app := NewApp()
+	app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
+	_, err := app.SaveBuildTemplateV2FromCharacterToLibrary(0, `{"profile":true}`, BuildTemplateV2ExportOptions{})
+	if err == nil {
+		t.Fatal("expected error when no save loaded")
+	}
+	if !strings.Contains(err.Error(), "no save loaded") {
+		t.Errorf("error must mention no save loaded, got %q", err.Error())
+	}
+}
+
+func TestSaveBuildTemplateV2FromCharacterToLibrary_LibraryRoundTrip(t *testing.T) {
+	app := libraryV2Fixture(t)
+	entry, err := app.SaveBuildTemplateV2FromCharacterToLibrary(0,
+		`{"profile":true,"stats":true}`,
+		BuildTemplateV2ExportOptions{Name: "round-trip"},
+	)
+	if err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	loaded, err := app.templateLibrary.LoadTemplate(entry.ID)
+	if err != nil {
+		t.Fatalf("LoadTemplate: %v", err)
+	}
+	if loaded.Version != 2 {
+		t.Errorf("loaded.Version = %d, want 2", loaded.Version)
+	}
+	if loaded.Sections.Profile == nil || loaded.Sections.Profile.Level == nil || *loaded.Sections.Profile.Level != 50 {
+		t.Errorf("loaded profile.level lost: %+v", loaded.Sections.Profile)
+	}
+	if loaded.Selection == nil || loaded.Selection.Profile == nil || !loaded.Selection.Profile.All {
+		t.Errorf("loaded Selection.Profile.All lost: %+v", loaded.Selection)
+	}
+}
+
+func TestSaveBuildTemplateV2FromCharacterToLibrary_EmptyNameDefaultsFilename(t *testing.T) {
+	app := libraryV2Fixture(t)
+	entry, err := app.SaveBuildTemplateV2FromCharacterToLibrary(0,
+		`{"profile":true}`,
+		BuildTemplateV2ExportOptions{}, // Name == ""
+	)
+	if err != nil {
+		t.Fatalf("Save with empty name: %v", err)
+	}
+	if !strings.HasPrefix(entry.Filename, "template-") {
+		t.Errorf("Filename should fall back to template- prefix, got %q", entry.Filename)
+	}
+	if !strings.HasSuffix(entry.Filename, ".json") {
+		t.Errorf("Filename should end with .json, got %q", entry.Filename)
+	}
+}

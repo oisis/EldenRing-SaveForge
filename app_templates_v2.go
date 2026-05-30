@@ -168,3 +168,45 @@ func (a *App) PreviewBuildTemplateV2FromCharacter(charIndex int, selectionJSON s
 	report := templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: "append"})
 	return LoadedTemplatePreview{Report: report, JSON: jsonText}, nil
 }
+
+// ExportBuildTemplateV2YAMLFromCharacter returns the canonical YAML payload
+// for a v2 template built from slot charIndex. Dialog-less and
+// filesystem-less — the file save dialog ships in Phase 3D alongside the
+// bindings regen and UI.
+//
+// The output round-trips through templates.ParseBuildTemplateYAML: schema,
+// version: 2, selection (boolean shortcut or per-field map per the
+// requested selection), and sections.profile / sections.stats survive
+// untouched.
+func (a *App) ExportBuildTemplateV2YAMLFromCharacter(charIndex int, selectionJSON string, opts BuildTemplateV2ExportOptions) (string, error) {
+	tpl, _, err := a.buildAndValidateTemplateV2FromCharacter(charIndex, selectionJSON, opts)
+	if err != nil {
+		return "", err
+	}
+	data, err := templates.MarshalBuildTemplateYAML(tpl)
+	if err != nil {
+		return "", fmt.Errorf("marshal v2 yaml: %w", err)
+	}
+	return string(data), nil
+}
+
+// SaveBuildTemplateV2FromCharacterToLibrary builds a v2 template from slot
+// charIndex and persists it in the local library. Returns the new index
+// entry (Version=2, SelectedSections populated by Phase 3C.0). Library
+// re-validates and re-marshals the template internally; the canonical JSON
+// from buildAndValidateTemplateV2FromCharacter is intentionally discarded
+// to keep on-disk encoding centralised in Library.SaveTemplate.
+//
+// opts.Name may be empty — Library falls back to a "template-" filename
+// stem when no display name is provided.
+func (a *App) SaveBuildTemplateV2FromCharacterToLibrary(charIndex int, selectionJSON string, opts BuildTemplateV2ExportOptions) (templates.LibraryTemplateEntry, error) {
+	tpl, _, err := a.buildAndValidateTemplateV2FromCharacter(charIndex, selectionJSON, opts)
+	if err != nil {
+		return templates.LibraryTemplateEntry{}, err
+	}
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return templates.LibraryTemplateEntry{}, err
+	}
+	return lib.SaveTemplate(tpl)
+}
