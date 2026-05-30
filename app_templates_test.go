@@ -702,6 +702,62 @@ func TestApplyTemplate_InvalidJSONReturnsStructureErrorNotGoError(t *testing.T) 
 	}
 }
 
+func TestApplyTemplate_SchemaV2ProfileOnlyIsRejectedNotPanicked(t *testing.T) {
+	// v2 profile-only templates parse and validate successfully under the
+	// Phase 3A structural schema but carry no sections.inventory.workspace.
+	// The Phase D apply path dereferences sec.InventoryItems unconditionally;
+	// without the v2 guard this call would panic. Assert: structured error,
+	// no panic, no workspace mutation.
+	app, sessionID, _ := applyTemplateFixture(t)
+	beforeInv := len(app.editSessions[sessionID].Workspace.InventoryItems)
+	beforeStorage := len(app.editSessions[sessionID].Workspace.StorageItems)
+	beforeDirty := app.editSessions[sessionID].Workspace.Dirty
+
+	v2JSON := `{
+  "schema": "saveforge.build-template",
+  "version": 2,
+  "createdAt": "2026-05-30T12:00:00Z",
+  "selection": { "profile": true },
+  "sections": {
+    "profile": { "level": 50 }
+  }
+}`
+
+	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, v2JSON, ApplyTemplateOptions{})
+	if err != nil {
+		t.Fatalf("v2 apply must surface preview errors via report, not Go error; got %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied must be false for v2 templates in this phase")
+	}
+	if res.Preview.OK {
+		t.Error("Preview.OK must be false when apply is blocked")
+	}
+	if len(res.Preview.Errors) != 1 {
+		t.Fatalf("expected exactly one error, got %+v", res.Preview.Errors)
+	}
+	if res.Preview.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected structure_invalid code, got %q", res.Preview.Errors[0].Code)
+	}
+	if !strings.Contains(res.Preview.Errors[0].Message, "schema v2") {
+		t.Errorf("error message must mention schema v2; got %q", res.Preview.Errors[0].Message)
+	}
+	if !strings.Contains(res.Preview.Errors[0].Message, "not yet supported") {
+		t.Errorf("error message must mark v2 apply as unsupported; got %q", res.Preview.Errors[0].Message)
+	}
+
+	if got := len(app.editSessions[sessionID].Workspace.InventoryItems); got != beforeInv {
+		t.Errorf("workspace inventory mutated despite v2 block: %d -> %d", beforeInv, got)
+	}
+	if got := len(app.editSessions[sessionID].Workspace.StorageItems); got != beforeStorage {
+		t.Errorf("workspace storage mutated despite v2 block: %d -> %d", beforeStorage, got)
+	}
+	if app.editSessions[sessionID].Workspace.Dirty != beforeDirty {
+		t.Errorf("workspace.Dirty flipped despite v2 block: %v -> %v",
+			beforeDirty, app.editSessions[sessionID].Workspace.Dirty)
+	}
+}
+
 func TestApplyTemplate_RoundTripThroughSavePersistsImportedItems(t *testing.T) {
 	// End-to-end: export → apply → SaveInventoryWorkspaceChanges →
 	// re-snapshot. Imported items must persist with fresh non-zero

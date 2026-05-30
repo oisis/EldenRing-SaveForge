@@ -506,6 +506,27 @@ func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText strin
 		}, nil
 	}
 
+	// v2 templates parse cleanly but the apply path below dereferences
+	// sec.InventoryItems / sec.StorageItems unconditionally and would
+	// panic for profile/stats-only templates. Block until per-section
+	// apply ships.
+	if tpl.Version > templates.SchemaVersion {
+		return ApplyTemplateResult{
+			Preview: templates.ImportPreviewReport{
+				OK: false,
+				Errors: []templates.ImportPreviewIssue{{
+					Severity: "error",
+					Code:     templates.IssueCodeStructureInvalid,
+					Message:  fmt.Sprintf("apply of schema v%d templates is not yet supported in this phase", tpl.Version),
+				}},
+				Warnings: []templates.ImportPreviewIssue{},
+				Summary:  templates.ImportPreviewSummary{},
+			},
+			Workspace: sess.Workspace,
+			Applied:   false,
+		}, nil
+	}
+
 	report := templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: mode})
 	if !report.OK {
 		return ApplyTemplateResult{
