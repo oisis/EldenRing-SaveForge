@@ -8,6 +8,7 @@ import {
 import { main, templates } from '../../../wailsjs/go/models';
 import { TemplateLibraryModal } from './TemplateLibraryModal';
 import { ImportTemplatePreviewModal, isCancelledPreview } from './ImportTemplatePreviewModal';
+import { CreateTemplateV2Modal } from './CreateTemplateV2Modal';
 
 // TemplatesShellModal is the global, sidebar-mounted Templates surface.
 // Phase 1 scope: library-only. Apply / Create-from-current-workspace
@@ -34,6 +35,11 @@ import { ImportTemplatePreviewModal, isCancelledPreview } from './ImportTemplate
 
 interface Props {
     onClose: () => void;
+    // charIndex/saveLoaded gate the Phase 3D.2b "Create from Character…"
+    // action. The library-only flow remains usable without a loaded save,
+    // so both are optional; only the create button reacts to them.
+    charIndex?: number;
+    saveLoaded?: boolean;
 }
 
 // ImportedYAMLPreview bundles the report with the canonical JSON the
@@ -46,11 +52,12 @@ interface ImportedYAMLPreview {
     path: string;
 }
 
-export function TemplatesShellModal({ onClose }: Props) {
+export function TemplatesShellModal({ onClose, charIndex, saveLoaded }: Props) {
     const [libraryPreview, setLibraryPreview] = useState<templates.ImportPreviewReport | null>(null);
     const [importedPreview, setImportedPreview] = useState<ImportedYAMLPreview | null>(null);
     const [importing, setImporting] = useState(false);
     const [savingToLibrary, setSavingToLibrary] = useState(false);
+    const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
     // libraryReloadSignal tells TemplateLibraryModal to re-run its
     // ListBuildTemplateLibrary fetch without unmounting. Bumping the
     // signal after a successful YAML import surfaces the new entry
@@ -123,6 +130,25 @@ export function TemplatesShellModal({ onClose }: Props) {
         [],
     );
 
+    const onCreateV2Saved = useCallback(
+        (entry: templates.LibraryTemplateEntry) => {
+            toast.success(`Template "${entry.name || entry.id}" saved to library.`);
+            setCreateTemplateOpen(false);
+            refreshLibrary();
+        },
+        [refreshLibrary],
+    );
+    const onCreateV2Error = useCallback((err: unknown) => {
+        toast.error(`Templates: ${String(err)}`);
+    }, []);
+
+    const createDisabled = !saveLoaded || charIndex === undefined;
+    const createTitle = !saveLoaded
+        ? 'Load a save to create a character template'
+        : charIndex === undefined
+            ? 'Select a character to create a template'
+            : 'Create template from selected character';
+
     const onSaveImportedToLibrary = useCallback(async () => {
         if (!importedPreview) return;
         if (!importedPreview.report.ok) return;
@@ -157,16 +183,29 @@ export function TemplatesShellModal({ onClose }: Props) {
                 onDeleted={onLibraryDeleted}
                 onRefreshed={onLibraryRefreshed}
                 headerExtras={
-                    <button
-                        type="button"
-                        data-testid="templates-shell-import-yaml"
-                        onClick={onImportYAML}
-                        disabled={importing}
-                        title="Read a public Build Template YAML file and preview before saving to your library."
-                        className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all disabled:opacity-40"
-                    >
-                        {importing ? 'Opening…' : 'Import YAML from File…'}
-                    </button>
+                    <>
+                        <button
+                            type="button"
+                            data-testid="templates-shell-create-v2"
+                            onClick={() => setCreateTemplateOpen(true)}
+                            disabled={createDisabled}
+                            title={createTitle}
+                            aria-label={createTitle}
+                            className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all disabled:opacity-40"
+                        >
+                            Create from Character…
+                        </button>
+                        <button
+                            type="button"
+                            data-testid="templates-shell-import-yaml"
+                            onClick={onImportYAML}
+                            disabled={importing}
+                            title="Read a public Build Template YAML file and preview before saving to your library."
+                            className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all disabled:opacity-40"
+                        >
+                            {importing ? 'Opening…' : 'Import YAML from File…'}
+                        </button>
+                    </>
                 }
             />
             {libraryPreview && (
@@ -181,6 +220,14 @@ export function TemplatesShellModal({ onClose }: Props) {
                     onClose={() => setImportedPreview(null)}
                     onSaveToLibrary={onSaveImportedToLibrary}
                     savingToLibrary={savingToLibrary}
+                />
+            )}
+            {createTemplateOpen && saveLoaded && charIndex !== undefined && (
+                <CreateTemplateV2Modal
+                    charIndex={charIndex}
+                    onClose={() => setCreateTemplateOpen(false)}
+                    onSaved={onCreateV2Saved}
+                    onError={onCreateV2Error}
                 />
             )}
         </>

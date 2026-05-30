@@ -931,7 +931,11 @@ function App() {
             />
         )}
         {templatesShellOpen && (
-            <TemplatesShellModal onClose={() => setTemplatesShellOpen(false)} />
+            <TemplatesShellModal
+                onClose={() => setTemplatesShellOpen(false)}
+                charIndex={selectedChar}
+                saveLoaded={!!platform}
+            />
         )}
         <ToastBar sidebarWidth={256} />
         </div>

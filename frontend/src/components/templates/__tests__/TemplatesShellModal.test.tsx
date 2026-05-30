@@ -11,6 +11,8 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     ExportLibraryBuildTemplateAsYAMLToFile: vi.fn(),
     PreviewBuildTemplateImportYAMLFromFile: vi.fn(),
     SaveImportedBuildTemplateJSONToLibrary: vi.fn(),
+    PreviewBuildTemplateV2FromCharacter: vi.fn(),
+    SaveBuildTemplateV2FromCharacterToLibrary: vi.fn(),
     RebuildBuildTemplateLibraryIndex: vi.fn(),
     GetBuildTemplateLibraryPath: vi.fn(),
 }));
@@ -351,6 +353,139 @@ describe('TemplatesShellModal — Phase 2B YAML import', () => {
         });
         // Preview must remain mounted so the user can react.
         expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+    });
+});
+
+describe('TemplatesShellModal — Phase 3D.2b create-from-character', () => {
+    const v2EntryFromSave = {
+        id: 'tpl-v2-new',
+        name: 'My RL150',
+        description: '',
+        tags: [],
+        filename: 'my-rl150-tpl-v2-new.json',
+        createdAt: '2026-05-31T10:00:00Z',
+        updatedAt: '2026-05-31T10:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['profile'],
+    };
+
+    function v2OKPreviewBundle() {
+        return {
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0,
+                    storageItems: 0,
+                    weapons: 0,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections: ['profile'],
+                    profileFieldsPresent: ['level'],
+                    statFieldsPresent: [],
+                },
+            },
+        };
+    }
+
+    it('renders the Create from Character button enabled when charIndex and saveLoaded are provided', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={2} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        const btn = screen.getByTestId('templates-shell-create-v2') as HTMLButtonElement;
+        expect(btn).toBeInTheDocument();
+        expect(btn.disabled).toBe(false);
+        expect(btn.textContent).toMatch(/Create from Character/);
+    });
+
+    it('Create button is disabled when saveLoaded is false or omitted', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} />);
+        await screen.findAllByTestId('library-entry');
+        const btn = screen.getByTestId('templates-shell-create-v2') as HTMLButtonElement;
+        expect(btn.disabled).toBe(true);
+        expect(btn.getAttribute('title')).toMatch(/Load a save/i);
+    });
+
+    it('Create button is disabled when charIndex is undefined', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        const btn = screen.getByTestId('templates-shell-create-v2') as HTMLButtonElement;
+        expect(btn.disabled).toBe(true);
+        expect(btn.getAttribute('title')).toMatch(/Select a character/i);
+    });
+
+    it('clicking Create from Character opens the CreateTemplateV2Modal', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={3} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-create-v2'));
+        });
+        expect(screen.getByTestId('create-template-v2-modal')).toBeInTheDocument();
+    });
+
+    it('Save success refreshes library, closes the create modal, and toasts', async () => {
+        mocks.PreviewBuildTemplateV2FromCharacter.mockResolvedValue(v2OKPreviewBundle());
+        mocks.SaveBuildTemplateV2FromCharacterToLibrary.mockResolvedValue(v2EntryFromSave);
+        mocks.ListBuildTemplateLibrary
+            .mockResolvedValueOnce(sampleEntries)
+            .mockResolvedValue([...sampleEntries, v2EntryFromSave]);
+
+        const { default: toast } = await import('../../../lib/toast');
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        toastSuccess.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-create-v2'));
+        });
+        fireEvent.click(screen.getByTestId('create-template-v2-profile-level'));
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('create-template-v2-preview'));
+        });
+        await screen.findByTestId('import-preview-save-to-library');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-save-to-library'));
+        });
+        await waitFor(() => {
+            expect(mocks.SaveBuildTemplateV2FromCharacterToLibrary).toHaveBeenCalledTimes(1);
+        });
+        expect(mocks.SaveBuildTemplateV2FromCharacterToLibrary.mock.calls[0][0]).toBe(1);
+        await waitFor(() => {
+            expect(screen.queryByTestId('create-template-v2-modal')).not.toBeInTheDocument();
+        });
+        await waitFor(() => expect(toastSuccess).toHaveBeenCalled());
+        // Library refresh signal is the user-visible contract: after save
+        // the new v2 entry must appear without the user clicking Refresh.
+        await waitFor(() => {
+            expect(screen.getByText('My RL150')).toBeInTheDocument();
+        });
+    });
+
+    it('Create modal preview error surfaces as a toast and leaves the create modal open', async () => {
+        mocks.PreviewBuildTemplateV2FromCharacter.mockRejectedValue(new Error('no save loaded'));
+
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-create-v2'));
+        });
+        fireEvent.click(screen.getByTestId('create-template-v2-profile-level'));
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('create-template-v2-preview'));
+        });
+        await waitFor(() => expect(toastError).toHaveBeenCalled());
+        expect(screen.getByTestId('create-template-v2-modal')).toBeInTheDocument();
     });
 });
 
