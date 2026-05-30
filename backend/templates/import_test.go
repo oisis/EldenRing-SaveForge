@@ -413,6 +413,202 @@ func TestPreview_NoSaveOrSessionMutation(t *testing.T) {
 // already rejects this at parse time, but we want the per-item issue
 // shape to be available when callers pre-validate the template at the
 // preview boundary too.
+// ─── Phase 3C.0 — schema-version-aware summary metadata ─────────────────
+
+func minimalV2ProfileOnly(profileFields map[string]bool) *BuildTemplate {
+	name := "Tester"
+	return &BuildTemplate{
+		Schema:    SchemaKey,
+		Version:   2,
+		CreatedAt: "2026-05-17T12:34:56Z",
+		Selection: &TemplateSelection{
+			Profile: &SectionSelection{Fields: profileFields},
+		},
+		Sections: TemplateSections{
+			Profile: &ProfileSection{
+				Name:  &name,
+				Level: u32p(50),
+			},
+		},
+	}
+}
+
+func minimalV2StatsOnly(statFields map[string]bool) *BuildTemplate {
+	return &BuildTemplate{
+		Schema:    SchemaKey,
+		Version:   2,
+		CreatedAt: "2026-05-17T12:34:56Z",
+		Selection: &TemplateSelection{
+			Stats: &SectionSelection{Fields: statFields},
+		},
+		Sections: TemplateSections{
+			Stats: &StatsSection{
+				Vigor: u32p(40),
+				Mind:  u32p(20),
+			},
+		},
+	}
+}
+
+func TestPreview_V2_ProfileOnly_SummaryEmitsMetadata(t *testing.T) {
+	tpl := minimalV2ProfileOnly(map[string]bool{"name": true, "level": true})
+	rep := PreviewBuildTemplateImport(tpl, ImportPreviewOptions{})
+	if !rep.OK {
+		t.Fatalf("expected OK, got %+v", rep.Errors)
+	}
+	if rep.Summary.Version != 2 {
+		t.Errorf("Summary.Version = %d, want 2", rep.Summary.Version)
+	}
+	if len(rep.Summary.SelectedSections) != 1 || rep.Summary.SelectedSections[0] != "profile" {
+		t.Errorf("SelectedSections = %v, want [profile]", rep.Summary.SelectedSections)
+	}
+	wantProfile := []string{"level", "name"}
+	if !equalStrings(rep.Summary.ProfileFieldsPresent, wantProfile) {
+		t.Errorf("ProfileFieldsPresent = %v, want %v", rep.Summary.ProfileFieldsPresent, wantProfile)
+	}
+	if len(rep.Summary.StatFieldsPresent) != 0 {
+		t.Errorf("StatFieldsPresent should be empty, got %v", rep.Summary.StatFieldsPresent)
+	}
+	if rep.Summary.InventoryItems != 0 || rep.Summary.StorageItems != 0 {
+		t.Errorf("inventory/storage counters should stay 0, got %+v", rep.Summary)
+	}
+}
+
+func TestPreview_V2_StatsOnly_SummaryEmitsMetadata(t *testing.T) {
+	tpl := minimalV2StatsOnly(map[string]bool{"vigor": true, "mind": true})
+	rep := PreviewBuildTemplateImport(tpl, ImportPreviewOptions{})
+	if !rep.OK {
+		t.Fatalf("expected OK, got %+v", rep.Errors)
+	}
+	if rep.Summary.Version != 2 {
+		t.Errorf("Summary.Version = %d, want 2", rep.Summary.Version)
+	}
+	if len(rep.Summary.SelectedSections) != 1 || rep.Summary.SelectedSections[0] != "stats" {
+		t.Errorf("SelectedSections = %v, want [stats]", rep.Summary.SelectedSections)
+	}
+	if len(rep.Summary.ProfileFieldsPresent) != 0 {
+		t.Errorf("ProfileFieldsPresent should be empty, got %v", rep.Summary.ProfileFieldsPresent)
+	}
+	wantStats := []string{"mind", "vigor"}
+	if !equalStrings(rep.Summary.StatFieldsPresent, wantStats) {
+		t.Errorf("StatFieldsPresent = %v, want %v", rep.Summary.StatFieldsPresent, wantStats)
+	}
+}
+
+func TestPreview_V2_ProfileAndStats_SectionsStableOrder(t *testing.T) {
+	name := "Bob"
+	tpl := &BuildTemplate{
+		Schema:    SchemaKey,
+		Version:   2,
+		CreatedAt: "2026-05-17T12:34:56Z",
+		Selection: &TemplateSelection{
+			Stats:   &SectionSelection{All: true},
+			Profile: &SectionSelection{Fields: map[string]bool{"name": true}},
+		},
+		Sections: TemplateSections{
+			Profile: &ProfileSection{Name: &name},
+			Stats: &StatsSection{
+				Vigor:    u32p(40),
+				Strength: u32p(60),
+			},
+		},
+	}
+	rep := PreviewBuildTemplateImport(tpl, ImportPreviewOptions{})
+	if !rep.OK {
+		t.Fatalf("expected OK, got %+v", rep.Errors)
+	}
+	want := []string{"profile", "stats"}
+	if !equalStrings(rep.Summary.SelectedSections, want) {
+		t.Errorf("SelectedSections = %v, want %v (stable order: inventory.workspace, profile, stats)", rep.Summary.SelectedSections, want)
+	}
+	if !equalStrings(rep.Summary.ProfileFieldsPresent, []string{"name"}) {
+		t.Errorf("ProfileFieldsPresent = %v", rep.Summary.ProfileFieldsPresent)
+	}
+	if !equalStrings(rep.Summary.StatFieldsPresent, []string{"strength", "vigor"}) {
+		t.Errorf("StatFieldsPresent = %v", rep.Summary.StatFieldsPresent)
+	}
+}
+
+func TestPreview_V2_InventoryAndProfile_KeepsItemCounts(t *testing.T) {
+	name := "Mixed"
+	tpl := &BuildTemplate{
+		Schema:    SchemaKey,
+		Version:   2,
+		CreatedAt: "2026-05-17T12:34:56Z",
+		Selection: &TemplateSelection{
+			InventoryWorkspace: &SectionSelection{All: true},
+			Profile:            &SectionSelection{Fields: map[string]bool{"name": true}},
+		},
+		Sections: TemplateSections{
+			Profile: &ProfileSection{Name: &name},
+			InventoryWorkspace: &InventoryWorkspaceSection{
+				InventoryItems: []TemplateItem{{
+					BaseItemID: idDagger,
+					Quantity:   1,
+					Container:  ContainerInventory,
+					Position:   0,
+				}},
+				StorageItems: []TemplateItem{},
+			},
+		},
+	}
+	rep := PreviewBuildTemplateImport(tpl, ImportPreviewOptions{})
+	if !rep.OK {
+		t.Fatalf("expected OK, got %+v", rep.Errors)
+	}
+	if rep.Summary.InventoryItems != 1 || rep.Summary.StorageItems != 0 {
+		t.Errorf("v2 inventory.workspace must still drive item counts, got %+v", rep.Summary)
+	}
+	if rep.Summary.Weapons != 1 {
+		t.Errorf("Weapons bucket should be 1, got %d", rep.Summary.Weapons)
+	}
+	want := []string{"inventory.workspace", "profile"}
+	if !equalStrings(rep.Summary.SelectedSections, want) {
+		t.Errorf("SelectedSections = %v, want %v", rep.Summary.SelectedSections, want)
+	}
+	if !equalStrings(rep.Summary.ProfileFieldsPresent, []string{"name"}) {
+		t.Errorf("ProfileFieldsPresent = %v", rep.Summary.ProfileFieldsPresent)
+	}
+}
+
+func TestPreview_V1_SummaryReportsVersionAndInventorySection(t *testing.T) {
+	tpl := minimalTemplateWith([]TemplateItem{{
+		BaseItemID: idDagger,
+		Quantity:   1,
+		Container:  ContainerInventory,
+		Position:   0,
+	}})
+	rep := PreviewBuildTemplateImport(tpl, ImportPreviewOptions{})
+	if !rep.OK {
+		t.Fatalf("expected OK, got %+v", rep.Errors)
+	}
+	if rep.Summary.Version != 1 {
+		t.Errorf("Summary.Version = %d, want 1", rep.Summary.Version)
+	}
+	if len(rep.Summary.SelectedSections) != 1 || rep.Summary.SelectedSections[0] != "inventory.workspace" {
+		t.Errorf("SelectedSections = %v, want [inventory.workspace]", rep.Summary.SelectedSections)
+	}
+	if rep.Summary.InventoryItems != 1 {
+		t.Errorf("InventoryItems = %d, want 1", rep.Summary.InventoryItems)
+	}
+	if len(rep.Summary.ProfileFieldsPresent) != 0 || len(rep.Summary.StatFieldsPresent) != 0 {
+		t.Errorf("v1 must not emit profile/stat field lists, got profile=%v stats=%v",
+			rep.Summary.ProfileFieldsPresent, rep.Summary.StatFieldsPresent)
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestPreview_QuantityZeroIsCaught(t *testing.T) {
 	// Build the template directly; ValidateBuildTemplate would reject
 	// this, but we bypass it by constructing the struct in-memory and

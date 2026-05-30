@@ -46,14 +46,29 @@ type ImportPreviewIssue struct {
 // based on what the DB says about each baseItemID — the template's
 // Category field is debug only, mirroring the same rule applied to
 // Name in §3.1 of spec/55-build-template.md.
+//
+// Phase 3C.0 additions (schema-version-aware metadata):
+//   - Version mirrors the template's `version` field so a UI can render
+//     a v1/v2 badge without re-parsing the payload.
+//   - SelectedSections enumerates the sections this template elects to
+//     ship. For v1 templates (no Selection object) the list is derived
+//     from `sections` — `inventory.workspace` when that section exists.
+//     For v2 templates the list reflects `selection`.
+//   - ProfileFieldsPresent / StatFieldsPresent list the keys whose
+//     payload pointer is non-nil in `sections.profile` / `sections.stats`.
+//     Both lists are alphabetic (stable across runs).
 type ImportPreviewSummary struct {
-	InventoryItems int `json:"inventoryItems"`
-	StorageItems   int `json:"storageItems"`
-	Weapons        int `json:"weapons"`
-	Armor          int `json:"armor"`
-	Talismans      int `json:"talismans"`
-	Stackables     int `json:"stackables"`
-	AoWAssignments int `json:"aowAssignments"`
+	InventoryItems       int      `json:"inventoryItems"`
+	StorageItems         int      `json:"storageItems"`
+	Weapons              int      `json:"weapons"`
+	Armor                int      `json:"armor"`
+	Talismans            int      `json:"talismans"`
+	Stackables           int      `json:"stackables"`
+	AoWAssignments       int      `json:"aowAssignments"`
+	Version              int      `json:"version,omitempty"`
+	SelectedSections     []string `json:"selectedSections,omitempty"`
+	ProfileFieldsPresent []string `json:"profileFieldsPresent,omitempty"`
+	StatFieldsPresent    []string `json:"statFieldsPresent,omitempty"`
 }
 
 // Issue codes — stable strings. UI surfaces and tests assert on these.
@@ -167,6 +182,11 @@ func PreviewBuildTemplateImport(tpl *BuildTemplate, opts ImportPreviewOptions) I
 			Message:  fmt.Sprintf("import mode %q is not implemented yet; preview proceeds as if mode=append", opts.Mode),
 		})
 	}
+
+	rep.Summary.Version = tpl.Version
+	rep.Summary.SelectedSections = selectedSectionsForTemplate(tpl)
+	rep.Summary.ProfileFieldsPresent = profileFieldsPresent(tpl.Sections.Profile)
+	rep.Summary.StatFieldsPresent = statFieldsPresent(tpl.Sections.Stats)
 
 	// v1 documents are guaranteed by ValidateBuildTemplate to carry a
 	// non-nil InventoryWorkspace; v2 documents may omit it (selection
@@ -358,4 +378,115 @@ func isKnownInfusion(name string) bool {
 		}
 	}
 	return false
+}
+
+// selectedSectionsForTemplate returns the stable-ordered list of sections
+// this template elects to ship. Used by preview summary and library entry.
+//
+// v1 (Selection == nil): derive from sections — only the legacy
+// `inventory.workspace` shape exists, so the result is either
+// ["inventory.workspace"] or empty.
+//
+// v2 (Selection != nil): enumerate Selection.* in a fixed order so the
+// output is deterministic regardless of map iteration. The chosen order
+// is inventory.workspace → profile → stats — explicit rather than
+// sort.Strings so future v2 sections (equipment, appearance, ...) slot
+// in at a defined position rather than wherever their alphabetic
+// position lands.
+func selectedSectionsForTemplate(tpl *BuildTemplate) []string {
+	if tpl == nil {
+		return nil
+	}
+	if tpl.Selection == nil {
+		var out []string
+		if tpl.Sections.InventoryWorkspace != nil {
+			out = append(out, "inventory.workspace")
+		}
+		return out
+	}
+	var out []string
+	if tpl.Selection.InventoryWorkspace.HasAny() {
+		out = append(out, "inventory.workspace")
+	}
+	if tpl.Selection.Profile.HasAny() {
+		out = append(out, "profile")
+	}
+	if tpl.Selection.Stats.HasAny() {
+		out = append(out, "stats")
+	}
+	return out
+}
+
+// profileFieldsPresent returns the alphabetic list of profile keys whose
+// payload pointer is non-nil. Distinct from "selected" — a key may be
+// selected without being present (selected but unset is dropped by the
+// v2 builder, but a hand-written template can still ship that shape) and
+// the preview surfaces the on-disk truth.
+func profileFieldsPresent(p *ProfileSection) []string {
+	if p == nil {
+		return nil
+	}
+	var out []string
+	if p.Class != nil {
+		out = append(out, "class")
+	}
+	if p.ClearCount != nil {
+		out = append(out, "clearCount")
+	}
+	if p.Level != nil {
+		out = append(out, "level")
+	}
+	if p.Name != nil {
+		out = append(out, "name")
+	}
+	if p.Runes != nil {
+		out = append(out, "runes")
+	}
+	if p.ScadutreeBlessing != nil {
+		out = append(out, "scadutreeBlessing")
+	}
+	if p.ShadowRealmBlessing != nil {
+		out = append(out, "shadowRealmBlessing")
+	}
+	if p.SoulMemory != nil {
+		out = append(out, "soulMemory")
+	}
+	if p.TalismanSlots != nil {
+		out = append(out, "talismanSlots")
+	}
+	return out
+}
+
+// statFieldsPresent returns the alphabetic list of stat keys whose
+// payload pointer is non-nil.
+func statFieldsPresent(s *StatsSection) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	if s.Arcane != nil {
+		out = append(out, "arcane")
+	}
+	if s.Dexterity != nil {
+		out = append(out, "dexterity")
+	}
+	if s.Endurance != nil {
+		out = append(out, "endurance")
+	}
+	if s.Faith != nil {
+		out = append(out, "faith")
+	}
+	if s.Intelligence != nil {
+		out = append(out, "intelligence")
+	}
+	if s.Mind != nil {
+		out = append(out, "mind")
+	}
+	if s.Strength != nil {
+		out = append(out, "strength")
+	}
+	if s.Vigor != nil {
+		out = append(out, "vigor")
+	}
+	return out
 }

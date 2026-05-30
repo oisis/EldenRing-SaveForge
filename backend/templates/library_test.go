@@ -391,6 +391,169 @@ func TestLibrary_ExportTemplateToYAMLFile_DoesNotMutateLibraryEntry(t *testing.T
 	}
 }
 
+// ─── Phase 3C.0 — Version + SelectedSections in library entries ─────────
+
+func makeV2ProfileTemplate(name string) *BuildTemplate {
+	displayName := "v2 profile owner"
+	return &BuildTemplate{
+		Schema:     SchemaKey,
+		Version:    2,
+		CreatedAt:  time.Date(2026, time.May, 17, 10, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		AppVersion: "0.15.0-beta",
+		Metadata: &TemplateMetadata{
+			Name:        name,
+			Description: "v2 profile test",
+		},
+		Selection: &TemplateSelection{
+			Profile: &SectionSelection{Fields: map[string]bool{"name": true, "level": true}},
+		},
+		Sections: TemplateSections{
+			Profile: &ProfileSection{
+				Name:  &displayName,
+				Level: u32p(50),
+			},
+		},
+	}
+}
+
+func makeV2StatsTemplate(name string) *BuildTemplate {
+	return &BuildTemplate{
+		Schema:     SchemaKey,
+		Version:    2,
+		CreatedAt:  time.Date(2026, time.May, 17, 10, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		AppVersion: "0.15.0-beta",
+		Metadata: &TemplateMetadata{
+			Name:        name,
+			Description: "v2 stats test",
+		},
+		Selection: &TemplateSelection{
+			Stats: &SectionSelection{All: true},
+		},
+		Sections: TemplateSections{
+			Stats: &StatsSection{
+				Vigor:    u32p(40),
+				Strength: u32p(60),
+			},
+		},
+	}
+}
+
+func TestLibrary_SaveTemplate_V1_TagsVersionAndInventorySection(t *testing.T) {
+	lib := NewTemplateLibrary(t.TempDir())
+	entry, err := lib.SaveTemplate(makeTemplate("v1 entry"))
+	if err != nil {
+		t.Fatalf("SaveTemplate: %v", err)
+	}
+	if entry.Version != 1 {
+		t.Errorf("Version = %d, want 1", entry.Version)
+	}
+	if len(entry.SelectedSections) != 1 || entry.SelectedSections[0] != "inventory.workspace" {
+		t.Errorf("SelectedSections = %v, want [inventory.workspace]", entry.SelectedSections)
+	}
+	if entry.InventoryItems != 1 {
+		t.Errorf("InventoryItems = %d, want 1 (regression)", entry.InventoryItems)
+	}
+}
+
+func TestLibrary_SaveTemplate_V2_ProfileOnly_TagsVersionAndProfileSection(t *testing.T) {
+	lib := NewTemplateLibrary(t.TempDir())
+	entry, err := lib.SaveTemplate(makeV2ProfileTemplate("v2 profile"))
+	if err != nil {
+		t.Fatalf("SaveTemplate: %v", err)
+	}
+	if entry.Version != 2 {
+		t.Errorf("Version = %d, want 2", entry.Version)
+	}
+	if len(entry.SelectedSections) != 1 || entry.SelectedSections[0] != "profile" {
+		t.Errorf("SelectedSections = %v, want [profile]", entry.SelectedSections)
+	}
+	if entry.InventoryItems != 0 || entry.StorageItems != 0 {
+		t.Errorf("inventory/storage should remain 0 for v2 profile-only, got inv=%d sto=%d",
+			entry.InventoryItems, entry.StorageItems)
+	}
+}
+
+func TestLibrary_SaveTemplate_V2_StatsOnly_TagsVersionAndStatsSection(t *testing.T) {
+	lib := NewTemplateLibrary(t.TempDir())
+	entry, err := lib.SaveTemplate(makeV2StatsTemplate("v2 stats"))
+	if err != nil {
+		t.Fatalf("SaveTemplate: %v", err)
+	}
+	if entry.Version != 2 {
+		t.Errorf("Version = %d, want 2", entry.Version)
+	}
+	if len(entry.SelectedSections) != 1 || entry.SelectedSections[0] != "stats" {
+		t.Errorf("SelectedSections = %v, want [stats]", entry.SelectedSections)
+	}
+	if entry.InventoryItems != 0 || entry.StorageItems != 0 {
+		t.Errorf("inventory/storage should remain 0 for v2 stats-only, got inv=%d sto=%d",
+			entry.InventoryItems, entry.StorageItems)
+	}
+}
+
+func TestLibrary_RebuildIndex_PreservesV2Metadata(t *testing.T) {
+	lib := NewTemplateLibrary(t.TempDir())
+	if _, err := lib.SaveTemplate(makeV2ProfileTemplate("rebuilt v2")); err != nil {
+		t.Fatalf("SaveTemplate v2: %v", err)
+	}
+	if err := os.Remove(filepath.Join(lib.RootDir(), LibraryIndexFile)); err != nil {
+		t.Fatalf("remove index: %v", err)
+	}
+	if err := lib.RebuildIndex(); err != nil {
+		t.Fatalf("RebuildIndex: %v", err)
+	}
+	entries, err := lib.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	if entries[0].Version != 2 {
+		t.Errorf("Version after rebuild = %d, want 2", entries[0].Version)
+	}
+	if len(entries[0].SelectedSections) != 1 || entries[0].SelectedSections[0] != "profile" {
+		t.Errorf("SelectedSections after rebuild = %v, want [profile]", entries[0].SelectedSections)
+	}
+}
+
+func TestLibrary_BackwardCompat_OldIndexWithoutVersionParses(t *testing.T) {
+	dir := t.TempDir()
+	legacyIndex := `{
+  "version": 1,
+  "entries": [{
+    "id": "legacy-id",
+    "name": "Legacy Entry",
+    "filename": "legacy-template.json",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z",
+    "inventoryItems": 0,
+    "storageItems": 0,
+    "warnings": 0
+  }]
+}`
+	if err := os.WriteFile(filepath.Join(dir, LibraryIndexFile), []byte(legacyIndex), 0644); err != nil {
+		t.Fatalf("write legacy index: %v", err)
+	}
+	lib := NewTemplateLibrary(dir)
+	entries, err := lib.ListTemplates()
+	if err != nil {
+		t.Fatalf("ListTemplates on legacy index: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want 1 entry, got %d", len(entries))
+	}
+	if entries[0].ID != "legacy-id" {
+		t.Errorf("ID drift: %q", entries[0].ID)
+	}
+	if entries[0].Version != 0 {
+		t.Errorf("legacy entry must decode with Version=0, got %d", entries[0].Version)
+	}
+	if len(entries[0].SelectedSections) != 0 {
+		t.Errorf("legacy entry must decode with empty SelectedSections, got %v", entries[0].SelectedSections)
+	}
+}
+
 func TestDefaultTemplateLibraryDir_ReturnsPathUnderConfigDir(t *testing.T) {
 	dir, err := DefaultTemplateLibraryDir()
 	if err != nil {

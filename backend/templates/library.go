@@ -27,6 +27,14 @@ const LibraryIndexVersion = 1
 // LibraryTemplateEntry is one row in the index — fast metadata so the
 // UI can list templates without parsing every JSON file. The Filename
 // is relative to the library rootDir; never an absolute path.
+//
+// Phase 3C.0 additions:
+//   - Version mirrors the template's schema version so a UI can render
+//     a v1/v2 badge without parsing the JSON file.
+//   - SelectedSections enumerates the sections the template elects to
+//     ship (see selectedSectionsForTemplate). For v1 entries written
+//     before this phase the field is absent and decodes as nil; the
+//     next SaveTemplate or RebuildIndex repopulates it.
 type LibraryTemplateEntry struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -39,6 +47,9 @@ type LibraryTemplateEntry struct {
 	InventoryItems int `json:"inventoryItems"`
 	StorageItems   int `json:"storageItems"`
 	Warnings       int `json:"warnings"`
+
+	Version          int      `json:"version,omitempty"`
+	SelectedSections []string `json:"selectedSections,omitempty"`
 }
 
 // TemplateLibraryIndex is the persisted form of the directory metadata.
@@ -122,15 +133,17 @@ func (l *TemplateLibrary) SaveTemplate(tpl *BuildTemplate) (LibraryTemplateEntry
 
 	nowUTC := time.Now().UTC().Format(time.RFC3339Nano)
 	entry := LibraryTemplateEntry{
-		ID:             id,
-		Name:           name,
-		Description:    desc,
-		Tags:           tags,
-		Filename:       filename,
-		CreatedAt:      nowUTC,
-		UpdatedAt:      nowUTC,
-		InventoryItems: countInventoryItems(tpl),
-		StorageItems:   countStorageItems(tpl),
+		ID:               id,
+		Name:             name,
+		Description:      desc,
+		Tags:             tags,
+		Filename:         filename,
+		CreatedAt:        nowUTC,
+		UpdatedAt:        nowUTC,
+		InventoryItems:   countInventoryItems(tpl),
+		StorageItems:     countStorageItems(tpl),
+		Version:          tpl.Version,
+		SelectedSections: selectedSectionsForTemplate(tpl),
 	}
 
 	data, err := json.MarshalIndent(tpl, "", "  ")
@@ -542,10 +555,12 @@ func readAndValidateTemplate(path string) (*BuildTemplate, error) {
 func buildEntryFromTemplate(tpl *BuildTemplate, filename string, prev LibraryTemplateEntry) LibraryTemplateEntry {
 	nowUTC := time.Now().UTC().Format(time.RFC3339Nano)
 	entry := LibraryTemplateEntry{
-		Filename:       filename,
-		InventoryItems: countInventoryItems(tpl),
-		StorageItems:   countStorageItems(tpl),
-		UpdatedAt:      nowUTC,
+		Filename:         filename,
+		InventoryItems:   countInventoryItems(tpl),
+		StorageItems:     countStorageItems(tpl),
+		UpdatedAt:        nowUTC,
+		Version:          tpl.Version,
+		SelectedSections: selectedSectionsForTemplate(tpl),
 	}
 	if tpl.Metadata != nil {
 		entry.Name = tpl.Metadata.Name
