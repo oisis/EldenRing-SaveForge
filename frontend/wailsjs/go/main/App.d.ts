@@ -70,6 +70,8 @@ export function ExportBuildTemplateToFile(arg1:string,arg2:main.BuildTemplateExp
 
 export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSettings):Promise<string>;
 
+export function ExportLibraryBuildTemplateAsYAMLToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
+
 export function ExportLibraryBuildTemplateToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
 
 export function GetActiveSlots():Promise<Array<boolean>>;
@@ -172,6 +174,8 @@ export function PreviewBuildTemplateImportFromFile():Promise<main.LoadedTemplate
 
 export function PreviewBuildTemplateImportJSON(arg1:string):Promise<templates.ImportPreviewReport>;
 
+export function PreviewBuildTemplateImportYAMLFromFile():Promise<main.LoadedTemplatePreview>;
+
 export function RebuildBuildTemplateLibraryIndex():Promise<Array<templates.LibraryTemplateEntry>>;
 
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
@@ -205,6 +209,8 @@ export function SaveBuildTemplateToLibrary(arg1:string,arg2:main.BuildTemplateEx
 export function SaveCharacter(arg1:number,arg2:vm.CharacterViewModel):Promise<void>;
 
 export function SaveDeployTarget(arg1:deploy.Target):Promise<void>;
+
+export function SaveImportedBuildTemplateJSONToLibrary(arg1:string):Promise<templates.LibraryTemplateEntry>;
 
 export function SaveInventoryWorkspaceChanges(arg1:string):Promise<editor.InventoryWorkspaceSnapshot>;
 

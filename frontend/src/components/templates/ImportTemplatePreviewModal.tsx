@@ -19,9 +19,18 @@ interface Props {
     // button stays hidden.
     onApply?: () => void;
     applying?: boolean;
+    // onSaveToLibrary is optional and independent of onApply. When
+    // provided, the modal renders a "Save to Library" button used by
+    // the Phase 2B global Templates shell after a YAML import preview.
+    // It writes the previewed template (carried by the caller as the
+    // canonical JSON returned alongside the report) to the local
+    // library; the modal itself owns no payload state. Disabled when
+    // report.ok is false or savingToLibrary is true.
+    onSaveToLibrary?: () => void;
+    savingToLibrary?: boolean;
 }
 
-export function ImportTemplatePreviewModal({ report, onClose, onApply, applying }: Props) {
+export function ImportTemplatePreviewModal({ report, onClose, onApply, applying, onSaveToLibrary, savingToLibrary }: Props) {
     const dialogRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
         dialogRef.current?.focus();
@@ -138,11 +147,26 @@ export function ImportTemplatePreviewModal({ report, onClose, onApply, applying 
                     <button
                         type="button"
                         onClick={onClose}
-                        disabled={applying}
+                        disabled={applying || savingToLibrary}
                         className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all disabled:opacity-40"
                     >
                         Close
                     </button>
+                    {onSaveToLibrary && (
+                        <button
+                            type="button"
+                            data-testid="import-preview-save-to-library"
+                            onClick={onSaveToLibrary}
+                            disabled={!report.ok || savingToLibrary}
+                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                                report.ok && !savingToLibrary
+                                    ? 'bg-blue-700/80 text-white hover:bg-blue-700 shadow-sm'
+                                    : 'opacity-40 cursor-not-allowed bg-muted/20 text-muted-foreground'
+                            }`}
+                        >
+                            {savingToLibrary ? 'Saving…' : 'Save to Library'}
+                        </button>
+                    )}
                     {onApply && (
                         <button
                             type="button"

@@ -126,6 +126,10 @@ export function ExportCharacterPresetToFile(arg1, arg2) {
   return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1, arg2);
 }
 
+export function ExportLibraryBuildTemplateAsYAMLToFile(arg1) {
+  return window['go']['main']['App']['ExportLibraryBuildTemplateAsYAMLToFile'](arg1);
+}
+
 export function ExportLibraryBuildTemplateToFile(arg1) {
   return window['go']['main']['App']['ExportLibraryBuildTemplateToFile'](arg1);
 }
@@ -330,6 +334,10 @@ export function PreviewBuildTemplateImportJSON(arg1) {
   return window['go']['main']['App']['PreviewBuildTemplateImportJSON'](arg1);
 }
 
+export function PreviewBuildTemplateImportYAMLFromFile() {
+  return window['go']['main']['App']['PreviewBuildTemplateImportYAMLFromFile']();
+}
+
 export function RebuildBuildTemplateLibraryIndex() {
   return window['go']['main']['App']['RebuildBuildTemplateLibraryIndex']();
 }
@@ -396,6 +404,10 @@ export function SaveCharacter(arg1, arg2) {
 
 export function SaveDeployTarget(arg1) {
   return window['go']['main']['App']['SaveDeployTarget'](arg1);
+}
+
+export function SaveImportedBuildTemplateJSONToLibrary(arg1) {
+  return window['go']['main']['App']['SaveImportedBuildTemplateJSONToLibrary'](arg1);
 }
 
 export function SaveInventoryWorkspaceChanges(arg1) {

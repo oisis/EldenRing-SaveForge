@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { templates } from '../../../../wailsjs/go/models';
 import { ImportTemplatePreviewModal, isCancelledPreview } from '../ImportTemplatePreviewModal';
 
@@ -155,6 +155,105 @@ describe('ImportTemplatePreviewModal', () => {
         const btn = screen.getByTestId('import-preview-apply');
         expect(btn).toBeDisabled();
         expect(btn).toHaveTextContent(/Applying/);
+    });
+});
+
+describe('ImportTemplatePreviewModal — Phase 2B Save to Library', () => {
+    it('does NOT render Save to Library when onSaveToLibrary is omitted', () => {
+        render(<ImportTemplatePreviewModal report={makeReport()} onClose={() => {}} />);
+        expect(screen.queryByTestId('import-preview-save-to-library')).not.toBeInTheDocument();
+    });
+
+    it('renders Save to Library when onSaveToLibrary is provided and report.ok=true', () => {
+        render(
+            <ImportTemplatePreviewModal
+                report={makeReport()}
+                onClose={() => {}}
+                onSaveToLibrary={() => {}}
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-save-to-library');
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeEnabled();
+    });
+
+    it('renders Save to Library visible but disabled when report.ok=false', async () => {
+        const report = makeReport({
+            ok: false,
+            errors: [
+                templates.ImportPreviewIssue.createFrom({
+                    severity: 'error',
+                    code: 'structure_invalid',
+                    message: 'multi-document YAML payloads are not supported',
+                }),
+            ],
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onSaveToLibrary={() => {}}
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-save-to-library');
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeDisabled();
+    });
+
+    it('Save to Library button calls onSaveToLibrary when clicked', async () => {
+        const { fireEvent } = await import('@testing-library/react');
+        const onSaveToLibrary = vi.fn();
+        render(
+            <ImportTemplatePreviewModal
+                report={makeReport()}
+                onClose={() => {}}
+                onSaveToLibrary={onSaveToLibrary}
+            />,
+        );
+        fireEvent.click(screen.getByTestId('import-preview-save-to-library'));
+        expect(onSaveToLibrary).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows "Saving…" and is disabled while savingToLibrary=true', () => {
+        render(
+            <ImportTemplatePreviewModal
+                report={makeReport()}
+                onClose={() => {}}
+                onSaveToLibrary={() => {}}
+                savingToLibrary={true}
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-save-to-library');
+        expect(btn).toBeDisabled();
+        expect(btn).toHaveTextContent(/Saving/);
+    });
+
+    it('onApply and onSaveToLibrary are independent — neither presence affects the other', () => {
+        // Both provided: both buttons render.
+        const { rerender } = render(
+            <ImportTemplatePreviewModal
+                report={makeReport()}
+                onClose={() => {}}
+                onApply={() => {}}
+                onSaveToLibrary={() => {}}
+            />,
+        );
+        expect(screen.getByTestId('import-preview-apply')).toBeInTheDocument();
+        expect(screen.getByTestId('import-preview-save-to-library')).toBeInTheDocument();
+
+        // Only onApply: legacy SortOrderTab behavior unchanged.
+        rerender(
+            <ImportTemplatePreviewModal report={makeReport()} onClose={() => {}} onApply={() => {}} />,
+        );
+        expect(screen.getByTestId('import-preview-apply')).toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-save-to-library')).not.toBeInTheDocument();
+
+        // Only onSaveToLibrary: global YAML import flow — no Apply ever.
+        rerender(
+            <ImportTemplatePreviewModal report={makeReport()} onClose={() => {}} onSaveToLibrary={() => {}} />,
+        );
+        expect(screen.queryByTestId('import-preview-apply')).not.toBeInTheDocument();
+        expect(screen.getByTestId('import-preview-save-to-library')).toBeInTheDocument();
     });
 });
 

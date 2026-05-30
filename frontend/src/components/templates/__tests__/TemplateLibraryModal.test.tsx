@@ -361,3 +361,61 @@ describe('TemplateLibraryModal — Export to file', () => {
         expect(entry.id).toBe('tpl-1');
     });
 });
+
+describe('TemplateLibraryModal — Phase 2B YAML export', () => {
+    it('does not render Export YAML when onExportAsYAML is not provided', async () => {
+        render(<TemplateLibraryModal {...defaultProps()} />);
+        await screen.findAllByTestId('library-entry');
+        expect(screen.queryByTestId('library-export-yaml')).not.toBeInTheDocument();
+        // Existing JSON Export must remain visible — Phase 2B is additive.
+        expect(screen.getAllByTestId('library-export').length).toBeGreaterThan(0);
+    });
+
+    it('renders Export YAML on each entry when onExportAsYAML is provided', async () => {
+        const onExportAsYAML = vi.fn();
+        render(<TemplateLibraryModal {...defaultProps({ onExportAsYAML })} />);
+        const yamlButtons = await screen.findAllByTestId('library-export-yaml');
+        expect(yamlButtons).toHaveLength(sampleEntries.length);
+    });
+
+    it('Export YAML click forwards the entry to onExportAsYAML', async () => {
+        const onExportAsYAML = vi.fn().mockResolvedValue(undefined);
+        render(<TemplateLibraryModal {...defaultProps({ onExportAsYAML })} />);
+        const btns = await screen.findAllByTestId('library-export-yaml');
+        await act(async () => {
+            fireEvent.click(btns[0]);
+        });
+        await waitFor(() => {
+            expect(onExportAsYAML).toHaveBeenCalledTimes(1);
+        });
+        const [entry] = onExportAsYAML.mock.calls[0];
+        expect(entry.id).toBe('tpl-1');
+    });
+
+    it('keeps Apply hidden when allowApply=false even with YAML export available', async () => {
+        const onExportAsYAML = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ onExportAsYAML, allowApply: false })}
+            />,
+        );
+        await screen.findAllByTestId('library-entry');
+        expect(screen.queryByTestId('library-apply')).not.toBeInTheDocument();
+        // YAML export and JSON export remain visible.
+        expect(screen.getAllByTestId('library-export-yaml').length).toBeGreaterThan(0);
+        expect(screen.getAllByTestId('library-export').length).toBeGreaterThan(0);
+    });
+
+    it('routes Export YAML errors through onError', async () => {
+        const onError = vi.fn();
+        const onExportAsYAML = vi.fn().mockRejectedValue(new Error('disk full'));
+        render(<TemplateLibraryModal {...defaultProps({ onError, onExportAsYAML })} />);
+        const btns = await screen.findAllByTestId('library-export-yaml');
+        await act(async () => {
+            fireEvent.click(btns[0]);
+        });
+        await waitFor(() => {
+            expect(onError).toHaveBeenCalled();
+        });
+    });
+});

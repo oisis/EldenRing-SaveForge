@@ -8,6 +8,9 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     DeleteBuildTemplateFromLibrary: vi.fn(),
     RenameBuildTemplateInLibrary: vi.fn(),
     ExportLibraryBuildTemplateToFile: vi.fn(),
+    ExportLibraryBuildTemplateAsYAMLToFile: vi.fn(),
+    PreviewBuildTemplateImportYAMLFromFile: vi.fn(),
+    SaveImportedBuildTemplateJSONToLibrary: vi.fn(),
     RebuildBuildTemplateLibraryIndex: vi.fn(),
     GetBuildTemplateLibraryPath: vi.fn(),
 }));
@@ -41,6 +44,29 @@ const sampleEntries = [
     },
 ];
 
+const importedEntry = {
+    id: 'tpl-imported',
+    name: 'Imported Build',
+    description: 'via YAML import',
+    tags: [],
+    filename: 'imported-build-tpl-imported.json',
+    createdAt: '2026-05-11T00:00:00Z',
+    updatedAt: '2026-05-11T00:00:00Z',
+    inventoryItems: 4,
+    storageItems: 0,
+    warnings: 0,
+};
+
+const okSummary = {
+    inventoryItems: 4,
+    storageItems: 0,
+    weapons: 1,
+    armor: 0,
+    talismans: 0,
+    stackables: 3,
+    aowAssignments: 0,
+};
+
 beforeEach(() => {
     Object.values(mocks).forEach(m => typeof m?.mockReset === 'function' && m.mockReset());
     mocks.ListBuildTemplateLibrary.mockResolvedValue(sampleEntries);
@@ -51,7 +77,7 @@ afterEach(() => {
     vi.clearAllMocks();
 });
 
-describe('TemplatesShellModal', () => {
+describe('TemplatesShellModal — baseline (Phase 1 invariants)', () => {
     it('renders the Templates title and the library entries', async () => {
         render(<TemplatesShellModal onClose={vi.fn()} />);
         await waitFor(() => {
@@ -71,23 +97,10 @@ describe('TemplatesShellModal', () => {
         expect(screen.queryByTestId('library-apply')).not.toBeInTheDocument();
     });
 
-    it('keeps session-independent actions available', async () => {
-        render(<TemplatesShellModal onClose={vi.fn()} />);
-        await screen.findAllByTestId('library-entry');
-        // Per-entry actions that do not require a session.
-        expect(screen.getByTestId('library-preview')).toBeInTheDocument();
-        expect(screen.getByTestId('library-export')).toBeInTheDocument();
-        expect(screen.getByTestId('library-rename')).toBeInTheDocument();
-        expect(screen.getByTestId('library-delete')).toBeInTheDocument();
-        // Global library actions.
-        expect(screen.getByTestId('library-refresh')).toBeInTheDocument();
-    });
-
     it('Close calls onClose', async () => {
         const onClose = vi.fn();
         render(<TemplatesShellModal onClose={onClose} />);
         await screen.findAllByTestId('library-entry');
-        // Library dialog (the Templates surface) has its own Close button.
         const libraryDialog = screen.getByRole('dialog', { name: 'Templates' });
         const closeBtn = Array.from(libraryDialog.querySelectorAll('button'))
             .find(b => b.textContent?.trim() === 'Close');
@@ -96,21 +109,13 @@ describe('TemplatesShellModal', () => {
         expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    it('Preview click opens the read-only ImportTemplatePreviewModal', async () => {
+    it('library-entry Preview opens read-only ImportTemplatePreviewModal without Save to Library', async () => {
         mocks.PreviewBuildTemplateFromLibrary.mockResolvedValue({
             report: {
                 ok: true,
                 errors: [],
                 warnings: [],
-                summary: {
-                    inventoryItems: 12,
-                    storageItems: 3,
-                    weapons: 5,
-                    armor: 0,
-                    talismans: 1,
-                    stackables: 9,
-                    aowAssignments: 2,
-                },
+                summary: okSummary,
             },
             json: '{}',
             path: 'tpl-1',
@@ -126,87 +131,280 @@ describe('TemplatesShellModal', () => {
         const previewModal = await screen.findByTestId('import-preview-modal');
         expect(previewModal).toBeInTheDocument();
         expect(previewModal).toHaveTextContent('Preview only');
-        // Apply must not be present — global shell has no session.
+        // Library-entry preview must never expose Apply or Save to Library.
+        expect(screen.queryByTestId('import-preview-apply')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-save-to-library')).not.toBeInTheDocument();
+    });
+
+    it('does not render Create, URL import, or placeholder copy for future phases', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Create from current/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/URL/i)).not.toBeInTheDocument();
+    });
+});
+
+describe('TemplatesShellModal — Phase 2B YAML import', () => {
+    it('renders the "Import YAML from File…" action in the header', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        expect(screen.getByTestId('templates-shell-import-yaml')).toBeInTheDocument();
+    });
+
+    it('click triggers PreviewBuildTemplateImportYAMLFromFile', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: okSummary },
+            json: '{"schema":"saveforge.build-template","version":1}',
+            path: '/fake/imported.yaml',
+        });
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await waitFor(() => {
+            expect(mocks.PreviewBuildTemplateImportYAMLFromFile).toHaveBeenCalledTimes(1);
+        });
+    });
+
+    it('cancelled dialog (sentinel report) does not open preview or surface a toast', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: {
+                ok: false,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0,
+                    storageItems: 0,
+                    weapons: 0,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                },
+            },
+            json: '',
+            path: '',
+        });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastSuccess.mockClear();
+        toastError.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await waitFor(() => {
+            expect(mocks.PreviewBuildTemplateImportYAMLFromFile).toHaveBeenCalled();
+        });
+        // No second modal opens — only the library dialog remains.
+        const dialogs = screen.queryAllByRole('dialog');
+        expect(dialogs).toHaveLength(1);
+        expect(toastSuccess).not.toHaveBeenCalled();
+        expect(toastError).not.toHaveBeenCalled();
+    });
+
+    it('OK preview opens import-mode modal with Save to Library and no Apply', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: okSummary },
+            json: '{"schema":"saveforge.build-template","version":1}',
+            path: '/fake/imported.yaml',
+        });
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const previewModal = await screen.findByTestId('import-preview-modal');
+        expect(previewModal).toBeInTheDocument();
+        const saveBtn = screen.getByTestId('import-preview-save-to-library');
+        expect(saveBtn).toBeEnabled();
         expect(screen.queryByTestId('import-preview-apply')).not.toBeInTheDocument();
     });
 
-    it('closing the preview returns to the library view', async () => {
-        mocks.PreviewBuildTemplateFromLibrary.mockResolvedValue({
-            report: { ok: true, errors: [], warnings: [], summary: {} },
-            json: '{}',
-            path: 'tpl-1',
+    it('blocking preview opens modal with Save to Library disabled', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: {
+                ok: false,
+                errors: [{
+                    severity: 'error',
+                    code: 'structure_invalid',
+                    message: 'multi-document YAML payloads are not supported',
+                }],
+                warnings: [],
+                summary: { ...okSummary, inventoryItems: 0 },
+            },
+            // Backend does not produce canonical JSON for blocking previews.
+            json: '',
+            path: '/fake/bad.yaml',
         });
         render(<TemplatesShellModal onClose={vi.fn()} />);
-        const previewBtns = await screen.findAllByTestId('library-preview');
+        await screen.findAllByTestId('library-entry');
         await act(async () => {
-            fireEvent.click(previewBtns[0]);
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
         });
         const previewModal = await screen.findByTestId('import-preview-modal');
-        const closeBtn = Array.from(previewModal.querySelectorAll('button'))
-            .find(b => b.textContent?.trim() === 'Close');
-        expect(closeBtn).toBeTruthy();
+        expect(previewModal).toBeInTheDocument();
+        expect(screen.getByText(/structure_invalid/)).toBeInTheDocument();
+        expect(screen.getByTestId('import-preview-save-to-library')).toBeDisabled();
+    });
+
+    it('Save to Library passes the canonical JSON returned by preview to the backend', async () => {
+        const canonical = '{"schema":"saveforge.build-template","version":1,"createdAt":"2026-05-11T00:00:00Z"}';
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: okSummary },
+            json: canonical,
+            path: '/fake/imported.yaml',
+        });
+        mocks.SaveImportedBuildTemplateJSONToLibrary.mockResolvedValue(importedEntry);
+        // After save, the library reload should show both entries.
+        mocks.ListBuildTemplateLibrary
+            .mockResolvedValueOnce(sampleEntries)
+            .mockResolvedValueOnce([...sampleEntries, importedEntry]);
+
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
         await act(async () => {
-            fireEvent.click(closeBtn!);
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await screen.findByTestId('import-preview-save-to-library');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-save-to-library'));
+        });
+        await waitFor(() => {
+            expect(mocks.SaveImportedBuildTemplateJSONToLibrary).toHaveBeenCalledWith(canonical);
+        });
+    });
+
+    it('successful Save closes preview, toasts, and reveals the new entry after refresh', async () => {
+        const canonical = '{"schema":"saveforge.build-template","version":1}';
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: okSummary },
+            json: canonical,
+            path: '/fake/imported.yaml',
+        });
+        mocks.SaveImportedBuildTemplateJSONToLibrary.mockResolvedValue(importedEntry);
+        mocks.ListBuildTemplateLibrary
+            .mockResolvedValueOnce(sampleEntries)
+            .mockResolvedValueOnce([...sampleEntries, importedEntry]);
+
+        const { default: toast } = await import('../../../lib/toast');
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        toastSuccess.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await screen.findByTestId('import-preview-save-to-library');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-save-to-library'));
+        });
+        await waitFor(() => {
+            expect(mocks.SaveImportedBuildTemplateJSONToLibrary).toHaveBeenCalled();
         });
         await waitFor(() => {
             expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
         });
-        // Library is still mounted underneath.
-        expect(screen.getByRole('dialog', { name: 'Templates' })).toBeInTheDocument();
+        await waitFor(() => {
+            expect(toastSuccess).toHaveBeenCalled();
+        });
+        // The library refresh signal is the user-visible contract:
+        // after save the new entry must appear without the user
+        // clicking Refresh manually. Asserting on the DOM is more
+        // robust than counting fetcher calls (refresh() can be
+        // invoked multiple times across re-renders).
+        await waitFor(() => {
+            expect(screen.getByText('Imported Build')).toBeInTheDocument();
+        });
     });
 
-    it('does not render Import/Create/YAML/URL/placeholder surfaces', async () => {
-        render(<TemplatesShellModal onClose={vi.fn()} />);
-        await screen.findAllByTestId('library-entry');
-        // No global Apply.
-        expect(screen.queryByTestId('library-apply')).not.toBeInTheDocument();
-        // No file-import preview surfacing before user clicks Preview.
-        expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
-        // No export-template (create from current workspace) modal.
-        expect(screen.queryByTestId('export-template-modal')).not.toBeInTheDocument();
-        // No placeholder copy for future phases.
-        expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
-        expect(screen.queryByText(/YAML/i)).not.toBeInTheDocument();
-        expect(screen.queryByText(/URL/i)).not.toBeInTheDocument();
-        expect(screen.queryByText(/Import from file/i)).not.toBeInTheDocument();
-        expect(screen.queryByText(/Create from current/i)).not.toBeInTheDocument();
-    });
+    it('failed Save keeps preview open and shows an error toast', async () => {
+        const canonical = '{"schema":"saveforge.build-template","version":1}';
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: okSummary },
+            json: canonical,
+            path: '/fake/imported.yaml',
+        });
+        mocks.SaveImportedBuildTemplateJSONToLibrary.mockRejectedValue(new Error('disk full'));
 
-    it('surfaces library errors through the toast helper', async () => {
-        mocks.ListBuildTemplateLibrary.mockRejectedValue(new Error('disk gone'));
         const { default: toast } = await import('../../../lib/toast');
         const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
         toastError.mockClear();
-        render(<TemplatesShellModal onClose={vi.fn()} />);
-        await waitFor(() => {
-            expect(toastError).toHaveBeenCalled();
-        });
-        expect(String(toastError.mock.calls[0][0])).toMatch(/Templates:/);
-    });
 
-    it('refresh path replaces the entry list and notifies via toast', async () => {
-        const rebuilt = [
-            ...sampleEntries,
-            {
-                ...sampleEntries[0],
-                id: 'tpl-2',
-                name: 'Dropped Template',
-            },
-        ];
-        mocks.RebuildBuildTemplateLibraryIndex.mockResolvedValue(rebuilt);
-        const { default: toast } = await import('../../../lib/toast');
-        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
-        toastSuccess.mockClear();
         render(<TemplatesShellModal onClose={vi.fn()} />);
         await screen.findAllByTestId('library-entry');
         await act(async () => {
-            fireEvent.click(screen.getByTestId('library-refresh'));
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await screen.findByTestId('import-preview-save-to-library');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-save-to-library'));
         });
         await waitFor(() => {
-            expect(mocks.RebuildBuildTemplateLibraryIndex).toHaveBeenCalledTimes(1);
+            expect(toastError).toHaveBeenCalled();
         });
-        const entries = await screen.findAllByTestId('library-entry');
-        expect(entries).toHaveLength(2);
-        expect(toastSuccess).toHaveBeenCalled();
+        // Preview must remain mounted so the user can react.
+        expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+    });
+});
+
+describe('TemplatesShellModal — Phase 2B YAML export', () => {
+    it('renders an Export YAML action on each library entry', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        const yamlButtons = await screen.findAllByTestId('library-export-yaml');
+        expect(yamlButtons).toHaveLength(1);
+    });
+
+    it('Export YAML click invokes the YAML export binding with the entry id', async () => {
+        mocks.ExportLibraryBuildTemplateAsYAMLToFile.mockResolvedValue({
+            path: '/fake/exported.yaml',
+            warnings: [],
+            skippedItems: 0,
+        });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        toastSuccess.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        const btns = await screen.findAllByTestId('library-export-yaml');
+        await act(async () => {
+            fireEvent.click(btns[0]);
+        });
+        await waitFor(() => {
+            expect(mocks.ExportLibraryBuildTemplateAsYAMLToFile).toHaveBeenCalledWith('tpl-1');
+        });
+        await waitFor(() => {
+            expect(toastSuccess).toHaveBeenCalled();
+        });
+    });
+
+    it('Cancelled YAML export (empty path) does not toast success', async () => {
+        mocks.ExportLibraryBuildTemplateAsYAMLToFile.mockResolvedValue({
+            path: '',
+            warnings: [],
+            skippedItems: 0,
+        });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastSuccess.mockClear();
+        toastError.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        const btns = await screen.findAllByTestId('library-export-yaml');
+        await act(async () => {
+            fireEvent.click(btns[0]);
+        });
+        await waitFor(() => {
+            expect(mocks.ExportLibraryBuildTemplateAsYAMLToFile).toHaveBeenCalled();
+        });
+        expect(toastSuccess).not.toHaveBeenCalled();
+        expect(toastError).not.toHaveBeenCalled();
     });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     ApplyBuildTemplateFromLibrary,
     DeleteBuildTemplateFromLibrary,
@@ -31,6 +31,12 @@ interface Props {
     onPreviewed?: (preview: main.LoadedTemplatePreview, entry: templates.LibraryTemplateEntry) => void;
     onError: (err: unknown) => void;
     onExportedToFile?: (result: main.BuildTemplateExportResult, entry: templates.LibraryTemplateEntry) => void;
+    // onExportAsYAML, when provided, surfaces an additional per-entry
+    // "Export YAML" action alongside the existing JSON Export. Phase 1
+    // callers (SortOrderTab) omit it and keep JSON-only behaviour; the
+    // Phase 2B global Templates shell passes it to drive the public
+    // YAML sharing format.
+    onExportAsYAML?: (entry: templates.LibraryTemplateEntry) => void | Promise<void>;
     onDeleted?: (id: string) => void;
     // onRefreshed fires after a successful rebuild so the parent can
     // raise a toast or other ambient signal. Receives the post-rebuild
@@ -45,6 +51,17 @@ interface Props {
     // title overrides the modal headline. Defaults to the v1 wording so
     // existing callers are unaffected; the global shell passes "Templates".
     title?: string;
+    // headerExtras renders additional action buttons in the modal header
+    // next to Refresh and Close. The Phase 2B global shell uses this slot
+    // to mount its "Import YAML from File…" entry point. Existing callers
+    // (SortOrderTab) omit it for a no-op.
+    headerExtras?: ReactNode;
+    // reloadSignal lets a parent imperatively trigger a list refetch
+    // without unmounting the modal. Every increment re-runs the same
+    // ListBuildTemplateLibrary path used on mount and by the Refresh
+    // button. The Phase 2B shell bumps this after a successful YAML
+    // import-to-library so the new entry appears immediately.
+    reloadSignal?: number;
 }
 
 export function TemplateLibraryModal({
@@ -54,10 +71,13 @@ export function TemplateLibraryModal({
     onPreviewed,
     onError,
     onExportedToFile,
+    onExportAsYAML,
     onDeleted,
     onRefreshed,
     allowApply = true,
     title = 'Build Template Library',
+    headerExtras,
+    reloadSignal,
 }: Props) {
     const [entries, setEntries] = useState<templates.LibraryTemplateEntry[]>([]);
     const [loading, setLoading] = useState(false);
@@ -95,6 +115,17 @@ export function TemplateLibraryModal({
             .then(setLibraryPath)
             .catch(() => setLibraryPath(''));
     }, [refresh]);
+
+    // Parent-driven reload. We deliberately omit reloadSignal=undefined
+    // from triggering on first mount: refresh() is already called by the
+    // mount effect above, so the initial render does not double-fetch.
+    const lastReloadSignal = useRef<number | undefined>(reloadSignal);
+    useEffect(() => {
+        if (reloadSignal === undefined) return;
+        if (reloadSignal === lastReloadSignal.current) return;
+        lastReloadSignal.current = reloadSignal;
+        refresh();
+    }, [reloadSignal, refresh]);
 
     const onRefreshLibrary = async () => {
         setRefreshing(true);
@@ -147,6 +178,18 @@ export function TemplateLibraryModal({
         try {
             const result = await ExportLibraryBuildTemplateToFile(entry.id);
             onExportedToFile?.(result, entry);
+        } catch (err) {
+            onError(err);
+        } finally {
+            setBusyID('');
+        }
+    };
+
+    const onExportYAML = async (entry: templates.LibraryTemplateEntry) => {
+        if (!onExportAsYAML) return;
+        setBusyID(entry.id);
+        try {
+            await onExportAsYAML(entry);
         } catch (err) {
             onError(err);
         } finally {
@@ -226,6 +269,7 @@ export function TemplateLibraryModal({
                         </p>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
+                        {headerExtras}
                         <button
                             type="button"
                             data-testid="library-refresh"
@@ -336,6 +380,17 @@ export function TemplateLibraryModal({
                                                     >
                                                         Export
                                                     </button>
+                                                    {onExportAsYAML && (
+                                                        <button
+                                                            type="button"
+                                                            data-testid="library-export-yaml"
+                                                            disabled={busy}
+                                                            onClick={() => onExportYAML(entry)}
+                                                            className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 hover:bg-muted/40 disabled:opacity-40"
+                                                        >
+                                                            Export YAML
+                                                        </button>
+                                                    )}
                                                     <button
                                                         type="button"
                                                         data-testid="library-rename"
