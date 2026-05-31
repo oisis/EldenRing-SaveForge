@@ -214,7 +214,7 @@ Design doci bez implementacji w kodzie.
 |---|---|---|---|
 | 37 | [Character Presets (JSON)](37-character-presets.md) | `needs verification` ⚠️ | `backend/vm/preset.go` ma `CharacterPreset/VMToPreset/PresetToVM/ValidatePreset`, ale doc deklaruje „Planowany". Wymaga weryfikacji per faza. |
 | 38 | [Boss Multi-Flag](38-boss-multiflag.md) | `planned` | Kod ma 1-flag model; design wymaga `EventFlags []uint32` (nie wdrożone) |
-| 56 | [Templates v2 — Planned Extension](56-templates-v2.md) | `planned` | Addytywne rozszerzenie [55](55-build-template.md): publiczny format YAML, sidebar entry, sekcje profile/stats/equipment/talismans/spells, granular selection, import z pliku/URL, weapon level override, single-character first, multi-character pack później. Brak zmiany kodu na razie. |
+| 56 | [Templates v2 — Partially Implemented Extension](56-templates-v2.md) | `partial` | Addytywne rozszerzenie [55](55-build-template.md). Phase 0..4 dostarczone: addytywny schemat v2 (`version: 2`, top-level `selection`, `sections.profile` + `sections.stats`), globalny library shell Templates, publiczny YAML import/export (biblioteka na dysku pozostaje JSON), flow create-from-character z per-field selection profile/stats + preview + Save to Library, badge v2 w bibliotece i preview. Apply v2 celowo nadal zablokowane. Phase 5+ (apply profile/stats, weapon override, writery equipment/talismans/spells, appearance przez preset, URL import, multi-character pack) nadal planowane. |
 
 ### Appendix (planowany)
 

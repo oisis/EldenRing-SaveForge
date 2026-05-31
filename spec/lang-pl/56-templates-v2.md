@@ -1,8 +1,8 @@
-# 56 — Templates v2 (Planned Extension)
+# 56 — Templates v2 (Partially Implemented Extension)
 
 > **Type**: Design doc
-> **Status**: 🔲 Planowane — addytywne rozszerzenie wdrożonego podsystemu Build Template udokumentowanego w [55-build-template](55-build-template.md). Nic w tym dokumencie nie opisuje już dostarczonego kodu.
-> **Scope**: Planowane, addytywne rozszerzenie istniejącego `saveforge.build-template` JSON v1 do `version: 2` — z publicznym formatem YAML do udostępniania na zewnątrz, nowym sidebar entry point `Templates`, granular selection model, sekcjami całej postaci (profile, stats, equipment, talismans, spells, appearance tylko przez preset), single-character first, weapon level override przy apply, plików `.yaml` import/export, importu z URL z pełnymi guardami bezpieczeństwa oraz późniejszą fazą multi-character pack. Dokument **nie** redefiniuje baseline'u v1 — dziedziczy go z [55-build-template](55-build-template.md).
+> **Status**: 🔄 Częściowo wdrożone — Phase 0..4 dostarczone (addytywny schemat `version: 2`, globalny library shell Templates, publiczny YAML import/export, flow create-from-character dla profile/stats z per-field selection, Save to Library, badge v2 w bibliotece i preview). Apply dla szablonów v2 jest celowo nadal zablokowany — Phase 5+ (apply profile/stats, weapon level override, writery equipment/talismans/spells, appearance przez preset, URL import, multi-character pack) pozostają wyłącznie design. Addytywne rozszerzenie wdrożonego podsystemu Build Template udokumentowanego w [55-build-template](55-build-template.md).
+> **Scope**: Addytywne rozszerzenie istniejącego `saveforge.build-template` JSON v1 do `version: 2` — z publicznym formatem YAML do udostępniania na zewnątrz, nowym sidebar entry point `Templates`, granular selection model, sekcjami całej postaci (profile, stats, equipment, talismans, spells, appearance tylko przez preset), single-character first, weapon level override przy apply, plików `.yaml` import/export, importu z URL z pełnymi guardami bezpieczeństwa oraz późniejszą fazą multi-character pack. Dokument **nie** redefiniuje baseline'u v1 — dziedziczy go z [55-build-template](55-build-template.md).
 
 ---
 
@@ -11,16 +11,16 @@
 | Aspekt | Wartość |
 |---|---|
 | Numer dokumentu | 56 |
-| Typ dokumentu | Design doc — planowane rozszerzenie |
-| Status | 🔲 Planowane. Nieaplikowane. Sam ten dokument nie uzasadnia żadnej zmiany w kodzie produkcyjnym — każda faza wymaga osobnej akceptacji użytkownika zgodnie z workflow z `~/.claude/CLAUDE.md`. |
+| Typ dokumentu | Design doc — częściowo wdrożone rozszerzenie |
+| Status | 🔄 Częściowo wdrożone. Phase 0..4 dostarczone; Phase 5+ pozostają wyłącznie design. Każda kolejna faza wymaga osobnej akceptacji użytkownika zgodnie z workflow z `~/.claude/CLAUDE.md`. |
 | Referencja baseline | [55-build-template](55-build-template.md) — wdrożone `version: 1`, wyłącznie JSON, wyłącznie inventory + storage, lokalna biblioteka w `$UserConfigDir/EldenRing-SaveEditor/templates/`. |
-| Klucz schematu (planowany) | Pozostaje `saveforge.build-template` (bez rename). |
-| Wersja schematu (planowana) | Dodaje `version: 2`, czytniki nadal akceptują `version: 1`. |
-| Zewnętrzny format publiczny (planowany) | YAML (`.yaml`). JSON pozostaje dla obecnej lokalnej biblioteki i dla backward-compatible importu. |
-| Pierwszy widoczny entry point (planowany) | Niebieski przycisk `Templates` w sidebarze, bezpośrednio nad `Save as...` w `frontend/src/App.tsx` (istniejący footer `<aside>`). |
+| Klucz schematu | Pozostaje `saveforge.build-template` (bez rename). Wdrożone. |
+| Wersja schematu | Reader range `1 ≤ version ≤ MaxSchemaVersion (=2)`. Builder v1 nadal emituje `SchemaVersion = 1`; explicit builder v2 (`backend/templates/export_v2.go`) emituje `version: 2`. Wdrożone. |
+| Zewnętrzny format publiczny | YAML (`.yaml`). JSON pozostaje dla obecnej lokalnej biblioteki i dla backward-compatible importu. Wdrożone dla payloadów v1 i dla dokumentów v2 produkowanych przez builder v2. |
+| Pierwszy widoczny entry point | Niebieski przycisk `Templates` w sidebarze, bezpośrednio nad `Save as...` w `frontend/src/App.tsx` (istniejący footer `<aside>`); otwiera `TemplatesShellModal.tsx`. Wdrożone. |
 | Scope postaci (pierwsza iteracja) | Pojedyncza postać. Multi-character pack odroczony do późniejszej fazy (§15). |
-| URL import (planowany) | Odroczona faza. Backendowy fetch z restrykcyjnymi guardami (§12). |
-| Zmiana kodu produkcyjnego w tej turze | Żadna. Ten dokument jest wyłącznie projektowy. |
+| URL import | Odroczona faza. Backendowy fetch z restrykcyjnymi guardami (§12). Nie wdrożone. |
+| Zmiana kodu produkcyjnego | Phase 0..4 dostarczone; późniejsze fazy pozostają wyłącznie design. Szczegóły w §17 i §17a. |
 
 ---
 
@@ -635,6 +635,7 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 
 ### Phase 0 — ten dokument i decyzje produktowe (bieżący)
 
+- **Status**: ✅ Dostarczone.
 - **Cel**: wyprodukować ten design document; rozwiązać otwarte decyzje w §18.
 - **Pliki**: ten spec + mirror PL; rejestracje README / BOOK_PLAN.
 - **Backend / Frontend impact**: brak.
@@ -642,10 +643,11 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 - **Manual validation**: review.
 - **Ryzyka**: brak.
 - **Out of scope**: jakakolwiek zmiana kodu.
-- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: tak.
+- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
 
 ### Phase 1 — sidebar entry + Templates shell wired do istniejącego backendu v1
 
+- **Status**: ✅ Dostarczone.
 - **Cel**: dodać niebieski przycisk `Templates` w `frontend/src/App.tsx`; otworzyć shell wystawiający Library / Import-from-file / Export-from-current-session, wszystko bindowane do **istniejących Wails methods v1**. Brak zmiany schematu, brak zmiany apply.
 - **Pliki (planowany scope)**: `frontend/src/App.tsx` (sidebar JSX + modal state), nowy `frontend/src/components/templates/TemplatesShellModal.tsx` (wrapper), testy nowego shella.
 - **Backend impact**: brak (reużywa istniejące bindings).
@@ -654,22 +656,24 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 - **Manual validation**: otworzyć app, potwierdzić że button się pojawia, potwierdzić że Library / Import / Export nadal działają dokładnie jak v1.
 - **Ryzyka**: drobny refactor przekazywania `sessionID`.
 - **Out of scope**: jakakolwiek zmiana schematu, jakikolwiek YAML, URL import, granular selection, sekcje pełnej postaci.
-- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: tak.
+- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
 
 ### Phase 2 — publiczny YAML import / export dla v1 inventory + storage
 
+- **Status**: ✅ Dostarczone (rozbita na 2A backend YAML I/O + 2B frontend dialog wiring).
 - **Cel**: wprowadzić reprezentację YAML **istniejącego schematu v1** jako publiczny format udostępniania. Lokalna biblioteka pozostaje JSON-wewnętrzna wg §10.1. Import plików `.yaml` transkoduje do JSON dla storage biblioteki. Brak nowych pól schematu, brak sekcji pełnej postaci.
 - **Pliki (planowany scope)**: `backend/templates/yaml.go` (nowy), `go.mod` (nowa zależność YAML, strict struct-typed decode), `app_templates.go` (nowe Wails bindings `ExportBuildTemplateAsYAMLToFile`, `ExportLibraryTemplateAsYAMLToFile`, file import akceptuje `.yaml`), frontend dialog wiring.
 - **Backend impact**: nowy serializer/deserializer; biblioteka na dysku pozostaje JSON; istniejące ścieżki JSON bez zmian.
 - **Frontend impact**: filtry dialogów obejmują `.yaml`; preview modal akceptuje YAML payload identycznie jak JSON.
 - **Testy**: YAML ↔ JSON round-trip dla payloadów v1; odrzucanie nieobsługiwanych YAML tagów / anchors expanding cross-document; odrzucanie body które nie waliduje się przeciw `ValidateBuildTemplate`.
 - **Manual validation**: wyeksportować szablon v1 jako YAML, ręcznie edytować plik, re-importować, potwierdzić że preview pasuje, potwierdzić że apply do workspace działa dokładnie jak wcześniej.
-- **Ryzyka**: wybór biblioteki YAML — musi egzekwować strict, struct-typed decode (otwarta decyzja §18 #1).
+- **Ryzyka**: wybór biblioteki YAML — musi egzekwować strict, struct-typed decode (otwarta decyzja §18 #1, rozwiązana przez przyjęcie `gopkg.in/yaml.v3` z struct-typed decode).
 - **Out of scope**: pola schematu v2, sekcje pełnej postaci, URL import.
-- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: tak.
+- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
 
 ### Phase 3 — addytywny schemat v2 + `selection` (tylko export, brak apply)
 
+- **Status**: ✅ Dostarczone (rozbita na 3A structural schema draft, 3B.0 apply guard, 3B pure builder dla profile/stats, 3C metadata dla preview/library, 3C.1/3C.2 App-layer JSON + YAML export i Save to Library z `charIndex`, 3D.0 bindings regen, 3D.1 UI v2 metadata badge, 3D.2a/2b CreateTemplateV2Modal wiring).
 - **Cel**: rozszerzyć `backend/templates/schema.go` by deklarować `version: 2`, nowe opcjonalne sekcje (tylko placeholder shape) i `selection`. Update `ValidateBuildTemplate` by akceptował rozszerzony kształt. Reader range staje się `1 ≤ v ≤ 2`. Writery mogą emitować dokumenty v2 zawierające wyłącznie sekcję workspace v1 (semantycznie równoważne v1).
 - **Pliki (planowany scope)**: `backend/templates/schema.go`, `backend/templates/schema_test.go`, `backend/templates/export.go` (builder rozszerzony), `backend/templates/import.go` (validator rozszerzony), Mapowanie YAML utrzymywane w spójności (przy założeniu, że Phase 2 została wcześniej dostarczona).
 - **Backend impact**: pure type extension; brak zmiany apply-side jeszcze.
@@ -678,10 +682,11 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 - **Manual validation**: otworzyć istniejący wpis v1 w bibliotece; potwierdzić że nadal się ładuje i aplikuje; wyeksportować jako v2; potwierdzić round-trip.
 - **Ryzyka**: silent JSON / YAML field collisions jeśli tag names się nakładają — zabezpieczone testami.
 - **Out of scope**: apply nowych sekcji, weapon override, writery equipment / talismans / spells.
-- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: tak.
+- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
 
 ### Phase 4 — export + preview nowych bezpiecznych sekcji (brak apply jeszcze)
 
+- **Status**: ✅ Dostarczone (CreateTemplateV2Modal steruje per-section + per-field selection; preview pokazuje v2 metadata + wybrane sekcje / pola; apply button nieobecny dla v2; apply v1 workspace bez zmian).
 - **Cel**: zaimplementować obiekt `selection` po stronie eksportu (per-section / per-stat checkboxy) i per-section preview walidatory. Apply button pozostaje ukryty dla nowych sekcji w tej fazie; ścieżka apply v1 workspace jest niezmieniona.
 - **Pliki (planowany scope)**: `backend/templates/export.go`, `backend/templates/import.go` (addytywne per-section walidatory z nowymi issue codes), `frontend/src/components/templates/ExportTemplateModal.tsx`, `frontend/src/components/templates/ImportTemplatePreviewModal.tsx`.
 - **Backend impact**: builder respektuje `selection`; per-section walidatory dodane.
@@ -690,7 +695,7 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 - **Manual validation**: wyeksportować szablon v2 "tylko stats"; preview; potwierdzić strukturę i że apply button nie jest oferowany dla nowych sekcji jeszcze.
 - **Ryzyka**: niskie.
 - **Out of scope**: aplikowanie nowych sekcji.
-- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: tak.
+- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
 
 ### Phase 5 — apply: profile + stats (minimalny `TemplateApplyPlan`)
 
@@ -788,6 +793,42 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 
 - **Cel**: zdecydować czy istniejący dropdown staje się redirect do sidebar surface, jest usunięty, czy pozostaje jako shortcut.
 - **Out of scope dopóki nie jest osobno zaakceptowany**.
+
+---
+
+## 17a. Status walidacji
+
+### 17a.1. Log manual validation
+
+| Pole | Wartość |
+|---|---|
+| Data walidacji | 2026-05-31 |
+| Branch pod testem | `feature/templating-system` |
+| Wynik | ✅ Pass — użytkownik potwierdził, że pełen flow create / preview / save / export / re-import działa end-to-end na prawdziwym save. |
+
+### 17a.2. Zwalidowany flow
+
+Poniższy user-facing flow został przeprowadzony manualnie i potwierdzony jako działający:
+
+1. Otworzyć globalny sidebar entry `Templates` → `Create from Character…`.
+2. Wybrać postać źródłową; modal otwiera się ze sekcjami profile / stats domyślnie zwiniętymi.
+3. Per-section enable + per-field toggle: włączyć `profile`, wybrać subset pól profile (np. `name`, `level`, `class`); włączyć `stats`, wybrać subset z 8 stat fields. Kanoniczny selection key dla pola klasy to `class` — `className` nie jest poprawnym selection key.
+4. `Preview schema v2` renderuje v2 metadata (klucz schematu, wersja, podsumowanie selection) i rozwiązane wartości per-field z postaci źródłowej.
+5. `Save to Library` zapisuje dokument v2 do lokalnej biblioteki (JSON na dysku wg §10.1) z badge'em `v2` i podsumowaniem wybranych sekcji w liście biblioteki.
+6. `Export YAML from library` produkuje plik `.yaml` zawierający ten sam payload v2.
+7. `Import` wyeksportowanego `.yaml` z powrotem przez Templates shell; preview pokazuje to samo v2 metadata i wybrane sekcje.
+8. `Apply` dla szablonu v2 jest celowo disabled / nieobecny — guard Phase 3B.0 w `app_templates.go` odrzuca apply każdego szablonu, którego schemat deklaruje `version: 2`.
+
+### 17a.3. Scope tego, co **nie** jest jeszcze zwalidowane
+
+- Apply `sections.profile` i `sections.stats` do prawdziwego save — gated przez Phase 5 (`TemplateApplyPlan` dla bezpiecznego subsetu profile/stats).
+- Weapon level override przy apply — gated przez Phase 6.
+- Nowe write paths dla `sections.equipment`, `sections.equippedTalismans`, `sections.spells` — gated przez Phase 7a / 7b / 7c.
+- Apply appearance preset przez Templates surface — gated przez Phase 8 (underlying writer `app_appearance.go::ApplyPresetToCharacter` już istnieje, ale brak warstwy apply, która routuje szablon przez niego).
+- URL import — gated przez Phase 9 (brak `https://` fetch surface w backendzie dla szablonów dzisiaj).
+- Multi-character pack flow — gated przez Phase 10.
+
+Praca Phase 5+ pozostaje wyłącznie design w tym dokumencie. Każda faza wymaga osobnej akceptacji użytkownika przed implementacją zgodnie z workflow z `~/.claude/CLAUDE.md`.
 
 ---
 

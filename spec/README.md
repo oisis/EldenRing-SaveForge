@@ -214,7 +214,7 @@ Design docs without implementation in code.
 |---|---|---|---|
 | 37 | [Character Presets (JSON)](37-character-presets.md) | `needs verification` ⚠️ | `backend/vm/preset.go` has `CharacterPreset/VMToPreset/PresetToVM/ValidatePreset`, but the doc declares "Planned". Requires per-phase verification. |
 | 38 | [Boss Multi-Flag](38-boss-multiflag.md) | `planned` | Code has a 1-flag model; design requires `EventFlags []uint32` (not implemented) |
-| 56 | [Templates v2 — Planned Extension](56-templates-v2.md) | `planned` | Additive extension of [55](55-build-template.md): YAML public format, sidebar entry, profile/stats/equipment/talismans/spells sections, granular selection, file/URL import, weapon level override, single-character first, multi-character pack later. No code change yet. |
+| 56 | [Templates v2 — Partially Implemented Extension](56-templates-v2.md) | `partial` | Additive extension of [55](55-build-template.md). Phase 0..4 shipped: schema v2 additive (`version: 2`, top-level `selection`, `sections.profile` + `sections.stats`), global Templates library shell, public YAML import/export (library on disk stays JSON), create-from-character flow with per-field profile/stats selection + preview + Save to Library, v2 metadata badge in library and preview. v2 apply intentionally still blocked. Phase 5+ (apply profile/stats, weapon override, equipment/talismans/spells writers, appearance via preset, URL import, multi-character pack) still planned. |
 
 ### Appendix (planned)
 

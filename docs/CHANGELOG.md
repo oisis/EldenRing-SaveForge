@@ -4,6 +4,78 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): ship schema v2 library shell and YAML create/save/export/import flow
+
+Shipped Phase 0..4 of the Templates v2 design (`spec/56-templates-v2.md`):
+the additive `version: 2` schema, a global Templates library shell, the public
+YAML sharing format for v1 payloads, and a create-from-character flow that
+produces v2 templates carrying selected profile / stats fields. Apply for v2
+templates is intentionally still blocked — Phase 5+ (apply profile/stats,
+equipment/talismans/spells writers, URL import, multi-character packs) remain
+design-only in spec/56.
+
+- **Global Templates shell** (`frontend/src/App.tsx`, new
+  `frontend/src/components/templates/TemplatesShellModal.tsx`) — blue
+  `Templates` sidebar entry immediately above `Save as...`. Library /
+  Create / Import are reachable from a single surface, decoupled from
+  `SortOrderTab`. The existing `Export Template ▾` dropdown in
+  `SortOrderTab` is intentionally retained as a power-user shortcut.
+- **Public YAML import / export** for the v1 payload — new
+  `backend/templates/yaml.go` (strict struct-typed `gopkg.in/yaml.v3`
+  decode), `App.ExportBuildTemplateAsYAMLToFile`,
+  `App.ExportLibraryTemplateAsYAMLToFile`, and file-import that accepts
+  both `.yaml` and `.json`. The on-disk library stays JSON-internal;
+  YAML imports transcode to JSON transparently when saved to the
+  library.
+- **Additive schema v2** in `backend/templates/schema.go`:
+  - Schema key stays `saveforge.build-template` (no rename).
+  - `MaxSchemaVersion = 2`; `SchemaVersion = 1` remains the v1 builder
+    emission. v2 documents are produced only by the explicit v2 builder.
+  - New top-level `Selection` object, required for `version: 2`.
+  - New `sections.profile` (`name`, `level`, `runes`, `class`,
+    `clearCount`, `scadutreeBlessing`, `shadowRealmBlessing`,
+    `talismanSlots`) and `sections.stats` (`vigor` / `mind` /
+    `endurance` / `strength` / `dexterity` / `intelligence` / `faith`
+    / `arcane`). Canonical selection key for the class field is
+    `class` (not `className`).
+  - `validateBuildTemplateV2` enforces non-empty `Selection`, rejects
+    unknown profile / stats sub-keys, and clamps player-field ranges.
+  - v1 readers still reject v2 cleanly via the existing
+    "unsupported version" path; v2 readers always accept v1 (semantic
+    equivalence preserved when a v2 document carries only the
+    workspace section).
+- **Create-from-character v2 flow** —
+  `App.BuildBuildTemplateV2FromCharacter`,
+  `App.PreviewBuildTemplateV2FromCharacter`,
+  `App.ExportBuildTemplateV2JSONFromCharacter`,
+  `App.ExportBuildTemplateV2AsYAMLStringFromCharacter`,
+  `App.SaveBuildTemplateV2FromCharacterToLibrary` in
+  `app_templates_v2.go`, backed by `backend/templates/export_v2.go`
+  (pure builder from `charIndex`). Frontend
+  `CreateTemplateV2Modal.tsx` (wired into `TemplatesShellModal` and
+  `App.tsx`) drives the per-section + per-field selection (profile and
+  per-stat booleans), live preview, and Save to Library.
+- **v2 metadata surfaced in the UI** — `TemplateLibraryModal` shows a
+  `v2` badge and the list of selected sections / fields for v2
+  entries; `ImportTemplatePreviewModal` renders the v2 profile / stat
+  field summary in the preview panel.
+- **Wails bindings regenerated** (`wails generate module`) so all v2
+  endpoints and models are visible to the frontend.
+- **Manual validation 2026-05-31**: `Templates → Create from
+  Character… → profile/stats per-field selection → Preview schema v2
+  → Save to Library → v2 badge / selected sections → Export YAML from
+  library → Re-import the exported YAML` all work end-to-end on a
+  real save. The Apply button for v2 templates remains disabled /
+  absent by design.
+- **Apply for v2 intentionally blocked** — the Phase 3B.0 guard in
+  `app_templates.go` refuses to apply any template whose schema
+  declares `version: 2`. v1 apply paths are untouched.
+- **Out of scope** (still planned in spec/56): apply profile / stats
+  (Phase 5), weapon level override (Phase 6), equipment / equipped
+  talismans / spell loadout writers (Phase 7a / 7b / 7c), appearance
+  via preset (Phase 8), URL import with SSRF / redirect / IP guards
+  (Phase 9), multi-character packs (Phase 10).
+
 ### fix(save-integrity): detect and repair duplicate inventory acquisition indices on load
 
 Treated duplicate inventory acquisition indices as a save-integrity issue

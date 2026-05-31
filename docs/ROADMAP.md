@@ -81,9 +81,31 @@
 - **Ash of War edit** — strict-only assignment via `ApplyWeaponAoWStrict`, search, availability/status badges, Remove AoW, and fail-closed handling for unknown compatibility
 - **Sort Order safe refresh** — modal patches metadata by handle, preserving pending preview order and drag/drop state
 
+### Templates v2 — additive sharing format + library shell (foundation)
+Phase 0..4 of the design doc `spec/56-templates-v2.md`. v2 apply is intentionally blocked — Phase 5+ remain planned.
+- **Global Templates shell** — blue `Templates` sidebar entry above `Save as...`, single surface for Library / Create / Import; existing `Export Template ▾` dropdown in Sort Order retained as a shortcut
+- **Additive schema v2** — `saveforge.build-template` reader range `1 ≤ v ≤ 2`, new top-level `selection`, new `sections.profile` + `sections.stats` (canonical class selection key: `class`); v1 readers reject v2 cleanly, v2 readers accept v1
+- **Public YAML import / export** — strict struct-typed `gopkg.in/yaml.v3` decode; library on disk stays JSON-internal; YAML imports transcode to JSON transparently
+- **Create-from-character profile/stats flow** — per-section + per-field selection, live v2 preview, Save to Library
+- **v2 metadata in UI** — `v2` badge + selected-sections summary in `TemplateLibraryModal` and `ImportTemplatePreviewModal`
+- **Apply for v2 intentionally blocked** — guard in `app_templates.go` refuses to apply v2 templates; v1 apply paths untouched
+
 ---
 
 ## Planned
+
+### 🟡 Templates v2 — Phase 5+: apply profile/stats + writers + URL import
+
+Continuation of the foundation shipped above. v2 apply is currently blocked by design — these phases will lift that one writer at a time.
+
+- **Phase 5** — apply `sections.profile` + `sections.stats` via the existing `vm.ApplyVMToParsedSlot` → `slot.SyncPlayerToData` path, under `slotMu[charIdx]` with `SnapshotSlot` / `RestoreSlot` rollback
+- **Phase 6** — weapon level override at apply time (Standard `+0..+25` / Somber `+0..+10`, default `Keep`); relocate `clampUpgrade` to a backend-importable location
+- **Phase 7a / 7b / 7c** — new public write paths for `ChrAsmEquipment` slots 0..9 / 12–15 (weapons + armor), equipped talisman slots 17–21, and the 14 `EquippedSpells` slots — each with PC + PS4 round-trip parity
+- **Phase 8** — apply `sections.appearance.preset` through the existing `app_appearance.go::ApplyPresetToCharacter` helper; raw FaceData never written from a template
+- **Phase 9** — URL import with SSRF / redirect re-check / IP filter / body-size / TLS / content-type guards per §12; backend-only fetch, struct-typed YAML decode
+- **Phase 10** — multi-character pack (`scope: pack`) with explicit source→destination slot mapping and per-slot rollback
+
+**Design:** [spec/56](spec/56-templates-v2.md)
 
 ### 🟡 PvP Presets — Advanced → Presets tab (one-click PvP build setup)
 
