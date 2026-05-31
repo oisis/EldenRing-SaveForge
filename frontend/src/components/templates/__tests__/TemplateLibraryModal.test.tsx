@@ -397,14 +397,14 @@ describe('TemplateLibraryModal — Phase 3D.1 schema v2 surface', () => {
         expect(sectionRows[1]).toHaveTextContent(/stats/);
     });
 
-    it('disables Apply for v2 entries with the unsupported tooltip and does not call onApply', async () => {
+    it('disables Apply for v2 entries when no onApplyV2 handler is provided (legacy callers)', async () => {
         mocks.ListBuildTemplateLibrary.mockResolvedValue([v2Entry]);
         const onApplied = vi.fn();
         render(<TemplateLibraryModal {...defaultProps({ onApplied })} />);
         const applyBtn = await screen.findByTestId('library-apply');
         expect(applyBtn).toBeDisabled();
-        expect(applyBtn).toHaveAttribute('title', 'Apply not supported yet for schema v2');
-        expect(applyBtn).toHaveAttribute('aria-label', 'Apply not supported yet for schema v2');
+        expect(applyBtn).toHaveAttribute('title', 'Apply handler is not available');
+        expect(applyBtn).toHaveAttribute('aria-label', 'Apply handler is not available');
         fireEvent.click(applyBtn);
         expect(mocks.ApplyBuildTemplateFromLibrary).not.toHaveBeenCalled();
         expect(onApplied).not.toHaveBeenCalled();
@@ -526,5 +526,182 @@ describe('TemplateLibraryModal — Phase 2B YAML export', () => {
         await waitFor(() => {
             expect(onError).toHaveBeenCalled();
         });
+    });
+});
+
+describe('TemplateLibraryModal — Phase 5D.1 v2 Apply (library)', () => {
+    const v2ProfileStatsEntry = {
+        id: 'tpl-v2-ps',
+        name: 'V2 Profile + Stats',
+        description: 'schema v2 sample',
+        tags: [],
+        filename: 'tpl-v2-ps.json',
+        createdAt: '2026-05-10T12:00:00Z',
+        updatedAt: '2026-05-10T12:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['profile', 'stats'],
+    };
+    const v2InventoryOnlyEntry = {
+        ...v2ProfileStatsEntry,
+        id: 'tpl-v2-inv',
+        name: 'V2 Inventory Only',
+        selectedSections: ['inventory.workspace'],
+    };
+
+    it('enables v2 Apply when saveLoaded + charIndex + onApplyV2 + profile/stats sections', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeEnabled();
+        expect(applyBtn).toHaveAttribute('title', 'Apply schema v2 template to character slot 1');
+        expect(applyBtn).toHaveAttribute('aria-label', 'Apply');
+    });
+
+    it('disables v2 Apply without saveLoaded and surfaces the load-save tooltip', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: false, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeDisabled();
+        expect(applyBtn).toHaveAttribute('title', 'Load a save to apply this template');
+        expect(applyBtn).toHaveAttribute('aria-label', 'Load a save to apply this template');
+    });
+
+    it('disables v2 Apply without charIndex and surfaces the select-character tooltip', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeDisabled();
+        expect(applyBtn).toHaveAttribute('title', 'Select a character to apply this template');
+        expect(applyBtn).toHaveAttribute('aria-label', 'Select a character to apply this template');
+    });
+
+    it('disables v2 Apply for inventory.workspace-only entries with the inventory-unsupported tooltip', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2InventoryOnlyEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeDisabled();
+        expect(applyBtn).toHaveAttribute('title', 'Inventory apply for schema v2 is not supported yet');
+        expect(applyBtn).toHaveAttribute('aria-label', 'Inventory apply for schema v2 is not supported yet');
+    });
+
+    it('clicking v2 Apply opens the inline confirm row; Cancel closes it and never calls onApplyV2', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        fireEvent.click(applyBtn);
+        const confirm = await screen.findByTestId('library-apply-v2-confirm');
+        expect(confirm).toHaveTextContent('V2 Profile + Stats');
+        expect(confirm).toHaveTextContent('slot 1');
+        expect(screen.getByTestId('library-apply-v2-sections')).toHaveTextContent('profile, stats');
+        expect(screen.getByTestId('library-apply-v2-class-skipped')).toHaveTextContent(/class/i);
+        fireEvent.click(screen.getByTestId('library-apply-v2-cancel-button'));
+        await waitFor(() => {
+            expect(screen.queryByTestId('library-apply-v2-confirm')).not.toBeInTheDocument();
+        });
+        expect(onApplyV2).not.toHaveBeenCalled();
+    });
+
+    it('confirming v2 Apply calls onApplyV2 with the entry and closes the confirm row on success', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        const onApplyV2 = vi.fn().mockResolvedValue(undefined);
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 2, onApplyV2 })}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(onApplyV2).toHaveBeenCalledTimes(1);
+        });
+        expect(onApplyV2.mock.calls[0][0].id).toBe('tpl-v2-ps');
+        await waitFor(() => {
+            expect(screen.queryByTestId('library-apply-v2-confirm')).not.toBeInTheDocument();
+        });
+        // Backbone v1 path must not have been touched by v2 apply.
+        expect(mocks.ApplyBuildTemplateFromLibrary).not.toHaveBeenCalled();
+    });
+
+    it('keeps the confirm row open when onApplyV2 throws so the user can react', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        const onApplyV2 = vi.fn().mockRejectedValue(new Error('apply failed'));
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(onApplyV2).toHaveBeenCalled();
+        });
+        // Confirm stays mounted; the caller surfaces the error toast.
+        expect(screen.getByTestId('library-apply-v2-confirm')).toBeInTheDocument();
+    });
+
+    it('v1 Apply still calls ApplyBuildTemplateFromLibrary when onApplyV2 is also provided', async () => {
+        const v1Sample = sampleEntries[0]; // no version field → treated as v1
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v1Sample]);
+        mocks.ApplyBuildTemplateFromLibrary.mockResolvedValue({
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            workspace: { sessionID: 'ses-test' },
+            applied: true,
+        });
+        const onApplied = vi.fn();
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ onApplied, sessionID: 'ses-test', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeEnabled();
+        await act(async () => {
+            fireEvent.click(applyBtn);
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateFromLibrary).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateFromLibrary.mock.calls[0];
+        expect(call[0]).toBe('ses-test');
+        expect((call[2] as { mode: string }).mode).toBe('append');
+        expect(onApplied).toHaveBeenCalled();
+        expect(onApplyV2).not.toHaveBeenCalled();
+        // v1 path never opens the v2 confirm row.
+        expect(screen.queryByTestId('library-apply-v2-confirm')).not.toBeInTheDocument();
     });
 });

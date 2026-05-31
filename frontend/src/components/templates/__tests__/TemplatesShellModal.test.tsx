@@ -5,6 +5,7 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     ListBuildTemplateLibrary: vi.fn(),
     PreviewBuildTemplateFromLibrary: vi.fn(),
     ApplyBuildTemplateFromLibrary: vi.fn(),
+    ApplyBuildTemplateV2FromLibraryToCharacter: vi.fn(),
     DeleteBuildTemplateFromLibrary: vi.fn(),
     RenameBuildTemplateInLibrary: vi.fn(),
     ExportLibraryBuildTemplateToFile: vi.fn(),
@@ -93,10 +94,15 @@ describe('TemplatesShellModal — baseline (Phase 1 invariants)', () => {
         expect(entries[0]).toHaveTextContent('RL150 Greatsword');
     });
 
-    it('renders library-only — Apply is not present', async () => {
+    it('v1 entries in the global shell render Apply but disabled (no active session)', async () => {
+        // Phase 5D.1 enables Apply per-entry, gated by allowApply + entry
+        // kind. v1 entries still require a sessionID, which the shell
+        // never owns, so the button surfaces but stays inert.
         render(<TemplatesShellModal onClose={vi.fn()} />);
         await screen.findAllByTestId('library-entry');
-        expect(screen.queryByTestId('library-apply')).not.toBeInTheDocument();
+        const applyBtn = screen.getByTestId('library-apply');
+        expect(applyBtn).toBeInTheDocument();
+        expect(applyBtn).toBeDisabled();
     });
 
     it('Close calls onClose', async () => {
@@ -541,5 +547,203 @@ describe('TemplatesShellModal — Phase 2B YAML export', () => {
         });
         expect(toastSuccess).not.toHaveBeenCalled();
         expect(toastError).not.toHaveBeenCalled();
+    });
+});
+
+describe('TemplatesShellModal — Phase 5D.1 v2 Apply orchestration', () => {
+    const v2LibraryEntry = {
+        id: 'tpl-v2-apply',
+        name: 'V2 RL150',
+        description: 'profile + stats',
+        tags: [],
+        filename: 'v2-rl150-tpl-v2-apply.json',
+        createdAt: '2026-05-20T10:00:00Z',
+        updatedAt: '2026-05-20T10:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['profile', 'stats'],
+    };
+
+    function applyOKResult(extra: Partial<Record<string, unknown>> = {}) {
+        return {
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 1,
+            appliedFields: ['profile.level', 'stats.vigor'],
+            skippedFields: [],
+            ...extra,
+        };
+    }
+
+    beforeEach(() => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LibraryEntry]);
+    });
+
+    it('exposes v2 Apply for v2 profile/stats entries when saveLoaded + charIndex', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeEnabled();
+        expect(applyBtn).toHaveAttribute('title', 'Apply schema v2 template to character slot 2');
+    });
+
+    it('confirm OK calls ApplyBuildTemplateV2FromLibraryToCharacter with charIndex, id and mode=append', async () => {
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(applyOKResult());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0];
+        expect(call[0]).toBe(1);
+        expect(call[1]).toBe('tpl-v2-apply');
+        expect((call[2] as { mode: string }).mode).toBe('append');
+    });
+
+    it('applied=true success toasts and calls onCharacterTemplateApplied', async () => {
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(applyOKResult());
+        const { default: toast } = await import('../../../lib/toast');
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        toastSuccess.mockClear();
+        const onCharacterTemplateApplied = vi.fn();
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={1}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(toastSuccess).toHaveBeenCalled();
+        });
+        const successArg = toastSuccess.mock.calls[0][0] as string;
+        expect(successArg).toMatch(/V2 RL150/);
+        expect(successArg).toMatch(/slot 2/);
+        expect(onCharacterTemplateApplied).toHaveBeenCalledWith(1);
+    });
+
+    it('emits an info toast when skippedFields includes profile.class', async () => {
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(
+            applyOKResult({ skippedFields: ['profile.class'] }),
+        );
+        const { default: toast } = await import('../../../lib/toast');
+        const toastFn = toast as unknown as ReturnType<typeof vi.fn> & {
+            success: ReturnType<typeof vi.fn>;
+        };
+        toastFn.mockClear();
+        toastFn.success.mockClear();
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(toastFn.success).toHaveBeenCalled();
+        });
+        await waitFor(() => {
+            expect(toastFn).toHaveBeenCalled();
+        });
+        const infoCall = toastFn.mock.calls.find(args => /class/i.test(String(args[0])));
+        expect(infoCall).toBeTruthy();
+    });
+
+    it('applied=false with preview errors toasts error and does not refresh state', async () => {
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue({
+            preview: {
+                ok: false,
+                errors: [{ severity: 'error', code: 'unsupported_category', message: 'inventory.workspace not supported' }],
+                warnings: [],
+                summary: {},
+            },
+            applied: false,
+            charIndex: 1,
+            appliedFields: [],
+            skippedFields: [],
+        });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        toastError.mockClear();
+        toastSuccess.mockClear();
+        const onCharacterTemplateApplied = vi.fn();
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={1}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(toastSuccess).not.toHaveBeenCalled();
+        expect(onCharacterTemplateApplied).not.toHaveBeenCalled();
+        // Confirm row stays open so the user can react.
+        expect(screen.getByTestId('library-apply-v2-confirm')).toBeInTheDocument();
+    });
+
+    it('binding throw toasts error and does not refresh state', async () => {
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockRejectedValue(new Error('rpc broken'));
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+        const onCharacterTemplateApplied = vi.fn();
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={1}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(onCharacterTemplateApplied).not.toHaveBeenCalled();
+        expect(screen.getByTestId('library-apply-v2-confirm')).toBeInTheDocument();
+    });
+
+    it('v1 entries in the shell remain disabled (no sessionID) even with saveLoaded + charIndex', async () => {
+        const v1Entry = {
+            id: 'tpl-v1',
+            name: 'V1 Sample',
+            description: '',
+            tags: [],
+            filename: 'tpl-v1.json',
+            createdAt: '2026-05-01T10:00:00Z',
+            updatedAt: '2026-05-01T10:00:00Z',
+            inventoryItems: 4,
+            storageItems: 0,
+            warnings: 0,
+            version: 1,
+            selectedSections: ['inventory.workspace'],
+        };
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v1Entry]);
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeDisabled();
     });
 });

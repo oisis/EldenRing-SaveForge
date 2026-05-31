@@ -935,6 +935,12 @@ function App() {
                 onClose={() => setTemplatesShellOpen(false)}
                 charIndex={selectedChar}
                 saveLoaded={!!platform}
+                onCharacterTemplateApplied={() => {
+                    setInventoryVersion(v => v + 1);
+                    setSaveLoadKey(k => k + 1);
+                    refreshSlots();
+                    refreshUndoDepth();
+                }}
             />
         )}
         <ToastBar sidebarWidth={256} />

@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import toast from '../../lib/toast';
 import {
+    ApplyBuildTemplateV2FromLibraryToCharacter,
     ExportLibraryBuildTemplateAsYAMLToFile,
     PreviewBuildTemplateImportYAMLFromFile,
     SaveImportedBuildTemplateJSONToLibrary,
@@ -36,10 +37,16 @@ import { CreateTemplateV2Modal } from './CreateTemplateV2Modal';
 interface Props {
     onClose: () => void;
     // charIndex/saveLoaded gate the Phase 3D.2b "Create from Character…"
-    // action. The library-only flow remains usable without a loaded save,
-    // so both are optional; only the create button reacts to them.
+    // action and the Phase 5D.1 v2 library-apply confirm flow. The
+    // library listing remains usable without a loaded save; only the
+    // create and v2 apply buttons react to them.
     charIndex?: number;
     saveLoaded?: boolean;
+    // onCharacterTemplateApplied fires after a successful v2 library
+    // apply so App can refresh sidebar / undo depth / tab state. The
+    // backend has already mutated the slot in RAM by this point; the
+    // callback is the bridge from shell-local apply to global state.
+    onCharacterTemplateApplied?: (charIndex: number) => void;
 }
 
 // ImportedYAMLPreview bundles the report with the canonical JSON the
@@ -52,7 +59,7 @@ interface ImportedYAMLPreview {
     path: string;
 }
 
-export function TemplatesShellModal({ onClose, charIndex, saveLoaded }: Props) {
+export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacterTemplateApplied }: Props) {
     const [libraryPreview, setLibraryPreview] = useState<templates.ImportPreviewReport | null>(null);
     const [importedPreview, setImportedPreview] = useState<ImportedYAMLPreview | null>(null);
     const [importing, setImporting] = useState(false);
@@ -105,7 +112,9 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded }: Props) {
 
     const onLibraryError = useCallback((err: unknown) => toast.error(`Templates: ${String(err)}`), []);
     const onLibraryApplied = useCallback(() => {
-        /* allowApply=false hides the Apply button; this never fires */
+        /* v1 Apply requires sessionID; shell passes "" so v1 Apply is
+           always disabled here. v2 entries route through onApplyV2
+           instead, so this v1 callback never fires from the shell. */
     }, []);
     const onLibraryPreviewed = useCallback((preview: main.LoadedTemplatePreview) => {
         // Preview of an existing library entry — read-only, no Save to
@@ -128,6 +137,45 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded }: Props) {
     const onLibraryRefreshed = useCallback(
         (list: templates.LibraryTemplateEntry[]) => toast.success(`Template library refreshed (${list.length} entries).`),
         [],
+    );
+
+    const handleApplyV2FromLibrary = useCallback(
+        async (entry: templates.LibraryTemplateEntry) => {
+            // The library modal disables the button under the same
+            // conditions, but the guard belongs here too — the parent
+            // owns the bindings call and must never invoke it without a
+            // loaded save + selected character.
+            if (!saveLoaded || charIndex === undefined) {
+                const msg = 'Load a save and select a character before applying a v2 template.';
+                toast.error(`Templates: ${msg}`);
+                throw new Error(msg);
+            }
+            let result: main.ApplyTemplateV2Result;
+            try {
+                result = await ApplyBuildTemplateV2FromLibraryToCharacter(
+                    charIndex,
+                    entry.id,
+                    main.ApplyTemplateV2Options.createFrom({ mode: 'append' }),
+                );
+            } catch (err) {
+                toast.error(`Templates: ${String(err)}`);
+                throw err;
+            }
+            if (!result.applied) {
+                const firstErr = result.preview?.errors?.[0]?.message ?? 'Apply did not complete.';
+                toast.error(`Templates: ${firstErr}`);
+                throw new Error(firstErr);
+            }
+            toast.success(
+                `Applied "${entry.name || entry.id}" to character slot ${charIndex + 1}.`,
+            );
+            if ((result.skippedFields ?? []).includes('profile.class')) {
+                // toast() is the info channel in this codebase — see lib/toast.ts.
+                toast('Class was skipped in this phase.');
+            }
+            onCharacterTemplateApplied?.(charIndex);
+        },
+        [saveLoaded, charIndex, onCharacterTemplateApplied],
     );
 
     const onCreateV2Saved = useCallback(
@@ -171,7 +219,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded }: Props) {
         <>
             <TemplateLibraryModal
                 sessionID=""
-                allowApply={false}
+                allowApply
                 title="Templates"
                 onClose={onClose}
                 onApplied={onLibraryApplied}
@@ -182,6 +230,9 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded }: Props) {
                 reloadSignal={libraryReloadSignal}
                 onDeleted={onLibraryDeleted}
                 onRefreshed={onLibraryRefreshed}
+                charIndex={charIndex}
+                saveLoaded={saveLoaded}
+                onApplyV2={handleApplyV2FromLibrary}
                 headerExtras={
                     <>
                         <button

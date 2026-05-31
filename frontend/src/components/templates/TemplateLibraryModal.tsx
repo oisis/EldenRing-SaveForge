@@ -62,6 +62,15 @@ interface Props {
     // button. The Phase 2B shell bumps this after a successful YAML
     // import-to-library so the new entry appears immediately.
     reloadSignal?: number;
+    // Phase 5D.1 — v2 library apply props. charIndex/saveLoaded gate the
+    // Apply button for schema v2 entries; onApplyV2 is invoked from the
+    // inline confirm row (the modal owns confirmation state, the parent
+    // owns the binding call + toasts + post-apply state refresh).
+    // Existing v1 callers can omit all three — Apply for v1 entries
+    // still drives onApply with sessionID exactly as before.
+    charIndex?: number;
+    saveLoaded?: boolean;
+    onApplyV2?: (entry: templates.LibraryTemplateEntry) => Promise<void> | void;
 }
 
 export function TemplateLibraryModal({
@@ -78,12 +87,17 @@ export function TemplateLibraryModal({
     title = 'Build Template Library',
     headerExtras,
     reloadSignal,
+    charIndex,
+    saveLoaded,
+    onApplyV2,
 }: Props) {
     const [entries, setEntries] = useState<templates.LibraryTemplateEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [busyID, setBusyID] = useState<string>('');
     const [confirmDeleteID, setConfirmDeleteID] = useState<string>('');
+    const [confirmApplyV2ID, setConfirmApplyV2ID] = useState<string>('');
+    const [applyV2BusyID, setApplyV2BusyID] = useState<string>('');
     const [editingID, setEditingID] = useState<string>('');
     const [editName, setEditName] = useState('');
     const [editDescription, setEditDescription] = useState('');
@@ -215,6 +229,30 @@ export function TemplateLibraryModal({
         }
     };
 
+    const onApplyV2Click = (entry: templates.LibraryTemplateEntry) => {
+        setConfirmApplyV2ID(entry.id);
+    };
+
+    const onApplyV2Cancel = () => {
+        setConfirmApplyV2ID('');
+    };
+
+    const onApplyV2Confirm = async (entry: templates.LibraryTemplateEntry) => {
+        if (!onApplyV2) return;
+        setApplyV2BusyID(entry.id);
+        try {
+            await onApplyV2(entry);
+            // Close confirm only after the parent handler resolves
+            // cleanly. On throw we leave the row open so the user can
+            // react to the error (toast surfaced by the caller).
+            setConfirmApplyV2ID('');
+        } catch {
+            /* keep confirm row open; caller is responsible for the toast */
+        } finally {
+            setApplyV2BusyID('');
+        }
+    };
+
     const onRenameStart = (entry: templates.LibraryTemplateEntry) => {
         setEditingID(entry.id);
         setEditName(entry.name ?? '');
@@ -320,8 +358,56 @@ export function TemplateLibraryModal({
                                 const busy = busyID === entry.id;
                                 const editing = editingID === entry.id;
                                 const confirming = confirmDeleteID === entry.id;
+                                const confirmingApplyV2 = confirmApplyV2ID === entry.id;
                                 const isV2 = (entry.version ?? 0) >= 2;
-                                const applyUnsupportedTitle = 'Apply not supported yet for schema v2';
+                                const selectedSections = entry.selectedSections ?? [];
+                                const v2HasApplyableSections =
+                                    selectedSections.includes('profile') || selectedSections.includes('stats');
+
+                                // Per-entry Apply gating. v1 path is
+                                // preserved verbatim: requires sessionID,
+                                // calls onApply, never opens the v2
+                                // confirm row. v2 entries route through
+                                // the inline confirm + parent onApplyV2
+                                // callback; the disabled reason is
+                                // surfaced via the title/aria-label so
+                                // hover and screen readers explain why
+                                // the button is inert.
+                                let applyDisabled: boolean;
+                                let applyTitle: string | undefined;
+                                let applyAriaLabel: string;
+                                let applyHandler: () => void;
+                                if (!isV2) {
+                                    applyDisabled = busy || !sessionID;
+                                    applyTitle = undefined;
+                                    applyAriaLabel = 'Apply';
+                                    applyHandler = () => onApply(entry);
+                                } else if (!v2HasApplyableSections) {
+                                    applyDisabled = true;
+                                    applyTitle = 'Inventory apply for schema v2 is not supported yet';
+                                    applyAriaLabel = applyTitle;
+                                    applyHandler = () => {};
+                                } else if (!onApplyV2) {
+                                    applyDisabled = true;
+                                    applyTitle = 'Apply handler is not available';
+                                    applyAriaLabel = applyTitle;
+                                    applyHandler = () => {};
+                                } else if (!saveLoaded) {
+                                    applyDisabled = true;
+                                    applyTitle = 'Load a save to apply this template';
+                                    applyAriaLabel = applyTitle;
+                                    applyHandler = () => {};
+                                } else if (charIndex === undefined) {
+                                    applyDisabled = true;
+                                    applyTitle = 'Select a character to apply this template';
+                                    applyAriaLabel = applyTitle;
+                                    applyHandler = () => {};
+                                } else {
+                                    applyDisabled = applyV2BusyID === entry.id || confirmingApplyV2;
+                                    applyTitle = `Apply schema v2 template to character slot ${charIndex + 1}`;
+                                    applyAriaLabel = 'Apply';
+                                    applyHandler = () => onApplyV2Click(entry);
+                                }
                                 return (
                                     <li
                                         key={entry.id}
@@ -383,10 +469,10 @@ export function TemplateLibraryModal({
                                                         <button
                                                             type="button"
                                                             data-testid="library-apply"
-                                                            disabled={busy || !sessionID || isV2}
-                                                            onClick={() => onApply(entry)}
-                                                            title={isV2 ? applyUnsupportedTitle : undefined}
-                                                            aria-label={isV2 ? applyUnsupportedTitle : 'Apply'}
+                                                            disabled={applyDisabled}
+                                                            onClick={applyHandler}
+                                                            title={applyTitle}
+                                                            aria-label={applyAriaLabel}
                                                             className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded bg-green-700/80 text-white hover:bg-green-700 disabled:opacity-40"
                                                         >
                                                             Apply
@@ -477,6 +563,56 @@ export function TemplateLibraryModal({
                                                         className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded bg-green-700/80 text-white hover:bg-green-700 disabled:opacity-40"
                                                     >
                                                         Save
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {confirmingApplyV2 && (
+                                            <div
+                                                data-testid="library-apply-v2-confirm"
+                                                className="mt-2 rounded border border-green-700/40 bg-green-900/20 px-3 py-2 text-[11px] space-y-1"
+                                            >
+                                                <div>
+                                                    Apply <strong>{entry.name || '(unnamed)'}</strong>
+                                                    {charIndex !== undefined && (
+                                                        <> to character slot <strong>{charIndex + 1}</strong></>
+                                                    )}?
+                                                </div>
+                                                {selectedSections.length > 0 && (
+                                                    <div data-testid="library-apply-v2-sections" className="text-muted-foreground">
+                                                        Sections: <span className="font-bold">{selectedSections.join(', ')}</span>
+                                                    </div>
+                                                )}
+                                                <div className="text-amber-200">
+                                                    This will overwrite the selected profile/stat fields on the selected character.
+                                                </div>
+                                                {selectedSections.includes('profile') && (
+                                                    <div data-testid="library-apply-v2-class-skipped" className="text-muted-foreground italic">
+                                                        Class changes are skipped in this phase.
+                                                    </div>
+                                                )}
+                                                <div className="text-muted-foreground">
+                                                    Use Save/Write Save to persist changes to disk.
+                                                </div>
+                                                <div className="mt-2 flex justify-end gap-2">
+                                                    <button
+                                                        type="button"
+                                                        data-testid="library-apply-v2-cancel-button"
+                                                        onClick={onApplyV2Cancel}
+                                                        disabled={applyV2BusyID === entry.id}
+                                                        className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 hover:bg-muted/40 disabled:opacity-40"
+                                                    >
+                                                        Cancel
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        data-testid="library-apply-v2-confirm-button"
+                                                        onClick={() => onApplyV2Confirm(entry)}
+                                                        disabled={applyV2BusyID === entry.id}
+                                                        className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded bg-green-700/80 text-white hover:bg-green-700 disabled:opacity-40"
+                                                    >
+                                                        {applyV2BusyID === entry.id ? 'Applying…' : 'Apply to Character'}
                                                     </button>
                                                 </div>
                                             </div>
