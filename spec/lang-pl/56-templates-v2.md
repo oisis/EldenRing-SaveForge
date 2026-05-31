@@ -1,7 +1,7 @@
 # 56 — Templates v2 (Partially Implemented Extension)
 
 > **Type**: Design doc
-> **Status**: 🔄 Częściowo wdrożone — Phase 0..4 dostarczone (addytywny schemat `version: 2`, globalny library shell Templates, publiczny YAML import/export, flow create-from-character dla profile/stats z per-field selection, Save to Library, badge v2 w bibliotece i preview). Apply dla szablonów v2 jest celowo nadal zablokowany — Phase 5+ (apply profile/stats, weapon level override, writery equipment/talismans/spells, appearance przez preset, URL import, multi-character pack) pozostają wyłącznie design. Addytywne rozszerzenie wdrożonego podsystemu Build Template udokumentowanego w [55-build-template](55-build-template.md).
+> **Status**: 🔄 Częściowo wdrożone — Phase 0..5 dostarczone (addytywny schemat `version: 2`, globalny library shell Templates, publiczny YAML import/export, flow create-from-character dla profile/stats z per-field selection, Save to Library, badge v2 w bibliotece i preview, **Phase 5 = Apply z biblioteki wyłącznie dla profile/stats przez `ApplyBuildTemplateV2FromLibraryToCharacter`**). Apply dla sekcji v2 poza profile/stats pozostaje zablokowany — Phase 6+ (weapon level override, writery equipment/talismans/spells, appearance przez preset, URL import, multi-character pack) pozostają wyłącznie design. Addytywne rozszerzenie wdrożonego podsystemu Build Template udokumentowanego w [55-build-template](55-build-template.md).
 > **Scope**: Addytywne rozszerzenie istniejącego `saveforge.build-template` JSON v1 do `version: 2` — z publicznym formatem YAML do udostępniania na zewnątrz, nowym sidebar entry point `Templates`, granular selection model, sekcjami całej postaci (profile, stats, equipment, talismans, spells, appearance tylko przez preset), single-character first, weapon level override przy apply, plików `.yaml` import/export, importu z URL z pełnymi guardami bezpieczeństwa oraz późniejszą fazą multi-character pack. Dokument **nie** redefiniuje baseline'u v1 — dziedziczy go z [55-build-template](55-build-template.md).
 
 ---
@@ -12,7 +12,7 @@
 |---|---|
 | Numer dokumentu | 56 |
 | Typ dokumentu | Design doc — częściowo wdrożone rozszerzenie |
-| Status | 🔄 Częściowo wdrożone. Phase 0..4 dostarczone; Phase 5+ pozostają wyłącznie design. Każda kolejna faza wymaga osobnej akceptacji użytkownika zgodnie z workflow z `~/.claude/CLAUDE.md`. |
+| Status | 🔄 Częściowo wdrożone. Phase 0..5 dostarczone (Phase 5 = Apply z biblioteki wyłącznie dla subsetu profile/stats); Phase 6+ pozostają wyłącznie design. Każda kolejna faza wymaga osobnej akceptacji użytkownika zgodnie z workflow z `~/.claude/CLAUDE.md`. |
 | Referencja baseline | [55-build-template](55-build-template.md) — wdrożone `version: 1`, wyłącznie JSON, wyłącznie inventory + storage, lokalna biblioteka w `$UserConfigDir/EldenRing-SaveEditor/templates/`. |
 | Klucz schematu | Pozostaje `saveforge.build-template` (bez rename). Wdrożone. |
 | Wersja schematu | Reader range `1 ≤ version ≤ MaxSchemaVersion (=2)`. Builder v1 nadal emituje `SchemaVersion = 1`; explicit builder v2 (`backend/templates/export_v2.go`) emituje `version: 2`. Wdrożone. |
@@ -697,19 +697,20 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 - **Out of scope**: aplikowanie nowych sekcji.
 - **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
 
-### Phase 5 — apply: profile + stats (minimalny `TemplateApplyPlan`)
+### Phase 5 — apply: profile + stats (minimalny `TemplateApplyPlan`) — ✅ Dostarczone 2026-05-31
 
 - **Cel**: zaimplementować najbezpieczniejszy subset planowanego `TemplateApplyPlan` (§13). Zaaplikować wyłącznie pola które istniejący `vm.ApplyVMToParsedSlot` faktycznie mapuje z VM i które `slot.SyncPlayerToData` zapisuje do `slot.Data`:
-  - `profile.name`, `profile.level`, `profile.class`, `profile.souls`, `profile.soulMemory` (z istniejącym clampem `runesCostForLevel`), `profile.clearCount` (cap 7), `profile.scadutreeBlessing`, `profile.shadowRealmBlessing`, `profile.talismanSlots` (additional Pouch slot count 0..3, clampowane), `stats.*` (wszystkie 8).
-  - Wszystko powyższe idzie pod `slotMu[charIdx]` z per-slot `core.SnapshotSlot` wziętym najpierw i `core.RestoreSlot` na każde failure.
-- **Pliki (planowany scope)**: nowy `backend/templates/apply.go`, nowy `app_templates_apply.go`, testy.
+  - `profile.name`, `profile.level`, `profile.souls`, `profile.soulMemory` (z istniejącym clampem `runesCostForLevel`), `profile.clearCount` (cap 7), `profile.scadutreeBlessing`, `profile.shadowRealmBlessing`, `profile.talismanSlots` (additional Pouch slot count 0..3, clampowane), `stats.*` (wszystkie 8).
+  - `profile.class` jest celowo **pomijane** przez writer Phase 5 i raportowane przez `ApplyTemplateV2Result.Skipped`; `className` **nie jest** aliasem `class`.
+  - Wszystko powyższe idzie pod `slotMu[charIdx]` z per-slot `core.SnapshotSlot` wziętym najpierw i `core.RestoreSlot` na każde failure. Flagi `clearCount` i side effects `ProfileSummary` są przeliczane na success.
+- **Pliki (dostarczony scope)**: `app_templates_v2_apply.go` (`ApplyBuildTemplateV2ToCharacterJSON`, `ApplyBuildTemplateV2FromLibraryToCharacter`, `ApplyBuildTemplateV2FromFileToCharacter`, `ApplyTemplateV2Options`, `ApplyTemplateV2Result` z `Character` typowanym jako `vm.CharacterViewModel`), regenerowane bindingsy dla tych samych symboli, UI w `frontend/src/components/templates/TemplatesShellModal.tsx` + `TemplateLibraryModal.tsx` (Apply wyłącznie z biblioteki, inline confirm, `mode: "append"`), `frontend/src/App.tsx` (post-apply refresh `inventoryVersion`, `saveLoadKey`, slotów, undo).
 - **Backend impact**: nowa warstwa apply; reużywa istniejące writery dokładnie.
-- **Frontend impact**: apply button enabled dla tych sekcji.
-- **Testy**: apply happy path; rollback na error; integrity gate pre- i post-check (`GetSaveInventoryIntegrityReport`); per-platform round-trip (`go test -v ./tests/roundtrip_test.go` — PC, PS4, PC→PS4, PS4→PC).
-- **Manual validation**: zaaplikować szablon stats-only do fixture character; potwierdzić że UI odbija zmianę; potwierdzić round-trip obie platformy.
-- **Ryzyka**: musi respektować istniejące locking i integrity gate dokładnie.
-- **Out of scope**: Gender / VoiceType (Phase 8 przez helpery appearance), equipment / equipped talismans / spells / appearance / weapon-level override.
-- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: tak.
+- **Frontend impact**: Apply enabled na wpisach biblioteki, których `selectedSections ⊆ { profile, stats }`; wpisy v2 niosące dowolną inną sekcję pozostają disabled. Wails file endpoint istnieje, ale nie jest podpięty do UI direct imported-YAML Apply; supported flow pozostaje `Import YAML → Save to Library → Apply from Library`.
+- **Testy**: backend apply happy path; rollback na error; `profile.class` raportowany w `Skipped`; ścieżki delegacji library + file pokryte.
+- **Manual validation**: 2026-05-31 — zaaplikowano wpis biblioteki v2 z selekcją profile + stats do aktywnej postaci na `feature/templates-v2-apply-profile-stats`; inline confirm działa; Apply zakończony sukcesem; wybrane pola zmieniają się; post-apply refresh odbija nowy stan; wpisy v1 pozostają disabled w global shell (brak `sessionID`); niewspierane wpisy v2 pozostają disabled. Direct imported-YAML Apply nie testowany — pozostaje odroczony.
+- **Ryzyka**: respektowane — istniejące locking i integrity gate zachowane.
+- **Out of scope**: Gender / VoiceType (Phase 8 przez helpery appearance), equipment / equipped talismans / spells / appearance / weapon-level override, direct imported-YAML Apply (odroczony).
+- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
 
 ### Phase 6 — weapon level override dla v1 inventory / storage apply
 
@@ -806,6 +807,12 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 | Branch pod testem | `feature/templating-system` |
 | Wynik | ✅ Pass — użytkownik potwierdził, że pełen flow create / preview / save / export / re-import działa end-to-end na prawdziwym save. |
 
+| Pole | Wartość |
+|---|---|
+| Data walidacji | 2026-05-31 |
+| Branch pod testem | `feature/templates-v2-apply-profile-stats` |
+| Wynik | ✅ Pass — Phase 5 Apply v2 dla profile/stats z biblioteki zwalidowany manualnie end-to-end (`ApplyBuildTemplateV2FromLibraryToCharacter`, `mode: "append"`). Direct imported-YAML Apply nie testowany — pozostaje odroczony. |
+
 ### 17a.2. Zwalidowany flow
 
 Poniższy user-facing flow został przeprowadzony manualnie i potwierdzony jako działający:
@@ -817,18 +824,28 @@ Poniższy user-facing flow został przeprowadzony manualnie i potwierdzony jako 
 5. `Save to Library` zapisuje dokument v2 do lokalnej biblioteki (JSON na dysku wg §10.1) z badge'em `v2` i podsumowaniem wybranych sekcji w liście biblioteki.
 6. `Export YAML from library` produkuje plik `.yaml` zawierający ten sam payload v2.
 7. `Import` wyeksportowanego `.yaml` z powrotem przez Templates shell; preview pokazuje to samo v2 metadata i wybrane sekcje.
-8. `Apply` dla szablonu v2 jest celowo disabled / nieobecny — guard Phase 3B.0 w `app_templates.go` odrzuca apply każdego szablonu, którego schemat deklaruje `version: 2`.
+8. `Apply` dla wpisu biblioteki v2 jest enabled **wyłącznie** gdy jego `selectedSections ⊆ { profile, stats }`. Kliknięcie Apply wywołuje inline confirm bezpośrednio w wierszu biblioteki, a następnie `TemplatesShellModal` wywołuje `ApplyBuildTemplateV2FromLibraryToCharacter(charIdx, libraryEntryID, { mode: "append" })`. Po sukcesie `App.tsx` bumpuje `inventoryVersion` + `saveLoadKey` oraz uruchamia `refreshSlots` + `refreshUndoDepth`. Wpisy v2 niosące dowolną inną sekcję pozostają z disabled Apply; istniejący guard Phase 3B.0 w `app_templates.go` nadal odrzuca v1 Apply dla każdego dokumentu v2.
+
+### 17a.2a. Flow Phase 5 zwalidowany
+
+1. Otworzyć globalny sidebar entry `Templates` → biblioteka.
+2. Wybrać wpis biblioteki v2, którego `selectedSections ⊆ { profile, stats }`. Przycisk Apply jest enabled; wpisy v2 niosące dowolną inną sekcję pozostają disabled, a wpisy v1 nadal używają niezmienionej ścieżki v1 Apply.
+3. Kliknąć Apply → inline confirm pojawia się w wierszu biblioteki.
+4. Confirm → `TemplatesShellModal` wywołuje `ApplyBuildTemplateV2FromLibraryToCharacter` z aktywnym `charIdx` i `mode: "append"`.
+5. Backend uruchamia warstwę apply Phase 5 pod `slotMu[charIdx]` (snapshot + rollback na error), pomijając `profile.class` i raportując je w `ApplyTemplateV2Result.Skipped`.
+6. `App.tsx` odświeża `inventoryVersion`, `saveLoadKey`, sloty i głębokość undo, więc widoczny stan postaci / save aktualizuje się bez reloadu.
 
 ### 17a.3. Scope tego, co **nie** jest jeszcze zwalidowane
 
-- Apply `sections.profile` i `sections.stats` do prawdziwego save — gated przez Phase 5 (`TemplateApplyPlan` dla bezpiecznego subsetu profile/stats).
+- ✅ **Dostarczone 2026-05-31** — Apply `sections.profile` i `sections.stats` do prawdziwego save przez `ApplyBuildTemplateV2FromLibraryToCharacter` (wyłącznie ścieżka biblioteki, `mode: "append"`, `profile.class` celowo pomijane, snapshot + rollback pod `slotMu[charIdx]`).
+- Direct apply zaimportowanego YAML bez wcześniejszego Save to Library jest **jeszcze niezaimplementowany w UI**. `ApplyBuildTemplateV2FromFileToCharacter` istnieje backend/bindings-side, ale nie jest podpięty w UI; supported flow pozostaje `Import YAML → Save to Library → Apply from Library`.
 - Weapon level override przy apply — gated przez Phase 6.
 - Nowe write paths dla `sections.equipment`, `sections.equippedTalismans`, `sections.spells` — gated przez Phase 7a / 7b / 7c.
 - Apply appearance preset przez Templates surface — gated przez Phase 8 (underlying writer `app_appearance.go::ApplyPresetToCharacter` już istnieje, ale brak warstwy apply, która routuje szablon przez niego).
 - URL import — gated przez Phase 9 (brak `https://` fetch surface w backendzie dla szablonów dzisiaj).
 - Multi-character pack flow — gated przez Phase 10.
 
-Praca Phase 5+ pozostaje wyłącznie design w tym dokumencie. Każda faza wymaga osobnej akceptacji użytkownika przed implementacją zgodnie z workflow z `~/.claude/CLAUDE.md`.
+Praca Phase 6+ pozostaje wyłącznie design w tym dokumencie. Każda faza wymaga osobnej akceptacji użytkownika przed implementacją zgodnie z workflow z `~/.claude/CLAUDE.md`.
 
 ---
 

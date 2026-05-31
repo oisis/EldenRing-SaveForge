@@ -4,15 +4,97 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): apply schema v2 profile + stats from library
+
+Shipped Phase 5 of the Templates v2 design (`spec/56-templates-v2.md`): the
+safe profile + stats subset of v2 Apply, reachable from the Templates global
+shell against entries already stored in the local library. The v1 Apply path
+is untouched; v2 templates that carry any section outside profile / stats
+remain disabled at the UI level and refused by the backend guard.
+
+- **Backend apply layer** (`app_templates_v2_apply.go`):
+  - `ApplyBuildTemplateV2ToCharacterJSON(charIndex int, jsonText string, opts ApplyTemplateV2Options) (ApplyTemplateV2Result, error)`
+    — applies only the supported v2 sections (`sections.profile`,
+    `sections.stats`) to the selected `charIdx`. Runs under
+    `slotMu[charIdx]` with a `core.SnapshotSlot` taken first and
+    `core.RestoreSlot` on any error; recomputes `clearCount` flags
+    and `ProfileSummary` side effects on success.
+  - `ApplyBuildTemplateV2FromLibraryToCharacter(charIndex int, libraryEntryID string, opts ApplyTemplateV2Options) (ApplyTemplateV2Result, error)`
+    — loads the library entry's JSON and delegates to the JSON endpoint.
+  - `ApplyBuildTemplateV2FromFileToCharacter(charIndex int, path string, opts ApplyTemplateV2Options) (ApplyTemplateV2Result, error)`
+    — reads a `.yaml` / `.json` file and delegates to the JSON
+    endpoint. **Not wired into the UI in this release** — exists only
+    for future direct-import flows.
+  - `ApplyTemplateV2Options` carries the apply `Mode` (`"append"` for the
+    current UI path) and the section selection mirror used by the
+    backend guard.
+  - `ApplyTemplateV2Result.Character` is typed as `vm.CharacterViewModel`
+    (not `any`), so the frontend gets a strongly-typed payload after
+    apply. The result also surfaces `Skipped[]` listing fields the
+    apply layer intentionally did not write — `profile.class` always
+    appears here because Phase 5 deliberately skips it.
+  - `className` is **not** an alias of `class`; selecting `className`
+    in a v2 selection block still fails validation upstream — only
+    the canonical `class` key exists and it is intentionally skipped
+    by the Phase 5 writer.
+- **Wails bindings** (`frontend/wailsjs/go/main/App.{d.ts,js}` +
+  `frontend/wailsjs/go/models.ts`) regenerated for
+  `ApplyBuildTemplateV2ToCharacterJSON`,
+  `ApplyBuildTemplateV2FromLibraryToCharacter`,
+  `ApplyBuildTemplateV2FromFileToCharacter`,
+  `ApplyTemplateV2Options`, and `ApplyTemplateV2Result` (with
+  `character: vm.CharacterViewModel`).
+- **Frontend (library-only Apply UI)** — changed files:
+  `frontend/src/App.tsx`,
+  `frontend/src/components/templates/TemplatesShellModal.tsx`,
+  `frontend/src/components/templates/TemplateLibraryModal.tsx`.
+  - The Apply button on a `TemplateLibraryModal` row is enabled for a
+    v2 entry only when its `selectedSections ⊆ { profile, stats }`.
+    Any other v2 section keeps the Apply button disabled with the
+    existing "unsupported" tooltip; v1 entries remain handled by the
+    v1 Apply path unchanged.
+  - Clicking Apply runs an inline confirm directly in the library
+    row (no separate dialog), then `TemplatesShellModal` calls
+    `ApplyBuildTemplateV2FromLibraryToCharacter` with `mode: "append"`
+    and the active `charIdx`.
+  - After a successful apply, `App.tsx` bumps `inventoryVersion`,
+    `saveLoadKey`, and triggers `refreshSlots` and
+    `refreshUndoDepth`, so the visible character / save state
+    updates without a reload.
+  - The global shell still renders the v1 Apply control for v1
+    library entries; it stays disabled in the global shell when
+    there is no active `sessionID` (unchanged behaviour).
+- **Supported flow** — `Import YAML → Save to Library → Apply from
+  Library`. The direct "apply a freshly imported YAML without
+  saving to library first" path is intentionally deferred; the
+  backend endpoint (`ApplyBuildTemplateV2FromFileToCharacter`) and
+  its binding exist, but no UI surface invokes them yet.
+- **Apply for unsupported v2 sections remains blocked** — the
+  existing schema guard still refuses any v2 template that carries
+  `sections.equipment`, `sections.equippedTalismans`,
+  `sections.spells`, `sections.appearance`, weapon-level overrides
+  or multi-character packs. Out-of-scope sections are unchanged
+  from spec/56 §17a.3.
+- **Manual validation 2026-05-31** (Phase 5D.1 confirmation, user
+  "jest ok"): on `feature/templates-v2-apply-profile-stats`, a v2
+  library entry with profile + stats selection was applied to an
+  active character; the inline confirm fires, the Apply succeeds,
+  the selected fields visibly change, and the post-apply refresh
+  reflects the new state. v1 entries remained disabled in the
+  global shell (no `sessionID`); v2 entries carrying unsupported
+  sections remained disabled. Direct imported-YAML Apply was not
+  exercised and remains deferred.
+
 ### feat(templates): ship schema v2 library shell and YAML create/save/export/import flow
 
 Shipped Phase 0..4 of the Templates v2 design (`spec/56-templates-v2.md`):
 the additive `version: 2` schema, a global Templates library shell, the public
 YAML sharing format for v1 payloads, and a create-from-character flow that
 produces v2 templates carrying selected profile / stats fields. Apply for v2
-templates is intentionally still blocked — Phase 5+ (apply profile/stats,
-equipment/talismans/spells writers, URL import, multi-character packs) remain
-design-only in spec/56.
+templates outside the profile / stats subset remains blocked — Phase 5
+profile / stats Apply from the library has shipped (see the entry above);
+Phase 6+ (weapon level override, equipment / talismans / spells writers,
+URL import, multi-character packs) remain design-only in spec/56.
 
 - **Global Templates shell** (`frontend/src/App.tsx`, new
   `frontend/src/components/templates/TemplatesShellModal.tsx`) — blue
@@ -67,14 +149,19 @@ design-only in spec/56.
   library → Re-import the exported YAML` all work end-to-end on a
   real save. The Apply button for v2 templates remains disabled /
   absent by design.
-- **Apply for v2 intentionally blocked** — the Phase 3B.0 guard in
-  `app_templates.go` refuses to apply any template whose schema
-  declares `version: 2`. v1 apply paths are untouched.
-- **Out of scope** (still planned in spec/56): apply profile / stats
-  (Phase 5), weapon level override (Phase 6), equipment / equipped
-  talismans / spell loadout writers (Phase 7a / 7b / 7c), appearance
-  via preset (Phase 8), URL import with SSRF / redirect / IP guards
-  (Phase 9), multi-character packs (Phase 10).
+- **Apply guard now scoped to unsupported v2 sections** — the
+  Phase 3B.0 guard in `app_templates.go` still refuses v1 Apply
+  for any document declaring `version: 2`. Phase 5 lifted the
+  block specifically for profile / stats via the new v2 Apply
+  layer (`ApplyBuildTemplateV2*ToCharacter`); v2 documents
+  carrying any other section remain refused. v1 apply paths are
+  untouched.
+- **Out of scope** (still planned in spec/56 after Phase 5): weapon
+  level override (Phase 6), equipment / equipped talismans / spell
+  loadout writers (Phase 7a / 7b / 7c), appearance via preset
+  (Phase 8), URL import with SSRF / redirect / IP guards (Phase 9),
+  multi-character packs (Phase 10). Phase 5 profile / stats Apply
+  from the library has shipped — see the entry above.
 
 ### fix(save-integrity): detect and repair duplicate inventory acquisition indices on load
 
