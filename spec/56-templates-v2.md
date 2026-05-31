@@ -1,7 +1,7 @@
 # 56 — Templates v2 (Partially Implemented Extension)
 
 > **Type**: Design doc
-> **Status**: 🔄 Partially implemented — Phase 0..5 shipped (additive `version: 2` schema, global Templates library shell, public YAML import/export, create-from-character flow for profile/stats with per-field selection, Save to Library, v2 metadata badge in library and preview, **Phase 5 = library Apply for profile/stats only via `ApplyBuildTemplateV2FromLibraryToCharacter`**). Apply for v2 sections outside profile/stats remains blocked — Phase 6+ (weapon level override, equipment/talismans/spells writers, appearance via preset, URL import, multi-character pack) remain design-only. Additive extension of the implemented Build Template subsystem documented in [55-build-template](55-build-template.md).
+> **Status**: 🔄 Partially implemented — Phase 0..5 shipped (additive `version: 2` schema, global Templates library shell, public YAML import/export, create-from-character flow for profile/stats with per-field selection, Save to Library, v2 metadata badge in library and preview, **Phase 5 = library Apply + direct imported-YAML Apply for profile/stats via `ApplyBuildTemplateV2FromLibraryToCharacter` and `ApplyBuildTemplateV2ToCharacterJSON` on the canonical JSON produced by the import preview**). Apply for v2 sections outside profile/stats remains blocked — Phase 6+ (weapon level override, equipment/talismans/spells writers, appearance via preset, URL import, multi-character pack) remain design-only. Additive extension of the implemented Build Template subsystem documented in [55-build-template](55-build-template.md).
 > **Scope**: Addytywne rozszerzenie istniejącego `saveforge.build-template` JSON v1 do `version: 2` — z publicznym formatem YAML do udostępniania na zewnątrz, nowym sidebar entry point `Templates`, granular selection model, sekcjami całej postaci (profile, stats, equipment, talismans, spells, appearance via preset), single-character first, weapon level override przy apply, plików `.yaml` import/export, importu z URL z pełnymi guardami bezpieczeństwa oraz późniejszą fazą multi-character pack. Document **does not** redefine the v1 baseline — it inherits it from [55-build-template](55-build-template.md).
 
 ---
@@ -12,7 +12,7 @@
 |---|---|
 | Document number | 56 |
 | Document type | Design doc — partially implemented extension |
-| Status | 🔄 Partially implemented. Phase 0..5 shipped (Phase 5 = library Apply for the profile/stats subset only); Phase 6+ remain design-only. Each later phase requires a separate user approval per the workflow in `~/.claude/CLAUDE.md`. |
+| Status | 🔄 Partially implemented. Phase 0..5 shipped (Phase 5 = library Apply + direct imported-YAML Apply for the profile/stats subset only); Phase 6+ remain design-only. Each later phase requires a separate user approval per the workflow in `~/.claude/CLAUDE.md`. |
 | Baseline reference | [55-build-template](55-build-template.md) — implemented `version: 1`, JSON only, inventory + storage only, local library at `$UserConfigDir/EldenRing-SaveEditor/templates/`. |
 | Schema key | Remains `saveforge.build-template` (no rename). Implemented. |
 | Schema version | Reader range `1 ≤ version ≤ MaxSchemaVersion (=2)`. v1 builder still emits `SchemaVersion = 1`; the explicit v2 builder (`backend/templates/export_v2.go`) emits `version: 2`. Implemented. |
@@ -703,13 +703,13 @@ The first user-visible value is the public sharing format (YAML) for the **alrea
   - `profile.name`, `profile.level`, `profile.souls`, `profile.soulMemory` (with the existing `runesCostForLevel` clamp), `profile.clearCount` (cap 7), `profile.scadutreeBlessing`, `profile.shadowRealmBlessing`, `profile.talismanSlots` (additional Pouch slot count 0..3, clamped), `stats.*` (all 8).
   - `profile.class` is intentionally **skipped** by the Phase 5 writer and surfaced through `ApplyTemplateV2Result.Skipped`; `className` is **not** an alias of `class`.
   - All of the above goes under `slotMu[charIdx]` with a per-slot `core.SnapshotSlot` taken first and `core.RestoreSlot` on any error. `clearCount` flags and `ProfileSummary` side effects are recomputed on success.
-- **Files (shipped scope)**: `app_templates_v2_apply.go` (`ApplyBuildTemplateV2ToCharacterJSON`, `ApplyBuildTemplateV2FromLibraryToCharacter`, `ApplyBuildTemplateV2FromFileToCharacter`, `ApplyTemplateV2Options`, `ApplyTemplateV2Result` with `Character` typed as `vm.CharacterViewModel`), bindings regenerated for the same symbols, UI in `frontend/src/components/templates/TemplatesShellModal.tsx` + `TemplateLibraryModal.tsx` (library-only Apply, inline confirm, `mode: "append"`), `frontend/src/App.tsx` (post-apply refresh of `inventoryVersion`, `saveLoadKey`, slots, undo).
-- **Backend impact**: new apply layer; reuses existing writers exactly.
-- **Frontend impact**: Apply enabled on library entries whose `selectedSections ⊆ { profile, stats }`; v2 entries carrying any other section remain disabled. The Wails file endpoint exists but is not wired into a direct imported-YAML Apply UI; supported flow stays `Import YAML → Save to Library → Apply from Library`.
-- **Tests**: backend apply happy path; rollback on error; `profile.class` reported in `Skipped`; library + file delegation paths covered.
-- **Manual validation**: 2026-05-31 — applied a v2 library entry with profile + stats selection to an active character on `feature/templates-v2-apply-profile-stats`; inline confirm fires; Apply succeeds; selected fields change; post-apply refresh reflects the new state; v1 entries remain disabled in the global shell (no `sessionID`); unsupported v2 entries remain disabled. Direct imported-YAML Apply not exercised — remains deferred.
-- **Risks**: respected — existing locking and integrity gate were preserved.
-- **Out of scope**: Gender / VoiceType (Phase 8 via appearance helpers), equipment / equipped talismans / spells / appearance / weapon-level override, direct imported-YAML Apply (deferred).
+- **Files (shipped scope)**: `app_templates_v2_apply.go` (`ApplyBuildTemplateV2ToCharacterJSON`, `ApplyBuildTemplateV2FromLibraryToCharacter`, `ApplyBuildTemplateV2FromFileToCharacter`, `ApplyTemplateV2Options`, `ApplyTemplateV2Result` with `Character` typed as `vm.CharacterViewModel`), bindings regenerated for the same symbols, UI in `frontend/src/components/templates/TemplatesShellModal.tsx` + `TemplateLibraryModal.tsx` (library Apply, inline confirm, `mode: "append"`) and `frontend/src/components/templates/ImportTemplatePreviewModal.tsx` (Phase 5D.2 — direct imported-YAML Apply button + gating), `frontend/src/App.tsx` (post-apply refresh of `inventoryVersion`, `saveLoadKey`, slots, undo — reused unchanged by Phase 5D.2).
+- **Backend impact**: new apply layer; reuses existing writers exactly. Phase 5D.2 added no backend or bindings changes.
+- **Frontend impact**: Apply enabled on library entries and on imported-YAML previews whose `selectedSections ⊆ { profile, stats }`; v2 entries carrying any other section remain disabled; v1 imported templates never show the new v2 Apply button. The direct imported-YAML Apply path reuses `ApplyBuildTemplateV2ToCharacterJSON` against the canonical JSON already produced by the import preview — no second file dialog, no TOCTOU re-read between preview and apply. `ApplyBuildTemplateV2FromFileToCharacter` exists backend/bindings-side but is intentionally left unwired in UI; supported flows are now both `Import YAML → Save to Library → Apply from Library` and `Import YAML → Preview → Apply to character`.
+- **Tests**: backend apply happy path; rollback on error; `profile.class` reported in `Skipped`; library + file delegation paths covered; frontend (Phase 5D.2) covers v1 imports never offering the new button, all gating failure paths for v2 imports, click forwarding to `ApplyBuildTemplateV2ToCharacterJSON` with `mode: "append"`, `applied=true` success path (close + toasts + `onCharacterTemplateApplied`), `applied=false` and thrown-error paths (error toast + preview stays open), and Save-to-Library independence.
+- **Manual validation**: 2026-05-31 — Phase 5D.1: applied a v2 library entry with profile + stats selection to an active character on `feature/templates-v2-apply-profile-stats`; inline confirm fires; Apply succeeds; selected fields change; post-apply refresh reflects the new state; v1 entries remain disabled in the global shell (no `sessionID`); unsupported v2 entries remain disabled. Phase 5D.2: on `feature/templates-v2-direct-yaml-apply`, importing a v2 YAML with `selectedSections ⊆ { profile, stats }` through `Import YAML from File…` and clicking "Apply to character" applied the same fields the library path applies; `profile.class` skip surfaced via info toast when `class` was selected; the preview closed on success and `App.tsx`'s refresh dance updated the visible state; v1 imported YAMLs continued to show only `Save to Library` with no v2 Apply button; v2 imports carrying unsupported sections kept Apply disabled with the supported-scope tooltip; the Phase 5D.1 library Apply path remained unchanged.
+- **Risks**: respected — existing locking and integrity gate were preserved. Phase 5D.2 introduced no new lock surface; it reused Phase 5D.1's endpoint as-is.
+- **Out of scope**: Gender / VoiceType (Phase 8 via appearance helpers), equipment / equipped talismans / spells / appearance / weapon-level override, apply-time value editing / overrides.
 - **Requires separate user decision before continuing**: completed.
 
 ### Phase 6 — weapon level override for the v1 inventory / storage apply
@@ -811,7 +811,13 @@ The first user-visible value is the public sharing format (YAML) for the **alrea
 |---|---|
 | Validation date | 2026-05-31 |
 | Branch under test | `feature/templates-v2-apply-profile-stats` |
-| Outcome | ✅ Pass — Phase 5 v2 Apply for profile/stats from the library manually validated end-to-end (`ApplyBuildTemplateV2FromLibraryToCharacter`, `mode: "append"`). Direct imported-YAML Apply not exercised — remains deferred. |
+| Outcome | ✅ Pass — Phase 5 v2 Apply for profile/stats from the library manually validated end-to-end (`ApplyBuildTemplateV2FromLibraryToCharacter`, `mode: "append"`). |
+
+| Field | Value |
+|---|---|
+| Validation date | 2026-05-31 |
+| Branch under test | `feature/templates-v2-direct-yaml-apply` |
+| Outcome | ✅ Pass — Phase 5D.2 direct imported-YAML Apply for profile/stats manually validated end-to-end (`ApplyBuildTemplateV2ToCharacterJSON` on the canonical JSON produced by `PreviewBuildTemplateImportYAMLFromFile`, `mode: "append"`); no second file dialog, no TOCTOU re-read between preview and apply; v1 imports kept the legacy Save-to-Library-only behaviour; v2 imports with unsupported sections kept Apply disabled. |
 
 ### 17a.2. Flow exercised
 
@@ -835,10 +841,21 @@ The following user-facing flow was driven manually and confirmed working:
 5. Backend runs the Phase 5 apply layer under `slotMu[charIdx]` (snapshot + rollback on error), skipping `profile.class` and surfacing it in `ApplyTemplateV2Result.Skipped`.
 6. `App.tsx` refreshes `inventoryVersion`, `saveLoadKey`, slots, and undo depth so the visible character / save state updates without a reload.
 
+### 17a.2b. Phase 5D.2 direct imported-YAML flow exercised
+
+1. Open the global `Templates` sidebar entry → `Import YAML from File…`.
+2. Pick a v2 `.yaml` template whose `selectedSections ⊆ { profile, stats }`. The shell calls `PreviewBuildTemplateImportYAMLFromFile`, which returns the parsed report **and** a canonical JSON serialisation of the same payload.
+3. The `ImportTemplatePreviewModal` opens with the v2 metadata, the report panel, the existing `Save to Library` button, and — only for v2 imports — a new `Apply to character` button (testid `import-preview-apply-v2`).
+4. The new button is enabled only when the report is OK, a save is loaded, a character is selected, the selection is non-empty, and every selected section is in the module-level `V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats']`. v1 imports omit the `onApplyV2` prop, so the button is not rendered at all.
+5. Click Apply → `TemplatesShellModal.handleApplyV2FromImportedPreview` calls `ApplyBuildTemplateV2ToCharacterJSON(charIndex, importedPreview.canonicalJSON, { mode: "append" })`. The bytes that get applied are byte-for-byte the canonical JSON the user previewed — there is no second file dialog and no re-read of the YAML on disk.
+6. On `result.applied === true`, the preview closes, a success toast names the YAML path and the slot label, `onCharacterTemplateApplied(charIndex)` fires (so `App.tsx` runs its existing post-Phase-5D.1 refresh dance — `inventoryVersion`, `saveLoadKey`, slots, undo), and an info toast announces the `profile.class` skip if `class` appeared in `result.skippedFields`.
+7. On `result.applied === false` or a thrown binding error, an error toast is raised and the preview stays open so the user can retry or close it manually.
+8. The existing `Save to Library` action is untouched; clicking it on the same preview saves the imported template into the library as before, and the Phase 5D.1 library Apply path remains the source of truth for entries already stored locally.
+
 ### 17a.3. Scope of what is **not** yet validated
 
-- ✅ **Shipped 2026-05-31** — Apply of `sections.profile` and `sections.stats` to a real save via `ApplyBuildTemplateV2FromLibraryToCharacter` (library path only, `mode: "append"`, `profile.class` intentionally skipped, snapshot + rollback under `slotMu[charIdx]`).
-- Direct apply of an imported YAML without first saving it to the library is **not yet implemented in UI**. `ApplyBuildTemplateV2FromFileToCharacter` exists backend/bindings-side but is unwired in UI; the supported flow remains `Import YAML → Save to Library → Apply from Library`.
+- ✅ **Shipped 2026-05-31 (Phase 5D.1)** — Apply of `sections.profile` and `sections.stats` to a real save via `ApplyBuildTemplateV2FromLibraryToCharacter` (library path, `mode: "append"`, `profile.class` intentionally skipped, snapshot + rollback under `slotMu[charIdx]`).
+- ✅ **Shipped 2026-05-31 (Phase 5D.2)** — Direct apply of an imported YAML without first saving it to the library, through `ApplyBuildTemplateV2ToCharacterJSON` on the canonical JSON produced by `PreviewBuildTemplateImportYAMLFromFile` (`Import YAML → Preview → Apply to character`, `mode: "append"`, no second file dialog, no TOCTOU re-read). `ApplyBuildTemplateV2FromFileToCharacter` still exists backend/bindings-side but remains intentionally unwired in UI — the JSON path is preferred because it is WYSIWYG with the preview the user just confirmed.
 - Weapon level override at apply time — gated by Phase 6.
 - New write paths for `sections.equipment`, `sections.equippedTalismans`, `sections.spells` — gated by Phase 7a / 7b / 7c.
 - Appearance preset apply through the template surface — gated by Phase 8 (the underlying `app_appearance.go::ApplyPresetToCharacter` writer already exists, but no apply layer routes the template through it yet).

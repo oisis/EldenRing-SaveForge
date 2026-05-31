@@ -4,6 +4,97 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): apply imported v2 YAML directly to character
+
+Shipped Phase 5D.2 of the Templates v2 design (`spec/56-templates-v2.md`):
+the `Import YAML → Preview → Apply` direct path that bypasses the
+intermediate `Save to Library` step. Strictly scoped to schema v2
+`sections.profile` + `sections.stats`. v1 imported templates do **not**
+get a direct Apply control — they continue through the existing v1 path.
+
+- **No backend, no bindings change.** This phase reuses the already
+  shipped Phase 5D.1 endpoint
+  `ApplyBuildTemplateV2ToCharacterJSON(charIdx, jsonText, opts)` and
+  feeds it the canonical JSON already produced by
+  `PreviewBuildTemplateImportYAMLFromFile` for the preview. No second
+  file dialog. No TOCTOU re-read of the YAML on disk between Preview
+  and Apply — the bytes the user previewed are the bytes that get
+  applied. `ApplyBuildTemplateV2FromFileToCharacter` still exists
+  backend/bindings-side but remains **unwired in UI**.
+- **Frontend** — changed files:
+  `frontend/src/components/templates/ImportTemplatePreviewModal.tsx`,
+  `frontend/src/components/templates/TemplatesShellModal.tsx`,
+  and the two `__tests__` siblings of each.
+  - `ImportTemplatePreviewModal` gains an optional `onApplyV2` prop
+    (separate from the existing v1 `onApply` placeholder), an
+    `applyingV2` flag, and `charIndex` / `saveLoaded` gates. A new
+    "Apply to character" footer button (testid
+    `import-preview-apply-v2`) is rendered only for v2 documents; its
+    enabled state is computed from the preview report, the active
+    save, the active character index, the selected sections, and a
+    module-level `V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats']`
+    that mirrors the backend scope guard. v1 imports never see the
+    button.
+  - `TemplatesShellModal` wires `handleApplyV2FromImportedPreview` —
+    invoked from the imported-YAML preview only, never the
+    library-preview instance. It calls
+    `ApplyBuildTemplateV2ToCharacterJSON(charIndex,
+    importedPreview.canonicalJSON, { mode: 'append' })`, closes the
+    preview on success, raises a success toast that names the YAML
+    path and the slot label, raises an info toast if `profile.class`
+    appears in `result.skippedFields`, and on `applied === false` or
+    a thrown error raises an error toast and keeps the preview open
+    for the user to retry or close.
+  - `App.tsx` is **untouched**. The existing
+    `onCharacterTemplateApplied` callback already bumps
+    `inventoryVersion`, `saveLoadKey`, and triggers `refreshSlots` +
+    `refreshUndoDepth`, so the imported-YAML Apply path reuses the
+    same post-apply refresh dance as the Phase 5D.1 library path.
+  - **Save to Library remains independent** — the new direct Apply
+    button is additive; the existing `Save to Library` action on the
+    imported preview is unaffected, and the library Apply path
+    shipped in Phase 5D.1 is unchanged.
+- **UI gating** — `onApplyV2` is wired only for v2 imports; for v1
+  imports the prop is omitted, so the new button is not rendered at
+  all. For v2 imports the button is disabled (with a tooltip) when:
+  the preview report is not OK, no save is loaded, no character is
+  selected, no sections are selected, or the selection carries any
+  section outside `V2_APPLY_SUPPORTED_SECTIONS`. Disabled-state
+  copy explains exactly which gate failed.
+- **Apply-time editing remains out of scope.** The direct Apply
+  forwards exactly what the preview validated — no value overrides,
+  no per-field re-selection at Apply time, no weapon level override
+  (still Phase 6). Section scope at Apply equals the scope the user
+  picked at Import.
+- **Tests** — `ImportTemplatePreviewModal.test.tsx` gains 10 cases
+  covering: v1 imports never render the v2 Apply button; v2 imports
+  with all gates satisfied render it enabled; each individual gate
+  failure (no save loaded, no character, empty sections,
+  unsupported section, preview not OK, `applyingV2=true`) renders
+  the correct disabled state and tooltip; clicking forwards to
+  `onApplyV2`; "Save to Library" stays independent of the new
+  button. `TemplatesShellModal.test.tsx` gains 8 cases covering: the
+  imported-preview Apply path; binding called with the canonical
+  JSON and `{ mode: 'append' }`; `applied=true` closes the preview,
+  raises a success toast, fires `onCharacterTemplateApplied`;
+  `profile.class` in `skippedFields` raises an info toast;
+  `applied=false` raises an error toast and keeps the preview open;
+  a thrown binding error behaves the same; v1 imported preview
+  never shows the v2 Apply button; v2 imported preview without a
+  loaded save keeps Apply disabled.
+- **Manual validation 2026-05-31** (user "jest ok"): on
+  `feature/templates-v2-direct-yaml-apply`, importing a v2 YAML
+  with `selectedSections ⊆ { profile, stats }` through
+  `Import YAML from File…` and clicking "Apply to character"
+  applied the same fields as the Phase 5D.1 library path; the
+  `profile.class` skip surfaced via info toast when `class` was
+  selected; the preview closed; `App.tsx`'s refresh dance updated
+  the visible character / save state; v1 imported YAMLs continued
+  to show only the legacy `Save to Library` action with no v2
+  Apply button; v2 imports carrying unsupported sections kept the
+  button disabled with the supported-scope tooltip; the Phase 5D.1
+  library Apply path remained unchanged.
+
 ### feat(templates): apply schema v2 profile + stats from library
 
 Shipped Phase 5 of the Templates v2 design (`spec/56-templates-v2.md`): the
