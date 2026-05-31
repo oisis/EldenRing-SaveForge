@@ -2284,3 +2284,119 @@ describe('TemplatesShellModal — Phase 7a.2 v2 weapon level override', () => {
         expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
     });
 });
+
+// Phase 7b.1 — v2 sections.equipment apply through the existing library +
+// canonical-JSON Apply path. Equipment-only templates do NOT require an
+// active Inventory Edit Session; the equipment + inventory.workspace
+// combo is hard-rejected at backend preview time and surfaces as a normal
+// preview error inside the existing modal.
+describe('TemplatesShellModal — Phase 7b.1 v2 equipment apply', () => {
+    const v2EquipmentEntry = {
+        id: 'tpl-v2-equipment',
+        name: 'V2 Equipment Loadout',
+        description: 'equip slots only',
+        tags: [],
+        filename: 'tpl-v2-equipment.json',
+        createdAt: '2026-06-01T10:00:00Z',
+        updatedAt: '2026-06-01T12:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['equipment'],
+    };
+
+    function applyV2EquipmentOK() {
+        return {
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 0,
+            appliedFields: ['equipment'],
+            skippedFields: [],
+            inventoryItemsApplied: 0,
+            storageItemsApplied: 0,
+            equipmentSlotsApplied: 1,
+        };
+    }
+
+    it('library Apply for equipment-only entry does not require an active session', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2EquipmentEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(applyV2EquipmentOK());
+        const onCharacterTemplateApplied = vi.fn();
+
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={0}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0];
+        // sessionID should be the empty string — equipment apply ignores it.
+        expect((call[2] as { sessionID?: string }).sessionID).toBe('');
+        expect(onCharacterTemplateApplied).toHaveBeenCalledWith(0);
+    });
+
+    it('library Apply forwards sessionID transparently when one happens to be open (no special-casing)', async () => {
+        const activeSessionID = 'ses-eq-active';
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2EquipmentEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: activeSessionID });
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(applyV2EquipmentOK());
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0];
+        // The shell forwards the existing session ID even though equipment
+        // doesn't need it — backend silently ignores it.
+        expect((call[2] as { sessionID?: string }).sessionID).toBe(activeSessionID);
+    });
+
+    it('library Apply for equipment-only entry surfaces the apply error toast when the backend rejects', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2EquipmentEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue({
+            preview: {
+                ok: false,
+                errors: [
+                    { severity: 'error', code: 'equipment_slot_invalid', message: 'equipment write rolled back' },
+                ],
+                warnings: [],
+                summary: {},
+            },
+            applied: false,
+            charIndex: 0,
+        });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        const msgs = toastError.mock.calls.map(c => c[0] as string);
+        expect(msgs.some(m => /equipment write rolled back/i.test(m))).toBe(true);
+    });
+});

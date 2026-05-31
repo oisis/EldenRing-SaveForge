@@ -60,7 +60,15 @@ interface Props {
 // for inventory.workspace templates and the shell either forwards the
 // session ID or surfaces the "Open the Sort Order workspace first"
 // toast.
-const V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats', 'inventory.workspace'];
+//
+// Phase 7b.1 adds equipment. Equipment-only templates do NOT require
+// an active session — the writer reads slot.GaMap directly. The
+// combination equipment + inventory.workspace is hard-rejected at the
+// backend preview layer with the dedicated
+// equipment_inventory_combo_unsupported code, so this modal sees a
+// non-OK report and disables Apply automatically without any extra
+// gating here.
+const V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats', 'inventory.workspace', 'equipment'];
 
 export function ImportTemplatePreviewModal({
     report,
@@ -92,9 +100,13 @@ export function ImportTemplatePreviewModal({
     const selectedSections = summary?.selectedSections ?? [];
     const profileFieldsPresent = summary?.profileFieldsPresent ?? [];
     const statFieldsPresent = summary?.statFieldsPresent ?? [];
+    const equipmentSlotsPresent = summary?.equipmentSlotsPresent ?? [];
     const isV2 = schemaVersion >= 2;
     const showV2Meta =
-        isV2 || profileFieldsPresent.length > 0 || statFieldsPresent.length > 0;
+        isV2 ||
+        profileFieldsPresent.length > 0 ||
+        statFieldsPresent.length > 0 ||
+        equipmentSlotsPresent.length > 0;
 
     // Phase 5D.2 — direct v2 apply button visibility & gating. v1
     // previews never expose the v2 buttons; for v2 previews the same
@@ -116,7 +128,7 @@ export function ImportTemplatePreviewModal({
                     : selectedSections.length === 0
                         ? 'No sections selected.'
                         : v2HasUnsupportedSection
-                            ? 'Unsupported v2 sections — apply is available only for profile/stats in this phase.'
+                            ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, and equipment in this phase.'
                             : '';
     const v2ApplyDisabledReason = v2ApplyVisible ? v2DisabledReason : '';
     const v2ApplyEnabled =
@@ -185,6 +197,11 @@ export function ImportTemplatePreviewModal({
                             {statFieldsPresent.length > 0 && (
                                 <div data-testid="import-preview-stat-fields">
                                     Stats: <span className="font-bold">{statFieldsPresent.join(', ')}</span>
+                                </div>
+                            )}
+                            {equipmentSlotsPresent.length > 0 && (
+                                <div data-testid="import-preview-equipment-slots">
+                                    Equipment slots: <span className="font-bold">{equipmentSlotsPresent.join(', ')}</span>
                                 </div>
                             )}
                         </section>

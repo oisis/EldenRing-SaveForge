@@ -374,10 +374,17 @@ export function TemplateLibraryModal({
                                 // apply-eligible section. The session lookup happens in the
                                 // shell after the user clicks Apply; here we only widen the
                                 // visibility gate.
+                                //
+                                // Phase 7b.1 — equipment joins as a section eligible for fast
+                                // Apply. Equipment-only templates do NOT require a session;
+                                // the equipment + inventory.workspace combo is hard-rejected
+                                // at backend preview time, so we leave Apply enabled here and
+                                // let the shell surface the resulting error.
                                 const v2HasApplyableSections =
                                     selectedSections.includes('profile') ||
                                     selectedSections.includes('stats') ||
-                                    selectedSections.includes('inventory.workspace');
+                                    selectedSections.includes('inventory.workspace') ||
+                                    selectedSections.includes('equipment');
 
                                 // Per-entry Apply gating. v1 path is
                                 // preserved verbatim: requires sessionID,

@@ -811,3 +811,45 @@ describe('TemplateLibraryModal — Phase 5D.1 v2 Apply (library)', () => {
         expect(screen.queryByTestId('library-apply-v2-confirm')).not.toBeInTheDocument();
     });
 });
+
+describe('TemplateLibraryModal — Phase 7b.1 equipment entries', () => {
+    const v2EquipmentEntry = {
+        id: 'tpl-v2-eq',
+        name: 'V2 Equipment Loadout',
+        description: 'schema v2 equipment-only',
+        tags: [],
+        filename: 'tpl-v2-eq.json',
+        createdAt: '2026-06-01T12:00:00Z',
+        updatedAt: '2026-06-01T12:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['equipment'],
+    };
+
+    it('enables v2 Apply for equipment-only entries (no session required)', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2EquipmentEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeEnabled();
+        expect(applyBtn).toHaveAttribute('title', 'Apply schema v2 template to character slot 1');
+    });
+
+    it('still disables Apply when save not loaded for equipment-only entry', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2EquipmentEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: false, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeDisabled();
+    });
+});

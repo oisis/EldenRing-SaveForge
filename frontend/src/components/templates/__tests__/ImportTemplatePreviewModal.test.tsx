@@ -420,8 +420,11 @@ describe('ImportTemplatePreviewModal — Phase 5D.2 direct v2 Apply', () => {
     });
 
     it('v2 preview with unsupported section keeps Apply visible but disabled with explanatory title', () => {
+        // Phase 7b.1 added `equipment` to the supported set; pick a section
+        // that is still genuinely planned (spells) to keep the negative
+        // case meaningful.
         const report = makeReport({
-            summary: v2Summary({ selectedSections: ['profile', 'equipment'] }),
+            summary: v2Summary({ selectedSections: ['profile', 'spells'] }),
         });
         render(
             <ImportTemplatePreviewModal
@@ -434,7 +437,7 @@ describe('ImportTemplatePreviewModal — Phase 5D.2 direct v2 Apply', () => {
         );
         const btn = screen.getByTestId('import-preview-apply-v2');
         expect(btn).toBeDisabled();
-        expect(btn.getAttribute('title')).toMatch(/profile\/stats/i);
+        expect(btn.getAttribute('title')).toMatch(/Unsupported v2 sections/i);
     });
 
     it('v2 preview without saveLoaded keeps Apply disabled with "Load a save" title', () => {
@@ -639,9 +642,12 @@ describe('ImportTemplatePreviewModal — Phase 6 Apply with overrides', () => {
         expect(btn.getAttribute('title')).toMatch(/Load a save/i);
     });
 
-    it('v2 preview with unsupported sections keeps overrides disabled with profile/stats title', () => {
+    it('v2 preview with unsupported sections keeps overrides disabled with explanatory title', () => {
+        // Phase 7b.1 added `equipment` to the supported set; pick a section
+        // that is still genuinely planned (spells) to keep the negative
+        // case meaningful.
         const report = makeReport({
-            summary: v2Summary({ selectedSections: ['profile', 'equipment'] }),
+            summary: v2Summary({ selectedSections: ['profile', 'spells'] }),
         });
         render(
             <ImportTemplatePreviewModal
@@ -654,7 +660,7 @@ describe('ImportTemplatePreviewModal — Phase 6 Apply with overrides', () => {
         );
         const btn = screen.getByTestId('import-preview-apply-v2-overrides');
         expect(btn).toBeDisabled();
-        expect(btn.getAttribute('title')).toMatch(/profile\/stats/i);
+        expect(btn.getAttribute('title')).toMatch(/Unsupported v2 sections/i);
     });
 
     it('clicking the enabled overrides button calls onApplyV2WithOverrides exactly once', async () => {
@@ -745,5 +751,85 @@ describe('isCancelledPreview', () => {
             summary: templates.ImportPreviewSummary.createFrom({ inventoryItems: 3 }),
         });
         expect(isCancelledPreview(r)).toBe(false);
+    });
+});
+
+describe('ImportTemplatePreviewModal — Phase 7b.1 equipment section', () => {
+    function equipSummary(overrides: Partial<templates.ImportPreviewSummary> = {}) {
+        return templates.ImportPreviewSummary.createFrom({
+            inventoryItems: 0,
+            storageItems: 0,
+            weapons: 0,
+            armor: 0,
+            talismans: 0,
+            stackables: 0,
+            aowAssignments: 0,
+            version: 2,
+            selectedSections: ['equipment'],
+            equipmentSlotsPresent: ['weaponRightHand1', 'armorHead'],
+            ...overrides,
+        });
+    }
+
+    it('treats equipment as an applyable v2 section', () => {
+        const report = makeReport({ summary: equipSummary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeEnabled();
+    });
+
+    it('renders the equipment slots row when summary lists slots', () => {
+        const report = makeReport({ summary: equipSummary() });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        const row = screen.getByTestId('import-preview-equipment-slots');
+        expect(row).toHaveTextContent(/weaponRightHand1/);
+        expect(row).toHaveTextContent(/armorHead/);
+    });
+
+    it('does not render the equipment slots row when none are present', () => {
+        const report = makeReport({
+            summary: equipSummary({ equipmentSlotsPresent: [] }),
+        });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        expect(screen.queryByTestId('import-preview-equipment-slots')).not.toBeInTheDocument();
+    });
+
+    it('surface the combo error from backend preview', () => {
+        const report = makeReport({
+            ok: false,
+            errors: [
+                templates.ImportPreviewIssue.createFrom({
+                    severity: 'error',
+                    code: 'equipment_inventory_combo_unsupported',
+                    message: 'sections.equipment cannot be applied together with sections.inventory.workspace',
+                }),
+            ],
+            summary: equipSummary({
+                selectedSections: ['equipment', 'inventory.workspace'],
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        // The combo error is surfaced as a normal preview error and Apply is
+        // disabled because report.ok=false.
+        const errBlock = screen.getByTestId('import-preview-errors');
+        expect(errBlock).toHaveTextContent(/equipment_inventory_combo_unsupported/);
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
     });
 });
