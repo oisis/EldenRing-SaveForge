@@ -4,6 +4,144 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): apply-time overrides for schema v2 profile + stats
+
+Shipped Phase 6 of the Templates v2 design (`spec/56-templates-v2.md`):
+edit-before-apply for the safe profile + stats subset, reachable from
+both the direct YAML import flow and the local library. The user can
+override individual values and toggle fields on/off before the apply
+ever reaches the backend; the canonical JSON is mutated in the
+frontend and forwarded to the existing Phase 5 backend writer with no
+schema, options, or bindings changes.
+
+- **No backend, no bindings, no `App.tsx` change.** Phase 6 reuses
+  Phase 5D.1's `ApplyBuildTemplateV2ToCharacterJSON(charIdx,
+  mutatedCanonicalJSON, { mode: 'append' })` for both surfaces. The
+  shell's existing `onCharacterTemplateApplied` callback continues to
+  drive the post-apply refresh dance (`inventoryVersion`,
+  `saveLoadKey`, slot list, undo depth) unchanged.
+  `ApplyBuildTemplateV2FromFileToCharacter` still exists
+  backend/bindings-side but stays **unwired in UI**.
+- **Frontend (overrides surface)** — changed files:
+  - `frontend/src/components/templates/ApplyOverridesPanel.tsx`
+    (**new**) — owns the per-field draft state, range-validates on
+    every keystroke, and re-emits a mutated canonical JSON whenever
+    the draft changes. Also exports a thin `ApplyOverridesModal`
+    wrapper used by the shell, plus the pure
+    `applyOverridesToCanonical` helper for unit-level coverage.
+    Anything outside `sections.profile` / `sections.stats` (other
+    sections, `schema`, `version`, metadata, the rest of `selection`)
+    is preserved verbatim by the JSON round-trip.
+  - `frontend/src/components/templates/ImportTemplatePreviewModal.tsx`
+    — adds the second v2 button "Apply with overrides…" (testid
+    `import-preview-apply-v2-overrides`) next to the existing "Apply
+    to character"; refactored the v2 gating so the disabled-reason
+    logic is shared across both v2 buttons. v1 imports continue to
+    omit both buttons.
+  - `frontend/src/components/templates/TemplateLibraryModal.tsx` —
+    adds `onApplyV2WithOverrides` prop and the per-entry
+    "Apply with overrides…" button (testid `library-apply-overrides`)
+    that is rendered only for v2 entries whose `selectedSections ⊆
+    { profile, stats }`. v1 entries never see the button; the
+    existing "Apply" (fast path through
+    `ApplyBuildTemplateV2FromLibraryToCharacter`) is unchanged.
+  - `frontend/src/components/templates/TemplatesShellModal.tsx` —
+    adds the shared `OverridesSource` discriminator, opens the
+    overrides modal for both surfaces, and on confirm posts the
+    mutated canonical JSON through
+    `ApplyBuildTemplateV2ToCharacterJSON`. For the library path the
+    shell first calls `PreviewBuildTemplateFromLibrary(entry.id)`
+    (already shipped Phase 1) to obtain the canonical JSON, then
+    routes it through the same overrides modal — no new binding is
+    added.
+- **Editable scope** — strictly the fields the Phase 5 backend
+  writer already accepts:
+  - `profile.name`, `profile.level`, `profile.runes`,
+    `profile.soulMemory`, `profile.clearCount`,
+    `profile.scadutreeBlessing`, `profile.shadowRealmBlessing`,
+    `profile.talismanSlots`
+  - `stats.vigor`, `stats.mind`, `stats.endurance`, `stats.strength`,
+    `stats.dexterity`, `stats.intelligence`, `stats.faith`,
+    `stats.arcane`
+  - Per-field UI ranges mirror the backend schema validator:
+    `level [1, 713]`, `clearCount [0, 7]`, `scadutreeBlessing
+    [0, 20]`, `shadowRealmBlessing [0, 10]`, `talismanSlots [0, 3]`,
+    stats `[1, 99]`. `runes` carries a soft warning above
+    `999_000_000` but is not hard-capped — backend remains the source
+    of truth.
+- **`profile.class` stays read-only.** When the template carries
+  `sections.profile.class`, the panel renders a read-only row with
+  the class label and a "Skipped on apply (Phase 5)" hint instead of
+  an editable input. The mutated JSON never writes `profile.class`,
+  matching the Phase 5A apply-layer skip.
+- **Selection semantics on toggle.** When a field is toggled off in
+  the overrides UI, both `sections.profile/stats[field]` and the
+  matching `selection.profile/stats[field]` are removed from the
+  mutated JSON. When a field that was not in the original template
+  is toggled on, the mutated JSON adds it to both `sections` and
+  `selection`. This preserves the Phase 5 contract that "applied =
+  selected ∧ present".
+- **v1 templates and unsupported v2 sections remain blocked.** v1
+  imports and v1 library entries never render the overrides button.
+  v2 templates carrying `sections.equipment`, `sections.spells`,
+  `sections.equippedTalismans`, `sections.appearance`, or
+  `inventory.workspace` keep both v2 buttons disabled with the
+  existing "profile / stats only in this phase" tooltip.
+- **Frontend validation pre-checks ranges**; the Apply button in
+  the overrides modal stays disabled while any field is out of
+  range, with per-field inline error copy. When the backend
+  nonetheless rejects (e.g. UTF-16 name overflow), the modal stays
+  open and the rejection is surfaced through the existing error
+  toast — the user can fix and retry without re-opening the
+  preview.
+- **Save to Library remains independent.** The new overrides flow
+  does not touch the existing `Save to Library` button on the
+  imported preview; clicking Save to Library persists the original
+  canonical JSON, not the in-memory overrides draft. There is no
+  "Save edited copy" affordance in this phase.
+- **Tests** — frontend-only, +43 cases across the affected files:
+  - `__tests__/ApplyOverridesPanel.test.tsx` (**new**, 19 cases) —
+    rendering, mutation, range validation, soft cap, toggle-off
+    removal, `profile.class` read-only, preservation of non
+    profile/stats sections, invalid-JSON banner, modal apply/cancel
+    behaviour.
+  - `__tests__/ImportTemplatePreviewModal.test.tsx` — +7 cases
+    covering the new button visibility / gating / forwarding for
+    v2, and the v1-never-renders rule.
+  - `__tests__/TemplateLibraryModal.test.tsx` — +5 cases covering
+    `library-apply-overrides` visibility for v2 profile/stats,
+    hiding for v1, hiding for unsupported v2, disabled without
+    saveLoaded, and the forwarding of the entry to the parent.
+  - `__tests__/TemplatesShellModal.test.tsx` — +12 cases covering
+    the import flow with overrides (modal open → mutated JSON
+    forwarded → success / applied=false / thrown error / cancel /
+    invalid disables apply / `Save to Library` independence), and
+    the library flow with overrides (`PreviewBuildTemplateFromLibrary`
+    load → modal open → mutated JSON via
+    `ApplyBuildTemplateV2ToCharacterJSON` (not FromLibrary) → fast
+    path still uses `ApplyBuildTemplateV2FromLibraryToCharacter`
+    untouched → empty canonical JSON surfaces an error toast →
+    `profile.class` skip info toast).
+- **Manual validation 2026-05-31** (user "manual OK"): on
+  `feature/templates-v2-apply-overrides`, edited profile + stats
+  values through both the direct YAML import path and the library
+  "Apply with overrides…" path; mutated values landed on the
+  selected character without touching unrelated fields; the fast
+  library Apply path remained unchanged; v1 imports continued to
+  show only the legacy `Save to Library` action with no overrides
+  button; v2 imports carrying unsupported sections kept the buttons
+  disabled with the supported-scope tooltip; cancelling the
+  overrides modal discarded edits with no save mutation; `Save to
+  Library` continued to persist the original canonical JSON,
+  ignoring the in-modal edits.
+- **Out of scope (still future work).** Weapon level override at
+  apply time (Phase 6b / Phase 7 in spec/56 §17), new write paths
+  for `sections.equipment`, `sections.equippedTalismans`,
+  `sections.spells`, appearance via preset, URL import,
+  multi-character pack, item quantities, inventory / storage /
+  sort order / world progress edits at apply time. None of these
+  ships in Phase 6.
+
 ### feat(templates): apply imported v2 YAML directly to character
 
 Shipped Phase 5D.2 of the Templates v2 design (`spec/56-templates-v2.md`):

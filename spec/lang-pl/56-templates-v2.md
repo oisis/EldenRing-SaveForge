@@ -1,7 +1,7 @@
 # 56 — Templates v2 (Partially Implemented Extension)
 
 > **Type**: Design doc
-> **Status**: 🔄 Częściowo wdrożone — Phase 0..5 dostarczone (addytywny schemat `version: 2`, globalny library shell Templates, publiczny YAML import/export, flow create-from-character dla profile/stats z per-field selection, Save to Library, badge v2 w bibliotece i preview, **Phase 5 = Apply z biblioteki + direct imported-YAML Apply dla profile/stats przez `ApplyBuildTemplateV2FromLibraryToCharacter` oraz `ApplyBuildTemplateV2ToCharacterJSON` na canonical JSON wyprodukowanym przez preview importu**). Apply dla sekcji v2 poza profile/stats pozostaje zablokowany — Phase 6+ (weapon level override, writery equipment/talismans/spells, appearance przez preset, URL import, multi-character pack) pozostają wyłącznie design. Addytywne rozszerzenie wdrożonego podsystemu Build Template udokumentowanego w [55-build-template](55-build-template.md).
+> **Status**: 🔄 Częściowo wdrożone — Phase 0..6 dostarczone (addytywny schemat `version: 2`, globalny library shell Templates, publiczny YAML import/export, flow create-from-character dla profile/stats z per-field selection, Save to Library, badge v2 w bibliotece i preview, **Phase 5 = Apply z biblioteki + direct imported-YAML Apply dla profile/stats przez `ApplyBuildTemplateV2FromLibraryToCharacter` oraz `ApplyBuildTemplateV2ToCharacterJSON` na canonical JSON wyprodukowanym przez preview importu, Phase 6 = apply-time overrides dla tego samego subsetu profile/stats na obu powierzchniach przez frontend-only mutację canonical JSON przekazaną do tego samego JSON-owego endpointu**). Apply dla sekcji v2 poza profile/stats pozostaje zablokowany — Phase 6b+ (weapon level override, writery equipment/talismans/spells, appearance przez preset, URL import, multi-character pack) pozostają wyłącznie design. Addytywne rozszerzenie wdrożonego podsystemu Build Template udokumentowanego w [55-build-template](55-build-template.md).
 > **Scope**: Addytywne rozszerzenie istniejącego `saveforge.build-template` JSON v1 do `version: 2` — z publicznym formatem YAML do udostępniania na zewnątrz, nowym sidebar entry point `Templates`, granular selection model, sekcjami całej postaci (profile, stats, equipment, talismans, spells, appearance tylko przez preset), single-character first, weapon level override przy apply, plików `.yaml` import/export, importu z URL z pełnymi guardami bezpieczeństwa oraz późniejszą fazą multi-character pack. Dokument **nie** redefiniuje baseline'u v1 — dziedziczy go z [55-build-template](55-build-template.md).
 
 ---
@@ -12,7 +12,7 @@
 |---|---|
 | Numer dokumentu | 56 |
 | Typ dokumentu | Design doc — częściowo wdrożone rozszerzenie |
-| Status | 🔄 Częściowo wdrożone. Phase 0..5 dostarczone (Phase 5 = Apply z biblioteki + direct imported-YAML Apply wyłącznie dla subsetu profile/stats); Phase 6+ pozostają wyłącznie design. Każda kolejna faza wymaga osobnej akceptacji użytkownika zgodnie z workflow z `~/.claude/CLAUDE.md`. |
+| Status | 🔄 Częściowo wdrożone. Phase 0..6 dostarczone (Phase 5 = Apply z biblioteki + direct imported-YAML Apply wyłącznie dla subsetu profile/stats; Phase 6 = apply-time overrides dla tego samego subsetu profile/stats, frontend-only mutacja canonical JSON przekazana do istniejącego endpointu Phase 5); Phase 6b+ pozostają wyłącznie design. Każda kolejna faza wymaga osobnej akceptacji użytkownika zgodnie z workflow z `~/.claude/CLAUDE.md`. |
 | Referencja baseline | [55-build-template](55-build-template.md) — wdrożone `version: 1`, wyłącznie JSON, wyłącznie inventory + storage, lokalna biblioteka w `$UserConfigDir/EldenRing-SaveEditor/templates/`. |
 | Klucz schematu | Pozostaje `saveforge.build-template` (bez rename). Wdrożone. |
 | Wersja schematu | Reader range `1 ≤ version ≤ MaxSchemaVersion (=2)`. Builder v1 nadal emituje `SchemaVersion = 1`; explicit builder v2 (`backend/templates/export_v2.go`) emituje `version: 2`. Wdrożone. |
@@ -20,7 +20,7 @@
 | Pierwszy widoczny entry point | Niebieski przycisk `Templates` w sidebarze, bezpośrednio nad `Save as...` w `frontend/src/App.tsx` (istniejący footer `<aside>`); otwiera `TemplatesShellModal.tsx`. Wdrożone. |
 | Scope postaci (pierwsza iteracja) | Pojedyncza postać. Multi-character pack odroczony do późniejszej fazy (§15). |
 | URL import | Odroczona faza. Backendowy fetch z restrykcyjnymi guardami (§12). Nie wdrożone. |
-| Zmiana kodu produkcyjnego | Phase 0..4 dostarczone; późniejsze fazy pozostają wyłącznie design. Szczegóły w §17 i §17a. |
+| Zmiana kodu produkcyjnego | Phase 0..6 dostarczone; późniejsze fazy pozostają wyłącznie design. Szczegóły w §17 i §17a. |
 
 ---
 
@@ -709,10 +709,26 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 - **Testy**: backend apply happy path; rollback na error; `profile.class` raportowany w `Skipped`; ścieżki delegacji library + file pokryte; frontend (Phase 5D.2) pokrywa szablony v1 nigdy nie oferujące nowego przycisku, wszystkie ścieżki gating failure dla importów v2, przekazanie kliknięcia do `ApplyBuildTemplateV2ToCharacterJSON` z `mode: "append"`, ścieżkę sukcesu `applied=true` (close + toasty + `onCharacterTemplateApplied`), ścieżki `applied=false` i thrown-error (error toast + preview pozostaje otwarty) oraz niezależność Save-to-Library.
 - **Manual validation**: 2026-05-31 — Phase 5D.1: zaaplikowano wpis biblioteki v2 z selekcją profile + stats do aktywnej postaci na `feature/templates-v2-apply-profile-stats`; inline confirm działa; Apply zakończony sukcesem; wybrane pola zmieniają się; post-apply refresh odbija nowy stan; wpisy v1 pozostają disabled w global shell (brak `sessionID`); niewspierane wpisy v2 pozostają disabled. Phase 5D.2: na `feature/templates-v2-direct-yaml-apply` import YAML v2 z `selectedSections ⊆ { profile, stats }` przez `Import YAML from File…` i kliknięcie "Apply to character" zaaplikowały te same pola co ścieżka biblioteki; pominięcie `profile.class` zostało zaraportowane info-toastem gdy `class` było wybrane; preview zamknął się przy sukcesie i refresh dance w `App.tsx` zaktualizował widoczny stan; zaimportowane YAML v1 nadal pokazywały wyłącznie `Save to Library` bez przycisku v2 Apply; importy v2 niosące niewspierane sekcje pozostały z disabled Apply z tooltipem o wspieranym zakresie; ścieżka library Apply z Phase 5D.1 pozostała bez zmian.
 - **Ryzyka**: respektowane — istniejące locking i integrity gate zachowane. Phase 5D.2 nie wprowadziła nowej powierzchni lock; reużyła endpoint z Phase 5D.1 as-is.
-- **Out of scope**: Gender / VoiceType (Phase 8 przez helpery appearance), equipment / equipped talismans / spells / appearance / weapon-level override, apply-time value editing / overrides.
+- **Out of scope**: Gender / VoiceType (Phase 8 przez helpery appearance), equipment / equipped talismans / spells / appearance / weapon-level override; apply-time value editing / overrides dla subsetu profile/stats dostarczone w Phase 6 poniżej.
 - **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
 
-### Phase 6 — weapon level override dla v1 inventory / storage apply
+### Phase 6 — apply-time overrides dla profile + stats — ✅ Dostarczone 2026-05-31
+
+- **Cel**: pozwolić użytkownikowi edytować wartości profile + stats **przed** dotarciem apply do backendu, na tych samych powierzchniach co Phase 5 (preview direct YAML import + lista biblioteki). Reużyć writer backendu Phase 5 bez nowego kodu backendu, bez nowych bindings i bez zmian w `App.tsx`.
+- **Podejście**: frontend-only mutacja canonical JSON, którego użytkownik już widział w preview (direct YAML) lub którego entry był już w bibliotece (library path). Zmutowany JSON jest posyłany przez istniejący `ApplyBuildTemplateV2ToCharacterJSON(charIdx, mutatedCanonicalJSON, { mode: "append" })`; ścieżka "Apply with overrides…" z biblioteki pobiera canonical JSON istniejącego wpisu przez już dostarczone binding `PreviewBuildTemplateFromLibrary`, bez dodawania nowego endpointu.
+- **Pliki (dostarczony scope)**: `frontend/src/components/templates/ApplyOverridesPanel.tsx` (nowy, eksportuje `ApplyOverridesPanel`, `ApplyOverridesModal` oraz czysty helper `applyOverridesToCanonical`), `frontend/src/components/templates/ImportTemplatePreviewModal.tsx` (drugi v2 przycisk `Apply with overrides…` obok istniejącego `Apply to character`), `frontend/src/components/templates/TemplateLibraryModal.tsx` (per-entry przycisk `Apply with overrides…` obok istniejącego Apply), `frontend/src/components/templates/TemplatesShellModal.tsx` (wspólny `OverridesSource` discriminator + handlery dla obu powierzchni). Testy frontendowe we wszystkich czterech komponentach (+1 nowy plik testowy). Backend, bindings i `App.tsx` są nietknięte.
+- **Edytowalny zakres**: identyczny z writerem Phase 5 — `profile.{name,level,runes,soulMemory,clearCount,scadutreeBlessing,shadowRealmBlessing,talismanSlots}` oraz wszystkie osiem `stats.*`. `profile.class` jest renderowane jako read-only z hintem "Skipped on apply (Phase 5)" zamiast edytowalnego inputu.
+- **Zakresy UI (mirror walidatora schema)**: `level [1, 713]`, `clearCount [0, 7]`, `scadutreeBlessing [0, 20]`, `shadowRealmBlessing [0, 10]`, `talismanSlots [0, 3]`, stats `[1, 99]`. `runes` ma miękki warning powyżej `999_000_000`, ale nie ma hard-cap. Backend pozostaje źródłem prawdy dla całej walidacji; UI pre-sprawdza zakresy by Apply pozostawał uczciwy i pokazuje per-field inline error.
+- **Semantyka selection**: odznaczenie pola usuwa z mutowanego JSON zarówno `sections.{profile,stats}[field]` jak i `selection.{profile,stats}[field]`. Zaznaczenie pola dodaje oba. Kontrakt Phase 5 — "applied = selected ∧ present" — pozostaje zachowany bez zmian.
+- **Backend impact**: brak. `ApplyTemplateV2Options` zachowuje pojedyncze pole `Mode`; JSON-owy endpoint re-walidatuje wszystko end-to-end.
+- **Frontend impact**: dwa nowe przyciski (jeden na preview importu, jeden per v2 wiersz biblioteki); jeden nowy modal; jeden nowy czysty helper; istniejący przycisk `Save to Library` na preview importu pozostaje niezależny i zapisuje oryginalny canonical JSON, nie edits z modala. Szablony v1 nigdy nie widzą nowych przycisków. Szablony v2 z niewspieranymi sekcjami (equipment / spells / equippedTalismans / appearance / inventory.workspace) zachowują oba v2 przyciski disabled z istniejącym tooltipem "profile / stats only in this phase". Szybka ścieżka library Apply przez `ApplyBuildTemplateV2FromLibraryToCharacter` jest bez zmian.
+- **Testy**: +43 case'y frontendowe — 19 w `ApplyOverridesPanel.test.tsx` (nowy), +7 w `ImportTemplatePreviewModal.test.tsx`, +5 w `TemplateLibraryModal.test.tsx`, +12 w `TemplatesShellModal.test.tsx`. Pokrywają rendering / mutację / range validation / soft cap / toggle-off removal / `profile.class` read-only / preservację non-profile/stats sekcji / invalid-JSON banner / obie powierzchnie forwardujące zmutowany JSON / success-close / `applied=false` i thrown-error trzymające modal otwarty / cancel porzucający edits / invalid blokujący Apply / szybką library Apply path nietkniętą / `PreviewBuildTemplateFromLibrary` zwracające brak canonical JSON jako error toast / info toast pominięcia `profile.class`.
+- **Manual validation**: 2026-05-31 — na `feature/templates-v2-apply-overrides` edytowano wartości profile + stats przez obie ścieżki (direct YAML import i library `Apply with overrides…`); edycje wylądowały na wybranej postaci bez dotykania pozostałych pól; szybka library Apply path pozostała bez zmian; importy v1 nadal pokazywały wyłącznie legacy `Save to Library` bez nowego przycisku; importy v2 z niewspieranymi sekcjami zachowały disabled przyciski z tooltipem o wspieranym zakresie; cancel modala porzucał edits bez mutacji save; `Save to Library` nadal zapisywał oryginalny canonical JSON, ignorując edits w modalu.
+- **Ryzyka**: respektowane — Phase 6 nie wprowadza nowej powierzchni lock, nowej write path, nowego endpointu. Kontrakt backendu Phase 5 jest jedynym miejscem mutacji.
+- **Out of scope**: weapon level override przy apply (Phase 6b poniżej), inventory / storage / equipment / spells / appearance / sort order / world progress edits przy apply, item quantities, URL import, multi-character pack, "Save edited copy" edits z modala z powrotem do biblioteki.
+- **Wymaga osobnej decyzji użytkownika przed kontynuacją**: zakończone.
+
+### Phase 6b — weapon level override dla v1 inventory / storage apply
 
 - **Cel**: dodać `weaponLevelOverride.{standard,somber}` do opcji apply i Apply Preview UI; pre-encode item IDs w warstwie planu dla broni pochodzących z szablonu.
 - **Pliki (planowany scope)**: `app_templates.go` (options DTO), apply layer; **refactor**: przenieść `clampUpgrade` z `app.go` (package `main`) do lokalizacji importowalnej z backendu (np. `backend/editor/weapon.go` obok `encodeWeaponItemID`), by warstwa planu mogła go importować bez tworzenia cyklu `app → backend` (zob. §14.4); frontend preview modal.
@@ -819,6 +835,12 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 | Branch pod testem | `feature/templates-v2-direct-yaml-apply` |
 | Wynik | ✅ Pass — Phase 5D.2 direct imported-YAML Apply dla profile/stats zwalidowany manualnie end-to-end (`ApplyBuildTemplateV2ToCharacterJSON` na canonical JSON wyprodukowanym przez `PreviewBuildTemplateImportYAMLFromFile`, `mode: "append"`); brak drugiego file dialogu, brak TOCTOU re-read między preview a apply; importy v1 zachowały legacy zachowanie wyłącznie Save-to-Library; importy v2 z niewspieranymi sekcjami zachowały disabled Apply. |
 
+| Pole | Wartość |
+|---|---|
+| Data walidacji | 2026-05-31 |
+| Branch pod testem | `feature/templates-v2-apply-overrides` |
+| Wynik | ✅ Pass — Phase 6 apply-time overrides dla profile/stats zwalidowane manualnie end-to-end na obu powierzchniach (direct YAML import preview + library "Apply with overrides…"). Edytowane wartości wylądowały na wybranej postaci; pozostałe pola nietknięte; szybka library Apply path (`ApplyBuildTemplateV2FromLibraryToCharacter`) pozostała bez zmian; importy v1 nigdy nie pokazały przycisku overrides; importy v2 z niewspieranymi sekcjami zachowały oba v2 przyciski disabled z tooltipem o wspieranym zakresie; cancel modala overrides porzucał edits bez mutacji save; `Save to Library` nadal zapisywał oryginalny canonical JSON, ignorując edits w modalu. |
+
 ### 17a.2. Zwalidowany flow
 
 Poniższy user-facing flow został przeprowadzony manualnie i potwierdzony jako działający:
@@ -852,17 +874,32 @@ Poniższy user-facing flow został przeprowadzony manualnie i potwierdzony jako 
 7. Na `result.applied === false` lub thrown binding error podnoszony jest error toast i preview pozostaje otwarty, by użytkownik mógł spróbować ponownie lub zamknąć go manualnie.
 8. Istniejąca akcja `Save to Library` pozostaje nienaruszona; kliknięcie jej na tym samym preview zapisuje zaimportowany szablon do biblioteki jak wcześniej, a ścieżka library Apply z Phase 5D.1 pozostaje source of truth dla wpisów już zapisanych lokalnie.
 
+### 17a.2c. Flow apply-time overrides Phase 6 zwalidowany
+
+1. Otworzyć globalny sidebar entry `Templates`.
+2. **Ścieżka direct YAML** — kliknąć `Import YAML from File…`, wybrać v2 `.yaml`, którego `selectedSections ⊆ { profile, stats }`. Preview shell wywołuje `PreviewBuildTemplateImportYAMLFromFile`, który zwraca ten sam canonical JSON, który Phase 5D.2 już konsumuje. Modal preview renderuje v2 metadata, istniejący przycisk `Save to Library`, istniejący przycisk `Apply to character` (Phase 5D.2) i nowy przycisk `Apply with overrides…` (Phase 6, testid `import-preview-apply-v2-overrides`).
+3. Kliknąć `Apply with overrides…` → `TemplatesShellModal` zapisuje `OverridesSource` kind `'import'` (z labelką ścieżki YAML) i otwiera `ApplyOverridesModal` z canonical JSON z preview.
+4. `ApplyOverridesPanel` parsuje JSON, renderuje edytowalne wiersze dla ośmiu nadpisywalnych pól profile i ośmiu stats, renderuje `profile.class` jako read-only z hintem "Skipped on apply (Phase 5)" gdy jest obecne, ignoruje dowolną inną sekcję. Range-walidatuje każdy keystroke; emituje zmutowany canonical JSON gdy draft się zmienia.
+5. Edytować wartości (np. podnieść `profile.level` z 50 do 55, podnieść `stats.vigor` z 25 do 30, podnieść `profile.scadutreeBlessing` z 0 do 5). Włączyć wcześniej nieselektowane pole klikając checkbox przed wpisaniem.
+6. Kliknąć `Apply to character` w modal overrides → `TemplatesShellModal.handleConfirmOverrides` posyła zmutowany JSON przez `ApplyBuildTemplateV2ToCharacterJSON(charIdx, mutatedCanonicalJSON, { mode: "append" })`. Library `…FromLibraryToCharacter` endpoint nie jest wywoływany z tej powierzchni.
+7. Na `result.applied === true` oba modale zamykają się, success toast nazywa source label i slot, `onCharacterTemplateApplied(charIndex)` odpala (więc `App.tsx` uruchamia istniejący post-Phase-5D.1 refresh dance), a info toast ogłasza pominięcie `profile.class`, jeśli szablon niósł `class`.
+8. Na `result.applied === false` lub thrown binding error modal overrides pozostaje otwarty i podnoszony jest error toast, by użytkownik mógł poprawić wartości i ponowić.
+9. **Ścieżka library** — kliknąć `Apply with overrides…` (testid `library-apply-overrides`) na v2 wierszu biblioteki, którego `selectedSections ⊆ { profile, stats }`. `TemplatesShellModal.handleOpenOverridesFromLibrary` wywołuje `PreviewBuildTemplateFromLibrary(entry.id)` by pobrać canonical JSON i report, następnie otwiera ten sam `ApplyOverridesModal` z `OverridesSource` kind `'library'` (z labelką entry). Kroki 4–8 powyżej obowiązują identycznie.
+10. Istniejący szybki library Apply przez `ApplyBuildTemplateV2FromLibraryToCharacter` pozostaje click targetem oryginalnego przycisku `Apply` na tym samym wierszu, z nietkniętym inline confirm row.
+11. Importy v1 i wpisy v1 biblioteki nigdy nie renderują przycisku overrides. Importy / wpisy v2 niosące dowolną niewspieraną sekcję zachowują oba v2 przyciski disabled z istniejącym tooltipem "profile / stats only in this phase".
+
 ### 17a.3. Scope tego, co **nie** jest jeszcze zwalidowane
 
 - ✅ **Dostarczone 2026-05-31 (Phase 5D.1)** — Apply `sections.profile` i `sections.stats` do prawdziwego save przez `ApplyBuildTemplateV2FromLibraryToCharacter` (ścieżka biblioteki, `mode: "append"`, `profile.class` celowo pomijane, snapshot + rollback pod `slotMu[charIdx]`).
 - ✅ **Dostarczone 2026-05-31 (Phase 5D.2)** — Direct apply zaimportowanego YAML bez wcześniejszego Save to Library, przez `ApplyBuildTemplateV2ToCharacterJSON` na canonical JSON wyprodukowanym przez `PreviewBuildTemplateImportYAMLFromFile` (`Import YAML → Preview → Apply to character`, `mode: "append"`, brak drugiego file dialogu, brak TOCTOU re-read). `ApplyBuildTemplateV2FromFileToCharacter` nadal istnieje backend/bindings-side, ale celowo pozostaje niepodpięty w UI — ścieżka JSON jest preferowana, bo jest WYSIWYG z preview, który użytkownik właśnie potwierdził.
+- ✅ **Dostarczone 2026-05-31 (Phase 6)** — Apply-time overrides dla tego samego subsetu profile/stats na obu powierzchniach, przez frontend-only mutację canonical JSON przekazaną do `ApplyBuildTemplateV2ToCharacterJSON`. Brak zmian backendu, bindings, `App.tsx`. `profile.class` pozostaje read-only. v1 szablony i niewspierane v2 sekcje pozostają zablokowane. Weapon level override przy apply pozostaje odroczone do Phase 6b.
 - Weapon level override przy apply — gated przez Phase 6.
 - Nowe write paths dla `sections.equipment`, `sections.equippedTalismans`, `sections.spells` — gated przez Phase 7a / 7b / 7c.
 - Apply appearance preset przez Templates surface — gated przez Phase 8 (underlying writer `app_appearance.go::ApplyPresetToCharacter` już istnieje, ale brak warstwy apply, która routuje szablon przez niego).
 - URL import — gated przez Phase 9 (brak `https://` fetch surface w backendzie dla szablonów dzisiaj).
 - Multi-character pack flow — gated przez Phase 10.
 
-Praca Phase 6+ pozostaje wyłącznie design w tym dokumencie. Każda faza wymaga osobnej akceptacji użytkownika przed implementacją zgodnie z workflow z `~/.claude/CLAUDE.md`.
+Praca Phase 6b+ pozostaje wyłącznie design w tym dokumencie. Każda faza wymaga osobnej akceptacji użytkownika przed implementacją zgodnie z workflow z `~/.claude/CLAUDE.md`.
 
 ---
 
