@@ -673,6 +673,97 @@ describe('TemplateLibraryModal — Phase 5D.1 v2 Apply (library)', () => {
         expect(screen.getByTestId('library-apply-v2-confirm')).toBeInTheDocument();
     });
 
+    it('Phase 6: v2 profile/stats entry renders an Apply with overrides button that forwards the entry', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        const onApplyV2WithOverrides = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({
+                    sessionID: '',
+                    saveLoaded: true,
+                    charIndex: 1,
+                    onApplyV2: vi.fn(),
+                    onApplyV2WithOverrides,
+                })}
+            />,
+        );
+        const btn = await screen.findByTestId('library-apply-overrides');
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeEnabled();
+        expect(btn.getAttribute('title')).toMatch(/Edit values/i);
+        fireEvent.click(btn);
+        expect(onApplyV2WithOverrides).toHaveBeenCalledTimes(1);
+        expect(onApplyV2WithOverrides.mock.calls[0][0].id).toBe('tpl-v2-ps');
+    });
+
+    it('Phase 6: v2 inventory.workspace-only entry does NOT render the overrides button', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2InventoryOnlyEntry]);
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({
+                    sessionID: '',
+                    saveLoaded: true,
+                    charIndex: 0,
+                    onApplyV2: vi.fn(),
+                    onApplyV2WithOverrides: vi.fn(),
+                })}
+            />,
+        );
+        await screen.findByTestId('library-apply');
+        expect(screen.queryByTestId('library-apply-overrides')).not.toBeInTheDocument();
+    });
+
+    it('Phase 6: v1 entry does NOT render the overrides button', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([sampleEntries[0]]);
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({
+                    sessionID: 'ses-test',
+                    saveLoaded: true,
+                    charIndex: 0,
+                    onApplyV2: vi.fn(),
+                    onApplyV2WithOverrides: vi.fn(),
+                })}
+            />,
+        );
+        await screen.findByTestId('library-apply');
+        expect(screen.queryByTestId('library-apply-overrides')).not.toBeInTheDocument();
+    });
+
+    it('Phase 6: overrides button disabled without saveLoaded', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({
+                    sessionID: '',
+                    saveLoaded: false,
+                    charIndex: 0,
+                    onApplyV2: vi.fn(),
+                    onApplyV2WithOverrides: vi.fn(),
+                })}
+            />,
+        );
+        const btn = await screen.findByTestId('library-apply-overrides');
+        expect(btn).toBeDisabled();
+        expect(btn.getAttribute('title')).toMatch(/Load a save/i);
+    });
+
+    it('Phase 6: overrides button hidden when caller omits onApplyV2WithOverrides', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileStatsEntry]);
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({
+                    sessionID: '',
+                    saveLoaded: true,
+                    charIndex: 0,
+                    onApplyV2: vi.fn(),
+                })}
+            />,
+        );
+        await screen.findByTestId('library-apply');
+        expect(screen.queryByTestId('library-apply-overrides')).not.toBeInTheDocument();
+    });
+
     it('v1 Apply still calls ApplyBuildTemplateFromLibrary when onApplyV2 is also provided', async () => {
         const v1Sample = sampleEntries[0]; // no version field → treated as v1
         mocks.ListBuildTemplateLibrary.mockResolvedValue([v1Sample]);

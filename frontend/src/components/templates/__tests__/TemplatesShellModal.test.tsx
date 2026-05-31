@@ -1016,3 +1016,377 @@ describe('TemplatesShellModal — Phase 5D.2 direct imported YAML Apply', () => 
         expect(btn).toBeDisabled();
     });
 });
+
+describe('TemplatesShellModal — Phase 6 Apply with overrides', () => {
+    const phase6CanonicalJSON = JSON.stringify({
+        schema: 'saveforge.build-template',
+        version: 2,
+        selection: { profile: { level: true }, stats: { vigor: true } },
+        sections: { profile: { level: 50 }, stats: { vigor: 25 } },
+    });
+
+    function v2OKImportedPreviewPhase6() {
+        return {
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0,
+                    storageItems: 0,
+                    weapons: 0,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections: ['profile', 'stats'],
+                    profileFieldsPresent: ['level'],
+                    statFieldsPresent: ['vigor'],
+                },
+            },
+            json: phase6CanonicalJSON,
+            path: '/fake/imported.yaml',
+        };
+    }
+
+    function applyV2OKResult(extra: Partial<Record<string, unknown>> = {}) {
+        return {
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 1,
+            appliedFields: ['profile.level', 'stats.vigor'],
+            skippedFields: [],
+            ...extra,
+        };
+    }
+
+    const v2LibraryEntry = {
+        id: 'tpl-lib-v2',
+        name: 'Library v2 sample',
+        description: '',
+        tags: [],
+        filename: 'tpl-lib-v2.json',
+        createdAt: '2026-05-12T00:00:00Z',
+        updatedAt: '2026-05-12T00:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['profile', 'stats'],
+    };
+
+    it('Import: clicking "Apply with overrides…" opens the overrides modal with parsed fields', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreviewPhase6());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2-overrides');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        expect(await screen.findByTestId('apply-overrides-modal')).toBeInTheDocument();
+        expect(screen.getByTestId('apply-overrides-stats-input-vigor')).toHaveValue('25');
+        expect(screen.getByTestId('apply-overrides-profile-input-level')).toHaveValue('50');
+        expect(screen.getByTestId('apply-overrides-source-label')).toHaveTextContent(/imported\.yaml/);
+    });
+
+    it('Import: confirming overrides calls ApplyBuildTemplateV2ToCharacterJSON with mutated JSON and mode=append', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreviewPhase6());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OKResult());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        fireEvent.change(screen.getByTestId('apply-overrides-stats-input-vigor'), {
+            target: { value: '40' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0];
+        expect(call[0]).toBe(1);
+        const parsed = JSON.parse(call[1] as string);
+        expect(parsed.sections.stats.vigor).toBe(40);
+        expect(parsed.selection.stats.vigor).toBe(true);
+        expect((call[2] as { mode: string }).mode).toBe('append');
+        // FromLibrary endpoint must NOT have been touched — Phase 6 import
+        // path goes through the JSON endpoint.
+        expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).not.toHaveBeenCalled();
+    });
+
+    it('Import: applied=true closes both modals, toasts success, and calls onCharacterTemplateApplied', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreviewPhase6());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OKResult());
+        const { default: toast } = await import('../../../lib/toast');
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        toastSuccess.mockClear();
+        const onCharacterTemplateApplied = vi.fn();
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={1}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+        await waitFor(() => {
+            expect(toastSuccess).toHaveBeenCalled();
+        });
+        expect(onCharacterTemplateApplied).toHaveBeenCalledWith(1);
+        await waitFor(() => {
+            expect(screen.queryByTestId('apply-overrides-modal')).not.toBeInTheDocument();
+        });
+        await waitFor(() => {
+            expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
+        });
+    });
+
+    it('Import: applied=false leaves the overrides modal open and toasts the error', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreviewPhase6());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue({
+            preview: {
+                ok: false,
+                errors: [{ severity: 'error', code: 'x', message: 'something wrong' }],
+                warnings: [],
+                summary: {},
+            },
+            applied: false,
+            charIndex: 1,
+            appliedFields: [],
+            skippedFields: [],
+        });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(screen.getByTestId('apply-overrides-modal')).toBeInTheDocument();
+    });
+
+    it('Import: thrown binding error leaves the overrides modal open and toasts the error', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreviewPhase6());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockRejectedValue(new Error('rpc dead'));
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(screen.getByTestId('apply-overrides-modal')).toBeInTheDocument();
+    });
+
+    it('Import: Cancel closes the overrides modal without calling the binding and preserves the import preview', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreviewPhase6());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        fireEvent.change(screen.getByTestId('apply-overrides-stats-input-vigor'), {
+            target: { value: '40' },
+        });
+        fireEvent.click(screen.getByTestId('apply-overrides-cancel'));
+        await waitFor(() => {
+            expect(screen.queryByTestId('apply-overrides-modal')).not.toBeInTheDocument();
+        });
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+        expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+    });
+
+    it('Import: invalid override value disables Apply and does not call the binding', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreviewPhase6());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        fireEvent.change(screen.getByTestId('apply-overrides-stats-input-vigor'), {
+            target: { value: '999' },
+        });
+        const applyBtn = screen.getByTestId('apply-overrides-apply');
+        expect(applyBtn).toBeDisabled();
+        fireEvent.click(applyBtn);
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+    });
+
+    it('Library: clicking Apply with overrides loads canonical JSON via PreviewBuildTemplateFromLibrary then opens overrides modal', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LibraryEntry]);
+        mocks.PreviewBuildTemplateFromLibrary.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: { version: 2, selectedSections: ['profile', 'stats'] } },
+            json: phase6CanonicalJSON,
+            path: '/fake/library/tpl-lib-v2.json',
+        });
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-overrides'));
+        });
+        await waitFor(() => {
+            expect(mocks.PreviewBuildTemplateFromLibrary).toHaveBeenCalledWith('tpl-lib-v2');
+        });
+        expect(await screen.findByTestId('apply-overrides-modal')).toBeInTheDocument();
+        expect(screen.getByTestId('apply-overrides-source-label')).toHaveTextContent(/Library/);
+        expect(screen.getByTestId('apply-overrides-stats-input-vigor')).toHaveValue('25');
+    });
+
+    it('Library: confirming overrides calls ApplyBuildTemplateV2ToCharacterJSON with mutated JSON (not FromLibrary)', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LibraryEntry]);
+        mocks.PreviewBuildTemplateFromLibrary.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: { version: 2, selectedSections: ['profile', 'stats'] } },
+            json: phase6CanonicalJSON,
+            path: '/fake/library/tpl-lib-v2.json',
+        });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OKResult());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={2} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        fireEvent.change(screen.getByTestId('apply-overrides-profile-input-level'), {
+            target: { value: '99' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0];
+        expect(call[0]).toBe(2);
+        const parsed = JSON.parse(call[1] as string);
+        expect(parsed.sections.profile.level).toBe(99);
+        // Fast library Apply path must NOT have been used.
+        expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).not.toHaveBeenCalled();
+    });
+
+    it('Library: fast Apply path still calls ApplyBuildTemplateV2FromLibraryToCharacter, untouched by Phase 6', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LibraryEntry]);
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(applyV2OKResult());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply'));
+        });
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0];
+        expect(call[0]).toBe(0);
+        expect(call[1]).toBe('tpl-lib-v2');
+        // Phase 6 JSON endpoint must NOT have been touched by fast Apply.
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+    });
+
+    it('Library: PreviewBuildTemplateFromLibrary returning no canonical JSON toasts an error and does not open the modal', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LibraryEntry]);
+        mocks.PreviewBuildTemplateFromLibrary.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: {} },
+            json: '',
+            path: '/fake/library/tpl-lib-v2.json',
+        });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-overrides'));
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(screen.queryByTestId('apply-overrides-modal')).not.toBeInTheDocument();
+    });
+
+    it('Library: skippedFields containing profile.class emits an info toast on success', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LibraryEntry]);
+        mocks.PreviewBuildTemplateFromLibrary.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: { version: 2, selectedSections: ['profile'] } },
+            json: phase6CanonicalJSON,
+            path: '/fake/library/tpl-lib-v2.json',
+        });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(
+            applyV2OKResult({ skippedFields: ['profile.class'] }),
+        );
+        const { default: toast } = await import('../../../lib/toast');
+        const toastFn = toast as unknown as ReturnType<typeof vi.fn> & {
+            success: ReturnType<typeof vi.fn>;
+        };
+        toastFn.mockClear();
+        toastFn.success.mockClear();
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+        await waitFor(() => {
+            expect(toastFn.success).toHaveBeenCalled();
+        });
+        const infoCall = toastFn.mock.calls.find(args => /class/i.test(String(args[0])));
+        expect(infoCall).toBeTruthy();
+    });
+});

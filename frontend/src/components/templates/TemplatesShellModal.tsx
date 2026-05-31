@@ -4,6 +4,7 @@ import {
     ApplyBuildTemplateV2FromLibraryToCharacter,
     ApplyBuildTemplateV2ToCharacterJSON,
     ExportLibraryBuildTemplateAsYAMLToFile,
+    PreviewBuildTemplateFromLibrary,
     PreviewBuildTemplateImportYAMLFromFile,
     SaveImportedBuildTemplateJSONToLibrary,
 } from '../../../wailsjs/go/main/App';
@@ -11,6 +12,7 @@ import { main, templates } from '../../../wailsjs/go/models';
 import { TemplateLibraryModal } from './TemplateLibraryModal';
 import { ImportTemplatePreviewModal, isCancelledPreview } from './ImportTemplatePreviewModal';
 import { CreateTemplateV2Modal } from './CreateTemplateV2Modal';
+import { ApplyOverridesModal } from './ApplyOverridesPanel';
 
 // TemplatesShellModal is the global, sidebar-mounted Templates surface.
 // Phase 1 scope: library-only. Apply / Create-from-current-workspace
@@ -60,6 +62,15 @@ interface ImportedYAMLPreview {
     path: string;
 }
 
+// OverridesSource — Phase 6. Identifies which surface opened the
+// overrides modal so the success / failure handler can:
+//   * close the right parent state (importedPreview vs library row),
+//   * surface the right label in the toast,
+//   * leave fast-Apply paths from the library untouched.
+type OverridesSource =
+    | { kind: 'import'; canonicalJSON: string; sourceLabel: string; path: string }
+    | { kind: 'library'; canonicalJSON: string; sourceLabel: string; entryID: string };
+
 export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacterTemplateApplied }: Props) {
     const [libraryPreview, setLibraryPreview] = useState<templates.ImportPreviewReport | null>(null);
     const [importedPreview, setImportedPreview] = useState<ImportedYAMLPreview | null>(null);
@@ -67,6 +78,13 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
     const [savingToLibrary, setSavingToLibrary] = useState(false);
     const [applyingV2FromImport, setApplyingV2FromImport] = useState(false);
     const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
+    // Phase 6 — apply-with-overrides shared state. A single modal handles
+    // both the direct-import and the library entry-points; the source
+    // discriminator decides which parent state to close + which label to
+    // surface in the toast.
+    const [overridesSource, setOverridesSource] = useState<OverridesSource | null>(null);
+    const [applyingV2WithOverrides, setApplyingV2WithOverrides] = useState(false);
+    const [openingOverridesFromLibrary, setOpeningOverridesFromLibrary] = useState(false);
     // libraryReloadSignal tells TemplateLibraryModal to re-run its
     // ListBuildTemplateLibrary fetch without unmounting. Bumping the
     // signal after a successful YAML import surfaces the new entry
@@ -217,6 +235,99 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
         }
     }, [importedPreview, savingToLibrary, refreshLibrary]);
 
+    const handleOpenOverridesFromImport = useCallback(() => {
+        if (!importedPreview) return;
+        if (!importedPreview.report.ok) return;
+        if (!importedPreview.canonicalJSON) return;
+        if (!saveLoaded || charIndex === undefined) return;
+        if (applyingV2FromImport) return;
+        setOverridesSource({
+            kind: 'import',
+            canonicalJSON: importedPreview.canonicalJSON,
+            sourceLabel: importedPreview.path
+                ? `Imported YAML — ${importedPreview.path}`
+                : 'Imported YAML',
+            path: importedPreview.path,
+        });
+    }, [importedPreview, saveLoaded, charIndex, applyingV2FromImport]);
+
+    const handleOpenOverridesFromLibrary = useCallback(
+        async (entry: templates.LibraryTemplateEntry) => {
+            if (!saveLoaded || charIndex === undefined) {
+                toast.error('Templates: Load a save and select a character before applying a v2 template.');
+                return;
+            }
+            if (openingOverridesFromLibrary) return;
+            setOpeningOverridesFromLibrary(true);
+            try {
+                const preview = await PreviewBuildTemplateFromLibrary(entry.id);
+                const canonical = preview?.json ?? '';
+                if (!canonical) {
+                    toast.error('Templates: Library entry has no canonical JSON to edit.');
+                    return;
+                }
+                if (preview && !preview.report.ok) {
+                    const firstErr = preview.report.errors?.[0]?.message ?? 'Library entry failed validation.';
+                    toast.error(`Templates: ${firstErr}`);
+                    return;
+                }
+                setOverridesSource({
+                    kind: 'library',
+                    canonicalJSON: canonical,
+                    sourceLabel: `Library — ${entry.name || entry.id}`,
+                    entryID: entry.id,
+                });
+            } catch (err) {
+                toast.error(`Templates: ${String(err)}`);
+            } finally {
+                setOpeningOverridesFromLibrary(false);
+            }
+        },
+        [saveLoaded, charIndex, openingOverridesFromLibrary],
+    );
+
+    const handleConfirmOverrides = useCallback(
+        async (mutatedJSON: string) => {
+            if (!overridesSource) return;
+            if (!saveLoaded || charIndex === undefined) return;
+            if (applyingV2WithOverrides) return;
+            setApplyingV2WithOverrides(true);
+            try {
+                const result = await ApplyBuildTemplateV2ToCharacterJSON(
+                    charIndex,
+                    mutatedJSON,
+                    main.ApplyTemplateV2Options.createFrom({ mode: 'append' }),
+                );
+                if (!result.applied) {
+                    const firstErr = result.preview?.errors?.[0]?.message ?? 'Apply did not complete.';
+                    toast.error(`Templates: ${firstErr}`);
+                    return;
+                }
+                toast.success(
+                    `Applied ${overridesSource.sourceLabel} with overrides to character slot ${charIndex + 1}.`,
+                );
+                if ((result.skippedFields ?? []).includes('profile.class')) {
+                    toast('Class was skipped in this phase.');
+                }
+                onCharacterTemplateApplied?.(charIndex);
+                if (overridesSource.kind === 'import') {
+                    setImportedPreview(null);
+                }
+                setOverridesSource(null);
+            } catch (err) {
+                toast.error(`Templates: ${String(err)}`);
+            } finally {
+                setApplyingV2WithOverrides(false);
+            }
+        },
+        [overridesSource, saveLoaded, charIndex, applyingV2WithOverrides, onCharacterTemplateApplied],
+    );
+
+    const handleCancelOverrides = useCallback(() => {
+        if (applyingV2WithOverrides) return;
+        setOverridesSource(null);
+    }, [applyingV2WithOverrides]);
+
     const handleApplyV2FromImportedPreview = useCallback(async () => {
         // Defensive parent-side guards. The modal already disables the
         // button under the same conditions, but we never want to invoke
@@ -273,6 +384,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 charIndex={charIndex}
                 saveLoaded={saveLoaded}
                 onApplyV2={handleApplyV2FromLibrary}
+                onApplyV2WithOverrides={handleOpenOverridesFromLibrary}
                 headerExtras={
                     <>
                         <button
@@ -315,6 +427,16 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                     applyingV2={applyingV2FromImport}
                     charIndex={charIndex}
                     saveLoaded={saveLoaded}
+                    onApplyV2WithOverrides={handleOpenOverridesFromImport}
+                />
+            )}
+            {overridesSource && (
+                <ApplyOverridesModal
+                    sourceLabel={overridesSource.sourceLabel}
+                    canonicalJSON={overridesSource.canonicalJSON}
+                    onCancel={handleCancelOverrides}
+                    onConfirm={handleConfirmOverrides}
+                    applying={applyingV2WithOverrides}
                 />
             )}
             {createTemplateOpen && saveLoaded && charIndex !== undefined && (

@@ -563,6 +563,148 @@ describe('ImportTemplatePreviewModal — Phase 5D.2 direct v2 Apply', () => {
     });
 });
 
+describe('ImportTemplatePreviewModal — Phase 6 Apply with overrides', () => {
+    function v2Summary(overrides: Partial<templates.ImportPreviewSummary> = {}) {
+        return templates.ImportPreviewSummary.createFrom({
+            inventoryItems: 0,
+            storageItems: 0,
+            weapons: 0,
+            armor: 0,
+            talismans: 0,
+            stackables: 0,
+            aowAssignments: 0,
+            version: 2,
+            selectedSections: ['profile', 'stats'],
+            profileFieldsPresent: ['level'],
+            statFieldsPresent: ['vigor'],
+            ...overrides,
+        });
+    }
+
+    it('v1 preview never renders the overrides button even when onApplyV2WithOverrides is provided', () => {
+        const report = makeReport({
+            summary: templates.ImportPreviewSummary.createFrom({
+                inventoryItems: 1,
+                storageItems: 0,
+                weapons: 0,
+                armor: 0,
+                talismans: 0,
+                stackables: 0,
+                aowAssignments: 0,
+                version: 1,
+                selectedSections: ['inventory.workspace'],
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2WithOverrides={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(screen.queryByTestId('import-preview-apply-v2-overrides')).not.toBeInTheDocument();
+    });
+
+    it('v2 preview with supported sections + save + char: overrides button enabled', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2WithOverrides={() => {}}
+                charIndex={1}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2-overrides');
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeEnabled();
+        expect(btn).toHaveTextContent(/Apply with overrides/i);
+    });
+
+    it('v2 preview without saveLoaded keeps overrides disabled with "Load a save" title', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2WithOverrides={() => {}}
+                charIndex={0}
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2-overrides');
+        expect(btn).toBeDisabled();
+        expect(btn.getAttribute('title')).toMatch(/Load a save/i);
+    });
+
+    it('v2 preview with unsupported sections keeps overrides disabled with profile/stats title', () => {
+        const report = makeReport({
+            summary: v2Summary({ selectedSections: ['profile', 'equipment'] }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2WithOverrides={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2-overrides');
+        expect(btn).toBeDisabled();
+        expect(btn.getAttribute('title')).toMatch(/profile\/stats/i);
+    });
+
+    it('clicking the enabled overrides button calls onApplyV2WithOverrides exactly once', async () => {
+        const { fireEvent } = await import('@testing-library/react');
+        const onApplyV2WithOverrides = vi.fn();
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2WithOverrides={onApplyV2WithOverrides}
+                charIndex={3}
+                saveLoaded
+            />,
+        );
+        fireEvent.click(screen.getByTestId('import-preview-apply-v2-overrides'));
+        expect(onApplyV2WithOverrides).toHaveBeenCalledTimes(1);
+    });
+
+    it('both Apply to character and Apply with overrides render independently when both callbacks are provided', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                onApplyV2WithOverrides={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(screen.getByTestId('import-preview-apply-v2')).toBeEnabled();
+        expect(screen.getByTestId('import-preview-apply-v2-overrides')).toBeEnabled();
+    });
+
+    it('v2 preview without onApplyV2WithOverrides callback does not render the overrides button', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(screen.queryByTestId('import-preview-apply-v2-overrides')).not.toBeInTheDocument();
+    });
+});
+
 describe('isCancelledPreview', () => {
     it('returns true for the cancelled sentinel report', () => {
         expect(

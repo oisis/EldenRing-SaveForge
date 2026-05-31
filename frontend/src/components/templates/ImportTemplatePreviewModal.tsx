@@ -43,6 +43,13 @@ interface Props {
     applyingV2?: boolean;
     charIndex?: number;
     saveLoaded?: boolean;
+    // Phase 6 — v2 apply with editable overrides. When onApplyV2WithOverrides
+    // is provided AND the same v2 gates hold, the modal renders a second
+    // "Apply with overrides…" button next to "Apply to character". The
+    // button uses the same gating logic as the plain v2 Apply — anything
+    // that disables Apply also disables overrides. The caller owns the
+    // overrides modal lifecycle; this button is only the trigger.
+    onApplyV2WithOverrides?: () => void;
 }
 
 // V2_APPLY_SUPPORTED_SECTIONS — the only selectedSections values for
@@ -62,6 +69,7 @@ export function ImportTemplatePreviewModal({
     applyingV2,
     charIndex,
     saveLoaded,
+    onApplyV2WithOverrides,
 }: Props) {
     const dialogRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
@@ -84,14 +92,16 @@ export function ImportTemplatePreviewModal({
     const showV2Meta =
         isV2 || profileFieldsPresent.length > 0 || statFieldsPresent.length > 0;
 
-    // Phase 5D.2 — direct v2 apply button visibility & gating.
-    // Visible only when the caller wired onApplyV2 AND the report
-    // declares schema v2. v1 previews never see this button.
+    // Phase 5D.2 — direct v2 apply button visibility & gating. v1
+    // previews never expose the v2 buttons; for v2 previews the same
+    // gating reason is shared by the plain Apply (Phase 5D.2) and the
+    // Apply with overrides (Phase 6) buttons.
     const v2ApplyVisible = !!onApplyV2 && isV2;
+    const v2OverridesVisible = !!onApplyV2WithOverrides && isV2;
     const v2HasUnsupportedSection =
         selectedSections.length > 0 &&
         selectedSections.some(s => !V2_APPLY_SUPPORTED_SECTIONS.includes(s));
-    const v2ApplyDisabledReason: string = !v2ApplyVisible
+    const v2DisabledReason: string = !isV2
         ? ''
         : !report.ok
             ? 'Preview blocked — fix errors before applying.'
@@ -104,8 +114,12 @@ export function ImportTemplatePreviewModal({
                         : v2HasUnsupportedSection
                             ? 'Unsupported v2 sections — apply is available only for profile/stats in this phase.'
                             : '';
+    const v2ApplyDisabledReason = v2ApplyVisible ? v2DisabledReason : '';
     const v2ApplyEnabled =
         v2ApplyVisible && !applyingV2 && v2ApplyDisabledReason === '';
+    const v2OverridesDisabledReason = v2OverridesVisible ? v2DisabledReason : '';
+    const v2OverridesEnabled =
+        v2OverridesVisible && !applyingV2 && v2OverridesDisabledReason === '';
 
     return (
         <div
@@ -299,6 +313,29 @@ export function ImportTemplatePreviewModal({
                             }`}
                         >
                             {applyingV2 ? 'Applying…' : 'Apply to character'}
+                        </button>
+                    )}
+                    {v2OverridesVisible && (
+                        <button
+                            type="button"
+                            data-testid="import-preview-apply-v2-overrides"
+                            onClick={onApplyV2WithOverrides}
+                            disabled={!v2OverridesEnabled}
+                            title={
+                                v2OverridesDisabledReason ||
+                                'Edit profile/stats values before applying schema v2 to the selected character.'
+                            }
+                            aria-label={
+                                v2OverridesDisabledReason ||
+                                'Apply schema v2 with editable profile/stats overrides.'
+                            }
+                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                                v2OverridesEnabled
+                                    ? 'border border-green-700/70 text-green-200 hover:bg-green-900/30'
+                                    : 'opacity-40 cursor-not-allowed border border-border/60 text-muted-foreground'
+                            }`}
+                        >
+                            Apply with overrides…
                         </button>
                     )}
                 </div>

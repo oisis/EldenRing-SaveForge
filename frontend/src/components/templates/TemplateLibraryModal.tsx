@@ -71,6 +71,14 @@ interface Props {
     charIndex?: number;
     saveLoaded?: boolean;
     onApplyV2?: (entry: templates.LibraryTemplateEntry) => Promise<void> | void;
+    // Phase 6 — v2 apply with editable overrides. Rendered as a second
+    // button next to the existing Apply for v2 entries whose
+    // selectedSections fall inside { profile, stats }. v1 entries never
+    // render this button. Disabled under the same conditions as the
+    // plain v2 Apply (no saveLoaded, no charIndex, unsupported sections).
+    // The parent owns the overrides modal and the eventual JSON apply;
+    // this callback is only the trigger.
+    onApplyV2WithOverrides?: (entry: templates.LibraryTemplateEntry) => Promise<void> | void;
 }
 
 export function TemplateLibraryModal({
@@ -90,6 +98,7 @@ export function TemplateLibraryModal({
     charIndex,
     saveLoaded,
     onApplyV2,
+    onApplyV2WithOverrides,
 }: Props) {
     const [entries, setEntries] = useState<templates.LibraryTemplateEntry[]>([]);
     const [loading, setLoading] = useState(false);
@@ -408,6 +417,28 @@ export function TemplateLibraryModal({
                                     applyAriaLabel = 'Apply';
                                     applyHandler = () => onApplyV2Click(entry);
                                 }
+
+                                // Phase 6 — "Apply with overrides…" mirrors the
+                                // v2 Apply gating but routes through the parent's
+                                // overrides callback. Visible only for v2 entries
+                                // with applyable sections; v1 entries omit the
+                                // button entirely.
+                                const overridesVisible =
+                                    isV2 && v2HasApplyableSections && !!onApplyV2WithOverrides;
+                                let overridesDisabled = true;
+                                let overridesTitle: string | undefined;
+                                if (overridesVisible) {
+                                    if (!saveLoaded) {
+                                        overridesTitle = 'Load a save to apply this template';
+                                    } else if (charIndex === undefined) {
+                                        overridesTitle = 'Select a character to apply this template';
+                                    } else if (applyV2BusyID === entry.id || confirmingApplyV2) {
+                                        overridesTitle = 'Apply already in progress.';
+                                    } else {
+                                        overridesDisabled = false;
+                                        overridesTitle = `Edit values, then apply schema v2 to character slot ${charIndex + 1}`;
+                                    }
+                                }
                                 return (
                                     <li
                                         key={entry.id}
@@ -476,6 +507,19 @@ export function TemplateLibraryModal({
                                                             className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded bg-green-700/80 text-white hover:bg-green-700 disabled:opacity-40"
                                                         >
                                                             Apply
+                                                        </button>
+                                                    )}
+                                                    {allowApply && overridesVisible && (
+                                                        <button
+                                                            type="button"
+                                                            data-testid="library-apply-overrides"
+                                                            disabled={overridesDisabled}
+                                                            onClick={() => onApplyV2WithOverrides?.(entry)}
+                                                            title={overridesTitle}
+                                                            aria-label={overridesTitle ?? 'Apply with overrides'}
+                                                            className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-green-700/70 text-green-200 hover:bg-green-900/30 disabled:opacity-40"
+                                                        >
+                                                            Apply with overrides…
                                                         </button>
                                                     )}
                                                     <button
