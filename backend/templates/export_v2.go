@@ -57,6 +57,12 @@ type ExportV2Options struct {
 	Profile            *ProfileSource
 	Stats              *StatsSource
 	InventoryWorkspace *InventoryWorkspaceSection
+	// Equipment is the Phase 7b.1 source. Already in schema shape (no
+	// DTO conversion) because the section is small (14 slot pointers)
+	// and producers naturally walk the 14 ChrAsmEquipment slots —
+	// adding a parallel EquipmentSource DTO would just duplicate the
+	// pointer-soup.
+	Equipment *EquipmentSection
 
 	Selection *TemplateSelection
 }
@@ -95,6 +101,9 @@ func BuildV2Template(opts ExportV2Options) (*BuildTemplate, error) {
 	if opts.Selection.InventoryWorkspace.HasAny() && opts.InventoryWorkspace == nil {
 		return nil, fmt.Errorf("BuildV2Template: selection.inventory.workspace is selected but no InventoryWorkspace source was provided")
 	}
+	if opts.Selection.Equipment.HasAny() && opts.Equipment == nil {
+		return nil, fmt.Errorf("BuildV2Template: selection.equipment is selected but no Equipment source was provided")
+	}
 
 	outSelection := &TemplateSelection{}
 	var outSections TemplateSections
@@ -124,6 +133,17 @@ func BuildV2Template(opts ExportV2Options) (*BuildTemplate, error) {
 	if opts.Selection.InventoryWorkspace.HasAny() {
 		outSections.InventoryWorkspace = opts.InventoryWorkspace
 		outSelection.InventoryWorkspace = &SectionSelection{All: true}
+	}
+
+	if opts.Selection.Equipment.HasAny() {
+		equipment, emittedSlots := buildEquipmentSection(opts.Equipment, opts.Selection.Equipment)
+		if opts.Selection.Equipment.All {
+			outSections.Equipment = equipment
+			outSelection.Equipment = &SectionSelection{All: true}
+		} else if len(emittedSlots) > 0 {
+			outSections.Equipment = equipment
+			outSelection.Equipment = &SectionSelection{Fields: emittedSlots}
+		}
 	}
 
 	if !outSelection.HasAnySelected() {
@@ -204,6 +224,43 @@ func buildProfileSection(src *ProfileSource, sel *SectionSelection) (*ProfileSec
 		v := *src.TalismanSlots
 		out.TalismanSlots = &v
 		emitted["talismanSlots"] = true
+	}
+	return out, emitted
+}
+
+// buildEquipmentSection copies set source slots whose key is included in
+// sel. Each EquipmentItemRef value is deep-cloned so the returned
+// section does not alias the source's pointer fields — important
+// because callers reuse EquipmentSection structs across multiple Build
+// calls. The second return names the slot keys that actually landed,
+// used by BuildV2Template to normalise per-field selections.
+//
+// A slot whose source ref is nil is treated as "not in source" and
+// dropped (the boolean shortcut keeps it nil → the output likewise
+// stays nil for that slot). A ref with BaseItemID == 0 is kept verbatim
+// (explicit-clear sentinel).
+func buildEquipmentSection(src *EquipmentSection, sel *SectionSelection) (*EquipmentSection, map[string]bool) {
+	out := &EquipmentSection{}
+	emitted := map[string]bool{}
+	for _, key := range EquipmentSlotOrder {
+		if !sel.Selected(key) {
+			continue
+		}
+		ref := EquipmentSlotRef(src, key)
+		if ref == nil {
+			continue
+		}
+		clone := *ref
+		if ref.Upgrade != nil {
+			v := *ref.Upgrade
+			clone.Upgrade = &v
+		}
+		if ref.AoWItemID != nil {
+			v := *ref.AoWItemID
+			clone.AoWItemID = &v
+		}
+		SetEquipmentSlotRef(out, key, &clone)
+		emitted[key] = true
 	}
 	return out, emitted
 }

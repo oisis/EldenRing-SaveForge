@@ -1,0 +1,175 @@
+package main
+
+import (
+	"encoding/binary"
+
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
+	"github.com/oisis/EldenRing-SaveForge/backend/templates"
+)
+
+// equipmentSlotChrAsmIndex maps a Phase 7b.1 canonical slot key to the
+// corresponding index inside the 22-entry core.ChrAsmEquipment array.
+// The keys mirror templates.EquipmentSlotOrder.
+var equipmentSlotChrAsmIndex = map[string]int{
+	"weaponLeftHand1":  0,
+	"weaponRightHand1": 1,
+	"weaponLeftHand2":  2,
+	"weaponRightHand2": 3,
+	"weaponLeftHand3":  4,
+	"weaponRightHand3": 5,
+	"arrows1":          6,
+	"bolts1":           7,
+	"arrows2":          8,
+	"bolts2":           9,
+	"armorHead":        12,
+	"armorChest":       13,
+	"armorArms":        14,
+	"armorLegs":        15,
+}
+
+// equipmentSlotIsAmmo reports whether the slot key is one of the four
+// ammo positions (Arrows1/2, Bolts1/2). Ammo slots store goods item IDs
+// directly (0x40-prefixed), while weapon/armor slots store
+// `itemID | 0x80000000`.
+func equipmentSlotIsAmmo(slotKey string) bool {
+	switch slotKey {
+	case "arrows1", "bolts1", "arrows2", "bolts2":
+		return true
+	}
+	return false
+}
+
+// buildEquipmentSectionFromSlot scans the supported ChrAsmEquipment
+// slots (0–9, 12–15) on the given SaveSlot and returns a
+// templates.EquipmentSection whose pointer fields are populated for
+// every non-empty equipped slot. The matching strategy mirrors the
+// Phase 7b.1 export contract:
+//
+//   - Read the raw u32 at slot.Data[EquipItemsIDOffset + idx*4].
+//   - 0xFFFFFFFF → field stays nil (slot is empty in-game).
+//   - Decode the equipped form back to an itemID (weapon/armor: strip
+//     the 0x80 high-bit flag; ammo: take the raw value as a goods
+//     itemID which already carries the 0x40 prefix).
+//   - Look up the corresponding editor.EditableItem in inventoryItems
+//     by matching encoded ItemID; copy BaseItemID, Name, current
+//     upgrade, infusion, and custom AoW into the EquipmentItemRef.
+//   - When no editable item matches (e.g. the equipped item is a
+//     pass-through record or absent from CommonItems entirely) but
+//     the DB recognises the decoded ID, fall back to the DB-derived
+//     baseItemID / name with no upgrade / infusion metadata.
+//   - When the DB does not recognise the ID either, the slot still
+//     emits a ref carrying just the raw decoded ItemID — the export
+//     report shows the user there is something in the slot rather
+//     than silently dropping it.
+//
+// Returns nil when the slot's EquipItemsIDOffset has not been parsed
+// (empty / unreadable slot) or when no supported slot is populated.
+func buildEquipmentSectionFromSlot(slot *core.SaveSlot, inventoryItems []editor.EditableItem) *templates.EquipmentSection {
+	if slot == nil || slot.EquipItemsIDOffset <= 0 {
+		return nil
+	}
+	if slot.EquipItemsIDOffset+core.ChrAsmEquipmentSize > len(slot.Data) {
+		return nil
+	}
+
+	// Index editable inventory by the equipped-form encoded value so we
+	// can do a single O(1) lookup per slot. Weapons/armor encode as
+	// `ItemID | 0x80000000`; ammo (goods) encodes as ItemID directly.
+	byEquipped := make(map[uint32]*editor.EditableItem, len(inventoryItems))
+	for i := range inventoryItems {
+		it := &inventoryItems[i]
+		// weapons/armor candidate
+		byEquipped[it.ItemID|core.ItemTypeWeapon] = it
+		// ammo / goods candidate
+		byEquipped[it.ItemID] = it
+	}
+
+	out := &templates.EquipmentSection{}
+	any := false
+	for _, slotKey := range templates.EquipmentSlotOrder {
+		chrAsmIdx, ok := equipmentSlotChrAsmIndex[slotKey]
+		if !ok {
+			continue
+		}
+		off := slot.EquipItemsIDOffset + chrAsmIdx*4
+		raw := binary.LittleEndian.Uint32(slot.Data[off:])
+		if raw == 0xFFFFFFFF {
+			continue
+		}
+
+		ref := decodeEquipmentSlotToRef(raw, slotKey, byEquipped)
+		if ref == nil {
+			continue
+		}
+		templates.SetEquipmentSlotRef(out, slotKey, ref)
+		any = true
+	}
+	if !any {
+		return nil
+	}
+	return out
+}
+
+// decodeEquipmentSlotToRef builds the EquipmentItemRef from a raw u32
+// pulled out of ChrAsmEquipment. byEquipped is the encoded-form lookup
+// indexed by ItemID|0x80000000 (weapons/armor) and bare ItemID (ammo).
+func decodeEquipmentSlotToRef(raw uint32, slotKey string, byEquipped map[uint32]*editor.EditableItem) *templates.EquipmentItemRef {
+	if raw == 0 || raw == 0xFFFFFFFF {
+		return nil
+	}
+
+	// Look up the matching editable item using the exact raw value first;
+	// fall back to the decoded ItemID (strip the 0x80 flag for weapon /
+	// armor; ammo slots store ItemID directly).
+	if it, ok := byEquipped[raw]; ok {
+		return itemToEquipmentRef(it)
+	}
+
+	var candidateID uint32
+	if equipmentSlotIsAmmo(slotKey) {
+		candidateID = raw
+	} else {
+		candidateID = raw &^ core.ItemTypeWeapon
+	}
+	if it, ok := byEquipped[candidateID]; ok {
+		return itemToEquipmentRef(it)
+	}
+
+	// Editable inventory does not contain the equipped item — fall back
+	// to a DB-derived ref so the export still records which item the
+	// slot holds. This path is rare for weapons / armor but expected for
+	// Unarmed / placeholder slots.
+	itemData, baseID := db.GetItemDataFuzzy(candidateID)
+	if itemData.Name != "" {
+		return &templates.EquipmentItemRef{
+			BaseItemID: baseID,
+			Name:       itemData.Name,
+		}
+	}
+	// Last resort: unknown item, emit minimal ref with raw decoded ID so
+	// the user at least sees "there is something here we could not
+	// resolve".
+	return &templates.EquipmentItemRef{BaseItemID: candidateID}
+}
+
+// itemToEquipmentRef projects an EditableItem onto the schema fields
+// EquipmentItemRef carries. Upgrade / AoW pointers are heap-allocated so
+// the resulting ref does not alias the editor item.
+func itemToEquipmentRef(it *editor.EditableItem) *templates.EquipmentItemRef {
+	ref := &templates.EquipmentItemRef{
+		BaseItemID:   it.BaseItemID,
+		Name:         it.Name,
+		InfusionName: it.InfusionName,
+	}
+	if it.IsWeapon || it.IsArmor {
+		up := it.CurrentUpgrade
+		ref.Upgrade = &up
+	}
+	if it.HasCurrentAoW && it.CurrentAoWItemID != 0 {
+		aow := it.CurrentAoWItemID
+		ref.AoWItemID = &aow
+	}
+	return ref
+}
