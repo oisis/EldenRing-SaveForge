@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
@@ -27,6 +28,43 @@ var equipmentSlotChrAsmIndex = map[string]int{
 	"armorChest":       13,
 	"armorArms":        14,
 	"armorLegs":        15,
+}
+
+// equipmentSlotKindForKey returns the Phase 7b.0 core writer slot kind
+// for a Phase 7b.1 canonical slot key. Both maps are stable allowlists;
+// an unknown key returns (0, false).
+func equipmentSlotKindForKey(slotKey string) (core.EquipmentSlotKind, bool) {
+	switch slotKey {
+	case "weaponLeftHand1":
+		return core.EquipSlotLeftHandArmament1, true
+	case "weaponRightHand1":
+		return core.EquipSlotRightHandArmament1, true
+	case "weaponLeftHand2":
+		return core.EquipSlotLeftHandArmament2, true
+	case "weaponRightHand2":
+		return core.EquipSlotRightHandArmament2, true
+	case "weaponLeftHand3":
+		return core.EquipSlotLeftHandArmament3, true
+	case "weaponRightHand3":
+		return core.EquipSlotRightHandArmament3, true
+	case "arrows1":
+		return core.EquipSlotArrows1, true
+	case "bolts1":
+		return core.EquipSlotBolts1, true
+	case "arrows2":
+		return core.EquipSlotArrows2, true
+	case "bolts2":
+		return core.EquipSlotBolts2, true
+	case "armorHead":
+		return core.EquipSlotHead, true
+	case "armorChest":
+		return core.EquipSlotChest, true
+	case "armorArms":
+		return core.EquipSlotArms, true
+	case "armorLegs":
+		return core.EquipSlotLegs, true
+	}
+	return 0, false
 }
 
 // equipmentSlotIsAmmo reports whether the slot key is one of the four
@@ -152,6 +190,143 @@ func decodeEquipmentSlotToRef(raw uint32, slotKey string, byEquipped map[uint32]
 	// the user at least sees "there is something here we could not
 	// resolve".
 	return &templates.EquipmentItemRef{BaseItemID: candidateID}
+}
+
+// resolveEquipmentWrites walks the selected slots in
+// templates.EquipmentSection and produces a []core.EquipmentWrite batch
+// ready for SaveSlot.WriteEquipment.
+//
+// Phase 7b.1 strict-existing-only policy:
+//   - sel must be non-nil and HasAny == true at the call site.
+//   - sec may be nil only when no slot is selected (defensive — the
+//     caller checks hasEquipment before invoking us).
+//   - For each selected + populated slot:
+//   - BaseItemID == 0 → emit EquipmentWrite{Handle: 0} (explicit
+//     clear). No inventory lookup.
+//   - BaseItemID > 0 → search slot.Inventory.CommonItems for a
+//     matching item. Storage is NOT searched. Match keys: BaseItemID
+//     (required), Upgrade (optional disambiguator), InfusionName
+//     (optional), AoWItemID (optional). Multi-match resolves to the
+//     first hit + emits equipment_item_ambiguous warning. No match
+//     emits equipment_item_not_in_inventory warning and the slot is
+//     skipped.
+//
+// Returned warnings carry the canonical slot key in Container (reusing
+// the existing optional string field on ImportPreviewIssue so the UI
+// can deep-link to the affected slot without a new field).
+//
+// The Go error return is reserved for infrastructure problems (nil
+// slot, nil section pointer where the caller expected one); per-slot
+// resolution issues never surface as a Go error.
+func resolveEquipmentWrites(slot *core.SaveSlot, sel *templates.SectionSelection, sec *templates.EquipmentSection) ([]core.EquipmentWrite, []templates.ImportPreviewIssue, error) {
+	if slot == nil {
+		return nil, nil, fmt.Errorf("resolveEquipmentWrites: nil slot")
+	}
+	// Snapshot the editable inventory once so per-slot lookups are
+	// against a single consistent view. BuildSnapshot does the GaMap +
+	// DB resolution + AoW current-state lookups the resolver needs to
+	// match the optional disambiguators (Upgrade, InfusionName,
+	// AoWItemID).
+	snap, err := editor.BuildSnapshot(slot, "", -1)
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolveEquipmentWrites: BuildSnapshot: %w", err)
+	}
+	return resolveEquipmentWritesFromItems(snap.InventoryItems, sel, sec)
+}
+
+// resolveEquipmentWritesFromItems is the pure-logic core of the
+// resolver, taking an already-materialised list of editable inventory
+// items. Factored out so tests can exercise the matching / warning
+// logic without standing up a full SaveSlot that BuildSnapshot can
+// parse.
+func resolveEquipmentWritesFromItems(items []editor.EditableItem, sel *templates.SectionSelection, sec *templates.EquipmentSection) ([]core.EquipmentWrite, []templates.ImportPreviewIssue, error) {
+	if sec == nil {
+		return nil, nil, fmt.Errorf("resolveEquipmentWrites: nil equipment section")
+	}
+
+	var writes []core.EquipmentWrite
+	var warnings []templates.ImportPreviewIssue
+
+	for _, slotKey := range templates.EquipmentSlotOrder {
+		if !sel.Selected(slotKey) {
+			continue
+		}
+		ref := templates.EquipmentSlotRef(sec, slotKey)
+		if ref == nil {
+			continue
+		}
+		kind, ok := equipmentSlotKindForKey(slotKey)
+		if !ok {
+			// Unreachable — equipmentSlotKindForKey covers every key in
+			// EquipmentSlotOrder. Defensive guard so a future
+			// EquipmentSlotOrder extension that forgets to update the
+			// mapping surfaces as a clear error rather than silently
+			// dropping slots.
+			return nil, nil, fmt.Errorf("resolveEquipmentWrites: no core slot kind for %q", slotKey)
+		}
+
+		if ref.BaseItemID == 0 {
+			writes = append(writes, core.EquipmentWrite{Slot: kind, Handle: 0})
+			continue
+		}
+
+		handle, ambiguous, found := lookupEquipmentHandle(items, ref)
+		if !found {
+			warnings = append(warnings, templates.ImportPreviewIssue{
+				Severity:   "warning",
+				Code:       templates.IssueCodeEquipmentItemNotInInventory,
+				Message:    fmt.Sprintf("equipment.%s: baseItemID 0x%08X is not in inventory; slot skipped", slotKey, ref.BaseItemID),
+				Container:  slotKey,
+				BaseItemID: ref.BaseItemID,
+			})
+			continue
+		}
+		if ambiguous {
+			warnings = append(warnings, templates.ImportPreviewIssue{
+				Severity:   "warning",
+				Code:       templates.IssueCodeEquipmentItemAmbiguous,
+				Message:    fmt.Sprintf("equipment.%s: multiple inventory matches for baseItemID 0x%08X; first wins", slotKey, ref.BaseItemID),
+				Container:  slotKey,
+				BaseItemID: ref.BaseItemID,
+			})
+		}
+		writes = append(writes, core.EquipmentWrite{Slot: kind, Handle: handle})
+	}
+	return writes, warnings, nil
+}
+
+// lookupEquipmentHandle returns (handle, ambiguous, found) for the
+// first EditableItem in items that matches the ref's BaseItemID and any
+// supplied optional disambiguators (Upgrade, InfusionName, AoWItemID).
+// ambiguous is true when more than one item satisfied the match.
+func lookupEquipmentHandle(items []editor.EditableItem, ref *templates.EquipmentItemRef) (uint32, bool, bool) {
+	matches := 0
+	var winner uint32
+	for i := range items {
+		it := &items[i]
+		if it.BaseItemID != ref.BaseItemID {
+			continue
+		}
+		if ref.Upgrade != nil && it.CurrentUpgrade != *ref.Upgrade {
+			continue
+		}
+		if ref.InfusionName != "" && it.InfusionName != ref.InfusionName {
+			continue
+		}
+		if ref.AoWItemID != nil {
+			if !it.HasCurrentAoW || it.CurrentAoWItemID != *ref.AoWItemID {
+				continue
+			}
+		}
+		matches++
+		if matches == 1 {
+			winner = it.OriginalHandle
+		}
+	}
+	if matches == 0 {
+		return 0, false, false
+	}
+	return winner, matches > 1, true
 }
 
 // itemToEquipmentRef projects an EditableItem onto the schema fields

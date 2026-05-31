@@ -64,6 +64,12 @@ type ApplyTemplateV2Result struct {
 	InventoryItemsApplied int                                `json:"inventoryItemsApplied"`
 	StorageItemsApplied   int                                `json:"storageItemsApplied"`
 	Workspace             *editor.InventoryWorkspaceSnapshot `json:"workspace,omitempty"`
+
+	// Phase 7b.1 — equipment apply counter. Number of ChrAsmEquipment
+	// slots actually written to slot.Data by SaveSlot.WriteEquipment.
+	// Slots reported as not-in-inventory warnings are NOT counted; the
+	// counter reflects successful writer dispatch only.
+	EquipmentSlotsApplied int `json:"equipmentSlotsApplied"`
 }
 
 // Canonical apply ordering. Defined once so the AppliedFields /
@@ -202,7 +208,8 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	hasProfile := tpl.Selection != nil && tpl.Selection.Profile.HasAny()
 	hasStats := tpl.Selection != nil && tpl.Selection.Stats.HasAny()
 	hasInventory := tpl.Selection != nil && tpl.Selection.InventoryWorkspace.HasAny()
-	if !hasProfile && !hasStats && !hasInventory {
+	hasEquipment := tpl.Selection != nil && tpl.Selection.Equipment.HasAny()
+	if !hasProfile && !hasStats && !hasInventory && !hasEquipment {
 		// ValidateBuildTemplate already rejects an empty selection
 		// (HasAnySelected == false) — this branch defends against future
 		// validator drift.
@@ -210,7 +217,27 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		report.Errors = append(report.Errors, templates.ImportPreviewIssue{
 			Severity: "error",
 			Code:     templates.IssueCodeStructureInvalid,
-			Message:  "schema v2 template selects neither profile, stats, nor inventory.workspace",
+			Message:  "schema v2 template selects neither profile, stats, inventory.workspace, nor equipment",
+		})
+		return ApplyTemplateV2Result{
+			CharIndex: charIdx,
+			Preview:   report,
+			Applied:   false,
+		}, nil
+	}
+
+	// Phase 7b.1 — hard reject equipment + inventory.workspace combo at the
+	// apply boundary too. The preview already injects this error in
+	// PreviewBuildTemplateImport, but the apply double-checks here so direct
+	// callers of the JSON endpoint that bypass the preview cannot smuggle a
+	// combo through. See IssueCodeEquipmentInventoryComboUnsupported for
+	// the GaMap-freshness rationale.
+	if hasEquipment && hasInventory {
+		report.OK = false
+		report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+			Severity: "error",
+			Code:     templates.IssueCodeEquipmentInventoryComboUnsupported,
+			Message:  "sections.equipment cannot be applied together with sections.inventory.workspace in the same template (Phase 7b.1 limitation).",
 		})
 		return ApplyTemplateV2Result{
 			CharIndex: charIdx,
@@ -369,6 +396,37 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		skipped = append(skipped, sk...)
 	}
 
+	// Phase 7b.1 — equipment resolver runs before the inventory.workspace
+	// branch. It reads slot.Inventory.CommonItems + slot.GaMap (fresh
+	// from LoadSave; combo with inventory.workspace is hard-rejected
+	// above so we never see a half-committed workspace here), matches
+	// each EquipmentItemRef against the inventory and produces a
+	// []core.EquipmentWrite batch. Missing items become warnings; the
+	// resolver returns Go errors only for infrastructure failures.
+	//
+	// The actual SaveSlot.WriteEquipment call happens after the
+	// profile/stats slot.Data mutation so the rollback snapshot taken
+	// above covers any partial equipment write the same way it covers
+	// partial profile/stats writes.
+	var equipmentWrites []core.EquipmentWrite
+	var equipmentSlotsApplied int
+	if hasEquipment {
+		writes, equipWarn, equipErr := resolveEquipmentWrites(slot, tpl.Selection.Equipment, tpl.Sections.Equipment)
+		if equipErr != nil {
+			rollbackBoth()
+			return ApplyTemplateV2Result{
+				CharIndex: charIdx,
+				Preview:   buildApplyErrorReport(report, fmt.Errorf("ApplyBuildTemplateV2: equipment resolver: %w", equipErr)),
+				Applied:   false,
+			}, nil
+		}
+		report.Warnings = append(report.Warnings, equipWarn...)
+		if len(writes) > 0 {
+			equipmentWrites = writes
+			applied = append(applied, "equipment")
+		}
+	}
+
 	// Phase 7a — inventory.workspace apply runs against the workspace
 	// snapshot through the same applyTemplateItemsToWorkspace helper
 	// the v1 path uses. Phase 7a.2 threads opts.WeaponLevelOverride into
@@ -423,7 +481,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 
 	profileOrStatsApplied := false
 	for _, f := range applied {
-		if f == "inventory.workspace" {
+		if f == "inventory.workspace" || f == "equipment" {
 			continue
 		}
 		profileOrStatsApplied = true
@@ -464,6 +522,30 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}
 	}
 
+	// Phase 7b.1 — equipment apply. Runs AFTER profile/stats have
+	// flushed to slot.Data so any failure here is rolled back by the
+	// existing core.SnapshotSlot taken at the top of the slot lock.
+	// WriteEquipment writes the 14 supported ChrAsmEquipment slots
+	// directly to slot.Data and recomputes the touched hash 7 / 8
+	// entries inline; the rollback snapshot covers both.
+	if len(equipmentWrites) > 0 {
+		if err := slot.WriteEquipment(equipmentWrites); err != nil {
+			rollbackBoth()
+			report.OK = false
+			report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+				Severity: "error",
+				Code:     templates.IssueCodeEquipmentSlotInvalid,
+				Message:  fmt.Sprintf("equipment write rolled back: %s", err.Error()),
+			})
+			return ApplyTemplateV2Result{
+				CharIndex: charIdx,
+				Preview:   report,
+				Applied:   false,
+			}, nil
+		}
+		equipmentSlotsApplied = len(equipmentWrites)
+	}
+
 	// Phase 7a — mark the workspace dirty + revalidate when items
 	// actually landed. Mirrors the v1 ApplyBuildTemplateToWorkspaceJSON
 	// success tail so the user still commits by clicking Save changes.
@@ -487,6 +569,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		Character:             freshVM,
 		InventoryItemsApplied: inventoryItemsApplied,
 		StorageItemsApplied:   storageItemsApplied,
+		EquipmentSlotsApplied: equipmentSlotsApplied,
 	}
 	if hasInventory {
 		ws := sess.Workspace
