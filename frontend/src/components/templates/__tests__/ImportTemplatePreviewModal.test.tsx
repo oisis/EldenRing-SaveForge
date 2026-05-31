@@ -802,6 +802,38 @@ describe('ImportTemplatePreviewModal — Phase 7b.1 equipment section', () => {
         expect(screen.queryByTestId('import-preview-equipment-slots')).not.toBeInTheDocument();
     });
 
+    it('renders talisman slot keys in the equipment row (Phase 7c)', () => {
+        const report = makeReport({
+            summary: equipSummary({
+                equipmentSlotsPresent: ['talisman1', 'talisman2', 'talisman4'],
+            }),
+        });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        const row = screen.getByTestId('import-preview-equipment-slots');
+        expect(row).toHaveTextContent(/talisman1/);
+        expect(row).toHaveTextContent(/talisman2/);
+        expect(row).toHaveTextContent(/talisman4/);
+    });
+
+    it('keeps Apply enabled for an equipment-only talisman template (Phase 7c)', () => {
+        const report = makeReport({
+            summary: equipSummary({
+                equipmentSlotsPresent: ['talisman1', 'talisman3'],
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeEnabled();
+    });
+
     it('surface the combo error from backend preview', () => {
         const report = makeReport({
             ok: false,

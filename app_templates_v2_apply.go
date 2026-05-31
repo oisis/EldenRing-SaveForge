@@ -411,7 +411,8 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	var equipmentWrites []core.EquipmentWrite
 	var equipmentSlotsApplied int
 	if hasEquipment {
-		writes, equipWarn, equipErr := resolveEquipmentWrites(slot, tpl.Selection.Equipment, tpl.Sections.Equipment)
+		activeTalismanSlots := computeActiveTalismanSlots(slot, tpl)
+		writes, equipWarn, equipErr := resolveEquipmentWrites(slot, tpl.Selection.Equipment, tpl.Sections.Equipment, activeTalismanSlots)
 		if equipErr != nil {
 			rollbackBoth()
 			return ApplyTemplateV2Result{
@@ -862,4 +863,33 @@ func cancelledApplyV2Result(charIdx int) ApplyTemplateV2Result {
 		Preview:   cancelledPreviewReport(),
 		Applied:   false,
 	}
+}
+
+// computeActiveTalismanSlots returns the effective talisman pouch
+// capacity (1..4) the equipment resolver should gate talisman slots
+// against. When the template selects profile.talismanSlots and ships a
+// value in sections.profile, that value wins because profile apply
+// later lifts the persisted pouch count before equipment apply runs;
+// otherwise the slot's current persisted Player.TalismanSlots is used.
+// Both branches clamp to [0, 3] (MaxProfileTalismanSlots) and add 1 to
+// derive the active slot count (the base talisman slot is always
+// available even with zero Pouch upgrades).
+func computeActiveTalismanSlots(slot *core.SaveSlot, tpl *templates.BuildTemplate) uint8 {
+	var base uint8
+	if slot != nil {
+		base = slot.Player.TalismanSlots
+	}
+	if base > templates.MaxProfileTalismanSlots {
+		base = templates.MaxProfileTalismanSlots
+	}
+	if tpl != nil && tpl.Selection != nil &&
+		tpl.Selection.Profile.Selected("talismanSlots") &&
+		tpl.Sections.Profile != nil && tpl.Sections.Profile.TalismanSlots != nil {
+		v := *tpl.Sections.Profile.TalismanSlots
+		if v > templates.MaxProfileTalismanSlots {
+			v = templates.MaxProfileTalismanSlots
+		}
+		base = v
+	}
+	return 1 + base
 }

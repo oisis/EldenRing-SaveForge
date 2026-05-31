@@ -47,7 +47,7 @@ func TestResolveEquipmentWrites_MatchByBaseID(t *testing.T) {
 	}
 	sec := &templates.EquipmentSection{WeaponRightHand1: &templates.EquipmentItemRef{BaseItemID: 0x100000}}
 	sel := &templates.SectionSelection{All: true}
-	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec)
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
 	if err != nil {
 		t.Fatalf("resolver: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestResolveEquipmentWrites_MissingItemEmitsWarning(t *testing.T) {
 	items := []editor.EditableItem{}
 	sec := &templates.EquipmentSection{WeaponRightHand1: &templates.EquipmentItemRef{BaseItemID: 0x999999}}
 	sel := &templates.SectionSelection{All: true}
-	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec)
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
 	if err != nil {
 		t.Fatalf("resolver: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestResolveEquipmentWrites_AmbiguousMatchFirstWinsPlusWarning(t *testing.T)
 	}
 	sec := &templates.EquipmentSection{WeaponRightHand1: &templates.EquipmentItemRef{BaseItemID: 0x100000}}
 	sel := &templates.SectionSelection{All: true}
-	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec)
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
 	if err != nil {
 		t.Fatalf("resolver: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestResolveEquipmentWrites_UpgradeDisambiguator(t *testing.T) {
 	up := 25
 	sec := &templates.EquipmentSection{WeaponRightHand1: &templates.EquipmentItemRef{BaseItemID: 0x100000, Upgrade: &up}}
 	sel := &templates.SectionSelection{All: true}
-	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec)
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
 	if err != nil {
 		t.Fatalf("resolver: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestResolveEquipmentWrites_InfusionDisambiguator(t *testing.T) {
 	}
 	sec := &templates.EquipmentSection{WeaponRightHand1: &templates.EquipmentItemRef{BaseItemID: 0x100000, InfusionName: "Cold"}}
 	sel := &templates.SectionSelection{All: true}
-	writes, _, err := resolveEquipmentWritesFromItems(items, sel, sec)
+	writes, _, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
 	if err != nil {
 		t.Fatalf("resolver: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestResolveEquipmentWrites_ExplicitClear(t *testing.T) {
 	items := []editor.EditableItem{}
 	sec := &templates.EquipmentSection{WeaponRightHand1: &templates.EquipmentItemRef{BaseItemID: 0}}
 	sel := &templates.SectionSelection{All: true}
-	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec)
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
 	if err != nil {
 		t.Fatalf("resolver: %v", err)
 	}
@@ -157,7 +157,7 @@ func TestResolveEquipmentWrites_PerFieldSelection(t *testing.T) {
 	}
 	// Only WeaponRightHand1 selected — armor must be skipped.
 	sel := &templates.SectionSelection{Fields: map[string]bool{"weaponRightHand1": true}}
-	writes, _, err := resolveEquipmentWritesFromItems(items, sel, sec)
+	writes, _, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
 	if err != nil {
 		t.Fatalf("resolver: %v", err)
 	}
@@ -278,17 +278,15 @@ func TestApplyBuildTemplateV2_EquipmentMissingItemWarningSkipped(t *testing.T) {
 
 func TestApplyBuildTemplateV2_EquipmentRejectsExtraSections(t *testing.T) {
 	// Confirm that the existing scope rejection logic still works for
-	// sections outside the Phase 7b.1 allowlist when equipment is also
-	// selected. (No new section to test here; the validator catches
-	// unknown keys at parse time. This is a smoke test that the apply
-	// path's hasEquipment branch did not regress the schema validator's
-	// behaviour.)
+	// sections outside the allowlist when equipment is also selected.
+	// Phase 7c added talisman1..5 to the allowlist; we now use a still-
+	// unsupported key (equippedSpell1) to exercise the unknown-slot path.
 	app := equipApplyFixture(t)
 	const badJSON = `{
 		"schema": "saveforge.build-template",
 		"version": 2,
 		"createdAt": "2026-06-01T00:00:00Z",
-		"selection": {"equipment": {"talisman1": true}},
+		"selection": {"equipment": {"equippedSpell1": true}},
 		"sections": {"equipment": {}}
 	}`
 	res, err := app.ApplyBuildTemplateV2ToCharacterJSON(0, badJSON, ApplyTemplateV2Options{})
@@ -298,8 +296,8 @@ func TestApplyBuildTemplateV2_EquipmentRejectsExtraSections(t *testing.T) {
 	if res.Applied {
 		t.Error("apply should reject unknown slot in selection")
 	}
-	if !strings.Contains(strings.ToLower(stringifyPreviewErrors(res.Preview)), "talisman1") {
-		t.Errorf("expected error to mention talisman1, got %v", res.Preview.Errors)
+	if !strings.Contains(strings.ToLower(stringifyPreviewErrors(res.Preview)), "equippedspell1") {
+		t.Errorf("expected error to mention equippedSpell1, got %v", res.Preview.Errors)
 	}
 }
 
@@ -309,4 +307,348 @@ func stringifyPreviewErrors(rep templates.ImportPreviewReport) string {
 		parts = append(parts, e.Code+" "+e.Message)
 	}
 	return strings.Join(parts, " | ")
+}
+
+// ─── Phase 7c — talisman apply tests ────────────────────────────────────
+
+// ─── resolveEquipmentWritesFromItems talisman unit tests ───
+
+func TestResolveEquipmentWrites_TalismanWithPouchOK(t *testing.T) {
+	items := []editor.EditableItem{
+		{BaseItemID: 0x200003E8, ItemID: 0x200003E8, OriginalHandle: 0xA0000041, IsTalisman: true},
+	}
+	sec := &templates.EquipmentSection{
+		Talisman1: &templates.EquipmentItemRef{BaseItemID: 0x200003E8},
+	}
+	sel := &templates.SectionSelection{All: true}
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings, got %v", warnings)
+	}
+	if len(writes) != 1 || writes[0].Slot != core.EquipSlotTalisman1 || writes[0].Handle != 0xA0000041 {
+		t.Errorf("unexpected writes: %+v", writes)
+	}
+}
+
+func TestResolveEquipmentWrites_TalismanBeyondPouchWarnsAndSkips(t *testing.T) {
+	items := []editor.EditableItem{
+		{BaseItemID: 0x200003E8, ItemID: 0x200003E8, OriginalHandle: 0xA0000041, IsTalisman: true},
+		{BaseItemID: 0x200003F2, ItemID: 0x200003F2, OriginalHandle: 0xA0000042, IsTalisman: true},
+		{BaseItemID: 0x200003FC, ItemID: 0x200003FC, OriginalHandle: 0xA0000043, IsTalisman: true},
+		{BaseItemID: 0x20000406, ItemID: 0x20000406, OriginalHandle: 0xA0000044, IsTalisman: true},
+	}
+	sec := &templates.EquipmentSection{
+		Talisman1: &templates.EquipmentItemRef{BaseItemID: 0x200003E8},
+		Talisman2: &templates.EquipmentItemRef{BaseItemID: 0x200003F2},
+		Talisman3: &templates.EquipmentItemRef{BaseItemID: 0x200003FC},
+		Talisman4: &templates.EquipmentItemRef{BaseItemID: 0x20000406},
+	}
+	sel := &templates.SectionSelection{All: true}
+	// activeTalismanSlots = 1 (TalismanSlots == 0)
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 1)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	// Only talisman1 should be written.
+	if len(writes) != 1 || writes[0].Slot != core.EquipSlotTalisman1 {
+		t.Errorf("expected single talisman1 write, got %+v", writes)
+	}
+	// 3 warnings for talisman2/3/4.
+	pouchWarnings := 0
+	for _, w := range warnings {
+		if w.Code == templates.IssueCodeTalismanSlotPouchInsufficient {
+			pouchWarnings++
+		}
+	}
+	if pouchWarnings != 3 {
+		t.Errorf("expected 3 pouch warnings, got %d (warnings=%v)", pouchWarnings, warnings)
+	}
+}
+
+func TestResolveEquipmentWrites_Talisman5AlwaysWarnsWhenPopulated(t *testing.T) {
+	items := []editor.EditableItem{
+		{BaseItemID: 0x200003E9, ItemID: 0x200003E9, OriginalHandle: 0xA0000045, IsTalisman: true},
+	}
+	sec := &templates.EquipmentSection{
+		Talisman5: &templates.EquipmentItemRef{BaseItemID: 0x200003E9},
+	}
+	sel := &templates.SectionSelection{All: true}
+	// Even at max pouch (activeTalismanSlots = 4), talisman5 still warns.
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if len(writes) != 0 {
+		t.Errorf("talisman5 should never write a non-empty ref, got %+v", writes)
+	}
+	if len(warnings) != 1 || warnings[0].Code != templates.IssueCodeTalismanSlotPouchInsufficient {
+		t.Errorf("expected single pouch warning for talisman5, got %v", warnings)
+	}
+}
+
+func TestResolveEquipmentWrites_Talisman5ClearAllowed(t *testing.T) {
+	sec := &templates.EquipmentSection{
+		Talisman5: &templates.EquipmentItemRef{BaseItemID: 0}, // explicit clear
+	}
+	sel := &templates.SectionSelection{All: true}
+	writes, warnings, err := resolveEquipmentWritesFromItems(nil, sel, sec, 4)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("talisman5 explicit clear should not warn, got %v", warnings)
+	}
+	if len(writes) != 1 || writes[0].Slot != core.EquipSlotTalisman5 || writes[0].Handle != 0 {
+		t.Errorf("expected single clear write for talisman5, got %+v", writes)
+	}
+}
+
+func TestResolveEquipmentWrites_TalismanClearBeyondPouchAllowed(t *testing.T) {
+	// Even when pouch is small (activeTalismanSlots=1), an explicit clear
+	// for talisman4 should still emit a write — clearing a slot that is
+	// already unreachable is a safe no-op the writer will accept.
+	sec := &templates.EquipmentSection{
+		Talisman4: &templates.EquipmentItemRef{BaseItemID: 0},
+	}
+	sel := &templates.SectionSelection{All: true}
+	writes, warnings, err := resolveEquipmentWritesFromItems(nil, sel, sec, 1)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("clear-only should not warn, got %v", warnings)
+	}
+	if len(writes) != 1 || writes[0].Slot != core.EquipSlotTalisman4 || writes[0].Handle != 0 {
+		t.Errorf("expected single clear write for talisman4, got %+v", writes)
+	}
+}
+
+func TestResolveEquipmentWrites_TalismanMissingItemPouchOK(t *testing.T) {
+	// Item missing from inventory but slot is within pouch capacity:
+	// only equipment_item_not_in_inventory should fire, NOT a pouch
+	// warning.
+	sec := &templates.EquipmentSection{
+		Talisman1: &templates.EquipmentItemRef{BaseItemID: 0xDEADBEEF},
+	}
+	sel := &templates.SectionSelection{All: true}
+	writes, warnings, err := resolveEquipmentWritesFromItems(nil, sel, sec, 4)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if len(writes) != 0 {
+		t.Errorf("expected zero writes, got %+v", writes)
+	}
+	if len(warnings) != 1 || warnings[0].Code != templates.IssueCodeEquipmentItemNotInInventory {
+		t.Errorf("expected equipment_item_not_in_inventory, got %v", warnings)
+	}
+}
+
+// ─── computeActiveTalismanSlots tests ───
+
+func TestComputeActiveTalismanSlots_UsesSlotValueWhenNoProfile(t *testing.T) {
+	slot := &core.SaveSlot{}
+	slot.Player.TalismanSlots = 2
+	tpl := &templates.BuildTemplate{
+		Selection: &templates.TemplateSelection{Equipment: &templates.SectionSelection{All: true}},
+	}
+	got := computeActiveTalismanSlots(slot, tpl)
+	if got != 3 {
+		t.Errorf("expected 1 + 2 = 3, got %d", got)
+	}
+}
+
+func TestComputeActiveTalismanSlots_TemplateOverridesSlot(t *testing.T) {
+	slot := &core.SaveSlot{}
+	slot.Player.TalismanSlots = 0
+	bump := uint8(3)
+	tpl := &templates.BuildTemplate{
+		Selection: &templates.TemplateSelection{
+			Profile:   &templates.SectionSelection{All: true},
+			Equipment: &templates.SectionSelection{All: true},
+		},
+		Sections: templates.TemplateSections{
+			Profile: &templates.ProfileSection{TalismanSlots: &bump},
+		},
+	}
+	got := computeActiveTalismanSlots(slot, tpl)
+	if got != 4 {
+		t.Errorf("expected 1 + 3 = 4, got %d", got)
+	}
+}
+
+func TestComputeActiveTalismanSlots_TemplateProfileNotSelectedIgnored(t *testing.T) {
+	slot := &core.SaveSlot{}
+	slot.Player.TalismanSlots = 1
+	bump := uint8(3)
+	tpl := &templates.BuildTemplate{
+		// Profile section present but selection.profile not set →
+		// template value must be ignored.
+		Selection: &templates.TemplateSelection{Equipment: &templates.SectionSelection{All: true}},
+		Sections:  templates.TemplateSections{Profile: &templates.ProfileSection{TalismanSlots: &bump}},
+	}
+	got := computeActiveTalismanSlots(slot, tpl)
+	if got != 2 {
+		t.Errorf("expected 1 + 1 = 2 (slot wins), got %d", got)
+	}
+}
+
+func TestComputeActiveTalismanSlots_ClampsSlotValue(t *testing.T) {
+	slot := &core.SaveSlot{}
+	slot.Player.TalismanSlots = 7 // garbage; should clamp to 3.
+	tpl := &templates.BuildTemplate{}
+	got := computeActiveTalismanSlots(slot, tpl)
+	if got != 4 {
+		t.Errorf("expected clamp to 1 + 3 = 4, got %d", got)
+	}
+}
+
+// ─── resolver + writer integration (bypasses BuildSnapshot) ────────────
+//
+// These tests wire resolveEquipmentWritesFromItems directly into
+// SaveSlot.WriteEquipment to exercise the full talisman write path —
+// resolver → batch → ChrAsmEquipment bytes → hash 8 — without standing
+// up the full BuildSnapshot / Inventory parsing pipeline. They mirror
+// what ApplyBuildTemplateV2ToCharacterJSON does at the talisman-touching
+// step (see app_templates_v2_apply.go: resolveEquipmentWrites +
+// WriteEquipment) so a future regression in either layer surfaces here.
+
+// makeTalismanWriteSlot builds a minimal SaveSlot with empty
+// ChrAsmEquipment, sized large enough to hold the hash block. Mirrors
+// the backend/core/equipment_writer_test.go fixture but local so the
+// main package test compiles without importing a sibling _test file.
+func makeTalismanWriteSlot() *core.SaveSlot {
+	data := make([]byte, core.SlotSize)
+	equipOff := 0x10000
+	for i := 0; i < core.ChrAsmFieldCount; i++ {
+		binary.LittleEndian.PutUint32(data[equipOff+i*4:], 0xFFFFFFFF)
+	}
+	return &core.SaveSlot{
+		Data:               data,
+		EquipItemsIDOffset: equipOff,
+		GaMap:              map[uint32]uint32{},
+	}
+}
+
+func talismanReadSlot(s *core.SaveSlot, idx int) uint32 {
+	return binary.LittleEndian.Uint32(s.Data[s.EquipItemsIDOffset+idx*4:])
+}
+
+func TestTalismanResolveAndWrite_HappyPath4Slots(t *testing.T) {
+	slot := makeTalismanWriteSlot()
+	// Synthetic talisman editable items with handle prefix 0xA0 and itemID
+	// prefix 0x20 — same encoding the runtime produces from GaMap.
+	slot.GaMap[0xA0000041] = 0x20100001
+	slot.GaMap[0xA0000042] = 0x20100002
+	slot.GaMap[0xA0000043] = 0x20100003
+	slot.GaMap[0xA0000044] = 0x20100004
+	items := []editor.EditableItem{
+		{BaseItemID: 0x20100001, ItemID: 0x20100001, OriginalHandle: 0xA0000041, IsTalisman: true},
+		{BaseItemID: 0x20100002, ItemID: 0x20100002, OriginalHandle: 0xA0000042, IsTalisman: true},
+		{BaseItemID: 0x20100003, ItemID: 0x20100003, OriginalHandle: 0xA0000043, IsTalisman: true},
+		{BaseItemID: 0x20100004, ItemID: 0x20100004, OriginalHandle: 0xA0000044, IsTalisman: true},
+	}
+	sec := &templates.EquipmentSection{
+		Talisman1: &templates.EquipmentItemRef{BaseItemID: 0x20100001},
+		Talisman2: &templates.EquipmentItemRef{BaseItemID: 0x20100002},
+		Talisman3: &templates.EquipmentItemRef{BaseItemID: 0x20100003},
+		Talisman4: &templates.EquipmentItemRef{BaseItemID: 0x20100004},
+	}
+	sel := &templates.SectionSelection{All: true}
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 4)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings, got %v", warnings)
+	}
+	if len(writes) != 4 {
+		t.Fatalf("expected 4 writes, got %d", len(writes))
+	}
+	if err := slot.WriteEquipment(writes); err != nil {
+		t.Fatalf("WriteEquipment: %v", err)
+	}
+	if talismanReadSlot(slot, 17) != 0x20100001 || talismanReadSlot(slot, 18) != 0x20100002 ||
+		talismanReadSlot(slot, 19) != 0x20100003 || talismanReadSlot(slot, 20) != 0x20100004 {
+		t.Errorf("talisman bytes mismatch after write: %08X %08X %08X %08X",
+			talismanReadSlot(slot, 17), talismanReadSlot(slot, 18), talismanReadSlot(slot, 19), talismanReadSlot(slot, 20))
+	}
+}
+
+func TestTalismanResolveAndWrite_PouchInsufficientSkipsSlots(t *testing.T) {
+	slot := makeTalismanWriteSlot()
+	slot.GaMap[0xA0000041] = 0x20100001
+	slot.GaMap[0xA0000042] = 0x20100002
+	slot.GaMap[0xA0000043] = 0x20100003
+	slot.GaMap[0xA0000044] = 0x20100004
+	items := []editor.EditableItem{
+		{BaseItemID: 0x20100001, ItemID: 0x20100001, OriginalHandle: 0xA0000041, IsTalisman: true},
+		{BaseItemID: 0x20100002, ItemID: 0x20100002, OriginalHandle: 0xA0000042, IsTalisman: true},
+		{BaseItemID: 0x20100003, ItemID: 0x20100003, OriginalHandle: 0xA0000043, IsTalisman: true},
+		{BaseItemID: 0x20100004, ItemID: 0x20100004, OriginalHandle: 0xA0000044, IsTalisman: true},
+	}
+	sec := &templates.EquipmentSection{
+		Talisman1: &templates.EquipmentItemRef{BaseItemID: 0x20100001},
+		Talisman2: &templates.EquipmentItemRef{BaseItemID: 0x20100002},
+		Talisman3: &templates.EquipmentItemRef{BaseItemID: 0x20100003},
+		Talisman4: &templates.EquipmentItemRef{BaseItemID: 0x20100004},
+	}
+	sel := &templates.SectionSelection{All: true}
+	// activeTalismanSlots = 1 simulates TalismanSlots=0 (1 active slot only).
+	writes, warnings, err := resolveEquipmentWritesFromItems(items, sel, sec, 1)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if len(writes) != 1 {
+		t.Fatalf("expected only talisman1 write, got %d", len(writes))
+	}
+	pouch := 0
+	for _, w := range warnings {
+		if w.Code == templates.IssueCodeTalismanSlotPouchInsufficient {
+			pouch++
+		}
+	}
+	if pouch != 3 {
+		t.Errorf("expected 3 pouch warnings, got %d (%v)", pouch, warnings)
+	}
+	if err := slot.WriteEquipment(writes); err != nil {
+		t.Fatalf("WriteEquipment: %v", err)
+	}
+	if talismanReadSlot(slot, 17) != 0x20100001 {
+		t.Errorf("talisman1 not written: %08X", talismanReadSlot(slot, 17))
+	}
+	for _, idx := range []int{18, 19, 20} {
+		if talismanReadSlot(slot, idx) != 0xFFFFFFFF {
+			t.Errorf("slot %d should remain empty (resolver skipped), got %08X", idx, talismanReadSlot(slot, idx))
+		}
+	}
+}
+
+func TestTalismanResolveAndWrite_Talisman5AlwaysWarnsButClearWorks(t *testing.T) {
+	slot := makeTalismanWriteSlot()
+	// Pre-seed slot 21 with a non-empty talisman so we can confirm explicit clear.
+	binary.LittleEndian.PutUint32(slot.Data[slot.EquipItemsIDOffset+21*4:], 0x20100099)
+
+	sec := &templates.EquipmentSection{
+		Talisman5: &templates.EquipmentItemRef{BaseItemID: 0}, // explicit clear
+	}
+	sel := &templates.SectionSelection{All: true}
+	writes, warnings, err := resolveEquipmentWritesFromItems(nil, sel, sec, 4)
+	if err != nil {
+		t.Fatalf("resolver: %v", err)
+	}
+	if len(warnings) != 0 {
+		t.Errorf("clear-only talisman5 should not warn, got %v", warnings)
+	}
+	if len(writes) != 1 || writes[0].Slot != core.EquipSlotTalisman5 {
+		t.Fatalf("expected single clear write for talisman5, got %+v", writes)
+	}
+	if err := slot.WriteEquipment(writes); err != nil {
+		t.Fatalf("WriteEquipment: %v", err)
+	}
+	if talismanReadSlot(slot, 21) != 0xFFFFFFFF {
+		t.Errorf("talisman5 not cleared: %08X", talismanReadSlot(slot, 21))
+	}
 }
