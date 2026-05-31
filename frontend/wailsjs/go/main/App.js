@@ -358,6 +358,10 @@ export function PreviewBuildTemplateImportYAMLFromFile() {
   return window['go']['main']['App']['PreviewBuildTemplateImportYAMLFromFile']();
 }
 
+export function PreviewBuildTemplateImportYAMLFromURL(arg1) {
+  return window['go']['main']['App']['PreviewBuildTemplateImportYAMLFromURL'](arg1);
+}
+
 export function PreviewBuildTemplateV2FromCharacter(arg1, arg2, arg3) {
   return window['go']['main']['App']['PreviewBuildTemplateV2FromCharacter'](arg1, arg2, arg3);
 }

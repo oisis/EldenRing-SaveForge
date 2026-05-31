@@ -12,6 +12,7 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     ExportLibraryBuildTemplateToFile: vi.fn(),
     ExportLibraryBuildTemplateAsYAMLToFile: vi.fn(),
     PreviewBuildTemplateImportYAMLFromFile: vi.fn(),
+    PreviewBuildTemplateImportYAMLFromURL: vi.fn(),
     SaveImportedBuildTemplateJSONToLibrary: vi.fn(),
     PreviewBuildTemplateV2FromCharacter: vi.fn(),
     SaveBuildTemplateV2FromCharacterToLibrary: vi.fn(),
@@ -145,12 +146,15 @@ describe('TemplatesShellModal — baseline (Phase 1 invariants)', () => {
         expect(screen.queryByTestId('import-preview-save-to-library')).not.toBeInTheDocument();
     });
 
-    it('does not render Create, URL import, or placeholder copy for future phases', async () => {
+    it('does not render coming-soon copy or placeholder text for future phases', async () => {
+        // Phase 9 (Import from URL…) is now shipped, so the URL button is
+        // expected. The remaining invariant is that the shell carries no
+        // "coming soon" copy and the v1 "Create from current workspace…"
+        // placeholder is gone.
         render(<TemplatesShellModal onClose={vi.fn()} />);
         await screen.findAllByTestId('library-entry');
         expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument();
         expect(screen.queryByText(/Create from current/i)).not.toBeInTheDocument();
-        expect(screen.queryByText(/URL/i)).not.toBeInTheDocument();
     });
 });
 
@@ -1388,5 +1392,279 @@ describe('TemplatesShellModal — Phase 6 Apply with overrides', () => {
         });
         const infoCall = toastFn.mock.calls.find(args => /class/i.test(String(args[0])));
         expect(infoCall).toBeTruthy();
+    });
+});
+
+describe('TemplatesShellModal — Phase 9 URL import', () => {
+    const phase9V2CanonicalJSON = JSON.stringify({
+        schema: 'saveforge.build-template',
+        version: 2,
+        selection: { profile: { level: true }, stats: { vigor: true } },
+        sections: { profile: { level: 50 }, stats: { vigor: 25 } },
+    });
+
+    function v2OKURLPreview(overrides: Partial<Record<string, unknown>> = {}) {
+        return {
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0,
+                    storageItems: 0,
+                    weapons: 0,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections: ['profile', 'stats'],
+                    profileFieldsPresent: ['level'],
+                    statFieldsPresent: ['vigor'],
+                },
+            },
+            json: phase9V2CanonicalJSON,
+            path: 'https://example.com/build.yaml',
+            ...overrides,
+        };
+    }
+
+    it('Import from URL button is visible in the shell header and clicking opens the URL modal', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        const btn = screen.getByTestId('templates-shell-import-url');
+        expect(btn).toBeInTheDocument();
+        fireEvent.click(btn);
+        expect(await screen.findByTestId('import-url-modal')).toBeInTheDocument();
+    });
+
+    it('successful URL preview calls the binding with the URL and opens the ImportTemplatePreviewModal with the URL as path', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromURL.mockResolvedValue(v2OKURLPreview());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        fireEvent.click(screen.getByTestId('templates-shell-import-url'));
+        await screen.findByTestId('import-url-modal');
+        fireEvent.change(screen.getByTestId('import-url-input'), {
+            target: { value: 'https://example.com/build.yaml' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-url-preview'));
+        });
+        await waitFor(() => {
+            expect(mocks.PreviewBuildTemplateImportYAMLFromURL).toHaveBeenCalledTimes(1);
+        });
+        expect(mocks.PreviewBuildTemplateImportYAMLFromURL.mock.calls[0][0]).toBe(
+            'https://example.com/build.yaml',
+        );
+        // URL modal closed, ImportTemplatePreviewModal opened with URL.
+        await waitFor(() => {
+            expect(screen.queryByTestId('import-url-modal')).not.toBeInTheDocument();
+        });
+        expect(await screen.findByTestId('import-preview-modal')).toBeInTheDocument();
+    });
+
+    it('Save to Library from URL preview forwards the canonical JSON', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromURL.mockResolvedValue(v2OKURLPreview());
+        mocks.SaveImportedBuildTemplateJSONToLibrary.mockResolvedValue({
+            id: 'tpl-url',
+            name: 'URL imported',
+        });
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        fireEvent.click(screen.getByTestId('templates-shell-import-url'));
+        await screen.findByTestId('import-url-modal');
+        fireEvent.change(screen.getByTestId('import-url-input'), {
+            target: { value: 'https://example.com/build.yaml' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-url-preview'));
+        });
+        await screen.findByTestId('import-preview-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-save-to-library'));
+        });
+        await waitFor(() => {
+            expect(mocks.SaveImportedBuildTemplateJSONToLibrary).toHaveBeenCalledTimes(1);
+        });
+        expect(mocks.SaveImportedBuildTemplateJSONToLibrary.mock.calls[0][0]).toBe(
+            phase9V2CanonicalJSON,
+        );
+    });
+
+    it('Apply to character from URL preview forwards the canonical JSON to ApplyBuildTemplateV2ToCharacterJSON', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromURL.mockResolvedValue(v2OKURLPreview());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue({
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 1,
+            appliedFields: ['profile.level'],
+            skippedFields: [],
+        });
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        fireEvent.click(screen.getByTestId('templates-shell-import-url'));
+        await screen.findByTestId('import-url-modal');
+        fireEvent.change(screen.getByTestId('import-url-input'), {
+            target: { value: 'https://example.com/build.yaml' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-url-preview'));
+        });
+        await screen.findByTestId('import-preview-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply-v2'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0];
+        expect(call[0]).toBe(1);
+        expect(call[1]).toBe(phase9V2CanonicalJSON);
+        expect((call[2] as { mode: string }).mode).toBe('append');
+    });
+
+    it('Apply with overrides from URL preview opens the overrides modal seeded with the URL canonical JSON', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromURL.mockResolvedValue(v2OKURLPreview());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue({
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 1,
+            appliedFields: ['profile.level', 'stats.vigor'],
+            skippedFields: [],
+        });
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        fireEvent.click(screen.getByTestId('templates-shell-import-url'));
+        await screen.findByTestId('import-url-modal');
+        fireEvent.change(screen.getByTestId('import-url-input'), {
+            target: { value: 'https://example.com/build.yaml' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-url-preview'));
+        });
+        await screen.findByTestId('import-preview-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply-v2-overrides'));
+        });
+        const overrides = await screen.findByTestId('apply-overrides-modal');
+        expect(overrides).toBeInTheDocument();
+        expect(screen.getByTestId('apply-overrides-stats-input-vigor')).toHaveValue('25');
+        fireEvent.change(screen.getByTestId('apply-overrides-stats-input-vigor'), {
+            target: { value: '40' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const parsed = JSON.parse(mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0][1] as string);
+        expect(parsed.sections.stats.vigor).toBe(40);
+        expect(parsed.selection.stats.vigor).toBe(true);
+    });
+
+    it('v1 URL preview does not render the v2 Apply/overrides buttons', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromURL.mockResolvedValue({
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 2,
+                    storageItems: 0,
+                    weapons: 1,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 1,
+                    selectedSections: ['inventory.workspace'],
+                },
+            },
+            json: '{"schema":"saveforge.build-template","version":1}',
+            path: 'https://example.com/v1.yaml',
+        });
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        fireEvent.click(screen.getByTestId('templates-shell-import-url'));
+        await screen.findByTestId('import-url-modal');
+        fireEvent.change(screen.getByTestId('import-url-input'), {
+            target: { value: 'https://example.com/v1.yaml' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-url-preview'));
+        });
+        await screen.findByTestId('import-preview-modal');
+        expect(screen.queryByTestId('import-preview-apply-v2')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-apply-v2-overrides')).not.toBeInTheDocument();
+        // Save to Library remains available for v1.
+        expect(screen.getByTestId('import-preview-save-to-library')).toBeEnabled();
+    });
+
+    it('URL fetch returning report.ok=false keeps the URL modal open with inline error and does NOT open the preview modal', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromURL.mockResolvedValue({
+            report: {
+                ok: false,
+                errors: [
+                    {
+                        severity: 'error',
+                        code: 'url_forbidden_ip',
+                        message: 'Resolved IP 127.0.0.1 is not allowed.',
+                    },
+                ],
+                warnings: [],
+                summary: {},
+            },
+            json: '',
+            path: 'https://localhost/x',
+        });
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        fireEvent.click(screen.getByTestId('templates-shell-import-url'));
+        await screen.findByTestId('import-url-modal');
+        fireEvent.change(screen.getByTestId('import-url-input'), {
+            target: { value: 'https://localhost/x' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-url-preview'));
+        });
+        // URL modal stays open with inline error.
+        expect(screen.getByTestId('import-url-modal')).toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.getByTestId('import-url-error')).toHaveTextContent(/127\.0\.0\.1/);
+        });
+        // Import preview modal NOT opened.
+        expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
+    });
+
+    it('thrown binding error leaves the URL modal open with the thrown message', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromURL.mockRejectedValue(new Error('rpc broken'));
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        fireEvent.click(screen.getByTestId('templates-shell-import-url'));
+        await screen.findByTestId('import-url-modal');
+        fireEvent.change(screen.getByTestId('import-url-input'), {
+            target: { value: 'https://example.com/x' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-url-preview'));
+        });
+        expect(screen.getByTestId('import-url-modal')).toBeInTheDocument();
+        await waitFor(() => {
+            expect(screen.getByTestId('import-url-error')).toHaveTextContent(/rpc broken/);
+        });
+        expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
+    });
+
+    it('Cancel on the URL modal closes it without calling the binding', async () => {
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        fireEvent.click(screen.getByTestId('templates-shell-import-url'));
+        await screen.findByTestId('import-url-modal');
+        fireEvent.click(screen.getByTestId('import-url-cancel'));
+        await waitFor(() => {
+            expect(screen.queryByTestId('import-url-modal')).not.toBeInTheDocument();
+        });
+        expect(mocks.PreviewBuildTemplateImportYAMLFromURL).not.toHaveBeenCalled();
     });
 });

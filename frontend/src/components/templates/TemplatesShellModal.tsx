@@ -6,6 +6,7 @@ import {
     ExportLibraryBuildTemplateAsYAMLToFile,
     PreviewBuildTemplateFromLibrary,
     PreviewBuildTemplateImportYAMLFromFile,
+    PreviewBuildTemplateImportYAMLFromURL,
     SaveImportedBuildTemplateJSONToLibrary,
 } from '../../../wailsjs/go/main/App';
 import { main, templates } from '../../../wailsjs/go/models';
@@ -13,6 +14,7 @@ import { TemplateLibraryModal } from './TemplateLibraryModal';
 import { ImportTemplatePreviewModal, isCancelledPreview } from './ImportTemplatePreviewModal';
 import { CreateTemplateV2Modal } from './CreateTemplateV2Modal';
 import { ApplyOverridesModal } from './ApplyOverridesPanel';
+import { ImportTemplateFromURLModal } from './ImportTemplateFromURLModal';
 
 // TemplatesShellModal is the global, sidebar-mounted Templates surface.
 // Phase 1 scope: library-only. Apply / Create-from-current-workspace
@@ -78,6 +80,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
     const [savingToLibrary, setSavingToLibrary] = useState(false);
     const [applyingV2FromImport, setApplyingV2FromImport] = useState(false);
     const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
+    const [urlImportOpen, setURLImportOpen] = useState(false);
     // Phase 6 — apply-with-overrides shared state. A single modal handles
     // both the direct-import and the library entry-points; the source
     // discriminator decides which parent state to close + which label to
@@ -104,6 +107,40 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             // real success.
             if (result?.path) {
                 toast.success(`Template "${entry.name || entry.id}" exported as YAML to ${result.path}`);
+            }
+        },
+        [],
+    );
+
+    // Phase 9 — URL import. The modal owns input + in-flight state +
+    // inline error rendering; the shell owns the Wails call and the
+    // downstream importedPreview state. On success we close the URL
+    // modal and let the existing ImportTemplatePreviewModal take over,
+    // identically to the file-import path. On guard rejection the
+    // backend returns a LoadedTemplatePreview with Report.OK=false and
+    // a single error — we surface it back to the URL modal so the user
+    // can fix and retry without losing their URL.
+    const onURLImportPreview = useCallback(
+        async (rawURL: string): Promise<{ ok: true } | { ok: false; error: string }> => {
+            try {
+                const bundle = await PreviewBuildTemplateImportYAMLFromURL(rawURL);
+                if (!bundle) {
+                    return { ok: false, error: 'Empty response from backend.' };
+                }
+                const reportOK = bundle.report?.ok === true;
+                if (!reportOK) {
+                    const firstErr = bundle.report?.errors?.[0]?.message ?? 'URL import was rejected.';
+                    return { ok: false, error: firstErr };
+                }
+                setImportedPreview({
+                    report: bundle.report,
+                    canonicalJSON: bundle.json ?? '',
+                    path: bundle.path ?? rawURL,
+                });
+                setURLImportOpen(false);
+                return { ok: true };
+            } catch (err) {
+                return { ok: false, error: String(err) };
             }
         },
         [],
@@ -408,6 +445,15 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                         >
                             {importing ? 'Opening…' : 'Import YAML from File…'}
                         </button>
+                        <button
+                            type="button"
+                            data-testid="templates-shell-import-url"
+                            onClick={() => setURLImportOpen(true)}
+                            title="Fetch a public Build Template YAML from an https:// URL under strict SSRF guards."
+                            className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all"
+                        >
+                            Import from URL…
+                        </button>
                     </>
                 }
             />
@@ -437,6 +483,12 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                     onCancel={handleCancelOverrides}
                     onConfirm={handleConfirmOverrides}
                     applying={applyingV2WithOverrides}
+                />
+            )}
+            {urlImportOpen && (
+                <ImportTemplateFromURLModal
+                    onPreview={onURLImportPreview}
+                    onCancel={() => setURLImportOpen(false)}
                 />
             )}
             {createTemplateOpen && saveLoaded && charIndex !== undefined && (

@@ -186,6 +186,8 @@ export function PreviewBuildTemplateImportJSON(arg1:string):Promise<templates.Im
 
 export function PreviewBuildTemplateImportYAMLFromFile():Promise<main.LoadedTemplatePreview>;
 
+export function PreviewBuildTemplateImportYAMLFromURL(arg1:string):Promise<main.LoadedTemplatePreview>;
+
 export function PreviewBuildTemplateV2FromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<main.LoadedTemplatePreview>;
 
 export function RebuildBuildTemplateLibraryIndex():Promise<Array<templates.LibraryTemplateEntry>>;
