@@ -186,21 +186,37 @@ type StatsSection struct {
 	Arcane       *uint32 `json:"arcane,omitempty" yaml:"arcane,omitempty"`
 }
 
-// EquipmentSection carries the 14 equipped slots covered by the Phase
-// 7b.0 writer foundation: weapon slots 0–5 (left / right hand armaments
-// 1..3), ammo slots 6–9 (Arrows1/2, Bolts1/2) and armor slots 12–15
-// (Head, Chest, Arms, Legs). Each pointer is optional — nil means
-// "slot not selected, no-op on apply". To explicitly clear an equipped
-// slot at apply time the producer emits an EquipmentItemRef with
-// BaseItemID == 0; the resolver then sends Handle == 0 to
-// SaveSlot.WriteEquipment which writes 0xFFFFFFFF (empty marker) to the
+// EquipmentSection carries the equipped slots inside ChrAsmEquipment that
+// the writer foundation supports. Phase 7b.1 covered the 14 weapon / ammo /
+// armor slots. Phase 7c extends the section with the 5 talisman slots
+// (indices 17–21, hash 8) — they live in the same ChrAsmEquipment struct
+// and reuse the same resolver/preview infrastructure, so they ship as more
+// EquipmentSection fields rather than as a separate sections.equippedTalismans
+// section (see Phase 7c preflight decision).
+//
+// Each pointer is optional — nil means "slot not selected, no-op on apply".
+// To explicitly clear an equipped slot at apply time the producer emits an
+// EquipmentItemRef with BaseItemID == 0; the resolver then sends Handle == 0
+// to SaveSlot.WriteEquipment which writes 0xFFFFFFFF (empty marker) to the
 // underlying byte slot.
 //
-// Out of scope of Phase 7b.1 (Phase 7b.0 writer coverage matches):
+// Talisman semantics (Phase 7c):
+//   - Vanilla Elden Ring caps the Talisman Pouch at 1 base slot + 3 upgrades
+//     = 4 active slots. Slot 5 (index 21) exists in the binary but is never
+//     reachable via in-game gameplay; the resolver therefore warns + skips
+//     any non-empty talisman5 ref. Clear (baseItemID = 0) is always allowed.
+//   - Talisman refs use baseItemID + name only. Upgrade / infusionName /
+//     aowItemID exist on EquipmentItemRef but talismans never carry them;
+//     the resolver ignores those fields for talisman slot lookups.
+//   - Active slot count = 1 + profile.talismanSlots. Refs targeting slots
+//     beyond the active count emit talisman_slot_pouch_insufficient warning
+//     and are skipped. Mixed templates that also set profile.talismanSlots
+//     evaluate pouch state AFTER profile apply so they can lift the cap.
+//
+// Out of scope of Phase 7c:
 //   - EquippedGreatRune (slot 10, written by SyncPlayerToData via
 //     ProfileSection's future Great Rune field — never via WriteEquipment)
 //   - unk0x2C / unk0x40 (slots 11, 16 — unknown semantics)
-//   - Talismans 17–21 (Phase 7c)
 //   - EquippedSpells 14-slot loadout (Phase 7d)
 //   - Quick items / pouch slots (no current write API)
 type EquipmentSection struct {
@@ -218,6 +234,11 @@ type EquipmentSection struct {
 	ArmorChest       *EquipmentItemRef `json:"armorChest,omitempty" yaml:"armorChest,omitempty"`
 	ArmorArms        *EquipmentItemRef `json:"armorArms,omitempty" yaml:"armorArms,omitempty"`
 	ArmorLegs        *EquipmentItemRef `json:"armorLegs,omitempty" yaml:"armorLegs,omitempty"`
+	Talisman1        *EquipmentItemRef `json:"talisman1,omitempty" yaml:"talisman1,omitempty"`
+	Talisman2        *EquipmentItemRef `json:"talisman2,omitempty" yaml:"talisman2,omitempty"`
+	Talisman3        *EquipmentItemRef `json:"talisman3,omitempty" yaml:"talisman3,omitempty"`
+	Talisman4        *EquipmentItemRef `json:"talisman4,omitempty" yaml:"talisman4,omitempty"`
+	Talisman5        *EquipmentItemRef `json:"talisman5,omitempty" yaml:"talisman5,omitempty"`
 }
 
 // EquipmentItemRef points at one inventory item the apply path should
@@ -404,10 +425,11 @@ var statsSelectionFields = map[string]bool{
 	"arcane":       true,
 }
 
-// equipmentSelectionFields enumerates the 14 legal slot keys for the
-// Phase 7b.1 equipment section. Mirrors the JSON field names of
-// EquipmentSection. Talisman / spell / great rune / unknown slots are
-// intentionally absent — they have no Phase 7b.0 writer entry point.
+// equipmentSelectionFields enumerates the legal slot keys for the
+// equipment section. Mirrors the JSON field names of EquipmentSection.
+// Phase 7b.1 shipped the 14 weapon/ammo/armor slots; Phase 7c extends
+// the set with the 5 talisman slots. Spell / great rune / unknown slots
+// remain intentionally absent — they have no current writer entry point.
 var equipmentSelectionFields = map[string]bool{
 	"weaponLeftHand1":  true,
 	"weaponRightHand1": true,
@@ -423,14 +445,19 @@ var equipmentSelectionFields = map[string]bool{
 	"armorChest":       true,
 	"armorArms":        true,
 	"armorLegs":        true,
+	"talisman1":        true,
+	"talisman2":        true,
+	"talisman3":        true,
+	"talisman4":        true,
+	"talisman5":        true,
 }
 
-// EquipmentSlotOrder is the canonical iteration order over the 14
-// supported equipment slot keys. The apply layer's
-// AppliedFields / SkippedFields lists ("equipment.weaponRightHand1") and
-// the export-side enumeration both walk this slice so the on-the-wire
-// order is deterministic and matches the slot index order in
-// core.ChrAsmEquipment (0..9, 12..15).
+// EquipmentSlotOrder is the canonical iteration order over the supported
+// equipment slot keys. The apply layer's AppliedFields / SkippedFields
+// lists ("equipment.weaponRightHand1") and the export-side enumeration
+// both walk this slice so the on-the-wire order is deterministic and
+// matches the slot index order in core.ChrAsmEquipment (0..9, 12..15,
+// 17..21).
 var EquipmentSlotOrder = []string{
 	"weaponLeftHand1",
 	"weaponRightHand1",
@@ -446,6 +473,11 @@ var EquipmentSlotOrder = []string{
 	"armorChest",
 	"armorArms",
 	"armorLegs",
+	"talisman1",
+	"talisman2",
+	"talisman3",
+	"talisman4",
+	"talisman5",
 }
 
 // MaxEquipmentItemUpgrade is the largest upgrade level any equippable
@@ -728,6 +760,16 @@ func equipmentSlotRef(eq *EquipmentSection, slotKey string) *EquipmentItemRef {
 		return eq.ArmorArms
 	case "armorLegs":
 		return eq.ArmorLegs
+	case "talisman1":
+		return eq.Talisman1
+	case "talisman2":
+		return eq.Talisman2
+	case "talisman3":
+		return eq.Talisman3
+	case "talisman4":
+		return eq.Talisman4
+	case "talisman5":
+		return eq.Talisman5
 	}
 	return nil
 }
@@ -778,6 +820,16 @@ func SetEquipmentSlotRef(eq *EquipmentSection, slotKey string, ref *EquipmentIte
 		eq.ArmorArms = ref
 	case "armorLegs":
 		eq.ArmorLegs = ref
+	case "talisman1":
+		eq.Talisman1 = ref
+	case "talisman2":
+		eq.Talisman2 = ref
+	case "talisman3":
+		eq.Talisman3 = ref
+	case "talisman4":
+		eq.Talisman4 = ref
+	case "talisman5":
+		eq.Talisman5 = ref
 	}
 }
 

@@ -96,27 +96,28 @@ func TestEquipmentSelection_All_AcceptsAllSlots(t *testing.T) {
 	}
 }
 
-func TestEquipmentSelection_PerFieldAllowlistAccepts14(t *testing.T) {
+func TestEquipmentSelection_PerFieldAllowlistAcceptsAll(t *testing.T) {
 	fields := map[string]bool{}
 	for _, k := range EquipmentSlotOrder {
 		fields[k] = true
 	}
 	tpl := equipTpl(&EquipmentSection{WeaponRightHand1: &EquipmentItemRef{BaseItemID: 1}}, &SectionSelection{Fields: fields})
 	if err := ValidateBuildTemplate(tpl); err != nil {
-		t.Errorf("per-field selection with all 14 canonical keys should validate: %v", err)
+		t.Errorf("per-field selection with all canonical keys should validate: %v", err)
 	}
-	if len(EquipmentSlotOrder) != 14 {
-		t.Errorf("EquipmentSlotOrder length: expected 14, got %d", len(EquipmentSlotOrder))
+	// Phase 7b.1 shipped 14 slots; Phase 7c extends with 5 talisman slots.
+	if len(EquipmentSlotOrder) != 19 {
+		t.Errorf("EquipmentSlotOrder length: expected 19, got %d", len(EquipmentSlotOrder))
 	}
 }
 
 func TestEquipmentSelection_RejectsUnknownSlotKey(t *testing.T) {
-	tpl := equipTpl(&EquipmentSection{WeaponRightHand1: &EquipmentItemRef{BaseItemID: 1}}, &SectionSelection{Fields: map[string]bool{"talisman1": true}})
+	tpl := equipTpl(&EquipmentSection{WeaponRightHand1: &EquipmentItemRef{BaseItemID: 1}}, &SectionSelection{Fields: map[string]bool{"equippedSpell1": true}})
 	err := ValidateBuildTemplate(tpl)
 	if err == nil {
 		t.Fatal("expected error on unknown selection key, got nil")
 	}
-	if !strings.Contains(err.Error(), "talisman1") {
+	if !strings.Contains(err.Error(), "equippedSpell1") {
 		t.Errorf("error should mention the bad key: %v", err)
 	}
 }
@@ -264,5 +265,174 @@ func TestEquipmentSlotRefHelpers(t *testing.T) {
 	SetEquipmentSlotRef(eq, "fakeSlot", &EquipmentItemRef{BaseItemID: 0xFFFF})
 	if EquipmentSlotRef(eq, "fakeSlot") != nil {
 		t.Error("unknown slot should still return nil")
+	}
+}
+
+// ─── Phase 7c — talisman slot tests ─────────────────────────────────────
+
+func TestEquipmentSection_TalismanJSONRoundTrip(t *testing.T) {
+	in := EquipmentSection{
+		Talisman1: &EquipmentItemRef{BaseItemID: 0x20100001, Name: "Radagon's Soreseal"},
+		Talisman2: &EquipmentItemRef{BaseItemID: 0x20100002},
+		Talisman3: &EquipmentItemRef{BaseItemID: 0}, // explicit clear
+		Talisman4: nil,
+		Talisman5: &EquipmentItemRef{BaseItemID: 0},
+	}
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var out EquipmentSection
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Talisman1 == nil || out.Talisman1.BaseItemID != 0x20100001 {
+		t.Errorf("talisman1 lost: %+v", out.Talisman1)
+	}
+	if out.Talisman1.Name != "Radagon's Soreseal" {
+		t.Errorf("talisman1 name lost: %q", out.Talisman1.Name)
+	}
+	if out.Talisman2 == nil || out.Talisman2.BaseItemID != 0x20100002 {
+		t.Errorf("talisman2 lost: %+v", out.Talisman2)
+	}
+	if out.Talisman3 == nil || out.Talisman3.BaseItemID != 0 {
+		t.Errorf("talisman3 explicit clear lost: %+v", out.Talisman3)
+	}
+	if out.Talisman4 != nil {
+		t.Errorf("talisman4 should stay nil after round-trip")
+	}
+	if out.Talisman5 == nil || out.Talisman5.BaseItemID != 0 {
+		t.Errorf("talisman5 explicit clear lost: %+v", out.Talisman5)
+	}
+}
+
+func TestEquipmentSection_TalismanYAMLRoundTrip(t *testing.T) {
+	in := EquipmentSection{
+		Talisman1: &EquipmentItemRef{BaseItemID: 0x20200005},
+		Talisman4: &EquipmentItemRef{BaseItemID: 0x20200008, Name: "Old Lord's Talisman"},
+	}
+	data, err := yaml.Marshal(in)
+	if err != nil {
+		t.Fatalf("yaml marshal: %v", err)
+	}
+	var out EquipmentSection
+	if err := yaml.Unmarshal(data, &out); err != nil {
+		t.Fatalf("yaml unmarshal: %v", err)
+	}
+	if out.Talisman1 == nil || out.Talisman1.BaseItemID != 0x20200005 {
+		t.Errorf("talisman1 lost: %+v", out.Talisman1)
+	}
+	if out.Talisman4 == nil || out.Talisman4.BaseItemID != 0x20200008 {
+		t.Errorf("talisman4 lost: %+v", out.Talisman4)
+	}
+	if out.Talisman4.Name != "Old Lord's Talisman" {
+		t.Errorf("talisman4 name lost")
+	}
+}
+
+func TestEquipmentSlotOrder_HasTalismansLast(t *testing.T) {
+	want := []string{"talisman1", "talisman2", "talisman3", "talisman4", "talisman5"}
+	got := EquipmentSlotOrder[len(EquipmentSlotOrder)-5:]
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("EquipmentSlotOrder tail mismatch at %d: got %q want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestEquipmentSelection_AcceptsTalismanFields(t *testing.T) {
+	tpl := equipTpl(
+		&EquipmentSection{Talisman1: &EquipmentItemRef{BaseItemID: 0x20100001}},
+		&SectionSelection{Fields: map[string]bool{
+			"talisman1": true,
+			"talisman2": true,
+			"talisman3": true,
+			"talisman4": true,
+			"talisman5": true,
+		}},
+	)
+	if err := ValidateBuildTemplate(tpl); err != nil {
+		t.Errorf("talisman1..5 per-field selection should validate: %v", err)
+	}
+}
+
+func TestEquipmentSection_TalismanExplicitClearAccepted(t *testing.T) {
+	tpl := equipTpl(&EquipmentSection{
+		Talisman1: &EquipmentItemRef{BaseItemID: 0},
+		Talisman5: &EquipmentItemRef{BaseItemID: 0},
+	}, nil)
+	if err := ValidateBuildTemplate(tpl); err != nil {
+		t.Errorf("talisman explicit clear should validate: %v", err)
+	}
+}
+
+func TestEquipmentSection_TalismanSlotRefHelpers(t *testing.T) {
+	eq := &EquipmentSection{}
+	SetEquipmentSlotRef(eq, "talisman3", &EquipmentItemRef{BaseItemID: 0xAB})
+	got := EquipmentSlotRef(eq, "talisman3")
+	if got == nil || got.BaseItemID != 0xAB {
+		t.Errorf("talisman3 set/get mismatch: %+v", got)
+	}
+	SetEquipmentSlotRef(eq, "talisman5", &EquipmentItemRef{BaseItemID: 0})
+	if EquipmentSlotRef(eq, "talisman5") == nil {
+		t.Error("talisman5 explicit clear should round-trip")
+	}
+	if EquipmentSlotRef(eq, "talisman1") != nil {
+		t.Error("talisman1 should remain nil")
+	}
+}
+
+func TestEquipmentSection_TalismanPreviewListsPresentSlots(t *testing.T) {
+	tpl := equipTpl(&EquipmentSection{
+		Talisman1: &EquipmentItemRef{BaseItemID: 0x20100001},
+		Talisman4: &EquipmentItemRef{BaseItemID: 0x20100004},
+	}, nil)
+	rep := PreviewBuildTemplateImport(tpl, ImportPreviewOptions{})
+	want := []string{"talisman1", "talisman4"}
+	if len(rep.Summary.EquipmentSlotsPresent) != len(want) {
+		t.Errorf("expected %d slots present, got %v", len(want), rep.Summary.EquipmentSlotsPresent)
+	}
+	for i, k := range want {
+		if rep.Summary.EquipmentSlotsPresent[i] != k {
+			t.Errorf("slot[%d]: got %q want %q", i, rep.Summary.EquipmentSlotsPresent[i], k)
+		}
+	}
+}
+
+// TestEquipmentSection_TalismanComboGuard verifies the equipment+inventory.workspace
+// hard reject still fires when only talisman slots populate the equipment section.
+func TestEquipmentSection_TalismanComboGuard(t *testing.T) {
+	tpl := &BuildTemplate{
+		Schema:    SchemaKey,
+		Version:   2,
+		CreatedAt: "2026-06-01T00:00:00Z",
+		Selection: &TemplateSelection{
+			Equipment:          &SectionSelection{All: true},
+			InventoryWorkspace: &SectionSelection{All: true},
+		},
+		Sections: TemplateSections{
+			Equipment:          &EquipmentSection{Talisman1: &EquipmentItemRef{BaseItemID: 0x20100001}},
+			InventoryWorkspace: &InventoryWorkspaceSection{InventoryItems: []TemplateItem{}, StorageItems: []TemplateItem{}},
+		},
+	}
+	rep := PreviewBuildTemplateImport(tpl, ImportPreviewOptions{})
+	if rep.OK {
+		t.Fatal("preview should reject equipment(talisman)+inventory.workspace combo, got OK=true")
+	}
+	found := false
+	for _, e := range rep.Errors {
+		if e.Code == IssueCodeEquipmentInventoryComboUnsupported {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected %s error, got %v", IssueCodeEquipmentInventoryComboUnsupported, rep.Errors)
+	}
+}
+
+// TestIssueCodeTalismanSlotPouchInsufficient verifies the stable string.
+func TestIssueCodeTalismanSlotPouchInsufficient(t *testing.T) {
+	if IssueCodeTalismanSlotPouchInsufficient != "talisman_slot_pouch_insufficient" {
+		t.Errorf("unexpected stable string: %q", IssueCodeTalismanSlotPouchInsufficient)
 	}
 }

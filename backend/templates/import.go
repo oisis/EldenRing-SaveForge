@@ -135,6 +135,18 @@ const (
 	IssueCodeEquipmentItemNotInInventory        = "equipment_item_not_in_inventory"
 	IssueCodeEquipmentItemAmbiguous             = "equipment_item_ambiguous"
 	IssueCodeEquipmentSlotInvalid               = "equipment_slot_invalid"
+
+	// talisman_slot_pouch_insufficient is a warning emitted by the apply
+	// resolver when a talisman slot ref targets a slot beyond the active
+	// talisman pouch capacity (active slots = 1 + profile.talismanSlots,
+	// max 4). The slot is skipped, other applied sections still commit.
+	// Slot 5 (index 21) always triggers this warning when populated with a
+	// non-empty ref because vanilla Elden Ring caps the pouch at 4 active
+	// slots; an explicit clear (baseItemID = 0) for talisman5 is allowed
+	// and never warns. Mixed templates that also set profile.talismanSlots
+	// evaluate pouch state AFTER profile apply, so a +3 pouch bump in the
+	// same template lifts the cap before talismans are resolved.
+	IssueCodeTalismanSlotPouchInsufficient = "talisman_slot_pouch_insufficient"
 )
 
 // ashCategory is the DB tag for an Ash of War item. Used to detect
