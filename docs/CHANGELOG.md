@@ -4,6 +4,180 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): apply v2 inventory templates to workspace
+
+Shipped Phase 7a of the Templates v2 design (`spec/56-templates-v2.md`):
+the first real v2 apply path for `inventory.workspace`. Until this phase
+the v2 apply layer only handled `profile` and `stats`; v2 templates that
+also carried `inventory.workspace` were rejected by the
+`app_templates_v2_apply.go` scope guard. Phase 7a lifts that guard for
+`inventory.workspace` only, routing the new payload through the **active
+Inventory Edit Session** so the writes land in the workspace snapshot
+that `SortOrderTab` already operates on — never directly into
+`slot.Data`. The user opens the Sort Order workspace first, applies the
+v2 template (from library, direct YAML import, URL import, or
+`Apply with overrides…`), and then commits the change exactly as today
+via `Save changes`. Equipment, equipped talismans, spell loadout, and
+appearance writers remain future work (Phase 7b / 7c / 7d / 8), and the
+Phase 6b weapon level override is **not** wired into the v2 path in
+this phase — Phase 6b stays a v1 `SortOrderTab.tsx` Templates dropdown
+feature.
+
+- **New backend endpoint** —
+  `App.GetActiveInventoryEditSessionForCharacter(charIdx int) (ActiveInventoryEditSession, error)`
+  on `app_inventory_session.go`. Returns
+  `{ active: bool, sessionID: string }` after a short `editSessionsMu`
+  read so the shell can look up the active session without touching
+  `App.tsx`. Returns `{ active: false }` for invalid `charIdx` and for
+  characters with no active session — never errors.
+- **`ApplyTemplateV2Options` extended** —
+  `app_templates_v2_apply.go::ApplyTemplateV2Options` gains an additive
+  `SessionID string json:"sessionID,omitempty"`. With `SessionID = ""`
+  the apply behaves byte-for-byte like the pre-Phase-7a path for
+  profile/stats-only templates; `sessionID` is silently ignored on the
+  non-inventory path. For a template carrying `inventory.workspace`,
+  `SessionID` is **required** — `ApplyBuildTemplateV2ToCharacterJSON`
+  rejects an empty session with the new
+  `templates.IssueCodeInventorySessionRequired = "inventory_session_required"`
+  and rejects an unknown or wrong-character session with the new
+  `templates.IssueCodeInventorySessionInvalid = "inventory_session_invalid"`.
+  Both codes are surfaced through the existing `ImportPreviewIssue`
+  shape on `ApplyTemplateV2Result.Errors`.
+- **`ApplyTemplateV2Result` extended** — adds
+  `InventoryItemsApplied int`, `StorageItemsApplied int`, and an
+  optional `Workspace *editor.InventoryWorkspaceSnapshot` carrying the
+  fresh workspace snapshot after a successful inventory apply so the
+  UI can refresh the Sort Order view without a second binding round
+  trip.
+- **Apply layer** — `ApplyBuildTemplateV2ToCharacterJSON` now
+  classifies the parsed v2 payload into three flags (`hasProfile`,
+  `hasStats`, `hasInventory`) and gates the work on them:
+  - `hasInventory == true` → acquires the session through the standard
+    `acquireSession(sess.ID)` path (full `lifecycleMu` + `sess.mu`
+    ordering preserved); verifies `sess.CharacterIndex == charIdx` or
+    unlocks and emits `IssueCodeInventorySessionInvalid`; runs capacity
+    preflight on the existing workspace **before** any mutation; takes
+    a `core.SnapshotSlot` of `slot.Data` and a value-type deep copy of
+    `sess.Workspace`; applies inventory and storage items via
+    `applyTemplateItemsToWorkspace(&sess.Workspace, …, editor.ContainerInventory, nil)`
+    and the storage equivalent (the `nil` override pin documents that
+    Phase 6b weapon override is **not** wired into v2 in this phase);
+    marks `sess.Workspace.Dirty = true` and revalidates the snapshot;
+    appends the sentinel section `"inventory.workspace"` to the result's
+    `Applied` list.
+  - `hasProfile || hasStats` runs **after** the inventory branch under
+    the same `slotMu[charIdx]` window, reusing the Phase 5 path
+    (`vm.ApplyVMToParsedSlot` + `slot.SyncPlayerToData`) unchanged.
+  - **Mixed apply** (profile + stats + inventory.workspace in the same
+    v2 template) is atomic: a `rollbackBoth()` closure restores both
+    the slot byte snapshot (`core.RestoreSlot`) and the workspace value
+    snapshot on **every** error exit between acquire and final write.
+    If profile/stats validation fails after inventory writes already
+    landed, both the slot and the workspace revert in a single step.
+  - `hasInventory == false` preserves the Phase 5 edit-session conflict
+    guard exactly as before — a session existing for another open
+    edit operation still blocks profile/stats-only applies.
+- **Frontend — TemplatesShellModal** —
+  `frontend/src/components/templates/TemplatesShellModal.tsx` looks up
+  the active session whenever the user attempts a v2 apply for a
+  template that carries `inventory.workspace`:
+  - `handleApplyV2FromLibrary` reads `entry.selectedSections` and, when
+    `'inventory.workspace'` is in the list, calls
+    `GetActiveInventoryEditSessionForCharacter(charIndex)`. No active
+    session → toast "Open the Sort Order workspace before applying
+    inventory templates." and the binding is **not** called.
+  - `handleApplyV2FromImportedPreview` repeats the same check against
+    `importedPreview.report.summary?.selectedSections` so direct YAML
+    import and URL import behave identically.
+  - `handleConfirmOverrides` parses the mutated canonical JSON,
+    inspects `selection['inventory.workspace']`, and runs the same
+    session check before posting through `ApplyBuildTemplateV2ToCharacterJSON`.
+  - Profile/stats-only v2 applies forward an empty `sessionID` and
+    the backend ignores it — no UI change on that path.
+- **Frontend — section gating** —
+  `frontend/src/components/templates/ImportTemplatePreviewModal.tsx`
+  bumps its module-level `V2_APPLY_SUPPORTED_SECTIONS` to
+  `['profile', 'stats', 'inventory.workspace']`.
+  `frontend/src/components/templates/TemplateLibraryModal.tsx` mirrors
+  the change in its per-row `v2HasApplyableSections` test so v2
+  library entries that only carry `inventory.workspace` (or any
+  combination of the three) finally show the green Apply / overrides
+  buttons instead of the disabled "schema v2 not supported" tooltip.
+- **Frontend bindings** — `frontend/wailsjs/go/main/App.{d.ts,js}` and
+  `frontend/wailsjs/go/models.ts` were regenerated by `make build`'s
+  internal `wails generate module` step. Additions: the
+  `ActiveInventoryEditSession` class + the new
+  `GetActiveInventoryEditSessionForCharacter` method; `sessionID?:
+  string` on `ApplyTemplateV2Options`; `inventoryItemsApplied`,
+  `storageItemsApplied`, optional `workspace?: editor.InventoryWorkspaceSnapshot`
+  on `ApplyTemplateV2Result`. No bindings file was hand-edited.
+- **What is intentionally not changed** — no new v2 schema section
+  (Phase 7a uses the existing `inventory.workspace` section from v1);
+  no equipment writer (Phase 7b remains future); no direct save
+  mutation from the v2 inventory path — all writes land in
+  `sess.Workspace`; no Phase 6b weapon level override on the v2 path
+  (the `nil` override pin in `applyTemplateItemsToWorkspace` is the
+  contract); no `App.tsx` change; no `SortOrderTab.tsx` change; no
+  `ApplyOverridesPanel.tsx` change. `SaveInventoryWorkspaceChanges`
+  remains the only commit point that persists to `slot.Data`.
+- **Tests** — `app_templates_v2_apply_inventory_test.go` (**new**,
+  ~280 lines, 8 tests) covers: unknown session ID rejected with
+  `IssueCodeInventorySessionInvalid`; session for a different
+  character rejected; happy-path inventory apply lands the Dagger
+  fixture at the end of inventory with `InventoryItemsApplied == 1`
+  and `Workspace.Dirty == true`; empty items list with a valid
+  session is a no-op (`Applied == false`); mixed
+  profile+stats+inventory.workspace lands all three sections;
+  `ApplyTemplateV2Options` field surface pinned via a compile-time
+  reflection test; strict-decode of unknown sections still rejects.
+  `app_templates_v2_apply_test.go` updates the existing three
+  "without session" tests to expect the new
+  `IssueCodeInventorySessionRequired` instead of the old
+  "inventory.workspace not supported" tag.
+  `frontend/src/components/templates/__tests__/TemplatesShellModal.test.tsx`
+  gains a `Phase 7a v2 inventory.workspace apply` block with 8
+  cases: library apply for inventory.workspace + no session → toast
+  + binding NOT called; library apply with active session → forwards
+  sessionID; mixed entry → forwards sessionID; profile-only entry →
+  proceeds with `sessionID = ''`; direct YAML apply + no session →
+  error toast; direct YAML apply + session → forwards sessionID;
+  overrides apply on inventory-bearing JSON without session → toast;
+  overrides apply on profile-only JSON proceeds with `sessionID = ''`.
+  `frontend/src/components/templates/__tests__/TemplateLibraryModal.test.tsx`
+  rewrites two cases that previously asserted the Phase 5 "inventory
+  apply not supported" disabled state — they now assert that v2
+  inventory.workspace entries render the Apply / overrides buttons
+  with the standard tooltip.
+  Validation: targeted Phase 7a backend tests all PASS;
+  `TestApplyTemplate_Override*` + `TestValidateWeaponLevelOverride*`
+  Phase 6b regression all PASS; full backend (`go test . ./backend/...
+  ./tests/...`) 8/8 PASS; `go vet` clean; `tsc --noEmit` clean;
+  targeted vitest (TemplatesShellModal 66 PASS, ImportTemplatePreviewModal
+  43 PASS, TemplateLibraryModal 45 PASS); full vitest 16 suites / 336
+  PASS (was 328, +8 Phase 7a tests); `make build` PASS.
+- **Manual validation** — 2026-05-31 on
+  `feature/templates-v2-inventory-workspace-apply` (HEAD `3e448f0`).
+  Confirmed end-to-end on a real save: applying a v2 template with
+  `inventory.workspace` selected without an open Sort Order workspace
+  surfaced the "Open the Sort Order workspace before applying
+  inventory templates." toast and did **not** call the binding;
+  opening the workspace and reapplying landed the items in the
+  workspace grid; `Save changes` committed them to `slot.Data`;
+  reloading the save showed the items with correct acquisition
+  indices and no integrity warnings. A mixed profile + stats +
+  inventory.workspace v2 template applied atomically — profile/stats
+  fields updated and inventory items landed in a single user action.
+  Both URL import and library apply re-used the same canonical JSON
+  path. Phase 5 / 5D.2 / 6 v2 Apply paths for profile/stats-only
+  templates, Phase 6b weapon level override on the v1 SortOrderTab
+  path, and the Phase 9 URL import path were all unaffected.
+- **Out of scope (still future work)** — Phase 6b weapon level
+  override wired into the v2 `inventory.workspace` apply path
+  (Phase 7a.2 / Phase 7b); equipment writer for `ChrAsmEquipment`
+  slots 0..9, 12–15 (Phase 7b); equipped-talismans writer
+  (Phase 7c); spell loadout writer (Phase 7d); appearance via preset
+  (Phase 8); multi-character pack (Phase 10).
+
 ### feat(templates): weapon level override for v1 inventory.workspace templates
 
 Shipped Phase 6b of the Templates v2 design (`spec/56-templates-v2.md`):
