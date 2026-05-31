@@ -15,6 +15,7 @@ import { TemplateLibraryModal } from './TemplateLibraryModal';
 import { ImportTemplatePreviewModal, isCancelledPreview } from './ImportTemplatePreviewModal';
 import { CreateTemplateV2Modal } from './CreateTemplateV2Modal';
 import { ApplyOverridesModal } from './ApplyOverridesPanel';
+import { WeaponOverridePayload } from './WeaponLevelOverridePanel';
 import { ImportTemplateFromURLModal } from './ImportTemplateFromURLModal';
 
 // TemplatesShellModal is the global, sidebar-mounted Templates surface.
@@ -399,7 +400,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
     );
 
     const handleConfirmOverrides = useCallback(
-        async (mutatedJSON: string) => {
+        async (mutatedJSON: string, weaponOverride?: WeaponOverridePayload) => {
             if (!overridesSource) return;
             if (!saveLoaded || charIndex === undefined) return;
             if (applyingV2WithOverrides) return;
@@ -416,12 +417,19 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             }
             setApplyingV2WithOverrides(true);
             try {
+                // Phase 7a.2 — runtime weapon level override travels as
+                // an ApplyTemplateV2Options field, not inside the
+                // canonical JSON. Profile/stats-only templates skip the
+                // weapon panel entirely and weaponOverride is undefined;
+                // the createFrom call passes through omitted fields
+                // unchanged.
                 const result = await ApplyBuildTemplateV2ToCharacterJSON(
                     charIndex,
                     mutatedJSON,
                     main.ApplyTemplateV2Options.createFrom({
                         mode: 'append',
                         sessionID: sessionID ?? '',
+                        weaponLevelOverride: weaponOverride,
                     }),
                 );
                 if (!result.applied) {

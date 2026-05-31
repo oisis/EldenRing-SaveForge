@@ -1,4 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { WeaponLevelOverridePanel, WeaponOverridePayload } from './WeaponLevelOverridePanel';
 
 // ApplyOverridesPanel + ApplyOverridesModal — Phase 6.
 //
@@ -540,7 +541,7 @@ interface ApplyOverridesModalProps {
     sourceLabel: string;
     canonicalJSON: string;
     onCancel: () => void;
-    onConfirm: (mutatedJSON: string) => void | Promise<void>;
+    onConfirm: (mutatedJSON: string, weaponOverride?: WeaponOverridePayload) => void | Promise<void>;
     applying?: boolean;
 }
 
@@ -548,6 +549,14 @@ interface ApplyOverridesModalProps {
 // The shell owns the panel's mutated-JSON state and the apply CTA; the
 // caller wires onConfirm to the actual ApplyBuildTemplateV2ToCharacterJSON
 // invocation.
+//
+// Phase 7a.2 — when the canonical JSON's selection nominates
+// inventory.workspace, the modal also renders WeaponLevelOverridePanel
+// below the profile/stats grid. The weapon override is a runtime apply
+// option (not a JSON-mutable field), so it travels through onConfirm's
+// second argument instead of being baked into the mutated canonical JSON.
+// Profile/stats-only templates leave the weapon panel unrendered and
+// onConfirm receives undefined for that argument.
 export function ApplyOverridesModal({
     sourceLabel,
     canonicalJSON,
@@ -559,6 +568,21 @@ export function ApplyOverridesModal({
     const [mutatedJSON, setMutatedJSON] = useState<string | null>(canonicalJSON);
     const [hasInvalid, setHasInvalid] = useState(false);
     const [errorCount, setErrorCount] = useState(0);
+    const [weaponOverride, setWeaponOverride] = useState<WeaponOverridePayload>(undefined);
+    const [weaponInvalid, setWeaponInvalid] = useState(false);
+
+    const showWeaponOverride = useMemo(() => {
+        const parsed = safeParse(canonicalJSON);
+        const sel = parsed?.selection as Record<string, unknown> | undefined;
+        const inv = sel?.['inventory.workspace'];
+        if (inv === undefined || inv === null) return false;
+        if (typeof inv === 'boolean') return inv;
+        if (typeof inv === 'object' && !Array.isArray(inv)) {
+            const obj = inv as Record<string, unknown>;
+            return obj.all === true || Object.keys(obj).length > 0;
+        }
+        return false;
+    }, [canonicalJSON]);
 
     useEffect(() => {
         dialogRef.current?.focus();
@@ -573,11 +597,19 @@ export function ApplyOverridesModal({
         [],
     );
 
-    const canApply = !applying && !hasInvalid && mutatedJSON !== null;
+    const handleWeaponChange = useCallback(
+        (override: WeaponOverridePayload, invalid: boolean) => {
+            setWeaponOverride(override);
+            setWeaponInvalid(invalid);
+        },
+        [],
+    );
+
+    const canApply = !applying && !hasInvalid && !weaponInvalid && mutatedJSON !== null;
 
     const onApplyClick = () => {
         if (!canApply || mutatedJSON === null) return;
-        void onConfirm(mutatedJSON);
+        void onConfirm(mutatedJSON, weaponOverride);
     };
 
     return (
@@ -608,19 +640,27 @@ export function ApplyOverridesModal({
                     </p>
                 </div>
 
-                <div className="px-4 py-3 overflow-y-auto">
+                <div className="px-4 py-3 overflow-y-auto space-y-4">
                     <ApplyOverridesPanel
                         canonicalJSON={canonicalJSON}
                         onMutatedChange={handleMutated}
                         disabled={applying}
                     />
+                    {showWeaponOverride && (
+                        <WeaponLevelOverridePanel
+                            onChange={handleWeaponChange}
+                            disabled={applying}
+                        />
+                    )}
                 </div>
 
                 <div className="px-4 py-3 border-t border-border/60 flex items-center justify-between gap-2">
                     <div data-testid="apply-overrides-status" className="text-[10px] text-muted-foreground">
                         {hasInvalid
                             ? `${errorCount} field${errorCount === 1 ? '' : 's'} need attention.`
-                            : 'Ready to apply.'}
+                            : weaponInvalid
+                              ? 'Fix weapon level override to apply.'
+                              : 'Ready to apply.'}
                     </div>
                     <div className="flex items-center gap-2">
                         <button

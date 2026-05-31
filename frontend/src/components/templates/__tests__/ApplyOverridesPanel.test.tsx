@@ -373,3 +373,139 @@ describe('ApplyOverridesModal — modal wrapper', () => {
         expect(screen.getByTestId('apply-overrides-cancel')).toBeDisabled();
     });
 });
+
+// Phase 7a.2 — weapon level override panel inside ApplyOverridesModal.
+// Renders only when canonical JSON selects inventory.workspace. The
+// override travels as the second argument of onConfirm — NOT inside the
+// mutated canonical JSON — because it is a runtime apply option, not a
+// JSON-mutable template field.
+
+function inventoryCanonical() {
+    return JSON.stringify({
+        schema: 'saveforge.build-template',
+        version: 2,
+        selection: {
+            profile: { level: true },
+            stats: { vigor: true },
+            'inventory.workspace': { all: true },
+        },
+        sections: {
+            profile: { level: 50 },
+            stats: { vigor: 25 },
+            'inventory.workspace': {
+                inventoryItems: [],
+                storageItems: [],
+            },
+        },
+    });
+}
+
+function inventoryOnlyCanonical() {
+    return JSON.stringify({
+        schema: 'saveforge.build-template',
+        version: 2,
+        selection: { 'inventory.workspace': { all: true } },
+        sections: {
+            'inventory.workspace': {
+                inventoryItems: [],
+                storageItems: [],
+            },
+        },
+    });
+}
+
+describe('ApplyOverridesModal — Phase 7a.2 weapon override', () => {
+    it('renders the weapon override panel when canonical JSON selects inventory.workspace', () => {
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Library — Build A"
+                canonicalJSON={inventoryCanonical()}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />,
+        );
+        expect(screen.getByTestId('apply-overrides-weapon-panel')).toBeInTheDocument();
+    });
+
+    it('does NOT render the weapon override panel for profile/stats-only templates', () => {
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Imported YAML"
+                canonicalJSON={canonicalJSON()}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />,
+        );
+        expect(screen.queryByTestId('apply-overrides-weapon-panel')).not.toBeInTheDocument();
+    });
+
+    it('renders the weapon override panel for inventory-only templates', () => {
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Library — Inventory only"
+                canonicalJSON={inventoryOnlyCanonical()}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />,
+        );
+        expect(screen.getByTestId('apply-overrides-weapon-panel')).toBeInTheDocument();
+    });
+
+    it('disables the Apply button when the weapon override is invalid', () => {
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Library — Build A"
+                canonicalJSON={inventoryCanonical()}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />,
+        );
+        fireEvent.click(screen.getByTestId('apply-overrides-weapon-enabled'));
+        // enabled + both empty → invalid
+        expect(screen.getByTestId('apply-overrides-weapon-error')).toBeInTheDocument();
+        const applyBtn = screen.getByTestId('apply-overrides-apply');
+        expect(applyBtn).toBeDisabled();
+        expect(screen.getByTestId('apply-overrides-status')).toHaveTextContent(/weapon level override/i);
+    });
+
+    it('forwards the weapon override as the second argument of onConfirm', () => {
+        const onConfirm = vi.fn();
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Library — Build A"
+                canonicalJSON={inventoryCanonical()}
+                onCancel={() => {}}
+                onConfirm={onConfirm}
+            />,
+        );
+        fireEvent.click(screen.getByTestId('apply-overrides-weapon-enabled'));
+        fireEvent.change(screen.getByTestId('apply-overrides-weapon-standard'), {
+            target: { value: '25' },
+        });
+        fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        const [mutated, override] = onConfirm.mock.calls[0];
+        expect(typeof mutated).toBe('string');
+        // mutated JSON keeps the inventory.workspace selection intact —
+        // the override travels separately, never inside JSON.
+        const parsed = JSON.parse(mutated as string);
+        expect(parsed.selection['inventory.workspace']).toBeDefined();
+        expect(override).toEqual({ enabled: true, standardLevel: 25 });
+    });
+
+    it('passes undefined for the override when the weapon panel stays disabled', () => {
+        const onConfirm = vi.fn();
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Library — Build A"
+                canonicalJSON={inventoryCanonical()}
+                onCancel={() => {}}
+                onConfirm={onConfirm}
+            />,
+        );
+        // do not touch the weapon panel
+        fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        expect(onConfirm).toHaveBeenCalledTimes(1);
+        expect(onConfirm.mock.calls[0][1]).toBeUndefined();
+    });
+});

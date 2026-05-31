@@ -1977,3 +1977,310 @@ describe('TemplatesShellModal — Phase 7a v2 inventory.workspace apply', () => 
         expect(opts.sessionID).toBe('');
     });
 });
+
+// Phase 7a.2 — runtime weapon level override threaded through the v2
+// Apply with overrides flow. The override is built inside the
+// ApplyOverridesModal's WeaponLevelOverridePanel and travels as the
+// weaponLevelOverride field of ApplyTemplateV2Options — NEVER inside the
+// canonical JSON. The Phase 7a session gating still wins, so the override
+// is never sent when the inventory.workspace path is blocked by a missing
+// session.
+describe('TemplatesShellModal — Phase 7a.2 v2 weapon level override', () => {
+    const ACTIVE_SESSION_ID = 'ses-7a2-active';
+
+    const inventoryCanonical = JSON.stringify({
+        schema: 'saveforge.build-template',
+        version: 2,
+        selection: { 'inventory.workspace': { all: true } },
+        sections: {
+            'inventory.workspace': {
+                inventoryItems: [
+                    { baseItemID: 0x000F4240, quantity: 1, container: 'inventory', position: 0 },
+                ],
+                storageItems: [],
+            },
+        },
+    });
+
+    const mixedCanonical = JSON.stringify({
+        schema: 'saveforge.build-template',
+        version: 2,
+        selection: {
+            profile: { level: true },
+            stats: { vigor: true },
+            'inventory.workspace': { all: true },
+        },
+        sections: {
+            profile: { level: 50 },
+            stats: { vigor: 25 },
+            'inventory.workspace': {
+                inventoryItems: [
+                    { baseItemID: 0x000F4240, quantity: 1, container: 'inventory', position: 0 },
+                ],
+                storageItems: [],
+            },
+        },
+    });
+
+    function importedPreview(canonical: string, selectedSections: string[]) {
+        return {
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 1,
+                    storageItems: 0,
+                    weapons: 1,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections,
+                    profileFieldsPresent: selectedSections.includes('profile') ? ['level'] : [],
+                    statFieldsPresent: selectedSections.includes('stats') ? ['vigor'] : [],
+                },
+            },
+            json: canonical,
+            path: '/fake/inv.yaml',
+        };
+    }
+
+    function applyV2OK(extra: Partial<Record<string, unknown>> = {}) {
+        return {
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 0,
+            appliedFields: ['inventory.workspace'],
+            skippedFields: [],
+            inventoryItemsApplied: 1,
+            storageItemsApplied: 0,
+            ...extra,
+        };
+    }
+
+    it('Apply with overrides on an inventory.workspace template + filled weapon override forwards weaponLevelOverride', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            importedPreview(inventoryCanonical, ['inventory.workspace']),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: ACTIVE_SESSION_ID });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OK());
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        expect(screen.getByTestId('apply-overrides-weapon-panel')).toBeInTheDocument();
+
+        fireEvent.click(screen.getByTestId('apply-overrides-weapon-enabled'));
+        fireEvent.change(screen.getByTestId('apply-overrides-weapon-standard'), {
+            target: { value: '25' },
+        });
+        fireEvent.change(screen.getByTestId('apply-overrides-weapon-somber'), {
+            target: { value: '10' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const opts = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0][2] as {
+            mode: string;
+            sessionID: string;
+            weaponLevelOverride?: { enabled: boolean; standardLevel?: number; somberLevel?: number };
+        };
+        expect(opts.mode).toBe('append');
+        expect(opts.sessionID).toBe(ACTIVE_SESSION_ID);
+        expect(opts.weaponLevelOverride).toEqual({
+            enabled: true,
+            standardLevel: 25,
+            somberLevel: 10,
+        });
+        // Canonical JSON must still nominate inventory.workspace; the
+        // override does NOT bleed into it.
+        const parsed = JSON.parse(mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0][1] as string);
+        expect(parsed.selection['inventory.workspace']).toBeDefined();
+    });
+
+    it('Apply with overrides on an inventory.workspace template + untouched weapon panel sends undefined weaponLevelOverride', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            importedPreview(inventoryCanonical, ['inventory.workspace']),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: ACTIVE_SESSION_ID });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OK());
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        // do not touch the weapon panel
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const opts = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0][2] as {
+            weaponLevelOverride?: unknown;
+        };
+        expect(opts.weaponLevelOverride).toBeUndefined();
+    });
+
+    it('Apply with overrides on a mixed template forwards both mutated profile/stats JSON and weaponLevelOverride', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            importedPreview(mixedCanonical, ['profile', 'stats', 'inventory.workspace']),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: ACTIVE_SESSION_ID });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(
+            applyV2OK({ appliedFields: ['profile.level', 'stats.vigor', 'inventory.workspace'] }),
+        );
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        // mutate profile.level
+        fireEvent.change(screen.getByTestId('apply-overrides-profile-input-level'), {
+            target: { value: '77' },
+        });
+        // mutate stats.vigor
+        fireEvent.change(screen.getByTestId('apply-overrides-stats-input-vigor'), {
+            target: { value: '40' },
+        });
+        // enable weapon override
+        fireEvent.click(screen.getByTestId('apply-overrides-weapon-enabled'));
+        fireEvent.change(screen.getByTestId('apply-overrides-weapon-standard'), {
+            target: { value: '20' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0];
+        const parsed = JSON.parse(call[1] as string);
+        expect(parsed.sections.profile.level).toBe(77);
+        expect(parsed.sections.stats.vigor).toBe(40);
+        const opts = call[2] as {
+            sessionID: string;
+            weaponLevelOverride?: { enabled: boolean; standardLevel?: number };
+        };
+        expect(opts.sessionID).toBe(ACTIVE_SESSION_ID);
+        expect(opts.weaponLevelOverride).toEqual({ enabled: true, standardLevel: 20 });
+    });
+
+    it('fast library Apply (no overrides modal) never sends weaponLevelOverride', async () => {
+        const v2InvEntry = {
+            id: 'tpl-7a2-fast',
+            name: 'Fast inventory',
+            description: '',
+            tags: [],
+            filename: 'tpl-7a2-fast.json',
+            createdAt: '2026-05-01T10:00:00Z',
+            updatedAt: '2026-05-10T12:00:00Z',
+            inventoryItems: 1,
+            storageItems: 0,
+            warnings: 0,
+            version: 2,
+            selectedSections: ['inventory.workspace'],
+        };
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2InvEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: ACTIVE_SESSION_ID });
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(applyV2OK());
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const opts = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0][2] as {
+            weaponLevelOverride?: unknown;
+        };
+        expect(opts.weaponLevelOverride).toBeUndefined();
+    });
+
+    it('invalid weapon override blocks the Apply button and never calls the backend', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            importedPreview(inventoryCanonical, ['inventory.workspace']),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: ACTIVE_SESSION_ID });
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        // enable + leave both empty → invalid
+        fireEvent.click(screen.getByTestId('apply-overrides-weapon-enabled'));
+        expect(screen.getByTestId('apply-overrides-weapon-error')).toBeInTheDocument();
+        const applyBtn = screen.getByTestId('apply-overrides-apply');
+        expect(applyBtn).toBeDisabled();
+        await act(async () => {
+            fireEvent.click(applyBtn);
+        });
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+    });
+
+    it('no-session gating wins before the override even reaches the binding', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            importedPreview(inventoryCanonical, ['inventory.workspace']),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2-overrides'));
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        fireEvent.click(screen.getByTestId('apply-overrides-weapon-enabled'));
+        fireEvent.change(screen.getByTestId('apply-overrides-weapon-standard'), {
+            target: { value: '15' },
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(toastError.mock.calls.some(c => /Sort Order workspace/i.test(c[0] as string))).toBe(true);
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+    });
+});

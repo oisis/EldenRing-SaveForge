@@ -24,9 +24,17 @@ import (
 // snapshot back on any error. Profile/stats-only applies ignore the
 // field — passing it for a non-inventory template is accepted silently
 // so the frontend may unconditionally send the active session ID.
+//
+// Phase 7a.2 — WeaponLevelOverride. Optional apply-time runtime override
+// of upgrade levels for weapons added by the inventory.workspace section.
+// Reuses the v1 WeaponLevelOverride type and validateWeaponLevelOverride
+// pre-check verbatim. Threaded into applyTemplateItemsToWorkspace for
+// both inventory and storage containers. Profile/stats-only templates
+// silently ignore a structurally valid override (no items → no-op).
 type ApplyTemplateV2Options struct {
-	Mode      string `json:"mode,omitempty"`
-	SessionID string `json:"sessionID,omitempty"`
+	Mode                string               `json:"mode,omitempty"`
+	SessionID           string               `json:"sessionID,omitempty"`
+	WeaponLevelOverride *WeaponLevelOverride `json:"weaponLevelOverride,omitempty"`
 }
 
 // ApplyTemplateV2Result is the dual-purpose return of
@@ -128,6 +136,19 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		return ApplyTemplateV2Result{
 			CharIndex: charIdx,
 			Preview:   singleErrorPreview(templates.IssueCodeUnknownMode, fmt.Sprintf("ApplyBuildTemplateV2: unsupported import mode %q (Phase 5A only ships %q)", mode, "append")),
+			Applied:   false,
+		}, nil
+	}
+
+	// Phase 7a.2 — weaponLevelOverride structural validation. Mirrors v1
+	// ApplyBuildTemplateToWorkspaceJSON: runs BEFORE acquireSession /
+	// snapshot / mutation so a broken request bounces with zero side
+	// effects. Out-of-range positive values pass here and are clamped by
+	// editor.ClampUpgrade later, surfacing as warnings.
+	if err := validateWeaponLevelOverride(opts.WeaponLevelOverride); err != nil {
+		return ApplyTemplateV2Result{
+			CharIndex: charIdx,
+			Preview:   singleErrorPreview(templates.IssueCodeStructureInvalid, err.Error()),
 			Applied:   false,
 		}, nil
 	}
@@ -350,15 +371,14 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 
 	// Phase 7a — inventory.workspace apply runs against the workspace
 	// snapshot through the same applyTemplateItemsToWorkspace helper
-	// the v1 path uses. Phase 6b weapon level override is intentionally
-	// not threaded into this path — the override field on
-	// ApplyTemplateV2Options stays nil for the entire Phase 7a slice
-	// (separate Phase 7a.2 will lift it on a follow-up turn).
+	// the v1 path uses. Phase 7a.2 threads opts.WeaponLevelOverride into
+	// both container calls; a nil / disabled override is a no-op inside
+	// applyTemplateItemsToWorkspace (WeaponLevelOverride.HasAny gate).
 	var inventoryItemsApplied, storageItemsApplied int
 	if hasInventory {
 		sec := tpl.Sections.InventoryWorkspace
 		if sec != nil {
-			invWarn, applyErr := applyTemplateItemsToWorkspace(&sess.Workspace, sec.InventoryItems, editor.ContainerInventory, nil)
+			invWarn, applyErr := applyTemplateItemsToWorkspace(&sess.Workspace, sec.InventoryItems, editor.ContainerInventory, opts.WeaponLevelOverride)
 			if applyErr != nil {
 				rollbackBoth()
 				return ApplyTemplateV2Result{
@@ -367,7 +387,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 					Applied:   false,
 				}, nil
 			}
-			stoWarn, applyErr := applyTemplateItemsToWorkspace(&sess.Workspace, sec.StorageItems, editor.ContainerStorage, nil)
+			stoWarn, applyErr := applyTemplateItemsToWorkspace(&sess.Workspace, sec.StorageItems, editor.ContainerStorage, opts.WeaponLevelOverride)
 			if applyErr != nil {
 				rollbackBoth()
 				return ApplyTemplateV2Result{

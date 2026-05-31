@@ -1316,6 +1316,7 @@ export namespace main {
 	export class ApplyTemplateV2Options {
 	    mode?: string;
 	    sessionID?: string;
+	    weaponLevelOverride?: WeaponLevelOverride;
 	
 	    static createFrom(source: any = {}) {
 	        return new ApplyTemplateV2Options(source);
@@ -1325,7 +1326,26 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
 	        this.sessionID = source["sessionID"];
+	        this.weaponLevelOverride = this.convertValues(source["weaponLevelOverride"], WeaponLevelOverride);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ApplyTemplateV2Result {
 	    preview: templates.ImportPreviewReport;

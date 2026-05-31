@@ -288,18 +288,19 @@ func TestApplyBuildTemplateV2_Mixed_ProfileStatsInventory_HappyPath(t *testing.T
 	}
 }
 
-// ─── Phase 6b interaction ──────────────────────────────────────────────
+// ─── Phase 6b / 7a.2 interaction ───────────────────────────────────────
 
-// Phase 7a deliberately does NOT thread Phase 6b weapon-level override
-// into the v2 path. Even if a future caller hand-sets the option, the
-// ApplyTemplateV2Options struct has no override field, so the override
-// can never reach the v2 apply layer. This test pins the contract: the
-// v2 options struct exposes Mode + SessionID only.
+// Phase 7a.2 threaded Phase 6b weapon-level override into the v2 path.
+// This pin guards the wire-shape contract: ApplyTemplateV2Options now
+// carries Mode + SessionID + WeaponLevelOverride and nothing else.
+// Adding a new field forces this test to be updated, which is the audit
+// trail we want.
 func TestApplyTemplateV2Options_FieldSurface(t *testing.T) {
-	// Compile-time guard: the literal must satisfy the struct without
-	// unknown-field errors. Adding a new field below would force this
-	// test to be updated, which is the audit trail we want.
-	_ = ApplyTemplateV2Options{Mode: "append", SessionID: "ses-x"}
+	_ = ApplyTemplateV2Options{
+		Mode:                "append",
+		SessionID:           "ses-x",
+		WeaponLevelOverride: &WeaponLevelOverride{Enabled: false},
+	}
 }
 
 // ─── Scope guards still in force ──────────────────────────────────────
