@@ -4,6 +4,101 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(core): add equipment writer foundation
+
+Shipped Phase 7b.0 of the Templates v2 design (`spec/56-templates-v2.md`):
+a backend-only `(s *core.SaveSlot).WriteEquipment([]EquipmentWrite) error`
+foundation that lifts the long-standing "no public write API for
+ChrAsmEquipment" gap for weapon, ammo, and armor slots. This is the writer
+foundation only — no template schema change, no template apply integration,
+no UI, no Wails App method, no bindings regenerated. The Phase 7b.1
+follow-up will wire this into the v2 `sections.equipment` template apply
+path with strict "item must be in inventory" enforcement.
+
+- **API shape** — `backend/core/equipment_writer.go` introduces the
+  `EquipmentSlotKind` enum, the `EquipmentWrite { Slot, Handle }` request
+  struct, and the slot-level method `WriteEquipment(writes []EquipmentWrite)
+  error`. Only the 14 supported slots are exposed by the enum: weapon
+  slots 0–5 (`LeftHandArmament1..3`, `RightHandArmament1..3`), ammo slots
+  6–9 (`Arrows1/2`, `Bolts1/2`), and armor slots 12–15 (`Head`, `Chest`,
+  `Arms`, `Legs`). Talisman slots 17–21, `EquippedGreatRune` (slot 10),
+  unknown slots 11/16, the 14 `EquippedSpells`, and the 16 quick / pouch
+  slots remain unexposed — each belongs to a future phase.
+- **Handle encoding** — for each non-zero write, the writer resolves
+  `handle → itemID` via `slot.GaMap` and writes the encoded
+  ChrAsmEquipment form back to `slot.Data` at
+  `slot.EquipItemsIDOffset + index*4`. Weapon and armor slots store
+  `itemID | 0x80000000` (the `ItemTypeWeapon` high-bit flag); ammo slots
+  store `itemID` directly because goods item IDs already carry the
+  `0x40` prefix per the convention codified in
+  `transfer.go::IsHandleEquipped` and `materializeRehandledInstance`.
+  `Handle == 0` clears the slot to `0xFFFFFFFF`; `Handle == 0xFFFFFFFF`
+  is rejected as a defensive guard (callers must use `Handle = 0` to
+  clear).
+- **Strict class gate** — every non-clear write checks the handle's type
+  prefix (`handle & GaHandleTypeMask`) against the slot's class:
+  weapon slots accept only `ItemTypeWeapon` (`0x80`); armor slots accept
+  only `ItemTypeArmor` (`0x90`); ammo slots accept only `ItemTypeItem`
+  (`0xB0`, goods). `ItemTypeAow` (`0xC0`) handles are rejected in weapon
+  slots even though the read-side encoding rule (`id | 0x80000000`) would
+  technically accept them — AoW equipping is intentionally deferred to a
+  later phase. Talisman handles (`ItemTypeAccessory`, `0xA0`) and goods
+  handles in non-ammo slots are rejected. Handles absent from `GaMap`
+  (i.e. items not currently in the character's inventory) are rejected
+  with `"not present in inventory (GaMap)"` — strict-reject, no
+  auto-add. Auto-add belongs to the Phase 7b.1 template apply layer, not
+  the writer.
+- **Targeted hash recompute** — writes that touch any of slots 0–9
+  trigger recompute of hash entry 7 (`weaponSlotIndices`); writes that
+  touch any of slots 12–15 trigger recompute of hash entry 8 (the armor
+  subset of `armorSlotIndices`). Unrelated hash entries — level, stats,
+  class, souls, quick items, spells, talisman portion of hash 8 — are
+  untouched. The recompute path reuses the existing `readEquipSection`,
+  `extractSlots`, and `equipmentHash` helpers from `hash.go` so any
+  future change to the hash algorithm propagates automatically.
+- **Atomicity** — every write is validated against the slot
+  table, handle prefix gate, and `GaMap` presence **before** any
+  `slot.Data` byte is mutated. Duplicate slot kinds within a single batch
+  are rejected with a deterministic error rather than silently last-wins.
+  On any validation failure the equipment section bytes and hash bytes
+  remain identical to their pre-call state.
+- **Out of scope (intentional non-changes)** — no Templates v2 schema
+  section for equipment, no `app_templates*.go` change, no Wails App
+  method, no `frontend/wailsjs/**` change, no frontend component change,
+  no `app.go` change, no `SortOrderTab.tsx` change, no
+  `ApplyOverridesPanel.tsx` change, no `TemplatesShellModal.tsx` change.
+  The writer is a callable Go-level API; it has no user-facing entry
+  point in this phase. The Phase 7b.1 follow-up will introduce
+  `sections.equipment` and route a Templates v2 apply through this
+  writer.
+- **Tests** — `backend/core/equipment_writer_test.go` adds 24 unit
+  tests against a synthetic `SaveSlot` (no real save fixture required —
+  `tests/data/pc` and `tests/data/ps4` are scratch dirs and the real
+  PC/PS4 fixtures live under `tmp/save/` which the Phase 7b.0 scope
+  explicitly excludes). The new tests cover: weapon / armor / ammo
+  encoding correctness; rejection of AoW / talisman / goods handles in
+  weapon slots; rejection of weapon handles in armor slots; rejection
+  of handles missing from `GaMap`; clear-slot semantics; rejection of
+  the `0xFFFFFFFF` sentinel; rejection of unknown enum values; rejection
+  of duplicate slots within a batch; atomicity rollback when the second
+  write in a batch is invalid; hash 7 changes after weapon and ammo
+  writes; hash 8 changes after armor writes; hash 7 unchanged on
+  armor-only writes; hash 8 unchanged on weapon-only writes; mixed
+  weapon + armor batches touch both hashes; idempotent writes leave hash
+  stable; nil-receiver guard; empty batch is a no-op; unparseable
+  `EquipItemsIDOffset` is rejected; and an end-to-end weapon swap
+  (equip A → swap to B → clear) round-trip.
+- **PC + PS4 round-trip on a real save** — deliberately deferred to
+  Phase 7b.1, when the template apply path will exercise the writer
+  end-to-end on the existing round-trip fixtures. The synthetic
+  `SaveSlot` tests exhaustively cover the writer's contract; reusing
+  the existing PC/PS4 fixtures from `tmp/save/` is out of scope for the
+  Phase 7b.0 closure session per the user's tmp-exclusion rule.
+- **Validation** — `go test ./backend/core -run 'TestWriteEquipment'`
+  passes 24/24; full `go test . ./backend/... ./tests/...` passes; `go
+  vet . ./backend/... ./tests/...` clean; `make build` succeeds with
+  the Wails bundle rebuilt and `frontend/wailsjs/**` unchanged.
+
 ### feat(templates): weapon level override for v2 inventory.workspace apply
 
 Shipped Phase 7a.2 of the Templates v2 design (`spec/56-templates-v2.md`):
