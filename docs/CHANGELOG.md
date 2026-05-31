@@ -4,6 +4,186 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): apply v2 equipment section
+
+Shipped Phase 7b.1 of the Templates v2 design (`spec/56-templates-v2.md`):
+v2 `sections.equipment` end-to-end — schema, export, preview, apply through
+the Phase 7b.0 `SaveSlot.WriteEquipment` foundation, and frontend surface in
+the existing Templates shell. Equipment-only templates can be created from a
+character, saved to the library, exported as YAML, imported (file / URL),
+previewed, and applied to a target character — no Inventory Edit Session
+required and no new App method. The shipped scope matches the Phase 7b.0
+writer coverage exactly (no talismans, spells, EquippedGreatRune, quick
+items, or unknown slots).
+
+- **Schema** — `backend/templates/schema.go` adds `EquipmentSection`,
+  `EquipmentItemRef`, `TemplateSelection.Equipment`,
+  `TemplateSections.Equipment`, and an `EquipmentSlotOrder` canonical
+  list. `EquipmentSection` carries 14 optional pointer fields:
+  weapon LH/RH 1/2/3 (6), `arrows1/2` + `bolts1/2` (4), and
+  `armorHead/Chest/Arms/Legs` (4). Talisman slots 17–21, EquippedGreatRune
+  (slot 10), unknown slots 11/16, the 14 EquippedSpells, and quick /
+  pouch slots are intentionally absent — they have no Phase 7b.0 writer
+  entry point. `EquipmentItemRef` carries `BaseItemID` (required;
+  `0` is the explicit-clear sentinel), optional informational `Name`,
+  optional `Upgrade *int` disambiguator (nil → match any upgrade),
+  optional `InfusionName` disambiguator, and optional `AoWItemID *uint32`
+  disambiguator. `EquipmentSlotRef` / `SetEquipmentSlotRef` helpers
+  expose canonical-key lookups so the resolver, exporter, and preview
+  walk the 14 slots without duplicating the switch.
+- **Validation** — `validateEquipmentSection` enforces
+  `upgrade ∈ [0, MaxEquipmentItemUpgrade=25]` (per-item caps are deferred
+  to the apply resolver where the resolved DB entry is known) and
+  rejects `aowItemID=0` (use field omission to mean any-AoW).
+  `validateEquipmentSelection` enforces a 14-slot allowlist matching the
+  EquipmentSlotOrder canonical names. The previously-shipped Phase 7a
+  validators (`validateProfileSelection`, `validateStatsSelection`,
+  `validateInventoryWorkspaceSelection`) are unchanged.
+- **Issue codes** — four new stable strings in
+  `backend/templates/import.go`:
+  `IssueCodeEquipmentInventoryComboUnsupported`
+  (`equipment_inventory_combo_unsupported`, hard error — combination of
+  `sections.equipment` + `sections.inventory.workspace` in the same
+  template is rejected because the writer needs a fresh `slot.GaMap`
+  and inventory.workspace items only land in the workspace until the
+  user clicks Save changes),
+  `IssueCodeEquipmentItemNotInInventory`
+  (`equipment_item_not_in_inventory`, warning — the resolver could not
+  find the item; storage is intentionally NOT searched; slot skipped),
+  `IssueCodeEquipmentItemAmbiguous` (`equipment_item_ambiguous`,
+  warning — multiple matches after disambiguators, first wins), and
+  `IssueCodeEquipmentSlotInvalid` (`equipment_slot_invalid`, hard error —
+  the writer rejected a resolved EquipmentWrite; dual-snapshot rollback
+  restores both slot bytes and the workspace).
+- **Preview** — `PreviewBuildTemplateImport` injects the combo guard so
+  the modal sees a clean `report.OK=false` with the dedicated code; the
+  apply path double-checks the same rule defensively for direct callers
+  that bypass the preview. `ImportPreviewSummary.EquipmentSlotsPresent`
+  lists the canonical-order slot keys whose pointer is non-nil. The
+  existing `selectedSections` list now appends `"equipment"` when the
+  selection nominates it (kept after `inventory.workspace` /
+  `profile` / `stats` so the order remains stable).
+- **Export** — `templates.ExportV2Options.Equipment *EquipmentSection`
+  and `BuildV2Template` extend the existing Phase 5 pattern: the
+  boolean shortcut copies the whole section verbatim; per-field
+  selection normalises to only slot keys with a source value. Pointer
+  fields (`Upgrade`, `AoWItemID`) are deep-cloned so the result does
+  not alias the source. The app-layer scanner
+  `buildEquipmentSectionFromSlot(slot, inventoryItems)` reads
+  `ChrAsmEquipment` byte slots at the 14 supported indices, decodes the
+  encoded form (weapon / armor: strip `0x80000000`; ammo: raw goods
+  ItemID), matches the encoded value against `editor.EditableItem.ItemID`
+  for an exact-handle match, falls back to `db.GetItemDataFuzzy` for
+  pass-through items, and emits a minimal ref with the raw decoded ID
+  as last resort so the user always sees what the slot held.
+- **Apply** — `app_templates_v2_apply.go` extends scope detection with
+  `hasEquipment := tpl.Selection.Equipment.HasAny()` and tightens the
+  empty-selection diagnostic to mention equipment. The combo guard
+  hard-rejects `equipment + inventory.workspace` before snapshot or
+  session acquire — zero side effects. `resolveEquipmentWrites(slot,
+  sel, sec)` runs `editor.BuildSnapshot` once for a consistent
+  inventory view, then delegates to the pure-logic
+  `resolveEquipmentWritesFromItems(items, sel, sec)`: for each
+  selected slot it resolves `baseItemID == 0` to a clear write, walks
+  `InventoryItems` (storage NOT searched) matching `BaseItemID` plus
+  any supplied disambiguators (upgrade, infusion, AoW), and produces
+  a warning + skip on miss or a warning + first-match-wins on
+  ambiguity. `SaveSlot.WriteEquipment(equipmentWrites)` runs AFTER
+  the profile/stats SyncPlayerToData so any failure rolls back the
+  combined slot snapshot taken at the top of the slot lock. The
+  resolved batch is reported as `applied = append(applied,
+  "equipment")` and counted in
+  `ApplyTemplateV2Result.EquipmentSlotsApplied`. `profileOrStatsApplied`
+  skips `"equipment"` so equipment-only applies do not trigger the
+  unrelated VM flush path.
+- **Concurrency / atomicity** — the Phase 7a `rollbackBoth()` closure
+  unchanged. The Phase 7b.0 writer's targeted hash 7 / hash 8
+  recompute discipline is preserved (writes to slots 0–9 recompute
+  hash 7; writes to slots 12–15 recompute hash 8). Validate-then-mutate
+  ordering means the resolver may emit warnings without leaving the
+  slot in a half-written state.
+- **Entry points** — equipment templates apply through the canonical
+  `ApplyBuildTemplateV2ToCharacterJSON` exit, so library Apply, direct
+  YAML Apply, file Apply, URL preview Apply, and Apply with overrides
+  all support equipment via the same backend path. Fast library Apply
+  for equipment-only entries does NOT require a session.
+- **Frontend** — `ImportTemplatePreviewModal.tsx` adds `equipment` to
+  `V2_APPLY_SUPPORTED_SECTIONS`, renders an `import-preview-equipment-slots`
+  row from `summary.equipmentSlotsPresent`, and tightens the unsupported
+  message to enumerate the four shipped sections. `TemplateLibraryModal.tsx`
+  enables Apply for equipment-only entries by extending
+  `v2HasApplyableSections`. `TemplatesShellModal.tsx` is **unchanged** —
+  the existing
+  `needsSession = selectedSections.includes(INVENTORY_WORKSPACE_SECTION)`
+  gate already excludes equipment-only templates, and the canonical
+  JSON path serves library / direct YAML / URL identically. The
+  Phase 6 `ApplyOverridesPanel` and Phase 7a.2 `WeaponLevelOverridePanel`
+  are **not** extended — Phase 7b.1 ships without equipment-specific
+  override controls.
+- **Bindings** — `frontend/wailsjs/go/models.ts` regenerated by
+  `make build`: `ApplyTemplateV2Result.equipmentSlotsApplied: number`
+  and `ImportPreviewSummary.equipmentSlotsPresent?: string[]`. No App
+  method signature changes; `frontend/wailsjs/go/main/App.{d.ts,js}`
+  untouched.
+- **Intentional non-changes** — no `App.tsx` change, no
+  `SortOrderTab.tsx` change, no `ApplyOverridesPanel.tsx` /
+  `WeaponLevelOverridePanel.tsx` change, no equipment-specific override
+  panel, no new Wails App method, no `frontend/wailsjs/go/main/**`
+  diff beyond what `make build` produces. Talisman writer, spell
+  writer, EquippedGreatRune through the template path, slot 11/16,
+  quick / pouch items, auto-add of missing inventory items, storage
+  resolver, and lifting the equipment + inventory.workspace combo all
+  remain future work (Phase 7c / 7d / 8 / 10).
+- **Tests** — backend: `backend/templates/schema_equipment_test.go`
+  (17 cases — JSON / YAML round-trip, per-field allowlist, reject
+  unknown / great rune / negative upgrade / upgrade > 25 / zero AoW,
+  explicit clear, combo guard in preview, helpers);
+  `backend/templates/export_v2_equipment_test.go` (7 cases — boolean
+  shortcut, per-field normalisation, deep clone, explicit clear,
+  missing source, JSON shape, mixed profile + equipment);
+  `app_templates_v2_equipment_test.go` (8 cases — empty section,
+  weapon / armor / ammo encoding match, talisman / GreatRune / slots
+  11/16 not exported, unreadable offset, unknown item fallback,
+  multi-slot);
+  `app_templates_v2_apply_equipment_test.go` (11 cases — resolver
+  match-by-base-id, missing item warning, ambiguous match first wins,
+  upgrade / infusion disambiguators, explicit clear, per-field
+  selection, full apply combo rejection with zero side effects,
+  sessionID silently ignored on equipment-only, missing item zero
+  writes, unsupported selection key rejected via validator). Frontend:
+  `ImportTemplatePreviewModal.test.tsx` (+4 Phase 7b.1 cases —
+  applyable v2 section, slots row render, hide when empty, combo
+  error display); `TemplateLibraryModal.test.tsx` (+2 cases — Apply
+  enabled for equipment-only without session, disabled without
+  save); `TemplatesShellModal.test.tsx` (+3 cases — no session
+  required, sessionID transparently forwarded, backend rejection
+  toast). Two previously-shipped tests that used `'equipment'` as the
+  "unsupported section" example were updated to use `'spells'` (still
+  genuinely planned) so the negative case stays meaningful.
+- **Validation totals** — `go test ./backend/templates -run
+  'TestEquipment|TestBuildV2Template_Equipment'` PASS; `go test .
+  -run 'TestResolveEquipment|TestApplyBuildTemplateV2_Equipment|
+  TestBuildEquipmentSection'` PASS; full `go test . ./backend/...
+  ./tests/...` PASS (9 packages); `go vet` clean; `tsc --noEmit`
+  clean; full `vitest run` 366/366 PASS across 17 suites; `make
+  build` PASS with the Wails bundle rebuilt and only the expected
+  `frontend/wailsjs/go/models.ts` diff.
+- **Manual validation 2026-06-01** — equipment-only template export,
+  preview, library round-trip, Apply, game-load reload confirmation,
+  missing-item warning skip, ambiguous-match first wins, explicit
+  clear, combo rejection, regression sweep (profile/stats Apply,
+  inventory.workspace session gating, Phase 6b SortOrderTab dropdown,
+  Phase 7a.2 weapon level override on inventory.workspace path,
+  URL import). User-confirmed: manual OK.
+- **Future work** — Phase 7c talisman writer + template apply (slots
+  17–21), Phase 7d spells writer + template apply (14-slot loadout),
+  optional lifting of the equipment + inventory.workspace combo
+  restriction (would require either auto-commit of the workspace or
+  a workspace-backed equipment model), Phase 8 appearance via preset,
+  Phase 10 multi-character pack (`scope: pack`). EquippedGreatRune
+  (slot 10) and unknown slots 11/16 remain out of scope across the
+  Phase 7 family.
+
 ### feat(core): add equipment writer foundation
 
 Shipped Phase 7b.0 of the Templates v2 design (`spec/56-templates-v2.md`):
