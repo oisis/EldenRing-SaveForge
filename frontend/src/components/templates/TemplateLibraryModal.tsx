@@ -370,8 +370,14 @@ export function TemplateLibraryModal({
                                 const confirmingApplyV2 = confirmApplyV2ID === entry.id;
                                 const isV2 = (entry.version ?? 0) >= 2;
                                 const selectedSections = entry.selectedSections ?? [];
+                                // Phase 7a — inventory.workspace joins profile/stats as an
+                                // apply-eligible section. The session lookup happens in the
+                                // shell after the user clicks Apply; here we only widen the
+                                // visibility gate.
                                 const v2HasApplyableSections =
-                                    selectedSections.includes('profile') || selectedSections.includes('stats');
+                                    selectedSections.includes('profile') ||
+                                    selectedSections.includes('stats') ||
+                                    selectedSections.includes('inventory.workspace');
 
                                 // Per-entry Apply gating. v1 path is
                                 // preserved verbatim: requires sessionID,

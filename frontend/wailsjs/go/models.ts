@@ -1159,6 +1159,20 @@ export namespace editor {
 
 export namespace main {
 	
+	export class ActiveInventoryEditSession {
+	    active: boolean;
+	    sessionID?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ActiveInventoryEditSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.active = source["active"];
+	        this.sessionID = source["sessionID"];
+	    }
+	}
 	export class SkippedAdd {
 	    itemID: number;
 	    cutQty: number;
@@ -1301,6 +1315,7 @@ export namespace main {
 	}
 	export class ApplyTemplateV2Options {
 	    mode?: string;
+	    sessionID?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ApplyTemplateV2Options(source);
@@ -1309,6 +1324,7 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
+	        this.sessionID = source["sessionID"];
 	    }
 	}
 	export class ApplyTemplateV2Result {
@@ -1318,6 +1334,9 @@ export namespace main {
 	    appliedFields: string[];
 	    skippedFields: string[];
 	    character?: vm.CharacterViewModel;
+	    inventoryItemsApplied: number;
+	    storageItemsApplied: number;
+	    workspace?: editor.InventoryWorkspaceSnapshot;
 	
 	    static createFrom(source: any = {}) {
 	        return new ApplyTemplateV2Result(source);
@@ -1331,6 +1350,9 @@ export namespace main {
 	        this.appliedFields = source["appliedFields"];
 	        this.skippedFields = source["skippedFields"];
 	        this.character = this.convertValues(source["character"], vm.CharacterViewModel);
+	        this.inventoryItemsApplied = source["inventoryItemsApplied"];
+	        this.storageItemsApplied = source["storageItemsApplied"];
+	        this.workspace = this.convertValues(source["workspace"], editor.InventoryWorkspaceSnapshot);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

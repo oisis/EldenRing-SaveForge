@@ -18,6 +18,9 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     SaveBuildTemplateV2FromCharacterToLibrary: vi.fn(),
     RebuildBuildTemplateLibraryIndex: vi.fn(),
     GetBuildTemplateLibraryPath: vi.fn(),
+    // Phase 7a — active-session lookup the shell calls before any v2
+    // apply that may carry inventory.workspace.
+    GetActiveInventoryEditSessionForCharacter: vi.fn(),
 }));
 
 vi.mock('../../../lib/toast', () => ({
@@ -76,6 +79,10 @@ beforeEach(() => {
     Object.values(mocks).forEach(m => typeof m?.mockReset === 'function' && m.mockReset());
     mocks.ListBuildTemplateLibrary.mockResolvedValue(sampleEntries);
     mocks.GetBuildTemplateLibraryPath.mockResolvedValue('/fake/library');
+    // Phase 7a — default to "no active session" so existing
+    // profile/stats-only tests keep their pre-Phase-7a behaviour
+    // (sessionID forwarded as empty string; backend ignores it).
+    mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
 });
 
 afterEach(() => {
@@ -1666,5 +1673,307 @@ describe('TemplatesShellModal — Phase 9 URL import', () => {
             expect(screen.queryByTestId('import-url-modal')).not.toBeInTheDocument();
         });
         expect(mocks.PreviewBuildTemplateImportYAMLFromURL).not.toHaveBeenCalled();
+    });
+});
+
+describe('TemplatesShellModal — Phase 7a v2 inventory.workspace apply', () => {
+    const ACTIVE_SESSION_ID = 'ses-7a-active';
+
+    const v2InventoryEntry = {
+        id: 'tpl-v2-inv',
+        name: 'V2 Inventory Bundle',
+        description: 'items for the workspace',
+        tags: [],
+        filename: 'tpl-v2-inv.json',
+        createdAt: '2026-05-01T10:00:00Z',
+        updatedAt: '2026-05-10T12:00:00Z',
+        inventoryItems: 2,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['inventory.workspace'],
+    };
+
+    const v2MixedEntry = {
+        ...v2InventoryEntry,
+        id: 'tpl-v2-mixed',
+        name: 'V2 Mixed Bundle',
+        selectedSections: ['profile', 'stats', 'inventory.workspace'],
+    };
+
+    const v2ProfileOnlyEntry = {
+        ...v2InventoryEntry,
+        id: 'tpl-v2-profile',
+        name: 'V2 Profile Only',
+        selectedSections: ['profile'],
+    };
+
+    function v2InventoryImportedPreview(extra: { selectedSections?: string[]; canonical?: string } = {}) {
+        const sections = extra.selectedSections ?? ['inventory.workspace'];
+        const canonical = extra.canonical ??
+            JSON.stringify({
+                schema: 'saveforge.build-template',
+                version: 2,
+                selection: { 'inventory.workspace': true },
+                sections: {
+                    'inventory.workspace': {
+                        inventoryItems: [{ baseItemID: 0x000F4240, quantity: 1, container: 'inventory', position: 0 }],
+                        storageItems: [],
+                    },
+                },
+            });
+        return {
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 1,
+                    storageItems: 0,
+                    weapons: 1,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections: sections,
+                    profileFieldsPresent: [],
+                    statFieldsPresent: [],
+                },
+            },
+            json: canonical,
+            path: '/fake/inv.yaml',
+        };
+    }
+
+    function applyV2OK(extra: Partial<Record<string, unknown>> = {}) {
+        return {
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 0,
+            appliedFields: ['inventory.workspace'],
+            skippedFields: [],
+            inventoryItemsApplied: 1,
+            storageItemsApplied: 0,
+            ...extra,
+        };
+    }
+
+    it('library Apply for v2 inventory.workspace entry without active session refuses and surfaces the no-session toast', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2InventoryEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        const onCharacterTemplateApplied = vi.fn();
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={0}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        const msg = toastError.mock.calls[0][0] as string;
+        expect(msg).toMatch(/Sort Order workspace/i);
+        expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).not.toHaveBeenCalled();
+        expect(onCharacterTemplateApplied).not.toHaveBeenCalled();
+    });
+
+    it('library Apply for v2 inventory.workspace entry WITH active session forwards sessionID to the binding', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2InventoryEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: ACTIVE_SESSION_ID });
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(applyV2OK());
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0];
+        expect(call[0]).toBe(0);
+        expect(call[1]).toBe('tpl-v2-inv');
+        const opts = call[2] as { mode: string; sessionID: string };
+        expect(opts.mode).toBe('append');
+        expect(opts.sessionID).toBe(ACTIVE_SESSION_ID);
+    });
+
+    it('library Apply for v2 mixed (profile+stats+inventory.workspace) entry requires session and forwards it', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2MixedEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: ACTIVE_SESSION_ID });
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(
+            applyV2OK({ appliedFields: ['profile.level', 'stats.vigor', 'inventory.workspace'] }),
+        );
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const opts = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0][2] as { sessionID: string };
+        expect(opts.sessionID).toBe(ACTIVE_SESSION_ID);
+    });
+
+    it('library Apply for v2 profile-only entry without active session still proceeds (sessionID empty)', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileOnlyEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(applyV2OK());
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const opts = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0][2] as { sessionID: string };
+        expect(opts.sessionID).toBe('');
+    });
+
+    it('direct YAML Apply for v2 inventory.workspace preview without session shows error and never calls the binding', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2InventoryImportedPreview());
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const applyBtn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(applyBtn);
+        });
+
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(toastError.mock.calls[0][0]).toMatch(/Sort Order workspace/i);
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+        // Preview must stay open so the user can fix and retry.
+        expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+    });
+
+    it('direct YAML Apply for v2 inventory.workspace preview WITH session forwards sessionID', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2InventoryImportedPreview());
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: ACTIVE_SESSION_ID });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OK());
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const applyBtn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(applyBtn);
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const opts = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0][2] as { sessionID: string };
+        expect(opts.sessionID).toBe(ACTIVE_SESSION_ID);
+    });
+
+    it('Apply with overrides on a mutated JSON that nominates inventory.workspace requires a session', async () => {
+        const mutated = JSON.stringify({
+            schema: 'saveforge.build-template',
+            version: 2,
+            selection: { 'inventory.workspace': true, profile: { level: true } },
+            sections: { profile: { level: 99 }, 'inventory.workspace': { inventoryItems: [], storageItems: [] } },
+        });
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            v2InventoryImportedPreview({
+                selectedSections: ['profile', 'inventory.workspace'],
+                canonical: mutated,
+            }),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const overridesBtn = await screen.findByTestId('import-preview-apply-v2-overrides');
+        await act(async () => {
+            fireEvent.click(overridesBtn);
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(toastError.mock.calls.some(c => /Sort Order workspace/i.test(c[0] as string))).toBe(true);
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+    });
+
+    it('Apply with overrides on a mutated JSON without inventory.workspace proceeds without session', async () => {
+        const mutated = JSON.stringify({
+            schema: 'saveforge.build-template',
+            version: 2,
+            selection: { profile: { level: true } },
+            sections: { profile: { level: 75 } },
+        });
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            v2InventoryImportedPreview({
+                selectedSections: ['profile'],
+                canonical: mutated,
+            }),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OK({ appliedFields: ['profile.level'] }));
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const overridesBtn = await screen.findByTestId('import-preview-apply-v2-overrides');
+        await act(async () => {
+            fireEvent.click(overridesBtn);
+        });
+        await screen.findByTestId('apply-overrides-modal');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('apply-overrides-apply'));
+        });
+
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const opts = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0][2] as { sessionID: string };
+        expect(opts.sessionID).toBe('');
     });
 });

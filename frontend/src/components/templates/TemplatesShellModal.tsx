@@ -4,6 +4,7 @@ import {
     ApplyBuildTemplateV2FromLibraryToCharacter,
     ApplyBuildTemplateV2ToCharacterJSON,
     ExportLibraryBuildTemplateAsYAMLToFile,
+    GetActiveInventoryEditSessionForCharacter,
     PreviewBuildTemplateFromLibrary,
     PreviewBuildTemplateImportYAMLFromFile,
     PreviewBuildTemplateImportYAMLFromURL,
@@ -72,6 +73,62 @@ interface ImportedYAMLPreview {
 type OverridesSource =
     | { kind: 'import'; canonicalJSON: string; sourceLabel: string; path: string }
     | { kind: 'library'; canonicalJSON: string; sourceLabel: string; entryID: string };
+
+// INVENTORY_WORKSPACE_SECTION is the canonical selection key used by
+// the backend schema. Kept as a constant so the two call sites that
+// peek into a template's selectedSections list agree on the spelling.
+const INVENTORY_WORKSPACE_SECTION = 'inventory.workspace';
+
+// NO_SESSION_MESSAGE is the shared toast/inline copy surfaced when the
+// user tries to apply a v2 inventory.workspace template without an
+// active Inventory Edit Session. The string mirrors the backend's
+// IssueCodeInventorySessionRequired message so frontend + backend stay
+// in lock-step.
+const NO_SESSION_MESSAGE =
+    'Open the Sort Order workspace before applying inventory templates.';
+
+// fetchActiveSessionID resolves the current session ID for the given
+// character via the read-only Wails endpoint. Returns undefined when
+// there is no active session — the caller decides whether that is a
+// hard error (inventory.workspace template) or a no-op (profile/stats
+// template that doesn't need a session).
+async function fetchActiveSessionID(charIndex: number): Promise<string | undefined> {
+    try {
+        const res = await GetActiveInventoryEditSessionForCharacter(charIndex);
+        if (res && res.active && res.sessionID) {
+            return res.sessionID;
+        }
+    } catch {
+        // The endpoint is best-effort. Treat a backend error the same
+        // as "no active session"; the apply path will refuse loudly if
+        // the template requires one.
+    }
+    return undefined;
+}
+
+// canonicalJSONNeedsSession returns true when the canonical JSON
+// payload's selection nominates inventory.workspace. Used by the
+// overrides confirm handler, which works on a mutated JSON blob rather
+// than a structured report.
+function canonicalJSONNeedsSession(canonical: string): boolean {
+    if (!canonical) return false;
+    try {
+        const parsed = JSON.parse(canonical) as {
+            selection?: { 'inventory.workspace'?: unknown };
+        };
+        const sel = parsed?.selection?.[INVENTORY_WORKSPACE_SECTION];
+        if (sel === undefined || sel === null) return false;
+        if (typeof sel === 'boolean') return sel;
+        if (typeof sel === 'object') {
+            for (const v of Object.values(sel as Record<string, unknown>)) {
+                if (v === true) return true;
+            }
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
 
 export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacterTemplateApplied }: Props) {
     const [libraryPreview, setLibraryPreview] = useState<templates.ImportPreviewReport | null>(null);
@@ -207,12 +264,30 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 toast.error(`Templates: ${msg}`);
                 throw new Error(msg);
             }
+            // Phase 7a — inventory.workspace templates require an
+            // active Inventory Edit Session for the same charIndex. We
+            // look it up before sending the apply so the user sees the
+            // "Open the Sort Order workspace first" guidance instead
+            // of a generic backend error. Profile/stats-only entries
+            // do not need a session; we still forward the ID if one
+            // happens to be open so the user can apply mixed templates
+            // in the same pass later without re-opening the workspace.
+            const selectedSections = entry.selectedSections ?? [];
+            const needsSession = selectedSections.includes(INVENTORY_WORKSPACE_SECTION);
+            const sessionID = await fetchActiveSessionID(charIndex);
+            if (needsSession && !sessionID) {
+                toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
+                throw new Error(NO_SESSION_MESSAGE);
+            }
             let result: main.ApplyTemplateV2Result;
             try {
                 result = await ApplyBuildTemplateV2FromLibraryToCharacter(
                     charIndex,
                     entry.id,
-                    main.ApplyTemplateV2Options.createFrom({ mode: 'append' }),
+                    main.ApplyTemplateV2Options.createFrom({
+                        mode: 'append',
+                        sessionID: sessionID ?? '',
+                    }),
                 );
             } catch (err) {
                 toast.error(`Templates: ${String(err)}`);
@@ -328,12 +403,26 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             if (!overridesSource) return;
             if (!saveLoaded || charIndex === undefined) return;
             if (applyingV2WithOverrides) return;
+            // Phase 7a — Apply with overrides may forward a template
+            // that carries inventory.workspace alongside the edited
+            // profile/stats. Inspect the mutated JSON itself (it is
+            // the source of truth at confirm time) and gate on session
+            // availability before invoking the apply binding.
+            const needsSession = canonicalJSONNeedsSession(mutatedJSON);
+            const sessionID = await fetchActiveSessionID(charIndex);
+            if (needsSession && !sessionID) {
+                toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
+                return;
+            }
             setApplyingV2WithOverrides(true);
             try {
                 const result = await ApplyBuildTemplateV2ToCharacterJSON(
                     charIndex,
                     mutatedJSON,
-                    main.ApplyTemplateV2Options.createFrom({ mode: 'append' }),
+                    main.ApplyTemplateV2Options.createFrom({
+                        mode: 'append',
+                        sessionID: sessionID ?? '',
+                    }),
                 );
                 if (!result.applied) {
                     const firstErr = result.preview?.errors?.[0]?.message ?? 'Apply did not complete.';
@@ -375,12 +464,26 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
         if (!importedPreview.canonicalJSON) return;
         if (!saveLoaded || charIndex === undefined) return;
         if (applyingV2FromImport) return;
+        // Phase 7a — inventory.workspace templates need an active
+        // session. The preview summary lists the selected sections;
+        // when it includes inventory.workspace and no session is open,
+        // refuse before the apply binding is invoked.
+        const selectedSections = importedPreview.report.summary?.selectedSections ?? [];
+        const needsSession = selectedSections.includes(INVENTORY_WORKSPACE_SECTION);
+        const sessionID = await fetchActiveSessionID(charIndex);
+        if (needsSession && !sessionID) {
+            toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
+            return;
+        }
         setApplyingV2FromImport(true);
         try {
             const result = await ApplyBuildTemplateV2ToCharacterJSON(
                 charIndex,
                 importedPreview.canonicalJSON,
-                main.ApplyTemplateV2Options.createFrom({ mode: 'append' }),
+                main.ApplyTemplateV2Options.createFrom({
+                    mode: 'append',
+                    sessionID: sessionID ?? '',
+                }),
             );
             if (!result.applied) {
                 const firstErr = result.preview?.errors?.[0]?.message ?? 'Apply did not complete.';

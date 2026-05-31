@@ -84,6 +84,8 @@ export function ExportLibraryBuildTemplateAsYAMLToFile(arg1:string):Promise<main
 
 export function ExportLibraryBuildTemplateToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
 
+export function GetActiveInventoryEditSessionForCharacter(arg1:number):Promise<main.ActiveInventoryEditSession>;
+
 export function GetActiveSlots():Promise<Array<boolean>>;
 
 export function GetAoWAvailability(arg1:number):Promise<Array<vm.AoWAvailabilityEntry>>;

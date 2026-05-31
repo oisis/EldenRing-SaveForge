@@ -5,6 +5,7 @@ import (
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 	"github.com/oisis/EldenRing-SaveForge/backend/templates"
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -14,8 +15,18 @@ import (
 // Mode is a forward-compat string; Phase 5A only accepts "append" (the
 // default and only mode). Replace / merge modes are intentionally rejected
 // until later phases ship the corresponding semantics.
+//
+// Phase 7a — SessionID. When the v2 template's selection nominates
+// inventory.workspace, the caller MUST provide the ID of an active
+// Inventory Edit Session that targets the same charIdx. The apply path
+// resolves the session via App.acquireSession (long-lived per-session
+// mutex held across the workspace mutation) and rolls the workspace
+// snapshot back on any error. Profile/stats-only applies ignore the
+// field — passing it for a non-inventory template is accepted silently
+// so the frontend may unconditionally send the active session ID.
 type ApplyTemplateV2Options struct {
-	Mode string `json:"mode,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	SessionID string `json:"sessionID,omitempty"`
 }
 
 // ApplyTemplateV2Result is the dual-purpose return of
@@ -36,6 +47,15 @@ type ApplyTemplateV2Result struct {
 	AppliedFields []string                      `json:"appliedFields"`
 	SkippedFields []string                      `json:"skippedFields"`
 	Character     *vm.CharacterViewModel        `json:"character,omitempty"`
+
+	// Phase 7a — inventory.workspace apply counters. Populated only
+	// when sections.inventory.workspace was actually applied (selection
+	// present + active session). Profile/stats-only applies leave both
+	// counters at zero. Workspace is the post-apply snapshot of the
+	// active session; nil when no workspace mutation happened.
+	InventoryItemsApplied int                                `json:"inventoryItemsApplied"`
+	StorageItemsApplied   int                                `json:"storageItemsApplied"`
+	Workspace             *editor.InventoryWorkspaceSnapshot `json:"workspace,omitempty"`
 }
 
 // Canonical apply ordering. Defined once so the AppliedFields /
@@ -158,23 +178,10 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}, nil
 	}
 
-	// Phase 5A scope check — only profile / stats may apply.
-	if tpl.Selection != nil && tpl.Selection.InventoryWorkspace.HasAny() {
-		report.OK = false
-		report.Errors = append(report.Errors, templates.ImportPreviewIssue{
-			Severity: "error",
-			Code:     templates.IssueCodeUnsupportedCategory,
-			Message:  "schema v2 inventory.workspace apply is not supported in Phase 5",
-		})
-		return ApplyTemplateV2Result{
-			CharIndex: charIdx,
-			Preview:   report,
-			Applied:   false,
-		}, nil
-	}
 	hasProfile := tpl.Selection != nil && tpl.Selection.Profile.HasAny()
 	hasStats := tpl.Selection != nil && tpl.Selection.Stats.HasAny()
-	if !hasProfile && !hasStats {
+	hasInventory := tpl.Selection != nil && tpl.Selection.InventoryWorkspace.HasAny()
+	if !hasProfile && !hasStats && !hasInventory {
 		// ValidateBuildTemplate already rejects an empty selection
 		// (HasAnySelected == false) — this branch defends against future
 		// validator drift.
@@ -182,7 +189,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		report.Errors = append(report.Errors, templates.ImportPreviewIssue{
 			Severity: "error",
 			Code:     templates.IssueCodeStructureInvalid,
-			Message:  "schema v2 template selects neither profile nor stats",
+			Message:  "schema v2 template selects neither profile, stats, nor inventory.workspace",
 		})
 		return ApplyTemplateV2Result{
 			CharIndex: charIdx,
@@ -191,24 +198,77 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}, nil
 	}
 
-	// Edit session conflict — short read on the registry lock so the
-	// rejection happens before we take slotMu and the caller sees a
-	// fast, clear error.
-	a.editSessionsMu.Lock()
-	_, sessionConflict := a.editSessionByChar[charIdx]
-	a.editSessionsMu.Unlock()
-	if sessionConflict {
-		report.OK = false
-		report.Errors = append(report.Errors, templates.ImportPreviewIssue{
-			Severity: "error",
-			Code:     templates.IssueCodeStructureInvalid,
-			Message:  fmt.Sprintf("close the inventory edit session for slot %d before applying a schema v2 character template", charIdx),
-		})
-		return ApplyTemplateV2Result{
-			CharIndex: charIdx,
-			Preview:   report,
-			Applied:   false,
-		}, nil
+	// Phase 7a — v2 inventory.workspace session gating.
+	//
+	// Mode A: hasInventory=false → preserve the Phase 5 behaviour. An
+	// active session for this character is a CONFLICT (we would race
+	// it), so we refuse fast with the existing "close the session"
+	// hint. opts.SessionID is silently ignored — the frontend may pass
+	// it speculatively whenever a session happens to exist.
+	//
+	// Mode B: hasInventory=true → the apply REQUIRES a matching active
+	// session. Empty SessionID → hard reject (IssueCodeInventorySessionRequired).
+	// Unknown ID, closed session, or session targeting a different
+	// character → hard reject (IssueCodeInventorySessionInvalid). On
+	// success, sess.Acquire() returns with the per-session mutex held;
+	// we defer Unlock so every error path releases it.
+	//
+	// Lock order matches SaveInventoryWorkspaceChanges:
+	//   saveMu.RLock (already held) → editSessionsMu (short) →
+	//   sess.mu (long, via acquireSession) → slotMu[charIdx].
+	var sess *editor.InventoryEditSession
+	if hasInventory {
+		if opts.SessionID == "" {
+			report.OK = false
+			report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+				Severity: "error",
+				Code:     templates.IssueCodeInventorySessionRequired,
+				Message:  "Open the Sort Order workspace before applying inventory templates.",
+			})
+			return ApplyTemplateV2Result{CharIndex: charIdx, Preview: report, Applied: false}, nil
+		}
+		s, err := a.acquireSession(opts.SessionID)
+		if err != nil {
+			report.OK = false
+			report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+				Severity: "error",
+				Code:     templates.IssueCodeInventorySessionInvalid,
+				Message:  fmt.Sprintf("inventory edit session %q is not active; reopen the Sort Order workspace.", opts.SessionID),
+			})
+			return ApplyTemplateV2Result{CharIndex: charIdx, Preview: report, Applied: false}, nil
+		}
+		if s.CharacterIndex != charIdx {
+			s.Unlock()
+			report.OK = false
+			report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+				Severity: "error",
+				Code:     templates.IssueCodeInventorySessionInvalid,
+				Message:  fmt.Sprintf("inventory edit session %q targets character slot %d, not slot %d.", opts.SessionID, s.CharacterIndex+1, charIdx+1),
+			})
+			return ApplyTemplateV2Result{CharIndex: charIdx, Preview: report, Applied: false}, nil
+		}
+		sess = s
+		defer sess.Unlock()
+	} else {
+		// Edit session conflict — short read on the registry lock so the
+		// rejection happens before we take slotMu and the caller sees a
+		// fast, clear error.
+		a.editSessionsMu.Lock()
+		_, sessionConflict := a.editSessionByChar[charIdx]
+		a.editSessionsMu.Unlock()
+		if sessionConflict {
+			report.OK = false
+			report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+				Severity: "error",
+				Code:     templates.IssueCodeStructureInvalid,
+				Message:  fmt.Sprintf("close the inventory edit session for slot %d before applying a schema v2 character template", charIdx),
+			})
+			return ApplyTemplateV2Result{
+				CharIndex: charIdx,
+				Preview:   report,
+				Applied:   false,
+			}, nil
+		}
 	}
 
 	a.slotMu[charIdx].Lock()
@@ -231,9 +291,48 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	slot := &a.save.Slots[charIdx]
 	snapshot := core.SnapshotSlot(slot)
 
+	// Phase 7a — workspace snapshot for atomic rollback in the
+	// mixed-apply case. Only taken when the apply will touch the
+	// workspace; otherwise we keep the profile/stats-only fast path
+	// allocation-free. The session lock is already held above.
+	var workspaceBackup editor.InventoryWorkspaceSnapshot
+	if hasInventory {
+		workspaceBackup = deepCopySnapshot(sess.Workspace)
+	}
+
+	// rollbackBoth restores both slot bytes and (when held) the
+	// workspace snapshot. Used by every error exit below so a partial
+	// profile/stats write never leaves the workspace dirty, and a
+	// partial inventory write never leaves slot.Data modified.
+	rollbackBoth := func() {
+		core.RestoreSlot(slot, snapshot)
+		if hasInventory {
+			sess.Workspace = workspaceBackup
+		}
+	}
+
+	// Phase 7a — capacity preflight for inventory.workspace BEFORE any
+	// mutation. Mirrors the v1 ApplyBuildTemplateToWorkspaceJSON guard so
+	// a "would not fit" diagnosis surfaces as a preview error without
+	// touching either snapshot.
+	if hasInventory {
+		sec := tpl.Sections.InventoryWorkspace
+		if sec != nil {
+			if capacityIssues := capacityPreflight(sess.Workspace, sec); len(capacityIssues) > 0 {
+				report.Errors = append(report.Errors, capacityIssues...)
+				report.OK = false
+				return ApplyTemplateV2Result{
+					CharIndex: charIdx,
+					Preview:   report,
+					Applied:   false,
+				}, nil
+			}
+		}
+	}
+
 	charVM, err := vm.MapParsedSlotToVM(slot)
 	if err != nil {
-		core.RestoreSlot(slot, snapshot)
+		rollbackBoth()
 		return ApplyTemplateV2Result{CharIndex: charIdx, Preview: report, Applied: false}, fmt.Errorf("ApplyBuildTemplateV2: map slot to VM: %w", err)
 	}
 
@@ -249,11 +348,50 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		skipped = append(skipped, sk...)
 	}
 
+	// Phase 7a — inventory.workspace apply runs against the workspace
+	// snapshot through the same applyTemplateItemsToWorkspace helper
+	// the v1 path uses. Phase 6b weapon level override is intentionally
+	// not threaded into this path — the override field on
+	// ApplyTemplateV2Options stays nil for the entire Phase 7a slice
+	// (separate Phase 7a.2 will lift it on a follow-up turn).
+	var inventoryItemsApplied, storageItemsApplied int
+	if hasInventory {
+		sec := tpl.Sections.InventoryWorkspace
+		if sec != nil {
+			invWarn, applyErr := applyTemplateItemsToWorkspace(&sess.Workspace, sec.InventoryItems, editor.ContainerInventory, nil)
+			if applyErr != nil {
+				rollbackBoth()
+				return ApplyTemplateV2Result{
+					CharIndex: charIdx,
+					Preview:   buildApplyErrorReport(report, applyErr),
+					Applied:   false,
+				}, nil
+			}
+			stoWarn, applyErr := applyTemplateItemsToWorkspace(&sess.Workspace, sec.StorageItems, editor.ContainerStorage, nil)
+			if applyErr != nil {
+				rollbackBoth()
+				return ApplyTemplateV2Result{
+					CharIndex: charIdx,
+					Preview:   buildApplyErrorReport(report, applyErr),
+					Applied:   false,
+				}, nil
+			}
+			report.Warnings = append(report.Warnings, invWarn...)
+			report.Warnings = append(report.Warnings, stoWarn...)
+			inventoryItemsApplied = len(sec.InventoryItems)
+			storageItemsApplied = len(sec.StorageItems)
+			if inventoryItemsApplied > 0 || storageItemsApplied > 0 {
+				applied = append(applied, "inventory.workspace")
+			}
+		}
+	}
+
 	if len(applied) == 0 {
-		// Selection nominated fields but the corresponding section was
-		// nil for all of them — nothing to write. Returning Applied=false
-		// without taking pushUndoLocked / mutating slot keeps the no-op
-		// audit-clean.
+		// Selection nominated sections but none had anything to write.
+		// Workspace untouched (capacity preflight passed for empty
+		// items; applyTemplateItemsToWorkspace was a no-op). Profile/
+		// stats sections were nil for every selected field. No undo
+		// push, no mutation — audit-clean no-op.
 		return ApplyTemplateV2Result{
 			CharIndex:     charIdx,
 			Preview:       report,
@@ -263,52 +401,78 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}, nil
 	}
 
+	profileOrStatsApplied := false
+	for _, f := range applied {
+		if f == "inventory.workspace" {
+			continue
+		}
+		profileOrStatsApplied = true
+		break
+	}
+
 	clearCountApplied := containsString(applied, "profile.clearCount")
 	nameApplied := containsString(applied, "profile.name")
 	levelApplied := containsString(applied, "profile.level")
 
 	a.pushUndoLocked(charIdx)
 
-	if err := vm.ApplyVMToParsedSlot(charVM, slot); err != nil {
-		core.RestoreSlot(slot, snapshot)
-		return ApplyTemplateV2Result{CharIndex: charIdx, Preview: report, Applied: false}, fmt.Errorf("ApplyBuildTemplateV2: apply VM: %w", err)
-	}
-	slot.SyncPlayerToData()
+	if profileOrStatsApplied {
+		if err := vm.ApplyVMToParsedSlot(charVM, slot); err != nil {
+			rollbackBoth()
+			return ApplyTemplateV2Result{CharIndex: charIdx, Preview: report, Applied: false}, fmt.Errorf("ApplyBuildTemplateV2: apply VM: %w", err)
+		}
+		slot.SyncPlayerToData()
 
-	// NG+ event flag sync — mirror SaveCharacter (app.go:339-345). The
-	// per-slot offset / buffer guards match the existing pattern; we only
-	// touch flags 50..57 and only when clearCount actually landed.
-	if clearCountApplied && slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-		flags := slot.Data[slot.EventFlagsOffset:]
-		for i := uint32(0); i <= 7; i++ {
-			_ = db.SetEventFlag(flags, 50+i, i == slot.Player.ClearCount)
+		// NG+ event flag sync — mirror SaveCharacter (app.go:339-345). The
+		// per-slot offset / buffer guards match the existing pattern; we only
+		// touch flags 50..57 and only when clearCount actually landed.
+		if clearCountApplied && slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+			flags := slot.Data[slot.EventFlagsOffset:]
+			for i := uint32(0); i <= 7; i++ {
+				_ = db.SetEventFlag(flags, 50+i, i == slot.Player.ClearCount)
+			}
+		}
+
+		// ProfileSummary update — only the menu fields the apply actually
+		// changed. Mirrors SaveCharacter at app.go:347-349 but split so a
+		// stats-only apply does not pointlessly rewrite the summary.
+		if levelApplied {
+			a.save.ProfileSummaries[charIdx].Level = a.save.Slots[charIdx].Player.Level
+		}
+		if nameApplied {
+			copy(a.save.ProfileSummaries[charIdx].CharacterName[:], a.save.Slots[charIdx].Player.CharacterName[:])
 		}
 	}
 
-	// ProfileSummary update — only the menu fields the apply actually
-	// changed. Mirrors SaveCharacter at app.go:347-349 but split so a
-	// stats-only apply does not pointlessly rewrite the summary.
-	if levelApplied {
-		a.save.ProfileSummaries[charIdx].Level = a.save.Slots[charIdx].Player.Level
-	}
-	if nameApplied {
-		copy(a.save.ProfileSummaries[charIdx].CharacterName[:], a.save.Slots[charIdx].Player.CharacterName[:])
+	// Phase 7a — mark the workspace dirty + revalidate when items
+	// actually landed. Mirrors the v1 ApplyBuildTemplateToWorkspaceJSON
+	// success tail so the user still commits by clicking Save changes.
+	if hasInventory && (inventoryItemsApplied > 0 || storageItemsApplied > 0) {
+		sess.Workspace.Dirty = true
+		sess.Workspace.Validation = editor.Validate(sess.Workspace)
 	}
 
 	freshVM, err := vm.MapParsedSlotToVM(slot)
 	if err != nil {
-		core.RestoreSlot(slot, snapshot)
+		rollbackBoth()
 		return ApplyTemplateV2Result{CharIndex: charIdx, Preview: report, Applied: false}, fmt.Errorf("ApplyBuildTemplateV2: re-read VM: %w", err)
 	}
 
-	return ApplyTemplateV2Result{
-		CharIndex:     charIdx,
-		Preview:       report,
-		Applied:       true,
-		AppliedFields: applied,
-		SkippedFields: skipped,
-		Character:     freshVM,
-	}, nil
+	result := ApplyTemplateV2Result{
+		CharIndex:             charIdx,
+		Preview:               report,
+		Applied:               true,
+		AppliedFields:         applied,
+		SkippedFields:         skipped,
+		Character:             freshVM,
+		InventoryItemsApplied: inventoryItemsApplied,
+		StorageItemsApplied:   storageItemsApplied,
+	}
+	if hasInventory {
+		ws := sess.Workspace
+		result.Workspace = &ws
+	}
+	return result, nil
 }
 
 // applyTemplateV2ProfileToVM mutates charVM with selected+present profile

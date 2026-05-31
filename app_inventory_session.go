@@ -151,6 +151,47 @@ func closeSession(s *editor.InventoryEditSession) {
 	}
 }
 
+// ActiveInventoryEditSession is the wire-shaped answer of
+// GetActiveInventoryEditSessionForCharacter. A clean value type so the
+// TypeScript binding ships with explicit Active/SessionID rather than a
+// nullable string the frontend would have to special-case.
+type ActiveInventoryEditSession struct {
+	Active    bool   `json:"active"`
+	SessionID string `json:"sessionID,omitempty"`
+}
+
+// GetActiveInventoryEditSessionForCharacter is a read-only lookup for
+// "does this character currently own an Inventory Edit Session, and if
+// so, what is its ID?". Phase 7a callers (Templates shell pre-Apply
+// gate) need this to decide whether the v2 inventory.workspace apply
+// path can run at all without forcing the user to start their own
+// session.
+//
+// Contract:
+//   - never creates a session;
+//   - never mutates state — only reads editSessionByChar under the
+//     registry lock;
+//   - tolerates out-of-range charIdx by returning {Active:false}
+//     instead of an error (the UI calls this opportunistically and we
+//     never want it to surface a "you forgot to load a save" toast
+//     that masks a real bug somewhere else).
+//
+// The session lock is NOT taken here; the returned SessionID is a
+// stable opaque token the caller hands back to the apply binding,
+// which re-acquires under the proper lock order.
+func (a *App) GetActiveInventoryEditSessionForCharacter(charIdx int) (ActiveInventoryEditSession, error) {
+	if charIdx < 0 || charIdx >= maxCharacters {
+		return ActiveInventoryEditSession{Active: false}, nil
+	}
+	a.editSessionsMu.Lock()
+	id, ok := a.editSessionByChar[charIdx]
+	a.editSessionsMu.Unlock()
+	if !ok {
+		return ActiveInventoryEditSession{Active: false}, nil
+	}
+	return ActiveInventoryEditSession{Active: true, SessionID: id}, nil
+}
+
 // GetInventoryEditSession returns the current workspace snapshot for a
 // session ID. Errors if the session is not active.
 //

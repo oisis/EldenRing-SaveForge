@@ -371,7 +371,13 @@ func TestApplyBuildTemplateV2_RejectsV1Template(t *testing.T) {
 
 // ─── 6. Reject inventory.workspace selection in v2 ────────────────────
 
-func TestApplyBuildTemplateV2_RejectsInventoryWorkspaceSelection(t *testing.T) {
+// TestApplyBuildTemplateV2_InventoryWorkspaceWithoutSessionRejected — Phase 7a
+// flips the original Phase 5 hard-reject into a session-gated reject. A v2
+// template selecting inventory.workspace WITHOUT an active session ID still
+// must not mutate the slot, but it now surfaces IssueCodeInventorySessionRequired
+// so the Templates shell can render the "Open the Sort Order workspace first"
+// guidance instead of the generic unsupported-category message.
+func TestApplyBuildTemplateV2_InventoryWorkspaceWithoutSessionRejected(t *testing.T) {
 	app := applyV2Fixture()
 	tpl := &templates.BuildTemplate{
 		Schema:     templates.SchemaKey,
@@ -400,17 +406,17 @@ func TestApplyBuildTemplateV2_RejectsInventoryWorkspaceSelection(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 	if res.Applied {
-		t.Fatal("Applied=true for inventory.workspace selection — Phase 5A must reject")
+		t.Fatal("Applied=true for inventory.workspace selection without session — must reject")
 	}
 	found := false
 	for _, issue := range res.Preview.Errors {
-		if issue.Code == templates.IssueCodeUnsupportedCategory {
+		if issue.Code == templates.IssueCodeInventorySessionRequired {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected IssueCodeUnsupportedCategory, got %+v", res.Preview.Errors)
+		t.Errorf("expected IssueCodeInventorySessionRequired, got %+v", res.Preview.Errors)
 	}
 	post := app.save.Slots[0].Player
 	if snapPlayer(post) != pre {
@@ -989,12 +995,14 @@ func TestApplyBuildTemplateV2FromLibrary_V1EntryRejected(t *testing.T) {
 	}
 }
 
-func TestApplyBuildTemplateV2FromLibrary_InventoryWorkspaceSelectionRejected(t *testing.T) {
+// TestApplyBuildTemplateV2FromLibrary_InventoryWorkspaceWithoutSessionRejected —
+// library wrapper preserves the Phase 7a gate verbatim. Same library entry,
+// no SessionID option supplied → IssueCodeInventorySessionRequired surfaces
+// through the delegation without mutating the slot.
+func TestApplyBuildTemplateV2FromLibrary_InventoryWorkspaceWithoutSessionRejected(t *testing.T) {
 	app := applyV2Fixture()
 	app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
 
-	// Persist a v2 template whose selection nominates inventory.workspace;
-	// the Phase 5A scope guard must reject regardless of source path.
 	tpl := &templates.BuildTemplate{
 		Schema:     templates.SchemaKey,
 		Version:    2,
@@ -1023,17 +1031,17 @@ func TestApplyBuildTemplateV2FromLibrary_InventoryWorkspaceSelectionRejected(t *
 		t.Fatalf("apply: %v", err)
 	}
 	if res.Applied {
-		t.Fatal("Applied=true for v2 entry with inventory.workspace selection")
+		t.Fatal("Applied=true for v2 entry with inventory.workspace selection and no session")
 	}
 	found := false
 	for _, issue := range res.Preview.Errors {
-		if issue.Code == templates.IssueCodeUnsupportedCategory {
+		if issue.Code == templates.IssueCodeInventorySessionRequired {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected IssueCodeUnsupportedCategory, got %+v", res.Preview.Errors)
+		t.Errorf("expected IssueCodeInventorySessionRequired, got %+v", res.Preview.Errors)
 	}
 	if snapPlayer(app.save.Slots[0].Player) != pre {
 		t.Errorf("slot mutated despite scope rejection")
@@ -1171,7 +1179,11 @@ func TestApplyBuildTemplateV2FromFileCore_MissingFile(t *testing.T) {
 	}
 }
 
-func TestApplyBuildTemplateV2FromFileCore_V2InventoryWorkspaceRejected(t *testing.T) {
+// TestApplyBuildTemplateV2FromFileCore_V2InventoryWorkspaceWithoutSessionRejected —
+// YAML-file wrapper preserves the Phase 7a gate verbatim. The dialog-less
+// core delegates to the JSON endpoint, so the session-required reject
+// surfaces unchanged across both source paths.
+func TestApplyBuildTemplateV2FromFileCore_V2InventoryWorkspaceWithoutSessionRejected(t *testing.T) {
 	app := applyV2Fixture()
 	tpl := &templates.BuildTemplate{
 		Schema:     templates.SchemaKey,
@@ -1202,17 +1214,17 @@ func TestApplyBuildTemplateV2FromFileCore_V2InventoryWorkspaceRejected(t *testin
 		t.Fatalf("apply: %v", err)
 	}
 	if res.Applied {
-		t.Fatal("Applied=true for v2 YAML with inventory.workspace selection")
+		t.Fatal("Applied=true for v2 YAML with inventory.workspace selection and no session")
 	}
 	found := false
 	for _, issue := range res.Preview.Errors {
-		if issue.Code == templates.IssueCodeUnsupportedCategory {
+		if issue.Code == templates.IssueCodeInventorySessionRequired {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected IssueCodeUnsupportedCategory, got %+v", res.Preview.Errors)
+		t.Errorf("expected IssueCodeInventorySessionRequired, got %+v", res.Preview.Errors)
 	}
 	if snapPlayer(app.save.Slots[0].Player) != pre {
 		t.Errorf("slot mutated despite scope rejection")

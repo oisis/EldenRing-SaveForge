@@ -593,7 +593,14 @@ describe('TemplateLibraryModal — Phase 5D.1 v2 Apply (library)', () => {
         expect(applyBtn).toHaveAttribute('aria-label', 'Select a character to apply this template');
     });
 
-    it('disables v2 Apply for inventory.workspace-only entries with the inventory-unsupported tooltip', async () => {
+    // Phase 7a: inventory.workspace entries are now applyable. The
+    // session lookup happens in the shell after the click, so the
+    // library button itself stays enabled and surfaces the normal
+    // "Apply schema v2 template..." tooltip. The "not supported yet"
+    // copy is reserved for v2 sections that have no apply path at all
+    // (e.g. future equipment / talismans / spells before their writers
+    // ship).
+    it('enables v2 Apply for inventory.workspace-only entries with the standard apply tooltip', async () => {
         mocks.ListBuildTemplateLibrary.mockResolvedValue([v2InventoryOnlyEntry]);
         const onApplyV2 = vi.fn();
         render(
@@ -602,9 +609,9 @@ describe('TemplateLibraryModal — Phase 5D.1 v2 Apply (library)', () => {
             />,
         );
         const applyBtn = await screen.findByTestId('library-apply');
-        expect(applyBtn).toBeDisabled();
-        expect(applyBtn).toHaveAttribute('title', 'Inventory apply for schema v2 is not supported yet');
-        expect(applyBtn).toHaveAttribute('aria-label', 'Inventory apply for schema v2 is not supported yet');
+        expect(applyBtn).toBeEnabled();
+        expect(applyBtn).toHaveAttribute('title', 'Apply schema v2 template to character slot 1');
+        expect(applyBtn).toHaveAttribute('aria-label', 'Apply');
     });
 
     it('clicking v2 Apply opens the inline confirm row; Cancel closes it and never calls onApplyV2', async () => {
@@ -696,7 +703,14 @@ describe('TemplateLibraryModal — Phase 5D.1 v2 Apply (library)', () => {
         expect(onApplyV2WithOverrides.mock.calls[0][0].id).toBe('tpl-v2-ps');
     });
 
-    it('Phase 6: v2 inventory.workspace-only entry does NOT render the overrides button', async () => {
+    // Phase 7a: inventory.workspace entries gain the overrides button
+    // because the overrides modal can still edit any embedded
+    // profile/stats fields the template carries; for inventory-only
+    // templates the modal simply renders no editable rows, which is a
+    // benign UX but does not violate the Phase 6 "overrides only edit
+    // profile/stats" contract — the inventory.workspace section flows
+    // through to the backend unchanged.
+    it('Phase 7a: v2 inventory.workspace-only entry renders the overrides button', async () => {
         mocks.ListBuildTemplateLibrary.mockResolvedValue([v2InventoryOnlyEntry]);
         render(
             <TemplateLibraryModal
@@ -709,8 +723,9 @@ describe('TemplateLibraryModal — Phase 5D.1 v2 Apply (library)', () => {
                 })}
             />,
         );
-        await screen.findByTestId('library-apply');
-        expect(screen.queryByTestId('library-apply-overrides')).not.toBeInTheDocument();
+        const btn = await screen.findByTestId('library-apply-overrides');
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeEnabled();
     });
 
     it('Phase 6: v1 entry does NOT render the overrides button', async () => {

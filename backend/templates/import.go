@@ -92,6 +92,13 @@ const (
 	// warnings on the apply report; never block the apply.
 	IssueCodeWeaponLevelClamped  = "weapon_level_clamped"
 	IssueCodeWeaponUnupgradeable = "weapon_unupgradeable"
+
+	// Phase 7a — v2 inventory.workspace apply session requirements.
+	// Both codes hard-reject the apply with a non-OK report so the UI
+	// can surface the "Open the Sort Order workspace first" guidance
+	// without ever mutating the slot or the workspace.
+	IssueCodeInventorySessionRequired = "inventory_session_required"
+	IssueCodeInventorySessionInvalid  = "inventory_session_invalid"
 )
 
 // ashCategory is the DB tag for an Ash of War item. Used to detect

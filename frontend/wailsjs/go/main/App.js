@@ -154,6 +154,10 @@ export function ExportLibraryBuildTemplateToFile(arg1) {
   return window['go']['main']['App']['ExportLibraryBuildTemplateToFile'](arg1);
 }
 
+export function GetActiveInventoryEditSessionForCharacter(arg1) {
+  return window['go']['main']['App']['GetActiveInventoryEditSessionForCharacter'](arg1);
+}
+
 export function GetActiveSlots() {
   return window['go']['main']['App']['GetActiveSlots']();
 }

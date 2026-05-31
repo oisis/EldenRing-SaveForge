@@ -52,11 +52,15 @@ interface Props {
     onApplyV2WithOverrides?: () => void;
 }
 
-// V2_APPLY_SUPPORTED_SECTIONS — the only selectedSections values for
-// which the Phase 5 backend apply layer accepts a v2 template. Mirrors
-// the backend scope guard in app_templates_v2_apply.go so the UI never
-// offers a button that the backend would refuse.
-const V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats'];
+// V2_APPLY_SUPPORTED_SECTIONS — selectedSections values the backend
+// v2 apply layer accepts. Phase 5 added profile/stats; Phase 7a added
+// inventory.workspace behind an active-session check that the SHELL
+// performs after the user clicks Apply (the modal does not know
+// whether a session is currently open). The button stays enabled here
+// for inventory.workspace templates and the shell either forwards the
+// session ID or surfaces the "Open the Sort Order workspace first"
+// toast.
+const V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats', 'inventory.workspace'];
 
 export function ImportTemplatePreviewModal({
     report,
