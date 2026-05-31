@@ -508,3 +508,38 @@ func TestValidate_PendingAoWValidIsOK(t *testing.T) {
 		t.Fatalf("expected OK=true, errors=%+v", rep.Errors)
 	}
 }
+
+// TestClampUpgrade exercises the pure relocated helper across the
+// boundary conditions used by app.AddItemsToCharacter (somber +10 cap,
+// standard +25 cap, ashes MaxUpgrade=10) and the defensive degenerate
+// inputs. Behaviour must match the pre-relocation app.go:clampUpgrade
+// byte-for-byte.
+func TestClampUpgrade(t *testing.T) {
+	cases := []struct {
+		name     string
+		req, max int
+		want     int
+	}{
+		{"somber_over_cap", 25, 10, 10},
+		{"somber_exact_cap", 10, 10, 10},
+		{"somber_in_range", 5, 10, 5},
+		{"standard_exact_cap", 25, 25, 25},
+		{"standard_in_range", 12, 25, 12},
+		{"standard_over_cap", 99, 25, 25},
+		{"zero_request", 0, 10, 0},
+		{"zero_request_zero_cap", 0, 0, 0},
+		{"non_upgradeable_cap", 7, 0, 0},
+		{"negative_request_floored", -3, 10, 0},
+		{"negative_request_zero_cap", -1, 0, 0},
+		{"negative_cap_treated_as_zero", 12, -1, 0},
+		{"negative_request_and_cap", -5, -5, 0},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			if got := ClampUpgrade(c.req, c.max); got != c.want {
+				t.Errorf("ClampUpgrade(%d, %d) = %d, want %d", c.req, c.max, got, c.want)
+			}
+		})
+	}
+}

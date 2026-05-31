@@ -516,22 +516,6 @@ func weaponCategorySupportsInfusion(category string) bool {
 // Container-gated items (Throwing Pots, Aromatics) are best-effort: qty is trimmed
 // to fit the container cap without blocking the batch. Trimmed items are reported
 // in AddResult.Trimmed.
-// clampUpgrade bounds a requested upgrade level to [0, max]. Used by the add
-// path so the encoded item ID can never carry a level above the item's real
-// MaxUpgrade (which would produce a permanently out-of-range item).
-func clampUpgrade(requested, max int) int {
-	if max < 0 {
-		max = 0
-	}
-	if requested < 0 {
-		return 0
-	}
-	if requested > max {
-		return max
-	}
-	return requested
-}
-
 func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int) (AddResult, error) {
 	result := AddResult{Requested: len(itemIDs)}
 
@@ -648,16 +632,16 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		// value would produce a permanently invalid item the editor then rejects.
 		switch {
 		case itemData.Category == "ashes":
-			finalID = id + uint32(clampUpgrade(upgradeAsh, int(itemData.MaxUpgrade)))
+			finalID = id + uint32(editor.ClampUpgrade(upgradeAsh, int(itemData.MaxUpgrade)))
 		case itemData.MaxUpgrade == 25:
-			lvl := clampUpgrade(upgrade25, int(itemData.MaxUpgrade))
+			lvl := editor.ClampUpgrade(upgrade25, int(itemData.MaxUpgrade))
 			if infuseOffset != 0 && weaponCategorySupportsInfusion(itemData.Category) {
 				finalID = id + uint32(infuseOffset) + uint32(lvl)
 			} else {
 				finalID = id + uint32(lvl)
 			}
 		case itemData.MaxUpgrade == 10:
-			finalID = id + uint32(clampUpgrade(upgrade10, int(itemData.MaxUpgrade)))
+			finalID = id + uint32(editor.ClampUpgrade(upgrade10, int(itemData.MaxUpgrade)))
 		}
 
 		actualInv := resolveQty(invQty, int(itemData.MaxInventory))

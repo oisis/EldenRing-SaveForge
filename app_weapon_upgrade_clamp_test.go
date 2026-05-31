@@ -5,10 +5,15 @@ import (
 	"testing"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 )
 
-// TestClampUpgrade covers the pure bound helper used by the add path.
-func TestClampUpgrade(t *testing.T) {
+// TestClampUpgrade_AppPathContract pins the contract the add path relies
+// on. The pure-function tests for editor.ClampUpgrade live in
+// backend/editor/weapon_test.go; this case set is kept here as a
+// regression guard so the relocation doesn't silently change semantics
+// on the caller side.
+func TestClampUpgrade_AppPathContract(t *testing.T) {
 	cases := []struct{ req, max, want int }{
 		{25, 10, 10}, // somber weapon: over-cap clamped down
 		{25, 25, 25}, // standard weapon: exact max allowed
@@ -19,8 +24,8 @@ func TestClampUpgrade(t *testing.T) {
 		{12, -1, 0},  // defensive: negative max treated as 0
 	}
 	for _, c := range cases {
-		if got := clampUpgrade(c.req, c.max); got != c.want {
-			t.Errorf("clampUpgrade(%d, %d) = %d, want %d", c.req, c.max, got, c.want)
+		if got := editor.ClampUpgrade(c.req, c.max); got != c.want {
+			t.Errorf("editor.ClampUpgrade(%d, %d) = %d, want %d", c.req, c.max, got, c.want)
 		}
 	}
 }

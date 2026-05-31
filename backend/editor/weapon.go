@@ -198,3 +198,22 @@ func isKnownInfusion(name string) bool {
 	}
 	return false
 }
+
+// ClampUpgrade bounds a requested upgrade level to [0, max]. Used by the
+// add path so the encoded item ID can never carry a level above the
+// item's real MaxUpgrade (which would produce a permanently
+// out-of-range item). Relocated from app.go so backend packages (e.g.
+// the templates plan layer planned in spec/56 §14.4) can reuse it
+// without pulling in the main package.
+func ClampUpgrade(requested, max int) int {
+	if max < 0 {
+		max = 0
+	}
+	if requested < 0 {
+		return 0
+	}
+	if requested > max {
+		return max
+	}
+	return requested
+}
