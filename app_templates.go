@@ -433,8 +433,43 @@ func cancelledPreviewReport() templates.ImportPreviewReport {
 // ApplyTemplateOptions controls the merge strategy when copying template
 // items into the workspace. Phase D ships only "append" (the default).
 // "replace-inventory" and "replace-all" are reserved.
+//
+// Phase 6b adds WeaponLevelOverride — an apply-time runtime option that
+// overrides upgrade levels for weapons added by this apply (split into
+// independent standard / somber selectors). The override is NOT part of
+// the template schema; it is the recipient's choice at apply time and is
+// applied AFTER the template's own Upgrade/Infusion/AoW patches, only
+// inside the active inventory edit session (no slot mutation).
 type ApplyTemplateOptions struct {
-	Mode string `json:"mode,omitempty"`
+	Mode                string               `json:"mode,omitempty"`
+	WeaponLevelOverride *WeaponLevelOverride `json:"weaponLevelOverride,omitempty"`
+}
+
+// WeaponLevelOverride is the Phase 6b apply-time override of upgrade
+// levels for weapons added by an inventory template apply. Standard
+// (`MaxUpgrade==25`) and Somber (`MaxUpgrade==10`) weapons are addressed
+// independently; either pointer may be nil for "leave that class
+// unchanged". Enabled=false (the zero value) is a no-op pass-through.
+//
+// Range is enforced by editor.ClampUpgrade: negative requests collapse
+// to 0 and over-max requests clamp to MaxUpgrade with a warning. The
+// override only writes the Upgrade field; Infusion and AoW are not
+// touched here.
+type WeaponLevelOverride struct {
+	Enabled       bool `json:"enabled,omitempty"`
+	StandardLevel *int `json:"standardLevel,omitempty"`
+	SomberLevel   *int `json:"somberLevel,omitempty"`
+}
+
+// HasAny reports whether the override would touch any weapon. A nil
+// override, an override with Enabled=false, or an enabled override with
+// both pointers nil are all no-ops; the apply path short-circuits in
+// each case.
+func (o *WeaponLevelOverride) HasAny() bool {
+	if o == nil || !o.Enabled {
+		return false
+	}
+	return o.StandardLevel != nil || o.SomberLevel != nil
 }
 
 // ApplyTemplateResult is the dual-purpose return of an Apply call. When
@@ -480,6 +515,9 @@ func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText strin
 	}
 	if mode != "append" {
 		return ApplyTemplateResult{}, fmt.Errorf("ApplyBuildTemplate: unsupported import mode %q (Phase D only ships %q)", mode, "append")
+	}
+	if err := validateWeaponLevelOverride(opts.WeaponLevelOverride); err != nil {
+		return ApplyTemplateResult{}, err
 	}
 
 	sess, err := a.acquireSession(sessionID)
@@ -552,7 +590,8 @@ func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText strin
 	// the apply path cannot accidentally mutate through.
 	backup := deepCopySnapshot(sess.Workspace)
 
-	if err := applyTemplateItemsToWorkspace(&sess.Workspace, sec.InventoryItems, editor.ContainerInventory); err != nil {
+	invWarnings, err := applyTemplateItemsToWorkspace(&sess.Workspace, sec.InventoryItems, editor.ContainerInventory, opts.WeaponLevelOverride)
+	if err != nil {
 		sess.Workspace = backup
 		return ApplyTemplateResult{
 			Preview:   buildApplyErrorReport(report, err),
@@ -560,7 +599,8 @@ func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText strin
 			Applied:   false,
 		}, nil
 	}
-	if err := applyTemplateItemsToWorkspace(&sess.Workspace, sec.StorageItems, editor.ContainerStorage); err != nil {
+	stoWarnings, err := applyTemplateItemsToWorkspace(&sess.Workspace, sec.StorageItems, editor.ContainerStorage, opts.WeaponLevelOverride)
+	if err != nil {
 		sess.Workspace = backup
 		return ApplyTemplateResult{
 			Preview:   buildApplyErrorReport(report, err),
@@ -568,6 +608,8 @@ func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText strin
 			Applied:   false,
 		}, nil
 	}
+	report.Warnings = append(report.Warnings, invWarnings...)
+	report.Warnings = append(report.Warnings, stoWarnings...)
 
 	sess.Workspace.Dirty = true
 	sess.Workspace.Validation = editor.Validate(sess.Workspace)
@@ -576,6 +618,29 @@ func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText strin
 		Workspace: sess.Workspace,
 		Applied:   true,
 	}, nil
+}
+
+// validateWeaponLevelOverride rejects shape-invalid override payloads
+// before the apply path is entered. A nil override, an override with
+// Enabled=false, or any well-formed enabled override is accepted; only
+// a structurally broken request (enabled with nothing to do, or a
+// negative level) returns an error. Out-of-range positive levels are
+// allowed at this layer because editor.ClampUpgrade truncates them
+// against the per-weapon MaxUpgrade and emits a clamped-warning later.
+func validateWeaponLevelOverride(o *WeaponLevelOverride) error {
+	if o == nil || !o.Enabled {
+		return nil
+	}
+	if o.StandardLevel == nil && o.SomberLevel == nil {
+		return fmt.Errorf("ApplyBuildTemplate: weaponLevelOverride.enabled=true requires at least one of standardLevel / somberLevel")
+	}
+	if o.StandardLevel != nil && *o.StandardLevel < 0 {
+		return fmt.Errorf("ApplyBuildTemplate: weaponLevelOverride.standardLevel = %d (must be >= 0)", *o.StandardLevel)
+	}
+	if o.SomberLevel != nil && *o.SomberLevel < 0 {
+		return fmt.Errorf("ApplyBuildTemplate: weaponLevelOverride.somberLevel = %d (must be >= 0)", *o.SomberLevel)
+	}
+	return nil
 }
 
 // ApplyBuildTemplateToWorkspaceFromFile opens a file dialog and applies
@@ -640,7 +705,8 @@ func cancelledApplyResult(a *App, sessionID string) ApplyTemplateResult {
 // On the first error this function returns; the caller is responsible
 // for rolling back the workspace because partial mutations are visible
 // in snap until restoration.
-func applyTemplateItemsToWorkspace(snap *editor.InventoryWorkspaceSnapshot, items []templates.TemplateItem, container editor.ContainerKind) error {
+func applyTemplateItemsToWorkspace(snap *editor.InventoryWorkspaceSnapshot, items []templates.TemplateItem, container editor.ContainerKind, override *WeaponLevelOverride) ([]templates.ImportPreviewIssue, error) {
+	var warnings []templates.ImportPreviewIssue
 	for _, t := range items {
 		var targetPos int
 		if container == editor.ContainerStorage {
@@ -654,7 +720,7 @@ func applyTemplateItemsToWorkspace(snap *editor.InventoryWorkspaceSnapshot, item
 			Quantity:   t.Quantity,
 		}
 		if err := editor.AddItem(snap, spec, container, targetPos); err != nil {
-			return fmt.Errorf("AddItem %q (baseItemID=0x%08X): %w", t.Name, t.BaseItemID, err)
+			return warnings, fmt.Errorf("AddItem %q (baseItemID=0x%08X): %w", t.Name, t.BaseItemID, err)
 		}
 
 		var added *editor.EditableItem
@@ -670,27 +736,104 @@ func applyTemplateItemsToWorkspace(snap *editor.InventoryWorkspaceSnapshot, item
 		needsUpgrade := t.Upgrade > 0
 		needsInfusion := t.InfusionName != ""
 		needsAoW := t.AoWItemID != nil && *t.AoWItemID != 0
-		if !needsUpgrade && !needsInfusion && !needsAoW {
-			continue
+		if needsUpgrade || needsInfusion || needsAoW {
+			patch := editor.WeaponPatch{}
+			if needsUpgrade {
+				patch.SetUpgrade = true
+				patch.Upgrade = t.Upgrade
+			}
+			if needsInfusion {
+				patch.SetInfusionName = true
+				patch.InfusionName = t.InfusionName
+			}
+			if needsAoW {
+				patch.SetAoWItemID = true
+				patch.AoWItemID = *t.AoWItemID
+			}
+			if err := editor.UpdateWeapon(snap, added.UID, patch); err != nil {
+				return warnings, fmt.Errorf("UpdateWeapon %q (uid=%s): %w", t.Name, added.UID, err)
+			}
 		}
-		patch := editor.WeaponPatch{}
-		if needsUpgrade {
-			patch.SetUpgrade = true
-			patch.Upgrade = t.Upgrade
-		}
-		if needsInfusion {
-			patch.SetInfusionName = true
-			patch.InfusionName = t.InfusionName
-		}
-		if needsAoW {
-			patch.SetAoWItemID = true
-			patch.AoWItemID = *t.AoWItemID
-		}
-		if err := editor.UpdateWeapon(snap, added.UID, patch); err != nil {
-			return fmt.Errorf("UpdateWeapon %q (uid=%s): %w", t.Name, added.UID, err)
+
+		if override.HasAny() {
+			w, err := applyWeaponLevelOverride(snap, added, override, container)
+			if err != nil {
+				return warnings, fmt.Errorf("WeaponLevelOverride %q (uid=%s): %w", t.Name, added.UID, err)
+			}
+			warnings = append(warnings, w...)
 		}
 	}
-	return nil
+	return warnings, nil
+}
+
+// applyWeaponLevelOverride is the Phase 6b runtime override step. It
+// runs AFTER the template's own Upgrade/Infusion/AoW patch so the
+// recipient's choice is the last word on the weapon's upgrade level.
+// MaxUpgrade==25 means a standard weapon, MaxUpgrade==10 means a
+// somber/special weapon, MaxUpgrade==0 means the weapon is not
+// upgradeable at all. Anything else (DLC weirdness, unknown DB entry
+// surfacing as a non-canonical cap) is treated as "skip silently" — the
+// preview validator already rejects truly unknown items earlier, so by
+// the time we reach this point a non-canonical MaxUpgrade is a
+// "category we don't address in the override" situation, not a bug
+// worth surfacing.
+//
+// The container argument is purely informational — it is threaded into
+// warnings so the UI can show "skipped storage weapon X" with the right
+// Container tag, mirroring the existing apply-side issue surface.
+func applyWeaponLevelOverride(snap *editor.InventoryWorkspaceSnapshot, added *editor.EditableItem, override *WeaponLevelOverride, container editor.ContainerKind) ([]templates.ImportPreviewIssue, error) {
+	var warnings []templates.ImportPreviewIssue
+	containerTag := templates.ContainerInventory
+	if container == editor.ContainerStorage {
+		containerTag = templates.ContainerStorage
+	}
+
+	switch added.MaxUpgrade {
+	case 25:
+		if override.StandardLevel == nil {
+			return warnings, nil
+		}
+		requested := *override.StandardLevel
+		clamped := editor.ClampUpgrade(requested, added.MaxUpgrade)
+		if err := editor.UpdateWeapon(snap, added.UID, editor.WeaponPatch{SetUpgrade: true, Upgrade: clamped}); err != nil {
+			return warnings, err
+		}
+		if requested != clamped {
+			warnings = append(warnings, templates.ImportPreviewIssue{
+				Severity:  "warning",
+				Code:      templates.IssueCodeWeaponLevelClamped,
+				Container: containerTag,
+				Message: fmt.Sprintf("standard weapon %q upgrade override clamped from +%d to +%d (max +%d)",
+					added.Name, requested, clamped, added.MaxUpgrade),
+			})
+		}
+	case 10:
+		if override.SomberLevel == nil {
+			return warnings, nil
+		}
+		requested := *override.SomberLevel
+		clamped := editor.ClampUpgrade(requested, added.MaxUpgrade)
+		if err := editor.UpdateWeapon(snap, added.UID, editor.WeaponPatch{SetUpgrade: true, Upgrade: clamped}); err != nil {
+			return warnings, err
+		}
+		if requested != clamped {
+			warnings = append(warnings, templates.ImportPreviewIssue{
+				Severity:  "warning",
+				Code:      templates.IssueCodeWeaponLevelClamped,
+				Container: containerTag,
+				Message: fmt.Sprintf("somber weapon %q upgrade override clamped from +%d to +%d (max +%d)",
+					added.Name, requested, clamped, added.MaxUpgrade),
+			})
+		}
+	case 0:
+		warnings = append(warnings, templates.ImportPreviewIssue{
+			Severity:  "warning",
+			Code:      templates.IssueCodeWeaponUnupgradeable,
+			Container: containerTag,
+			Message:   fmt.Sprintf("weapon %q is not upgradeable; override skipped", added.Name),
+		})
+	}
+	return warnings, nil
 }
 
 // deepCopySnapshot returns a snapshot whose mutable slices are

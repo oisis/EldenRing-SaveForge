@@ -93,6 +93,19 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [libraryOpen, setLibraryOpen] = useState(false);
     const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
+    // Phase 6b — apply-time weapon level override. Lives next to the
+    // Templates dropdown because the override is a runtime-only choice
+    // tied to *applying* a template into the current edit session; it
+    // is intentionally not persisted on the template schema.
+    //
+    // The two level fields are independent: leaving one blank means
+    // "do not touch that class of weapons". The enable toggle gates
+    // the whole feature so the default Apply call is byte-for-byte
+    // identical to the pre-Phase-6b call.
+    const [overrideEnabled, setOverrideEnabled] = useState(false);
+    const [overrideStandardText, setOverrideStandardText] = useState<string>('');
+    const [overrideSomberText, setOverrideSomberText] = useState<string>('');
+
     const workspace = useInventoryWorkspace();
     const { sessionID, inventoryItems, storageItems, dirty, loading, saving, lastError, validation } = workspace;
 
@@ -379,6 +392,51 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         }
     };
 
+    // Phase 6b — derived state for the runtime weapon level override.
+    // parseOverrideLevel returns:
+    //   null       — field empty, leave that weapon class unchanged
+    //   NaN        — non-integer / negative, surface as inline error
+    //   integer    — accepted value (range-checked separately so the
+    //                error message can name the cap)
+    const parseOverrideLevel = (text: string): number | null => {
+        const t = text.trim();
+        if (t === '') return null;
+        const n = Number(t);
+        if (!Number.isInteger(n) || n < 0) return NaN;
+        return n;
+    };
+    const overrideStandardRaw = parseOverrideLevel(overrideStandardText);
+    const overrideSomberRaw = parseOverrideLevel(overrideSomberText);
+    const overrideStandardInvalid =
+        overrideEnabled &&
+        (Number.isNaN(overrideStandardRaw) ||
+            (typeof overrideStandardRaw === 'number' && overrideStandardRaw > 25));
+    const overrideSomberInvalid =
+        overrideEnabled &&
+        (Number.isNaN(overrideSomberRaw) ||
+            (typeof overrideSomberRaw === 'number' && overrideSomberRaw > 10));
+    const overrideRequiresOne =
+        overrideEnabled && overrideStandardRaw === null && overrideSomberRaw === null;
+    const overrideInvalid = overrideStandardInvalid || overrideSomberInvalid || overrideRequiresOne;
+
+    // buildWeaponLevelOverride converts the local UI state into the
+    // exact shape the backend expects. nil-equivalent in Go is
+    // `undefined` here; both nil pointers cleanly serialise to omitted
+    // JSON fields. When override is disabled we send `undefined` for
+    // the whole struct so the on-wire options object stays identical
+    // to the pre-Phase-6b call.
+    const buildWeaponLevelOverride = ():
+        | { enabled: true; standardLevel?: number; somberLevel?: number }
+        | undefined => {
+        if (!overrideEnabled) return undefined;
+        const payload: { enabled: true; standardLevel?: number; somberLevel?: number } = {
+            enabled: true,
+        };
+        if (typeof overrideStandardRaw === 'number') payload.standardLevel = overrideStandardRaw;
+        if (typeof overrideSomberRaw === 'number') payload.somberLevel = overrideSomberRaw;
+        return payload;
+    };
+
     // Phase D: apply the previewed template to the active workspace
     // session. Pure RAM mutation — the save is untouched until the user
     // clicks Save changes. The post-apply snapshot is swapped into the
@@ -386,18 +444,36 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     // round trip.
     const handleApplyTemplate = async () => {
         if (!sessionID || !importPreviewJSON) return;
+        if (overrideInvalid) {
+            toast.error('Weapon level override is enabled but invalid; please fix the fields.');
+            return;
+        }
         setApplyingTemplate(true);
         try {
             const result = await ApplyBuildTemplateToWorkspaceJSON(
                 sessionID,
                 importPreviewJSON,
-                main.ApplyTemplateOptions.createFrom({ mode: 'append' }),
+                main.ApplyTemplateOptions.createFrom({
+                    mode: 'append',
+                    weaponLevelOverride: buildWeaponLevelOverride(),
+                }),
             );
             if (result.applied) {
                 workspace.replaceSnapshot(result.workspace);
                 setImportPreviewReport(null);
                 setImportPreviewJSON('');
                 toast.success('Template applied to workspace. Click Save changes to persist.');
+                const overrideWarnings = (result.preview?.warnings ?? []).filter(
+                    (w) =>
+                        w.code === 'weapon_level_clamped' || w.code === 'weapon_unupgradeable',
+                );
+                if (overrideWarnings.length > 0) {
+                    toast(
+                        `Weapon override produced ${overrideWarnings.length} warning${
+                            overrideWarnings.length === 1 ? '' : 's'
+                        } — check the preview report.`,
+                    );
+                }
             } else {
                 // Apply blocked by preview (e.g. capacity overflow
                 // detected pre-flight). Surface the new report so the
@@ -735,6 +811,79 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                     >
                                         Template Library…
                                     </button>
+                                    <div className="my-0.5 border-t border-border/40" />
+                                    <div className="px-3 py-2 space-y-1.5" data-testid="weapon-override-panel">
+                                        <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                data-testid="weapon-override-enabled"
+                                                checked={overrideEnabled}
+                                                onChange={(e) => setOverrideEnabled(e.target.checked)}
+                                            />
+                                            Override weapon levels
+                                        </label>
+                                        {overrideEnabled && (
+                                            <div className="space-y-1 pl-1">
+                                                <div className="flex items-center gap-2">
+                                                    <label className="text-[10px] text-muted-foreground w-16">
+                                                        Standard +
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        max={25}
+                                                        data-testid="weapon-override-standard"
+                                                        aria-invalid={overrideStandardInvalid}
+                                                        value={overrideStandardText}
+                                                        onChange={(e) => setOverrideStandardText(e.target.value)}
+                                                        placeholder="—"
+                                                        className={`w-14 px-1 py-0.5 text-[11px] rounded border bg-background/40 ${
+                                                            overrideStandardInvalid
+                                                                ? 'border-red-500/60'
+                                                                : 'border-border/60'
+                                                        }`}
+                                                    />
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        (0-25)
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <label className="text-[10px] text-muted-foreground w-16">
+                                                        Somber +
+                                                    </label>
+                                                    <input
+                                                        type="number"
+                                                        min={0}
+                                                        max={10}
+                                                        data-testid="weapon-override-somber"
+                                                        aria-invalid={overrideSomberInvalid}
+                                                        value={overrideSomberText}
+                                                        onChange={(e) => setOverrideSomberText(e.target.value)}
+                                                        placeholder="—"
+                                                        className={`w-14 px-1 py-0.5 text-[11px] rounded border bg-background/40 ${
+                                                            overrideSomberInvalid
+                                                                ? 'border-red-500/60'
+                                                                : 'border-border/60'
+                                                        }`}
+                                                    />
+                                                    <span className="text-[10px] text-muted-foreground">
+                                                        (0-10)
+                                                    </span>
+                                                </div>
+                                                {overrideRequiresOne && (
+                                                    <p
+                                                        className="text-[10px] text-red-400"
+                                                        data-testid="weapon-override-error"
+                                                    >
+                                                        At least one level must be set.
+                                                    </p>
+                                                )}
+                                                <p className="text-[10px] text-muted-foreground italic">
+                                                    Applied when importing template; leave a field empty to skip that class.
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>

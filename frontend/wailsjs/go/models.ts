@@ -1217,8 +1217,25 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class WeaponLevelOverride {
+	    enabled?: boolean;
+	    standardLevel?: number;
+	    somberLevel?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new WeaponLevelOverride(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.standardLevel = source["standardLevel"];
+	        this.somberLevel = source["somberLevel"];
+	    }
+	}
 	export class ApplyTemplateOptions {
 	    mode?: string;
+	    weaponLevelOverride?: WeaponLevelOverride;
 	
 	    static createFrom(source: any = {}) {
 	        return new ApplyTemplateOptions(source);
@@ -1227,7 +1244,26 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.mode = source["mode"];
+	        this.weaponLevelOverride = this.convertValues(source["weaponLevelOverride"], WeaponLevelOverride);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ApplyTemplateResult {
 	    preview: templates.ImportPreviewReport;
@@ -1751,6 +1787,7 @@ export namespace main {
 	        this.changeCount = source["changeCount"];
 	    }
 	}
+	
 
 }
 

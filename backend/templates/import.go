@@ -87,6 +87,11 @@ const (
 	IssueCodeUnknownMode         = "unknown_mode"
 	IssueCodeCapacityExceeded    = "capacity_exceeded"
 	IssueCodeUnsupportedCategory = "unsupported_category"
+
+	// Phase 6b — runtime-only weapon level override codes. Surfaced as
+	// warnings on the apply report; never block the apply.
+	IssueCodeWeaponLevelClamped  = "weapon_level_clamped"
+	IssueCodeWeaponUnupgradeable = "weapon_unupgradeable"
 )
 
 // ashCategory is the DB tag for an Ash of War item. Used to detect

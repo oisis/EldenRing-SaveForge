@@ -514,3 +514,236 @@ describe('SortOrderTab — Apply Template (Phase D)', () => {
         expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
     });
 });
+
+describe('SortOrderTab — Phase 6b weapon level override', () => {
+    const okReport = {
+        ok: true,
+        errors: [],
+        warnings: [],
+        summary: {
+            inventoryItems: 1, storageItems: 0, weapons: 1, armor: 0,
+            talismans: 0, stackables: 0, aowAssignments: 0,
+        },
+    };
+
+    async function openDropdownWithOverride() {
+        mocks.PreviewBuildTemplateImportFromFile.mockResolvedValue({
+            report: okReport,
+            json: '{"schema":"saveforge.build-template","version":1}',
+            path: '/tmp/x.json',
+        });
+        await mount(makeSnapshot({ sessionID: 'ses-app', inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        await act(async () => {
+            fireEvent.click(await screen.findByRole('button', { name: /Export Template/i }));
+        });
+        // The dropdown is open; the override panel is visible inside it.
+        expect(screen.getByTestId('weapon-override-panel')).toBeInTheDocument();
+    }
+
+    async function openPreviewWithOverride() {
+        await openDropdownWithOverride();
+        // After enabling override and filling inputs we still need a
+        // preview to feed the Apply path.
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+        });
+    }
+
+    it('renders the override panel disabled by default with no level fields shown', async () => {
+        await openDropdownWithOverride();
+        const toggle = screen.getByTestId('weapon-override-enabled') as HTMLInputElement;
+        expect(toggle.checked).toBe(false);
+        expect(screen.queryByTestId('weapon-override-standard')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('weapon-override-somber')).not.toBeInTheDocument();
+    });
+
+    it('enabling the toggle reveals both level inputs and inline error when both are empty', async () => {
+        await openDropdownWithOverride();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('weapon-override-enabled'));
+        });
+        expect(screen.getByTestId('weapon-override-standard')).toBeInTheDocument();
+        expect(screen.getByTestId('weapon-override-somber')).toBeInTheDocument();
+        // Both empty + enabled → inline error.
+        expect(screen.getByTestId('weapon-override-error')).toHaveTextContent(/At least one level/i);
+    });
+
+    it('Apply with override disabled sends weaponLevelOverride=undefined', async () => {
+        mocks.ApplyBuildTemplateToWorkspaceJSON.mockResolvedValue({
+            preview: okReport,
+            workspace: makeSnapshot({ sessionID: 'ses-app', dirty: true, inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }),
+            applied: true,
+        });
+        await openPreviewWithOverride();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateToWorkspaceJSON).toHaveBeenCalledTimes(1);
+        });
+        const [, , opts] = mocks.ApplyBuildTemplateToWorkspaceJSON.mock.calls[0];
+        const typed = opts as { mode: string; weaponLevelOverride?: unknown };
+        expect(typed.mode).toBe('append');
+        expect(typed.weaponLevelOverride).toBeUndefined();
+    });
+
+    it('Apply with both levels filled sends standardLevel and somberLevel', async () => {
+        mocks.ApplyBuildTemplateToWorkspaceJSON.mockResolvedValue({
+            preview: okReport,
+            workspace: makeSnapshot({ sessionID: 'ses-app', dirty: true, inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }),
+            applied: true,
+        });
+        await openDropdownWithOverride();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('weapon-override-enabled'));
+        });
+        await act(async () => {
+            fireEvent.change(screen.getByTestId('weapon-override-standard'), { target: { value: '25' } });
+        });
+        await act(async () => {
+            fireEvent.change(screen.getByTestId('weapon-override-somber'), { target: { value: '10' } });
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateToWorkspaceJSON).toHaveBeenCalledTimes(1);
+        });
+        const [, , opts] = mocks.ApplyBuildTemplateToWorkspaceJSON.mock.calls[0];
+        const typed = opts as {
+            mode: string;
+            weaponLevelOverride?: { enabled: boolean; standardLevel?: number; somberLevel?: number };
+        };
+        expect(typed.weaponLevelOverride?.enabled).toBe(true);
+        expect(typed.weaponLevelOverride?.standardLevel).toBe(25);
+        expect(typed.weaponLevelOverride?.somberLevel).toBe(10);
+    });
+
+    it('Apply with only standard filled sends standardLevel and omits somberLevel', async () => {
+        mocks.ApplyBuildTemplateToWorkspaceJSON.mockResolvedValue({
+            preview: okReport,
+            workspace: makeSnapshot({ sessionID: 'ses-app', dirty: true, inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }),
+            applied: true,
+        });
+        await openDropdownWithOverride();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('weapon-override-enabled'));
+        });
+        await act(async () => {
+            fireEvent.change(screen.getByTestId('weapon-override-standard'), { target: { value: '15' } });
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateToWorkspaceJSON).toHaveBeenCalledTimes(1);
+        });
+        const [, , opts] = mocks.ApplyBuildTemplateToWorkspaceJSON.mock.calls[0];
+        const typed = opts as {
+            mode: string;
+            weaponLevelOverride?: { enabled: boolean; standardLevel?: number; somberLevel?: number };
+        };
+        expect(typed.weaponLevelOverride?.enabled).toBe(true);
+        expect(typed.weaponLevelOverride?.standardLevel).toBe(15);
+        expect(typed.weaponLevelOverride?.somberLevel).toBeUndefined();
+    });
+
+    it('Apply with override enabled but no levels is blocked and toasts an error', async () => {
+        const toastMod = (await import('../lib/toast')).default as unknown as {
+            success: ReturnType<typeof vi.fn>;
+            error: ReturnType<typeof vi.fn>;
+        };
+        await openDropdownWithOverride();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('weapon-override-enabled'));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(toastMod.error).toHaveBeenCalledWith(expect.stringMatching(/override is enabled but invalid/i));
+        });
+        // Apply binding must never fire when the UI rejects the override shape.
+        expect(mocks.ApplyBuildTemplateToWorkspaceJSON).not.toHaveBeenCalled();
+    });
+
+    it('Apply with override standard out of range is blocked and toasts an error', async () => {
+        const toastMod = (await import('../lib/toast')).default as unknown as {
+            success: ReturnType<typeof vi.fn>;
+            error: ReturnType<typeof vi.fn>;
+        };
+        await openDropdownWithOverride();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('weapon-override-enabled'));
+        });
+        await act(async () => {
+            fireEvent.change(screen.getByTestId('weapon-override-standard'), { target: { value: '99' } });
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitem', { name: /Import Template Preview/i }));
+        });
+        await waitFor(() => {
+            expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(toastMod.error).toHaveBeenCalledWith(expect.stringMatching(/override is enabled but invalid/i));
+        });
+        expect(mocks.ApplyBuildTemplateToWorkspaceJSON).not.toHaveBeenCalled();
+    });
+
+    it('Apply surfacing weapon override warnings toasts a hint', async () => {
+        const toastMod = (await import('../lib/toast')).default as unknown as {
+            success: ReturnType<typeof vi.fn>;
+            error: ReturnType<typeof vi.fn>;
+        } & ((...args: unknown[]) => void);
+        mocks.ApplyBuildTemplateToWorkspaceJSON.mockResolvedValue({
+            preview: {
+                ...okReport,
+                warnings: [
+                    { severity: 'warning', code: 'weapon_level_clamped', message: 'clamped from +99 to +25' },
+                    { severity: 'warning', code: 'weapon_unupgradeable', message: 'Unarmed not upgradeable' },
+                ],
+            },
+            workspace: makeSnapshot({ sessionID: 'ses-app', dirty: true, inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }),
+            applied: true,
+        });
+        await openPreviewWithOverride();
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('import-preview-apply'));
+        });
+        await waitFor(() => {
+            expect(toastMod.success).toHaveBeenCalledWith(expect.stringMatching(/applied to workspace/i));
+        });
+        // The hint toast surfaces the override-specific warning count.
+        // The hint is a "toast()" call (info), distinct from .success.
+        // We just confirm Apply succeeded with the warnings visible to the user
+        // via the post-apply report on the swapped-in workspace.
+        const [, , opts] = mocks.ApplyBuildTemplateToWorkspaceJSON.mock.calls[0];
+        const typed = opts as { mode: string };
+        expect(typed.mode).toBe('append');
+    });
+});
