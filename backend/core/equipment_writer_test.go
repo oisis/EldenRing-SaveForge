@@ -441,6 +441,189 @@ func TestWriteEquipment_UnparseableOffset(t *testing.T) {
 	}
 }
 
+// TestWriteEquipment_TalismanEncoding verifies that writing a talisman handle
+// stores `itemID` directly (GaMap value already carries the 0x20 prefix, no
+// OR-mask is applied).
+func TestWriteEquipment_TalismanEncoding(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman1, Handle: 0xA0000040},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	got := equipSlot(slot, 17)
+	want := uint32(0x20100060)
+	if got != want {
+		t.Errorf("talisman slot encoding: got 0x%08X, want 0x%08X", got, want)
+	}
+}
+
+// TestWriteEquipment_RejectWeaponInTalismanSlot ensures 0x80 handles are
+// rejected in talisman slots.
+func TestWriteEquipment_RejectWeaponInTalismanSlot(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman1, Handle: 0x80000010},
+	})
+	if err == nil {
+		t.Fatal("expected error rejecting weapon handle in talisman slot, got nil")
+	}
+	if !strings.Contains(err.Error(), "weapon prefix") {
+		t.Errorf("error should mention weapon prefix, got: %v", err)
+	}
+}
+
+// TestWriteEquipment_RejectArmorInTalismanSlot ensures 0x90 handles are
+// rejected in talisman slots.
+func TestWriteEquipment_RejectArmorInTalismanSlot(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman2, Handle: 0x90000020},
+	})
+	if err == nil {
+		t.Fatal("expected error rejecting armor handle in talisman slot, got nil")
+	}
+	if !strings.Contains(err.Error(), "armor prefix") {
+		t.Errorf("error should mention armor prefix, got: %v", err)
+	}
+}
+
+// TestWriteEquipment_RejectGoodsInTalismanSlot ensures 0xB0 handles are
+// rejected in talisman slots.
+func TestWriteEquipment_RejectGoodsInTalismanSlot(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman3, Handle: 0xB0000030},
+	})
+	if err == nil {
+		t.Fatal("expected error rejecting goods handle in talisman slot, got nil")
+	}
+	if !strings.Contains(err.Error(), "goods prefix") {
+		t.Errorf("error should mention goods prefix, got: %v", err)
+	}
+}
+
+// TestWriteEquipment_RejectAoWInTalismanSlot ensures 0xC0 handles are rejected
+// in talisman slots.
+func TestWriteEquipment_RejectAoWInTalismanSlot(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman4, Handle: 0xC0000050},
+	})
+	if err == nil {
+		t.Fatal("expected error rejecting AoW handle in talisman slot, got nil")
+	}
+	if !strings.Contains(err.Error(), "Ash of War") {
+		t.Errorf("error should mention Ash of War, got: %v", err)
+	}
+}
+
+// TestWriteEquipment_Hash8ChangesOnTalismanWrite verifies hash entry 8 is
+// recomputed after a talisman-slot write (talismans share hash 8 with armor).
+func TestWriteEquipment_Hash8ChangesOnTalismanWrite(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	before := hash8(slot)
+	if err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman1, Handle: 0xA0000040},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	after := hash8(slot)
+	if before == after {
+		t.Errorf("hash 8 should change after talisman write (got 0x%08X both times)", before)
+	}
+}
+
+// TestWriteEquipment_Hash7StableOnTalismanOnlyWrite ensures hash 7 is NOT
+// recomputed when only talisman slots are written.
+func TestWriteEquipment_Hash7StableOnTalismanOnlyWrite(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	binary.LittleEndian.PutUint32(slot.Data[HashOffset+7*4:], 0xDEADBEEF)
+
+	if err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman1, Handle: 0xA0000040},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if got := hash7(slot); got != 0xDEADBEEF {
+		t.Errorf("hash 7 should be untouched on talisman-only write, got 0x%08X", got)
+	}
+}
+
+// TestWriteEquipment_IdempotentTalismanWriteStableHash verifies repeated
+// talisman writes yield identical hash 8 bytes.
+func TestWriteEquipment_IdempotentTalismanWriteStableHash(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	if err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman1, Handle: 0xA0000040},
+	}); err != nil {
+		t.Fatalf("first write: %v", err)
+	}
+	h8First := hash8(slot)
+	if err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman1, Handle: 0xA0000040},
+	}); err != nil {
+		t.Fatalf("second write: %v", err)
+	}
+	h8Second := hash8(slot)
+	if h8First != h8Second {
+		t.Errorf("idempotent talisman write should yield stable hash 8: 0x%08X then 0x%08X", h8First, h8Second)
+	}
+}
+
+// TestWriteEquipment_MixedArmorTalismanBatchHash8 verifies that a mixed batch
+// (armor + talisman) recomputes hash 8 exactly once and correctly.
+func TestWriteEquipment_MixedArmorTalismanBatchHash8(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+	before := hash8(slot)
+	if err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotHead, Handle: 0x90000020},
+		{Slot: EquipSlotTalisman1, Handle: 0xA0000040},
+	}); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if hash8(slot) == before {
+		t.Error("hash 8 should change after mixed armor+talisman batch")
+	}
+	// Verify both slots got their expected encoded values.
+	if got := equipSlot(slot, 12); got != uint32(0x10100040)|0x80000000 {
+		t.Errorf("armor slot encoding mismatch: 0x%08X", got)
+	}
+	if got := equipSlot(slot, 17); got != 0x20100060 {
+		t.Errorf("talisman slot encoding mismatch: 0x%08X", got)
+	}
+}
+
+// TestWriteEquipment_AtomicRollbackOnInvalidTalisman verifies that a valid
+// talisman1 write followed by an invalid talisman2 (wrong prefix) leaves the
+// equipment section and hash bytes unchanged.
+func TestWriteEquipment_AtomicRollbackOnInvalidTalisman(t *testing.T) {
+	slot := makeEquipmentTestSlot()
+
+	beforeEquip := make([]byte, ChrAsmEquipmentSize)
+	copy(beforeEquip, slot.Data[slot.EquipItemsIDOffset:slot.EquipItemsIDOffset+ChrAsmEquipmentSize])
+	beforeHash := make([]byte, HashSize)
+	copy(beforeHash, slot.Data[HashOffset:HashOffset+HashSize])
+
+	err := slot.WriteEquipment([]EquipmentWrite{
+		{Slot: EquipSlotTalisman1, Handle: 0xA0000040}, // valid
+		{Slot: EquipSlotTalisman2, Handle: 0x80000010}, // invalid: weapon in talisman slot
+	})
+	if err == nil {
+		t.Fatal("expected error from second write, got nil")
+	}
+
+	afterEquip := slot.Data[slot.EquipItemsIDOffset : slot.EquipItemsIDOffset+ChrAsmEquipmentSize]
+	if !bytes.Equal(beforeEquip, afterEquip) {
+		t.Error("equipment section bytes mutated despite batch failure")
+	}
+	afterHash := slot.Data[HashOffset : HashOffset+HashSize]
+	if !bytes.Equal(beforeHash, afterHash) {
+		t.Error("hash bytes mutated despite batch failure")
+	}
+}
+
 // TestWriteEquipment_RoundTripWeaponSwap simulates the real workflow: equip
 // weapon A, then swap to weapon B, then read it back via the same encoding
 // formula used by readers.

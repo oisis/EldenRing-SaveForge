@@ -7,10 +7,13 @@ import (
 
 // EquipmentSlotKind identifies a writable equipment slot within ChrAsmEquipment.
 //
-// Phase 7b.0 — backend-only foundation. Supports weapon/ammo slots (0–9, hash 7)
-// and armor slots (12–15, hash 8). The unknown slots 10/11/16, EquippedGreatRune
-// (slot 10), and talismans (17–21) are intentionally NOT exposed — they belong
-// to later phases.
+// Phase 7b.0 — backend-only foundation for weapon/ammo slots (0–9, hash 7) and
+// armor slots (12–15, hash 8).
+// Phase 7c — extends the writer to talisman slots (17–21, hash 8). Talisman5
+// (index 21) accepts only the clear sentinel because vanilla Elden Ring caps
+// the Talisman Pouch at 4 active slots; non-empty Talisman5 writes are rejected
+// by the resolver at the apply layer (see app_templates_v2_apply.go).
+// The unknown slots 10/11/16 and EquippedGreatRune remain out of scope.
 type EquipmentSlotKind int
 
 const (
@@ -28,15 +31,21 @@ const (
 	EquipSlotChest
 	EquipSlotArms
 	EquipSlotLegs
+	EquipSlotTalisman1
+	EquipSlotTalisman2
+	EquipSlotTalisman3
+	EquipSlotTalisman4
+	EquipSlotTalisman5
 )
 
 // equipmentSlotKindClass classifies what handle type a slot accepts.
 type equipmentSlotKindClass int
 
 const (
-	slotClassWeapon equipmentSlotKindClass = iota // accepts handle prefix 0x80 (ItemTypeWeapon)
-	slotClassAmmo                                 // accepts handle prefix 0xB0 (ItemTypeItem / goods)
-	slotClassArmor                                // accepts handle prefix 0x90 (ItemTypeArmor)
+	slotClassWeapon   equipmentSlotKindClass = iota // accepts handle prefix 0x80 (ItemTypeWeapon)
+	slotClassAmmo                                   // accepts handle prefix 0xB0 (ItemTypeItem / goods)
+	slotClassArmor                                  // accepts handle prefix 0x90 (ItemTypeArmor)
+	slotClassTalisman                               // accepts handle prefix 0xA0 (ItemTypeAccessory)
 )
 
 // equipmentSlotInfo maps a slot kind to its index in ChrAsmEquipment and its class.
@@ -60,6 +69,11 @@ var equipmentSlotTable = map[EquipmentSlotKind]equipmentSlotInfo{
 	EquipSlotChest:              {13, slotClassArmor},
 	EquipSlotArms:               {14, slotClassArmor},
 	EquipSlotLegs:               {15, slotClassArmor},
+	EquipSlotTalisman1:          {17, slotClassTalisman},
+	EquipSlotTalisman2:          {18, slotClassTalisman},
+	EquipSlotTalisman3:          {19, slotClassTalisman},
+	EquipSlotTalisman4:          {20, slotClassTalisman},
+	EquipSlotTalisman5:          {21, slotClassTalisman},
 }
 
 // EquipmentWrite is one entry in a WriteEquipment batch. Handle == 0 clears
@@ -114,7 +128,7 @@ func (s *SaveSlot) WriteEquipment(writes []EquipmentWrite) error {
 	for i, w := range writes {
 		info, ok := equipmentSlotTable[w.Slot]
 		if !ok {
-			return fmt.Errorf("WriteEquipment[%d]: unsupported slot kind %d (slots 10/11/16, talismans 17–21, spells, quick items, great rune, and unknown slots are out of scope for Phase 7b.0)", i, int(w.Slot))
+			return fmt.Errorf("WriteEquipment[%d]: unsupported slot kind %d (slots 10/11/16, spells, quick items, great rune, and unknown slots are out of scope)", i, int(w.Slot))
 		}
 		if prev, dup := seenIndex[info.index]; dup {
 			return fmt.Errorf("WriteEquipment[%d]: slot index %d already written at writes[%d]", i, info.index, prev)
@@ -137,6 +151,8 @@ func (s *SaveSlot) WriteEquipment(writes []EquipmentWrite) error {
 		if r.index <= 9 {
 			touchedHash7 = true
 		} else if r.index >= 12 && r.index <= 15 {
+			touchedHash8 = true
+		} else if r.index >= 17 && r.index <= 21 {
 			touchedHash8 = true
 		}
 	}
@@ -165,9 +181,10 @@ func (s *SaveSlot) WriteEquipment(writes []EquipmentWrite) error {
 //
 // Encoding rules (mirror IsHandleEquipped's candidate set):
 //
-//	weapon: itemID | 0x80000000 (itemID resolved via slot.GaMap[handle])
-//	armor:  itemID | 0x80000000 (itemID resolved via slot.GaMap[handle])
-//	ammo:   itemID directly (goods item IDs are stored as 0x40XXXXXX in GaMap)
+//	weapon:   itemID | 0x80000000 (itemID resolved via slot.GaMap[handle])
+//	armor:    itemID | 0x80000000 (itemID resolved via slot.GaMap[handle])
+//	ammo:     itemID directly (goods item IDs are stored as 0x40XXXXXX in GaMap)
+//	talisman: itemID directly (talisman item IDs are stored as 0x20XXXXXX in GaMap)
 //
 // Handle == 0 → 0xFFFFFFFF (clear slot), no GaMap lookup.
 func (s *SaveSlot) encodeEquipmentValue(handle uint32, class equipmentSlotKindClass) (uint32, error) {
@@ -225,6 +242,21 @@ func (s *SaveSlot) encodeEquipmentValue(handle uint32, class equipmentSlotKindCl
 		default:
 			return 0, fmt.Errorf("handle 0x%08X has unknown type prefix 0x%X for ammo slot", handle, prefix>>28)
 		}
+	case slotClassTalisman:
+		switch prefix {
+		case ItemTypeAccessory:
+			// accepted below
+		case ItemTypeWeapon:
+			return 0, fmt.Errorf("handle 0x%08X has weapon prefix 0x80; cannot equip weapon in a talisman slot", handle)
+		case ItemTypeArmor:
+			return 0, fmt.Errorf("handle 0x%08X has armor prefix 0x90; cannot equip armor in a talisman slot", handle)
+		case ItemTypeAow:
+			return 0, fmt.Errorf("handle 0x%08X has Ash of War prefix 0xC0; cannot equip AoW in a talisman slot", handle)
+		case ItemTypeItem:
+			return 0, fmt.Errorf("handle 0x%08X has goods prefix 0xB0; cannot equip goods in a talisman slot", handle)
+		default:
+			return 0, fmt.Errorf("handle 0x%08X has unknown type prefix 0x%X for talisman slot", handle, prefix>>28)
+		}
 	default:
 		return 0, fmt.Errorf("internal: unknown slot class %d", int(class))
 	}
@@ -237,7 +269,7 @@ func (s *SaveSlot) encodeEquipmentValue(handle uint32, class equipmentSlotKindCl
 	switch class {
 	case slotClassWeapon, slotClassArmor:
 		return itemID | ItemTypeWeapon, nil
-	case slotClassAmmo:
+	case slotClassAmmo, slotClassTalisman:
 		return itemID, nil
 	}
 	return 0, fmt.Errorf("internal: unreachable encoding path for class %d", int(class))
