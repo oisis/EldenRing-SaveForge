@@ -100,7 +100,7 @@ Phase 0..4 of the design doc `spec/56-templates-v2.md`. v2 apply is enabled for 
 
 Continuation of the foundation + Phase 5 profile/stats Apply + Phase 6 apply-time overrides shipped above. v2 apply for sections outside profile/stats remains blocked by design — these phases will lift that one writer at a time.
 
-- **Phase 6b** — weapon level override at apply time (Standard `+0..+25` / Somber `+0..+10`, default `Keep`); relocate `clampUpgrade` to a backend-importable location
+- **Phase 6b** — weapon level override at apply time (Standard `+0..+25` / Somber `+0..+10`, default `Keep`). Prerequisite refactor done: `clampUpgrade` already relocated to `backend/editor.ClampUpgrade`.
 - **Phase 7a / 7b / 7c** — new public write paths for `ChrAsmEquipment` slots 0..9 / 12–15 (weapons + armor), equipped talisman slots 17–21, and the 14 `EquippedSpells` slots — each with PC + PS4 round-trip parity
 - **Phase 8** — apply `sections.appearance.preset` through the existing `app_appearance.go::ApplyPresetToCharacter` helper; raw FaceData never written from a template
 - **Phase 9** — URL import with SSRF / redirect re-check / IP filter / body-size / TLS / content-type guards per §12; backend-only fetch, struct-typed YAML decode

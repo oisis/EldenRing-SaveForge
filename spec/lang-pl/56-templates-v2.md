@@ -540,7 +540,7 @@ Trzy niezależne kontrolki na ekranie Apply Preview, każda defaultująca do `Ke
 - Per-weapon `MaxUpgrade` z DB jest hard clamp. Żądanie `Set to +N` z `N > MaxUpgrade` skutkuje `N := MaxUpgrade` i per-item warningiem w raporcie (`upgrade_clamped_by_override`, planowany kod).
 - `infusionName` i `aowItemID` z szablonu są passowane bez zmian.
 - Override stosuje się do obu `inventoryItems` i `storageItems` jeśli obie sekcje są częścią szablonu.
-- Lokalizacja helpera: `clampUpgrade` żyje obecnie w `app.go` (package `main`, linia 519). Planowana warstwa `TemplateApplyPlan` ma żyć pod `backend/templates/` (lub `backend/editor/`), które **nie mogą** importować package `main` bez tworzenia złej zależności. Implementacja Phase 6 musi albo przenieść `clampUpgrade` do lokalizacji importowalnej z backendu (np. `backend/editor/weapon.go` obok `encodeWeaponItemID`), albo wystawić równoważny helper tam. To jest decyzja refactor — nie zmiana zachowania — i jest ujęta jako część scope Phase 6.
+- Lokalizacja helpera: ✅ Zrobione — czysty helper clampujący żyje teraz w `backend/editor/weapon.go` jako eksportowane `editor.ClampUpgrade` (przeniesione ze starego `app.go::clampUpgrade`, zachowanie byte-for-byte bez zmiany). Planowana warstwa `TemplateApplyPlan` pod `backend/templates/` lub `backend/editor/` może go teraz importować bezpośrednio, bez wciągania package `main`. To była czysta relokacja — bez zmiany policy, bez nowej reguły clamp — i odblokowuje Phase 6b weapon-level override oraz dowolny przyszły inventory-apply pipeline z lokalizacji importowalnej z backendu. Weapon-level override przy apply nadal **nie jest** zaimplementowany — odblokowana jest tylko ścieżka importu.
 
 ### 14.5. Dlaczego pojedynczy wspólny level dla wszystkich broni jest zły
 
@@ -603,7 +603,7 @@ Każde ryzyko sklasyfikowane jako jedno z:
 | Raw FaceData | high-risk / must not implement without separate approval | Poza scope pierwszej iteracji v2. |
 | Raw event flag manipulation | high-risk / must not implement without separate approval | Wykluczone przez §4. Każdy przyszły opt-in musi przyjść z named-module mediation. |
 | Stan PvP preparation w szablonach | requires design decision | Wyłącznie via nazwane moduły (np. `pvp.colosseums`), nigdy raw flagi. |
-| Weapon level override (Standard + Somber, osobne) | safe / straightforward | Reużywa istniejące `clampUpgrade` (dziś w `app.go:519` — musi być przeniesione do lokalizacji importowalnej z backendu podczas Phase 6, zob. §14.4) + `encodeWeaponItemID` (`backend/editor/weapon.go`). |
+| Weapon level override (Standard + Somber, osobne) | safe / straightforward | Reużywa istniejące `editor.ClampUpgrade` (✅ relokowane do `backend/editor/weapon.go`, zob. §14.4) + `encodeWeaponItemID` (`backend/editor/weapon.go`). |
 | Semantyka inventory / storage rebuild dla dodanych broni | dziedziczone z v1 — safe | Te same fail-closed rules. |
 | Acquisition indices / interakcja z `NextAcquisitionSortId` | dziedziczone z v1 — safe | Szablony nigdy nie wystawiają; integrity gate nadal chroni. |
 | AoW handles | dziedziczone z v1 — safe (z ostrożnością) | Tylko `aowItemID` w YAML; fail-closed compat check bez zmian. |
@@ -731,7 +731,7 @@ Pierwsza user-visible wartość to publiczny format wymiany (YAML) dla **już wd
 ### Phase 6b — weapon level override dla v1 inventory / storage apply
 
 - **Cel**: dodać `weaponLevelOverride.{standard,somber}` do opcji apply i Apply Preview UI; pre-encode item IDs w warstwie planu dla broni pochodzących z szablonu.
-- **Pliki (planowany scope)**: `app_templates.go` (options DTO), apply layer; **refactor**: przenieść `clampUpgrade` z `app.go` (package `main`) do lokalizacji importowalnej z backendu (np. `backend/editor/weapon.go` obok `encodeWeaponItemID`), by warstwa planu mogła go importować bez tworzenia cyklu `app → backend` (zob. §14.4); frontend preview modal.
+- **Pliki (planowany scope)**: `app_templates.go` (options DTO), apply layer; frontend preview modal. **Prerequisite refactor zrobiony**: `clampUpgrade` zostało relokowane do `backend/editor/weapon.go` jako eksportowane `editor.ClampUpgrade` (zachowanie byte-for-byte zachowane, zob. §14.4); warstwa planu może go importować bezpośrednio. Weapon-level override przy apply sam w sobie nadal jest design-only — relokacja odblokowuje tylko ścieżkę importu.
 - **Backend impact**: plan-layer override + relokacja helpera; istniejący writer item-add bez zmiany.
 - **Frontend impact**: dwie nowe kontrolki w preview modal, obie default `Keep`.
 - **Testy**: `Set Standard to +25` przeciw mixed template → somber bronie clampowane do `+10` z warningiem `upgrade_clamped_by_override`; `Keep` zachowuje template levels; non-upgradeable bronie pozostają `+0`; round-trip obie platformy.

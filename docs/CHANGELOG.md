@@ -4,6 +4,44 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### refactor(weapons): expose upgrade clamping from editor
+
+Relocated the pure `clampUpgrade(requested, max int) int` helper from
+`app.go` (`package main`) to `backend/editor/weapon.go` as the exported
+`editor.ClampUpgrade`. Behaviour is byte-for-byte unchanged; the
+`AddItemsToCharacter` add path (`app.go`, ashes / standard / somber
+branches) calls the relocated helper through the existing `editor`
+import. This is the prerequisite refactor called out in
+`spec/56-templates-v2.md` §14.4 / §17 Phase 6b: any backend-side plan
+layer (e.g. a future Templates v2 weapon-level override or inventory
+apply pipeline) must be able to import the clamp helper without
+pulling in the `main` package, and now can.
+
+- **No behaviour change.** Same `[0, max]` clamp, same negative-input
+  flooring, same defensive negative-`max` treatment. The original
+  somber-clamping regression case (`TestAddItemsToCharacter_ClampsSomberUpgrade`
+  for Golem Greatbow `+25 → +10`) is unchanged and still passes.
+- **Test coverage** — pure-function tests for `editor.ClampUpgrade`
+  now live in `backend/editor/weapon_test.go::TestClampUpgrade` (13
+  named subtests covering somber over/exact/in-range, standard
+  over/exact/in-range, zero, non-upgradeable cap, negative request,
+  negative cap, both negative). The previous `app`-package case set is
+  kept as a regression guard in
+  `app_weapon_upgrade_clamp_test.go::TestClampUpgrade_AppPathContract`,
+  which now exercises the relocated helper through the same boundary
+  conditions the add path relies on.
+- **No frontend, no bindings, no Templates schema change.** The
+  `editor` package was already imported by `app.go`; no new dependency
+  was introduced. `ApplyTemplateV2Options` keeps its single `Mode`
+  field. `frontend/wailsjs/**` is untouched.
+- **Weapon-level override is NOT implemented in this commit.** Phase
+  6b is still design-only — the relocation only unblocks the import
+  path; the apply layer still rejects anything outside profile/stats
+  and the v2 schema still has no `sections.weapons` /
+  `sections.inventory` apply path. Full weapon / inventory apply
+  remains future work (Phase 6b for the override, Phase 7a for the
+  equipment writer per spec/56 §17).
+
 ### feat(templates): apply-time overrides for schema v2 profile + stats
 
 Shipped Phase 6 of the Templates v2 design (`spec/56-templates-v2.md`):
