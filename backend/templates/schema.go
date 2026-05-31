@@ -109,10 +109,16 @@ type TemplateMetadata struct {
 // The inventory.workspace key keeps its literal v1 spelling (with a
 // dot). The preferred-alias decision (`inventoryWorkspace` without a
 // dot) is deliberately deferred — see spec/56 §18 #4.
+//
+// Phase 7b.1 adds Equipment — the optional equipped weapons / ammo /
+// armor section. Driven by the same Selection model as profile / stats.
+// Talismans, spells, EquippedGreatRune, and the unknown slots 11 / 16
+// stay out of scope of this phase per Phase 7b.0 writer coverage.
 type TemplateSections struct {
 	InventoryWorkspace *InventoryWorkspaceSection `json:"inventory.workspace,omitempty" yaml:"inventory.workspace,omitempty"`
 	Profile            *ProfileSection            `json:"profile,omitempty" yaml:"profile,omitempty"`
 	Stats              *StatsSection              `json:"stats,omitempty" yaml:"stats,omitempty"`
+	Equipment          *EquipmentSection          `json:"equipment,omitempty" yaml:"equipment,omitempty"`
 }
 
 // InventoryWorkspaceSection is the v1 payload — items from the
@@ -180,6 +186,67 @@ type StatsSection struct {
 	Arcane       *uint32 `json:"arcane,omitempty" yaml:"arcane,omitempty"`
 }
 
+// EquipmentSection carries the 14 equipped slots covered by the Phase
+// 7b.0 writer foundation: weapon slots 0–5 (left / right hand armaments
+// 1..3), ammo slots 6–9 (Arrows1/2, Bolts1/2) and armor slots 12–15
+// (Head, Chest, Arms, Legs). Each pointer is optional — nil means
+// "slot not selected, no-op on apply". To explicitly clear an equipped
+// slot at apply time the producer emits an EquipmentItemRef with
+// BaseItemID == 0; the resolver then sends Handle == 0 to
+// SaveSlot.WriteEquipment which writes 0xFFFFFFFF (empty marker) to the
+// underlying byte slot.
+//
+// Out of scope of Phase 7b.1 (Phase 7b.0 writer coverage matches):
+//   - EquippedGreatRune (slot 10, written by SyncPlayerToData via
+//     ProfileSection's future Great Rune field — never via WriteEquipment)
+//   - unk0x2C / unk0x40 (slots 11, 16 — unknown semantics)
+//   - Talismans 17–21 (Phase 7c)
+//   - EquippedSpells 14-slot loadout (Phase 7d)
+//   - Quick items / pouch slots (no current write API)
+type EquipmentSection struct {
+	WeaponLeftHand1  *EquipmentItemRef `json:"weaponLeftHand1,omitempty" yaml:"weaponLeftHand1,omitempty"`
+	WeaponRightHand1 *EquipmentItemRef `json:"weaponRightHand1,omitempty" yaml:"weaponRightHand1,omitempty"`
+	WeaponLeftHand2  *EquipmentItemRef `json:"weaponLeftHand2,omitempty" yaml:"weaponLeftHand2,omitempty"`
+	WeaponRightHand2 *EquipmentItemRef `json:"weaponRightHand2,omitempty" yaml:"weaponRightHand2,omitempty"`
+	WeaponLeftHand3  *EquipmentItemRef `json:"weaponLeftHand3,omitempty" yaml:"weaponLeftHand3,omitempty"`
+	WeaponRightHand3 *EquipmentItemRef `json:"weaponRightHand3,omitempty" yaml:"weaponRightHand3,omitempty"`
+	Arrows1          *EquipmentItemRef `json:"arrows1,omitempty" yaml:"arrows1,omitempty"`
+	Bolts1           *EquipmentItemRef `json:"bolts1,omitempty" yaml:"bolts1,omitempty"`
+	Arrows2          *EquipmentItemRef `json:"arrows2,omitempty" yaml:"arrows2,omitempty"`
+	Bolts2           *EquipmentItemRef `json:"bolts2,omitempty" yaml:"bolts2,omitempty"`
+	ArmorHead        *EquipmentItemRef `json:"armorHead,omitempty" yaml:"armorHead,omitempty"`
+	ArmorChest       *EquipmentItemRef `json:"armorChest,omitempty" yaml:"armorChest,omitempty"`
+	ArmorArms        *EquipmentItemRef `json:"armorArms,omitempty" yaml:"armorArms,omitempty"`
+	ArmorLegs        *EquipmentItemRef `json:"armorLegs,omitempty" yaml:"armorLegs,omitempty"`
+}
+
+// EquipmentItemRef points at one inventory item the apply path should
+// equip into the slot named by its parent field on EquipmentSection.
+// Resolution rules (apply layer, Phase 7b.1):
+//
+//   - BaseItemID == 0 → explicit clear (write 0xFFFFFFFF / empty slot).
+//   - BaseItemID > 0 → match in slot.Inventory.CommonItems by BaseItemID,
+//     optionally narrowed by Upgrade / InfusionName / AoWItemID. Storage
+//     is intentionally NOT searched; an item that only exists in storage
+//     is reported as "not in inventory" per Phase 7b.1 strict policy.
+//   - Upgrade nil / omitted → match any upgrade level for the same
+//     BaseItemID. Upgrade explicit → match the exact level.
+//   - InfusionName empty → match any infusion. InfusionName set → match
+//     the exact infusion.
+//   - AoWItemID nil → match any AoW. AoWItemID set → match the exact AoW.
+//   - Ambiguous match (>1 candidate after disambiguators) → first wins,
+//     resolver emits an equipment_item_ambiguous warning.
+//
+// Name is informational only (mirrors TemplateItem.Name behaviour) — the
+// DB is the source of truth.
+type EquipmentItemRef struct {
+	BaseItemID   uint32  `json:"baseItemID" yaml:"baseItemID"`
+	Name         string  `json:"name,omitempty" yaml:"name,omitempty"`
+	Upgrade      *int    `json:"upgrade,omitempty" yaml:"upgrade,omitempty"`
+	InfusionName string  `json:"infusionName,omitempty" yaml:"infusionName,omitempty"`
+	AoWItemID    *uint32 `json:"aowItemID,omitempty" yaml:"aowItemID,omitempty"`
+}
+
 // TemplateSelection is the v2 top-level "what is shared" object.
 // Required for `version: 2`. The structure mirrors Sections — each
 // optional pointer either elects (boolean shortcut) the entire section
@@ -190,6 +257,7 @@ type TemplateSelection struct {
 	Profile            *SectionSelection `json:"profile,omitempty" yaml:"profile,omitempty"`
 	Stats              *SectionSelection `json:"stats,omitempty" yaml:"stats,omitempty"`
 	InventoryWorkspace *SectionSelection `json:"inventory.workspace,omitempty" yaml:"inventory.workspace,omitempty"`
+	Equipment          *SectionSelection `json:"equipment,omitempty" yaml:"equipment,omitempty"`
 }
 
 // SectionSelection is a per-section toggle that accepts either a
@@ -241,7 +309,7 @@ func (t *TemplateSelection) HasAnySelected() bool {
 	if t == nil {
 		return false
 	}
-	return t.Profile.HasAny() || t.Stats.HasAny() || t.InventoryWorkspace.HasAny()
+	return t.Profile.HasAny() || t.Stats.HasAny() || t.InventoryWorkspace.HasAny() || t.Equipment.HasAny()
 }
 
 // UnmarshalJSON accepts either a JSON boolean (shortcut) or a JSON
@@ -336,6 +404,59 @@ var statsSelectionFields = map[string]bool{
 	"arcane":       true,
 }
 
+// equipmentSelectionFields enumerates the 14 legal slot keys for the
+// Phase 7b.1 equipment section. Mirrors the JSON field names of
+// EquipmentSection. Talisman / spell / great rune / unknown slots are
+// intentionally absent — they have no Phase 7b.0 writer entry point.
+var equipmentSelectionFields = map[string]bool{
+	"weaponLeftHand1":  true,
+	"weaponRightHand1": true,
+	"weaponLeftHand2":  true,
+	"weaponRightHand2": true,
+	"weaponLeftHand3":  true,
+	"weaponRightHand3": true,
+	"arrows1":          true,
+	"bolts1":           true,
+	"arrows2":          true,
+	"bolts2":           true,
+	"armorHead":        true,
+	"armorChest":       true,
+	"armorArms":        true,
+	"armorLegs":        true,
+}
+
+// EquipmentSlotOrder is the canonical iteration order over the 14
+// supported equipment slot keys. The apply layer's
+// AppliedFields / SkippedFields lists ("equipment.weaponRightHand1") and
+// the export-side enumeration both walk this slice so the on-the-wire
+// order is deterministic and matches the slot index order in
+// core.ChrAsmEquipment (0..9, 12..15).
+var EquipmentSlotOrder = []string{
+	"weaponLeftHand1",
+	"weaponRightHand1",
+	"weaponLeftHand2",
+	"weaponRightHand2",
+	"weaponLeftHand3",
+	"weaponRightHand3",
+	"arrows1",
+	"bolts1",
+	"arrows2",
+	"bolts2",
+	"armorHead",
+	"armorChest",
+	"armorArms",
+	"armorLegs",
+}
+
+// MaxEquipmentItemUpgrade is the largest upgrade level any equippable
+// item in Elden Ring carries (standard infusable weapons cap at +25).
+// Somber weapons cap at +10 but the structural validator accepts any
+// value in [0, MaxEquipmentItemUpgrade]; the per-item check that an
+// upgrade > MaxUpgrade for the resolved item happens at apply time in
+// the resolver, not here, so producers who do not know the upgrade cap
+// can still ship a structurally-valid template.
+const MaxEquipmentItemUpgrade = 25
+
 // validateBuildTemplateV2 is the additive validator for `version: 2`.
 // v1 documents take the dedicated v1 branch in ValidateBuildTemplate.
 //
@@ -370,6 +491,9 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 	if err := validateInventoryWorkspaceSelection(tpl.Selection.InventoryWorkspace); err != nil {
 		return err
 	}
+	if err := validateEquipmentSelection(tpl.Selection.Equipment); err != nil {
+		return err
+	}
 
 	if tpl.Selection.Profile.HasAny() && tpl.Sections.Profile == nil {
 		return fmt.Errorf("ValidateBuildTemplate: selection.profile is selected but sections.profile is missing")
@@ -379,6 +503,9 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 	}
 	if tpl.Selection.InventoryWorkspace.HasAny() && tpl.Sections.InventoryWorkspace == nil {
 		return fmt.Errorf("ValidateBuildTemplate: selection.inventory.workspace is selected but sections.inventory.workspace is missing")
+	}
+	if tpl.Selection.Equipment.HasAny() && tpl.Sections.Equipment == nil {
+		return fmt.Errorf("ValidateBuildTemplate: selection.equipment is selected but sections.equipment is missing")
 	}
 
 	if tpl.Sections.Profile != nil {
@@ -396,6 +523,11 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 			return err
 		}
 		if err := validateItems(tpl.Sections.InventoryWorkspace.StorageItems, ContainerStorage); err != nil {
+			return err
+		}
+	}
+	if tpl.Sections.Equipment != nil {
+		if err := validateEquipmentSection(tpl.Sections.Equipment); err != nil {
 			return err
 		}
 	}
@@ -505,6 +637,148 @@ func validateStatsSection(s *StatsSection) error {
 		}
 	}
 	return nil
+}
+
+// validateEquipmentSelection enforces the allowlist on
+// selection.equipment.Fields. Boolean shortcut and nil are accepted
+// without further checks (the boolean shortcut means "every slot the
+// section ships").
+func validateEquipmentSelection(sel *SectionSelection) error {
+	if sel == nil {
+		return nil
+	}
+	for key := range sel.Fields {
+		if !equipmentSelectionFields[key] {
+			return fmt.Errorf("ValidateBuildTemplate: selection.equipment has unknown slot %q", key)
+		}
+	}
+	return nil
+}
+
+// validateEquipmentSection enforces structural ranges on every present
+// equipment slot. baseItemID == 0 is accepted as the explicit-clear
+// sentinel; non-zero IDs are only sanity-checked here (the resolver
+// rejects unknown IDs at apply time with the richer per-slot context).
+// Upgrade is validated against MaxEquipmentItemUpgrade — the "is it
+// upgradable at all / what is the per-item cap" check is deferred to
+// the apply resolver where the resolved DB entry is known.
+func validateEquipmentSection(eq *EquipmentSection) error {
+	for _, slotKey := range EquipmentSlotOrder {
+		ref := equipmentSlotRef(eq, slotKey)
+		if ref == nil {
+			continue
+		}
+		if err := validateEquipmentItemRef(slotKey, ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateEquipmentItemRef runs the per-ref structural checks. Kept
+// separate so the tests can exercise it directly.
+func validateEquipmentItemRef(slotKey string, ref *EquipmentItemRef) error {
+	if ref.Upgrade != nil {
+		if *ref.Upgrade < 0 {
+			return fmt.Errorf("ValidateBuildTemplate: equipment.%s.upgrade=%d is negative", slotKey, *ref.Upgrade)
+		}
+		if *ref.Upgrade > MaxEquipmentItemUpgrade {
+			return fmt.Errorf("ValidateBuildTemplate: equipment.%s.upgrade=%d out of range [0, %d]", slotKey, *ref.Upgrade, MaxEquipmentItemUpgrade)
+		}
+	}
+	if ref.AoWItemID != nil && *ref.AoWItemID == 0 {
+		return fmt.Errorf("ValidateBuildTemplate: equipment.%s.aowItemID=0 is invalid (omit the field to mean any-AoW)", slotKey)
+	}
+	return nil
+}
+
+// equipmentSlotRef returns the pointer field on eq matching the given
+// canonical slot key. Returns nil for unknown keys (defensive — callers
+// only pass keys from EquipmentSlotOrder, which is allowlisted).
+func equipmentSlotRef(eq *EquipmentSection, slotKey string) *EquipmentItemRef {
+	if eq == nil {
+		return nil
+	}
+	switch slotKey {
+	case "weaponLeftHand1":
+		return eq.WeaponLeftHand1
+	case "weaponRightHand1":
+		return eq.WeaponRightHand1
+	case "weaponLeftHand2":
+		return eq.WeaponLeftHand2
+	case "weaponRightHand2":
+		return eq.WeaponRightHand2
+	case "weaponLeftHand3":
+		return eq.WeaponLeftHand3
+	case "weaponRightHand3":
+		return eq.WeaponRightHand3
+	case "arrows1":
+		return eq.Arrows1
+	case "bolts1":
+		return eq.Bolts1
+	case "arrows2":
+		return eq.Arrows2
+	case "bolts2":
+		return eq.Bolts2
+	case "armorHead":
+		return eq.ArmorHead
+	case "armorChest":
+		return eq.ArmorChest
+	case "armorArms":
+		return eq.ArmorArms
+	case "armorLegs":
+		return eq.ArmorLegs
+	}
+	return nil
+}
+
+// EquipmentSlotRef returns the EquipmentItemRef pointer for the named
+// canonical slot key, or nil when the slot is not populated. Exported so
+// the apply resolver and export builder can walk slots by key without
+// duplicating the switch. Returns nil when eq is nil or slotKey is not
+// one of the 14 Phase 7b.1 slot names.
+func EquipmentSlotRef(eq *EquipmentSection, slotKey string) *EquipmentItemRef {
+	return equipmentSlotRef(eq, slotKey)
+}
+
+// SetEquipmentSlotRef stores ref at the canonical slot field named by
+// slotKey. No-op when eq is nil or slotKey is not one of the 14 Phase
+// 7b.1 slot names. Used by the export builder to populate slots from
+// the saved character without duplicating the switch.
+func SetEquipmentSlotRef(eq *EquipmentSection, slotKey string, ref *EquipmentItemRef) {
+	if eq == nil {
+		return
+	}
+	switch slotKey {
+	case "weaponLeftHand1":
+		eq.WeaponLeftHand1 = ref
+	case "weaponRightHand1":
+		eq.WeaponRightHand1 = ref
+	case "weaponLeftHand2":
+		eq.WeaponLeftHand2 = ref
+	case "weaponRightHand2":
+		eq.WeaponRightHand2 = ref
+	case "weaponLeftHand3":
+		eq.WeaponLeftHand3 = ref
+	case "weaponRightHand3":
+		eq.WeaponRightHand3 = ref
+	case "arrows1":
+		eq.Arrows1 = ref
+	case "bolts1":
+		eq.Bolts1 = ref
+	case "arrows2":
+		eq.Arrows2 = ref
+	case "bolts2":
+		eq.Bolts2 = ref
+	case "armorHead":
+		eq.ArmorHead = ref
+	case "armorChest":
+		eq.ArmorChest = ref
+	case "armorArms":
+		eq.ArmorArms = ref
+	case "armorLegs":
+		eq.ArmorLegs = ref
+	}
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────

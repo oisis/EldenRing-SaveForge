@@ -69,6 +69,10 @@ type ImportPreviewSummary struct {
 	SelectedSections     []string `json:"selectedSections,omitempty"`
 	ProfileFieldsPresent []string `json:"profileFieldsPresent,omitempty"`
 	StatFieldsPresent    []string `json:"statFieldsPresent,omitempty"`
+
+	// Phase 7b.1 — list of equipment slot keys whose pointer is non-nil
+	// in sections.equipment. Stable canonical order (EquipmentSlotOrder).
+	EquipmentSlotsPresent []string `json:"equipmentSlotsPresent,omitempty"`
 }
 
 // Issue codes — stable strings. UI surfaces and tests assert on these.
@@ -99,6 +103,38 @@ const (
 	// without ever mutating the slot or the workspace.
 	IssueCodeInventorySessionRequired = "inventory_session_required"
 	IssueCodeInventorySessionInvalid  = "inventory_session_invalid"
+
+	// Phase 7b.1 — sections.equipment apply codes.
+	//
+	// equipment_inventory_combo_unsupported is a hard error: combining
+	// sections.equipment with sections.inventory.workspace in the same
+	// template is rejected at preview time. The reason is the writer's
+	// GaMap-freshness requirement (Phase 7b.0 strict-reject of missing
+	// handles): the inventory section only adds items into the workspace
+	// snapshot, and slot.GaMap is not refreshed until the user clicks
+	// Save changes. Equipping an item the workspace just added would
+	// fail with "not present in inventory (GaMap)". Lifting this
+	// restriction needs a workspace-backed equipment model or auto-
+	// commit — both out of scope for Phase 7b.1.
+	//
+	// equipment_item_not_in_inventory is a warning: the resolver could
+	// not find the referenced item in slot.Inventory.CommonItems (storage
+	// is intentionally NOT searched). The slot is skipped; other applied
+	// sections still commit.
+	//
+	// equipment_item_ambiguous is a warning: the resolver found multiple
+	// matching items after applying optional disambiguators (upgrade,
+	// infusion, AoW). The first match wins and the warning surfaces so
+	// the user knows there was a choice.
+	//
+	// equipment_slot_invalid is an error: the writer rejected a resolved
+	// EquipmentWrite (e.g. handle type mismatch, prefix violation). The
+	// equipment apply fails and the dual-snapshot rollback restores both
+	// slot bytes and the workspace.
+	IssueCodeEquipmentInventoryComboUnsupported = "equipment_inventory_combo_unsupported"
+	IssueCodeEquipmentItemNotInInventory        = "equipment_item_not_in_inventory"
+	IssueCodeEquipmentItemAmbiguous             = "equipment_item_ambiguous"
+	IssueCodeEquipmentSlotInvalid               = "equipment_slot_invalid"
 )
 
 // ashCategory is the DB tag for an Ash of War item. Used to detect
@@ -199,6 +235,20 @@ func PreviewBuildTemplateImport(tpl *BuildTemplate, opts ImportPreviewOptions) I
 	rep.Summary.SelectedSections = selectedSectionsForTemplate(tpl)
 	rep.Summary.ProfileFieldsPresent = profileFieldsPresent(tpl.Sections.Profile)
 	rep.Summary.StatFieldsPresent = statFieldsPresent(tpl.Sections.Stats)
+	rep.Summary.EquipmentSlotsPresent = equipmentSlotsPresent(tpl.Sections.Equipment)
+
+	// Phase 7b.1 — equipment + inventory.workspace combo guard.
+	// Detected at preview time so the user sees a single, clean error in
+	// the preview modal even before they click Apply. The apply path
+	// double-checks this exact rule to stay robust against direct callers
+	// of the JSON endpoint that bypass the preview.
+	if tpl.Selection != nil && tpl.Selection.Equipment.HasAny() && tpl.Selection.InventoryWorkspace.HasAny() {
+		rep.Errors = append(rep.Errors, ImportPreviewIssue{
+			Severity: "error",
+			Code:     IssueCodeEquipmentInventoryComboUnsupported,
+			Message:  "sections.equipment cannot be applied together with sections.inventory.workspace in the same template (Phase 7b.1 limitation: inventory items are only added to the workspace and the equipment writer needs them already committed to the slot's GaMap).",
+		})
+	}
 
 	// v1 documents are guaranteed by ValidateBuildTemplate to carry a
 	// non-nil InventoryWorkspace; v2 documents may omit it (selection
@@ -425,6 +475,26 @@ func selectedSectionsForTemplate(tpl *BuildTemplate) []string {
 	}
 	if tpl.Selection.Stats.HasAny() {
 		out = append(out, "stats")
+	}
+	if tpl.Selection.Equipment.HasAny() {
+		out = append(out, "equipment")
+	}
+	return out
+}
+
+// equipmentSlotsPresent enumerates the canonical-ordered slot keys whose
+// pointer is non-nil in the equipment section. Used by the preview
+// summary so the UI knows which 14 slots the template ships before the
+// apply runs.
+func equipmentSlotsPresent(eq *EquipmentSection) []string {
+	if eq == nil {
+		return nil
+	}
+	var out []string
+	for _, key := range EquipmentSlotOrder {
+		if EquipmentSlotRef(eq, key) != nil {
+			out = append(out, key)
+		}
 	}
 	return out
 }
