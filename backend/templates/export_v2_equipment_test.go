@@ -161,3 +161,86 @@ func TestBuildV2Template_EquipmentWithProfile_BothLand(t *testing.T) {
 func rep_summary_sections(tpl *BuildTemplate) []string {
 	return selectedSectionsForTemplate(tpl)
 }
+
+// ─── Phase 7c — talisman export tests ───────────────────────────────────
+
+func TestBuildV2Template_EquipmentTalismansShipped(t *testing.T) {
+	src := &EquipmentSection{
+		Talisman1: &EquipmentItemRef{BaseItemID: 0x20100001, Name: "Radagon's Soreseal"},
+		Talisman2: &EquipmentItemRef{BaseItemID: 0x20100002},
+		Talisman5: &EquipmentItemRef{BaseItemID: 0}, // explicit clear
+	}
+	tpl, err := BuildV2Template(ExportV2Options{
+		Equipment: src,
+		Selection: &TemplateSelection{Equipment: &SectionSelection{All: true}},
+	})
+	if err != nil {
+		t.Fatalf("BuildV2Template: %v", err)
+	}
+	if tpl.Sections.Equipment == nil {
+		t.Fatal("section nil")
+	}
+	if tpl.Sections.Equipment.Talisman1 == nil || tpl.Sections.Equipment.Talisman1.BaseItemID != 0x20100001 {
+		t.Errorf("talisman1 lost: %+v", tpl.Sections.Equipment.Talisman1)
+	}
+	if tpl.Sections.Equipment.Talisman2 == nil || tpl.Sections.Equipment.Talisman2.BaseItemID != 0x20100002 {
+		t.Errorf("talisman2 lost: %+v", tpl.Sections.Equipment.Talisman2)
+	}
+	if tpl.Sections.Equipment.Talisman5 == nil || tpl.Sections.Equipment.Talisman5.BaseItemID != 0 {
+		t.Errorf("talisman5 explicit clear lost")
+	}
+	if tpl.Sections.Equipment.Talisman3 != nil || tpl.Sections.Equipment.Talisman4 != nil {
+		t.Errorf("absent talisman slots should stay nil")
+	}
+}
+
+func TestBuildV2Template_EquipmentTalismanPerFieldSelection(t *testing.T) {
+	src := &EquipmentSection{
+		Talisman1: &EquipmentItemRef{BaseItemID: 0x20100001},
+		Talisman4: &EquipmentItemRef{BaseItemID: 0x20100004},
+	}
+	tpl, err := BuildV2Template(ExportV2Options{
+		Equipment: src,
+		Selection: &TemplateSelection{Equipment: &SectionSelection{Fields: map[string]bool{
+			"talisman1": true,
+			"talisman2": true,
+			"talisman4": true,
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("BuildV2Template: %v", err)
+	}
+	if _, ok := tpl.Selection.Equipment.Fields["talisman2"]; ok {
+		t.Errorf("talisman2 should be dropped (source had no value)")
+	}
+	if !tpl.Selection.Equipment.Fields["talisman1"] {
+		t.Error("talisman1 should remain selected")
+	}
+	if !tpl.Selection.Equipment.Fields["talisman4"] {
+		t.Error("talisman4 should remain selected")
+	}
+}
+
+func TestBuildV2Template_EquipmentTalismanJSONShape(t *testing.T) {
+	src := &EquipmentSection{
+		Talisman1: &EquipmentItemRef{BaseItemID: 0x20100001, Name: "Radagon's Soreseal"},
+	}
+	tpl, err := BuildV2Template(ExportV2Options{
+		Equipment: src,
+		Selection: &TemplateSelection{Equipment: &SectionSelection{All: true}},
+	})
+	if err != nil {
+		t.Fatalf("BuildV2Template: %v", err)
+	}
+	data, err := json.Marshal(tpl)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	js := string(data)
+	if !strings.Contains(js, `"talisman1":`) {
+		t.Errorf("JSON should contain talisman1 key: %s", js)
+	}
+	if !strings.Contains(js, `"Radagon's Soreseal"`) {
+		t.Errorf("JSON should contain talisman name: %s", js)
+	}
+}

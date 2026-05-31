@@ -105,17 +105,15 @@ func TestBuildEquipmentSectionFromSlot_ArmorMatchesEditableItem(t *testing.T) {
 	}
 }
 
-func TestBuildEquipmentSectionFromSlot_TalismansAndGreatRuneNotExported(t *testing.T) {
+func TestBuildEquipmentSectionFromSlot_GreatRuneAndUnknownSlotsNotExported(t *testing.T) {
 	slot := makeEquipmentScanSlot()
-	writeEquipSlot(slot, 10, 0x80000001) // EquippedGreatRune
-	writeEquipSlot(slot, 17, 0x80000002) // Talisman1
-	writeEquipSlot(slot, 18, 0x80000003) // Talisman2
-	writeEquipSlot(slot, 11, 0x80000004) // unk0x2C
-	writeEquipSlot(slot, 16, 0x80000005) // unk0x40
+	writeEquipSlot(slot, 10, 0x80000001) // EquippedGreatRune — out of scope
+	writeEquipSlot(slot, 11, 0x80000004) // unk0x2C — out of scope
+	writeEquipSlot(slot, 16, 0x80000005) // unk0x40 — out of scope
 
 	sec := buildEquipmentSectionFromSlot(slot, nil)
 	if sec != nil {
-		t.Errorf("section should be nil — none of the Phase 7b.1 slots populated, got %+v", sec)
+		t.Errorf("section should be nil — only out-of-scope slots populated, got %+v", sec)
 	}
 }
 
@@ -163,5 +161,94 @@ func TestBuildEquipmentSectionFromSlot_MultiSlotPopulated(t *testing.T) {
 	}
 	if sec.ArmorChest != nil {
 		t.Errorf("ArmorChest should remain nil for empty slot")
+	}
+}
+
+// ─── Phase 7c — talisman export tests ───────────────────────────────────
+
+func TestBuildEquipmentSectionFromSlot_TalismanMatchesEditableItem(t *testing.T) {
+	slot := makeEquipmentScanSlot()
+	// Equip Talisman1 (idx 17). Talisman slots store the talisman item ID
+	// directly (0x20-prefixed), with no 0x80 mask.
+	writeEquipSlot(slot, 17, 0x20100001)
+	items := []editor.EditableItem{{
+		BaseItemID: 0x20100001,
+		ItemID:     0x20100001,
+		Name:       "Radagon's Soreseal",
+		IsTalisman: true,
+	}}
+	sec := buildEquipmentSectionFromSlot(slot, items)
+	if sec == nil || sec.Talisman1 == nil {
+		t.Fatalf("expected Talisman1 populated, got %+v", sec)
+	}
+	if sec.Talisman1.BaseItemID != 0x20100001 {
+		t.Errorf("talisman1 baseItemID mismatch: %v", sec.Talisman1)
+	}
+	if sec.Talisman1.Name != "Radagon's Soreseal" {
+		t.Errorf("talisman1 name mismatch: %q", sec.Talisman1.Name)
+	}
+	if sec.Talisman1.Upgrade != nil {
+		t.Errorf("talisman ref should not carry an upgrade pointer")
+	}
+	if sec.Talisman1.InfusionName != "" {
+		t.Errorf("talisman ref should not carry an infusion")
+	}
+	if sec.Talisman1.AoWItemID != nil {
+		t.Errorf("talisman ref should not carry an AoW item ID")
+	}
+}
+
+func TestBuildEquipmentSectionFromSlot_AllFiveTalismansPopulated(t *testing.T) {
+	slot := makeEquipmentScanSlot()
+	writeEquipSlot(slot, 17, 0x20100001)
+	writeEquipSlot(slot, 18, 0x20100002)
+	writeEquipSlot(slot, 19, 0x20100003)
+	writeEquipSlot(slot, 20, 0x20100004)
+	writeEquipSlot(slot, 21, 0x20100005)
+	items := []editor.EditableItem{
+		{BaseItemID: 0x20100001, ItemID: 0x20100001, Name: "T1", IsTalisman: true},
+		{BaseItemID: 0x20100002, ItemID: 0x20100002, Name: "T2", IsTalisman: true},
+		{BaseItemID: 0x20100003, ItemID: 0x20100003, Name: "T3", IsTalisman: true},
+		{BaseItemID: 0x20100004, ItemID: 0x20100004, Name: "T4", IsTalisman: true},
+		{BaseItemID: 0x20100005, ItemID: 0x20100005, Name: "T5", IsTalisman: true},
+	}
+	sec := buildEquipmentSectionFromSlot(slot, items)
+	if sec == nil {
+		t.Fatal("section nil")
+	}
+	if sec.Talisman1 == nil || sec.Talisman2 == nil || sec.Talisman3 == nil || sec.Talisman4 == nil || sec.Talisman5 == nil {
+		t.Errorf("expected all 5 talismans populated, got %+v", sec)
+	}
+}
+
+func TestBuildEquipmentSectionFromSlot_TalismanUnknownItemEmitsRawBaseID(t *testing.T) {
+	slot := makeEquipmentScanSlot()
+	// Unfamiliar talisman ID — not in inventory items nor DB.
+	writeEquipSlot(slot, 17, 0x2DEADBEE)
+	sec := buildEquipmentSectionFromSlot(slot, nil)
+	if sec == nil || sec.Talisman1 == nil {
+		t.Fatalf("unknown talisman should still emit a ref, got %+v", sec)
+	}
+	// Without OR-mask: candidateID == raw (0x2DEADBEE).
+	if sec.Talisman1.BaseItemID == 0 {
+		t.Errorf("unknown talisman ref should carry the raw decoded itemID")
+	}
+}
+
+func TestEquipmentSlotIsTalisman(t *testing.T) {
+	cases := map[string]bool{
+		"talisman1":        true,
+		"talisman2":        true,
+		"talisman3":        true,
+		"talisman4":        true,
+		"talisman5":        true,
+		"arrows1":          false,
+		"weaponRightHand1": false,
+		"armorHead":        false,
+	}
+	for key, want := range cases {
+		if got := equipmentSlotIsTalisman(key); got != want {
+			t.Errorf("equipmentSlotIsTalisman(%q): got %v want %v", key, got, want)
+		}
 	}
 }

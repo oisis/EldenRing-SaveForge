@@ -10,9 +10,10 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/templates"
 )
 
-// equipmentSlotChrAsmIndex maps a Phase 7b.1 canonical slot key to the
-// corresponding index inside the 22-entry core.ChrAsmEquipment array.
-// The keys mirror templates.EquipmentSlotOrder.
+// equipmentSlotChrAsmIndex maps a canonical slot key to the corresponding
+// index inside the 22-entry core.ChrAsmEquipment array. Keys mirror
+// templates.EquipmentSlotOrder. Phase 7c extends the map with the 5
+// talisman indices (17–21).
 var equipmentSlotChrAsmIndex = map[string]int{
 	"weaponLeftHand1":  0,
 	"weaponRightHand1": 1,
@@ -28,6 +29,11 @@ var equipmentSlotChrAsmIndex = map[string]int{
 	"armorChest":       13,
 	"armorArms":        14,
 	"armorLegs":        15,
+	"talisman1":        17,
+	"talisman2":        18,
+	"talisman3":        19,
+	"talisman4":        20,
+	"talisman5":        21,
 }
 
 // equipmentSlotKindForKey returns the Phase 7b.0 core writer slot kind
@@ -63,6 +69,16 @@ func equipmentSlotKindForKey(slotKey string) (core.EquipmentSlotKind, bool) {
 		return core.EquipSlotArms, true
 	case "armorLegs":
 		return core.EquipSlotLegs, true
+	case "talisman1":
+		return core.EquipSlotTalisman1, true
+	case "talisman2":
+		return core.EquipSlotTalisman2, true
+	case "talisman3":
+		return core.EquipSlotTalisman3, true
+	case "talisman4":
+		return core.EquipSlotTalisman4, true
+	case "talisman5":
+		return core.EquipSlotTalisman5, true
 	}
 	return 0, false
 }
@@ -74,6 +90,18 @@ func equipmentSlotKindForKey(slotKey string) (core.EquipmentSlotKind, bool) {
 func equipmentSlotIsAmmo(slotKey string) bool {
 	switch slotKey {
 	case "arrows1", "bolts1", "arrows2", "bolts2":
+		return true
+	}
+	return false
+}
+
+// equipmentSlotIsTalisman reports whether the slot key is one of the five
+// talisman positions. Talisman slots store the talisman item ID directly
+// (the 0x20-prefixed form already present in the GaMap), with no
+// `| 0x80000000` mask applied.
+func equipmentSlotIsTalisman(slotKey string) bool {
+	switch slotKey {
+	case "talisman1", "talisman2", "talisman3", "talisman4", "talisman5":
 		return true
 	}
 	return false
@@ -166,7 +194,7 @@ func decodeEquipmentSlotToRef(raw uint32, slotKey string, byEquipped map[uint32]
 	}
 
 	var candidateID uint32
-	if equipmentSlotIsAmmo(slotKey) {
+	if equipmentSlotIsAmmo(slotKey) || equipmentSlotIsTalisman(slotKey) {
 		candidateID = raw
 	} else {
 		candidateID = raw &^ core.ItemTypeWeapon
