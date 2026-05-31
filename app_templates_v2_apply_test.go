@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -845,5 +847,398 @@ func TestApplyBuildTemplateV2_RejectsUnknownMode(t *testing.T) {
 	}
 	if len(res.Preview.Errors) == 0 || res.Preview.Errors[0].Code != templates.IssueCodeUnknownMode {
 		t.Errorf("expected IssueCodeUnknownMode, got %+v", res.Preview.Errors)
+	}
+}
+
+// ─── Phase 5B — library sibling endpoint ──────────────────────────────
+
+// saveV2TemplateInLibrary builds a v2 template via the existing Phase 3B
+// pipeline (so we exercise the real schema/selection invariants the
+// frontend would produce) and persists it through Library.SaveTemplate.
+// Returns the entry id used to load the template back via the library
+// endpoint under test.
+func saveV2TemplateInLibrary(t *testing.T, app *App, selectionJSON string, override func(*templates.BuildTemplate)) string {
+	t.Helper()
+	if app.templateLibrary == nil {
+		app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
+	}
+	// Reuse makeV2Template to build a valid canonical v2 JSON; then parse
+	// it back and persist via SaveTemplate so the library entry carries
+	// the exact bytes the Phase 5B endpoint will load.
+	jsonText := makeV2Template(t, app, selectionJSON, override)
+	tpl, err := templates.ParseBuildTemplateJSON([]byte(jsonText))
+	if err != nil {
+		t.Fatalf("re-parse exported v2 template: %v", err)
+	}
+	entry, err := app.templateLibrary.SaveTemplate(tpl)
+	if err != nil {
+		t.Fatalf("SaveTemplate: %v", err)
+	}
+	return entry.ID
+}
+
+func TestApplyBuildTemplateV2FromLibrary_Success(t *testing.T) {
+	app := applyV2Fixture()
+	id := saveV2TemplateInLibrary(t, app, `{"profile":{"level":true},"stats":{"vigor":true}}`, func(tpl *templates.BuildTemplate) {
+		tpl.Sections.Profile.Level = u32(91)
+		tpl.Sections.Stats.Vigor = u32(58)
+	})
+
+	res, err := app.ApplyBuildTemplateV2FromLibraryToCharacter(0, id, ApplyTemplateV2Options{})
+	if err != nil {
+		t.Fatalf("apply from library: %v", err)
+	}
+	if !res.Applied {
+		t.Fatalf("Applied=false: %+v", res.Preview.Errors)
+	}
+	if !reflect.DeepEqual(res.AppliedFields, []string{"profile.level", "stats.vigor"}) {
+		t.Errorf("AppliedFields = %v, want [profile.level stats.vigor]", res.AppliedFields)
+	}
+	if app.save.Slots[0].Player.Level != 91 {
+		t.Errorf("Level = %d, want 91", app.save.Slots[0].Player.Level)
+	}
+	if app.save.Slots[0].Player.Vigor != 58 {
+		t.Errorf("Vigor = %d, want 58", app.save.Slots[0].Player.Vigor)
+	}
+	if res.Character == nil || res.Character.Level != 91 {
+		t.Errorf("Character missing or stale: %+v", res.Character)
+	}
+}
+
+func TestApplyBuildTemplateV2FromLibrary_NotFound(t *testing.T) {
+	app := applyV2Fixture()
+	app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
+	pre := snapPlayer(app.save.Slots[0].Player)
+
+	res, err := app.ApplyBuildTemplateV2FromLibraryToCharacter(0, "does-not-exist", ApplyTemplateV2Options{})
+	if err == nil {
+		t.Fatalf("expected error for unknown id, got Applied=%v", res.Applied)
+	}
+	if res.Applied {
+		t.Fatal("Applied=true for unknown id")
+	}
+	if res.CharIndex != 0 {
+		t.Errorf("CharIndex = %d, want 0", res.CharIndex)
+	}
+	if snapPlayer(app.save.Slots[0].Player) != pre {
+		t.Errorf("slot mutated despite not-found rejection")
+	}
+}
+
+func TestApplyBuildTemplateV2FromLibrary_EmptyID(t *testing.T) {
+	app := applyV2Fixture()
+	app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
+
+	res, err := app.ApplyBuildTemplateV2FromLibraryToCharacter(0, "", ApplyTemplateV2Options{})
+	if err == nil {
+		t.Fatalf("expected error for empty id, got Applied=%v", res.Applied)
+	}
+	if res.Applied {
+		t.Fatal("Applied=true for empty id")
+	}
+}
+
+func TestApplyBuildTemplateV2FromLibrary_V1EntryRejected(t *testing.T) {
+	app := applyV2Fixture()
+	app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
+
+	// Persist a valid v1 template directly via SaveTemplate (the library
+	// stores both schema versions; the v2 endpoint must refuse v1 via
+	// the Phase 5A routing message).
+	v1 := &templates.BuildTemplate{
+		Schema:     templates.SchemaKey,
+		Version:    1,
+		AppVersion: "test",
+		CreatedAt:  "2026-05-31T12:00:00Z",
+		Sections: templates.TemplateSections{
+			InventoryWorkspace: &templates.InventoryWorkspaceSection{
+				InventoryItems: []templates.TemplateItem{{
+					BaseItemID: 0x401EA3C3,
+					Name:       "Igon's Furled Finger",
+					Category:   "key_items",
+					Quantity:   1,
+					Container:  templates.ContainerInventory,
+					Position:   0,
+				}},
+				StorageItems: []templates.TemplateItem{},
+			},
+		},
+	}
+	entry, err := app.templateLibrary.SaveTemplate(v1)
+	if err != nil {
+		t.Fatalf("SaveTemplate v1: %v", err)
+	}
+	pre := snapPlayer(app.save.Slots[0].Player)
+
+	res, err := app.ApplyBuildTemplateV2FromLibraryToCharacter(0, entry.ID, ApplyTemplateV2Options{})
+	if err != nil {
+		t.Fatalf("apply from library: %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied=true for v1 library entry")
+	}
+	if len(res.Preview.Errors) == 0 {
+		t.Fatal("expected preview error")
+	}
+	msg := res.Preview.Errors[0].Message
+	if !strings.Contains(msg, "schema v2") || !strings.Contains(msg, "v1") {
+		t.Errorf("error message %q does not mention v2 vs v1 routing", msg)
+	}
+	if snapPlayer(app.save.Slots[0].Player) != pre {
+		t.Errorf("slot mutated despite v1 rejection")
+	}
+}
+
+func TestApplyBuildTemplateV2FromLibrary_InventoryWorkspaceSelectionRejected(t *testing.T) {
+	app := applyV2Fixture()
+	app.templateLibrary = templates.NewTemplateLibrary(t.TempDir())
+
+	// Persist a v2 template whose selection nominates inventory.workspace;
+	// the Phase 5A scope guard must reject regardless of source path.
+	tpl := &templates.BuildTemplate{
+		Schema:     templates.SchemaKey,
+		Version:    2,
+		AppVersion: "test",
+		CreatedAt:  "2026-05-31T12:00:00Z",
+		Selection: &templates.TemplateSelection{
+			Stats:              &templates.SectionSelection{All: true},
+			InventoryWorkspace: &templates.SectionSelection{All: true},
+		},
+		Sections: templates.TemplateSections{
+			Stats: &templates.StatsSection{Vigor: u32(40), Mind: u32(30), Endurance: u32(30), Strength: u32(20), Dexterity: u32(20), Intelligence: u32(20), Faith: u32(20), Arcane: u32(20)},
+			InventoryWorkspace: &templates.InventoryWorkspaceSection{
+				InventoryItems: []templates.TemplateItem{},
+				StorageItems:   []templates.TemplateItem{},
+			},
+		},
+	}
+	entry, err := app.templateLibrary.SaveTemplate(tpl)
+	if err != nil {
+		t.Fatalf("SaveTemplate: %v", err)
+	}
+	pre := snapPlayer(app.save.Slots[0].Player)
+
+	res, err := app.ApplyBuildTemplateV2FromLibraryToCharacter(0, entry.ID, ApplyTemplateV2Options{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied=true for v2 entry with inventory.workspace selection")
+	}
+	found := false
+	for _, issue := range res.Preview.Errors {
+		if issue.Code == templates.IssueCodeUnsupportedCategory {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected IssueCodeUnsupportedCategory, got %+v", res.Preview.Errors)
+	}
+	if snapPlayer(app.save.Slots[0].Player) != pre {
+		t.Errorf("slot mutated despite scope rejection")
+	}
+}
+
+// ─── Phase 5B — file sibling endpoint (YAML, dialog-less core) ────────
+//
+// runtime.OpenFileDialog requires a Wails app context (a.ctx) and is not
+// mockable in unit tests, so these tests drive applyV2TemplateFromYAMLPath
+// — the dialog-less core of ApplyBuildTemplateV2FromFileToCharacter. The
+// dialog wrapper itself is a thin path-fetch + delegate that is exercised
+// indirectly: every reachable behaviour after path acquisition is covered
+// by these tests.
+
+func writeTempYAMLFile(t *testing.T, contents []byte) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "template.yaml")
+	if err := os.WriteFile(path, contents, 0o644); err != nil {
+		t.Fatalf("write temp yaml: %v", err)
+	}
+	return path
+}
+
+func TestApplyBuildTemplateV2FromFileCore_Success(t *testing.T) {
+	app := applyV2Fixture()
+	jsonText := makeV2Template(t, app, `{"profile":{"level":true},"stats":{"faith":true}}`, func(tpl *templates.BuildTemplate) {
+		tpl.Sections.Profile.Level = u32(85)
+		tpl.Sections.Stats.Faith = u32(45)
+	})
+	// Convert the canonical JSON to YAML so the file path exercises the
+	// real YAML decode + canonical re-encode pipeline.
+	tpl, err := templates.ParseBuildTemplateJSON([]byte(jsonText))
+	if err != nil {
+		t.Fatalf("parse JSON: %v", err)
+	}
+	yamlBytes, err := templates.MarshalBuildTemplateYAML(tpl)
+	if err != nil {
+		t.Fatalf("marshal YAML: %v", err)
+	}
+	path := writeTempYAMLFile(t, yamlBytes)
+
+	res, err := app.applyV2TemplateFromYAMLPath(0, path, ApplyTemplateV2Options{})
+	if err != nil {
+		t.Fatalf("apply from yaml path: %v", err)
+	}
+	if !res.Applied {
+		t.Fatalf("Applied=false: %+v", res.Preview.Errors)
+	}
+	if app.save.Slots[0].Player.Level != 85 {
+		t.Errorf("Level = %d, want 85", app.save.Slots[0].Player.Level)
+	}
+	if app.save.Slots[0].Player.Faith != 45 {
+		t.Errorf("Faith = %d, want 45", app.save.Slots[0].Player.Faith)
+	}
+}
+
+func TestApplyBuildTemplateV2FromFileCore_InvalidYAMLRejected(t *testing.T) {
+	app := applyV2Fixture()
+	path := writeTempYAMLFile(t, []byte("this is: not: valid: yaml: at: all\n\t- malformed\n"))
+	pre := snapPlayer(app.save.Slots[0].Player)
+
+	res, err := app.applyV2TemplateFromYAMLPath(0, path, ApplyTemplateV2Options{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied=true for malformed YAML")
+	}
+	if len(res.Preview.Errors) == 0 || res.Preview.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected IssueCodeStructureInvalid, got %+v", res.Preview.Errors)
+	}
+	if snapPlayer(app.save.Slots[0].Player) != pre {
+		t.Errorf("slot mutated despite parse failure")
+	}
+}
+
+func TestApplyBuildTemplateV2FromFileCore_V1YAMLRejected(t *testing.T) {
+	app := applyV2Fixture()
+	v1 := &templates.BuildTemplate{
+		Schema:     templates.SchemaKey,
+		Version:    1,
+		AppVersion: "test",
+		CreatedAt:  "2026-05-31T12:00:00Z",
+		Sections: templates.TemplateSections{
+			InventoryWorkspace: &templates.InventoryWorkspaceSection{
+				InventoryItems: []templates.TemplateItem{{
+					BaseItemID: 0x401EA3C3,
+					Name:       "Igon's Furled Finger",
+					Category:   "key_items",
+					Quantity:   1,
+					Container:  templates.ContainerInventory,
+					Position:   0,
+				}},
+				StorageItems: []templates.TemplateItem{},
+			},
+		},
+	}
+	yamlBytes, err := templates.MarshalBuildTemplateYAML(v1)
+	if err != nil {
+		t.Fatalf("marshal v1 YAML: %v", err)
+	}
+	path := writeTempYAMLFile(t, yamlBytes)
+	pre := snapPlayer(app.save.Slots[0].Player)
+
+	res, err := app.applyV2TemplateFromYAMLPath(0, path, ApplyTemplateV2Options{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied=true for v1 YAML through v2 endpoint")
+	}
+	msg := res.Preview.Errors[0].Message
+	if !strings.Contains(msg, "schema v2") || !strings.Contains(msg, "v1") {
+		t.Errorf("error message %q does not mention v2 vs v1 routing", msg)
+	}
+	if snapPlayer(app.save.Slots[0].Player) != pre {
+		t.Errorf("slot mutated despite v1 rejection")
+	}
+}
+
+func TestApplyBuildTemplateV2FromFileCore_MissingFile(t *testing.T) {
+	app := applyV2Fixture()
+	missing := filepath.Join(t.TempDir(), "does-not-exist.yaml")
+
+	res, err := app.applyV2TemplateFromYAMLPath(0, missing, ApplyTemplateV2Options{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied=true for missing file")
+	}
+	if len(res.Preview.Errors) == 0 || res.Preview.Errors[0].Code != templates.IssueCodeStructureInvalid {
+		t.Errorf("expected IssueCodeStructureInvalid, got %+v", res.Preview.Errors)
+	}
+}
+
+func TestApplyBuildTemplateV2FromFileCore_V2InventoryWorkspaceRejected(t *testing.T) {
+	app := applyV2Fixture()
+	tpl := &templates.BuildTemplate{
+		Schema:     templates.SchemaKey,
+		Version:    2,
+		AppVersion: "test",
+		CreatedAt:  "2026-05-31T12:00:00Z",
+		Selection: &templates.TemplateSelection{
+			Stats:              &templates.SectionSelection{All: true},
+			InventoryWorkspace: &templates.SectionSelection{All: true},
+		},
+		Sections: templates.TemplateSections{
+			Stats: &templates.StatsSection{Vigor: u32(40), Mind: u32(30), Endurance: u32(30), Strength: u32(20), Dexterity: u32(20), Intelligence: u32(20), Faith: u32(20), Arcane: u32(20)},
+			InventoryWorkspace: &templates.InventoryWorkspaceSection{
+				InventoryItems: []templates.TemplateItem{},
+				StorageItems:   []templates.TemplateItem{},
+			},
+		},
+	}
+	yamlBytes, err := templates.MarshalBuildTemplateYAML(tpl)
+	if err != nil {
+		t.Fatalf("marshal YAML: %v", err)
+	}
+	path := writeTempYAMLFile(t, yamlBytes)
+	pre := snapPlayer(app.save.Slots[0].Player)
+
+	res, err := app.applyV2TemplateFromYAMLPath(0, path, ApplyTemplateV2Options{})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if res.Applied {
+		t.Fatal("Applied=true for v2 YAML with inventory.workspace selection")
+	}
+	found := false
+	for _, issue := range res.Preview.Errors {
+		if issue.Code == templates.IssueCodeUnsupportedCategory {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected IssueCodeUnsupportedCategory, got %+v", res.Preview.Errors)
+	}
+	if snapPlayer(app.save.Slots[0].Player) != pre {
+		t.Errorf("slot mutated despite scope rejection")
+	}
+}
+
+// ─── Phase 5B — cancellation sentinel shape ───────────────────────────
+//
+// runtime.OpenFileDialog cannot be invoked without a Wails app context,
+// so the cancellation branch of ApplyBuildTemplateV2FromFileToCharacter
+// is exercised via the helper directly: confirms that the sentinel
+// preview matches cancelledPreviewReport's shape and Applied stays
+// false. No filesystem touch.
+
+func TestApplyBuildTemplateV2FromFile_CancelledSentinel(t *testing.T) {
+	res := cancelledApplyV2Result(0)
+	if res.Applied {
+		t.Fatal("cancelled sentinel has Applied=true")
+	}
+	if res.CharIndex != 0 {
+		t.Errorf("CharIndex = %d, want 0", res.CharIndex)
+	}
+	if res.Preview.OK {
+		t.Error("cancelled preview should have OK=false")
+	}
+	if len(res.Preview.Errors) != 0 {
+		t.Errorf("cancelled preview should carry no errors, got %d", len(res.Preview.Errors))
 	}
 }

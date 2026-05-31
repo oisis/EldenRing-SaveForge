@@ -7,6 +7,7 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 	"github.com/oisis/EldenRing-SaveForge/backend/templates"
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ApplyTemplateV2Options controls how a v2 template applies to a character.
@@ -478,4 +479,120 @@ func containsString(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// ─── Phase 5B — sibling endpoints: from library / from file ───────────
+
+// ApplyBuildTemplateV2FromLibraryToCharacter loads a stored template by
+// id from the local library and applies it to slot charIdx via the
+// canonical Phase 5A JSON endpoint. Mirrors the v1 ApplyBuildTemplateFromLibrary
+// delegation shape (load → marshalBuildTemplate → ApplyBuildTemplateToWorkspaceJSON)
+// so all v2 validation, scope guards, locking and rollback live in exactly
+// one place.
+//
+// Behaviour:
+//   - Empty / unknown id → non-nil error wrapped by the endpoint name;
+//     the library's findEntryLocked is the source of truth.
+//   - v1 library entry → delegation rejects with the Phase 5A v1-routing
+//     preview error (the v2 endpoint detects tpl.Version == 1).
+//   - v2 entry with inventory.workspace in selection → delegation rejects
+//     with the Phase 5A scope preview error.
+//   - Library load failures are reported as Go errors (consistent with v1).
+func (a *App) ApplyBuildTemplateV2FromLibraryToCharacter(charIdx int, id string, opts ApplyTemplateV2Options) (ApplyTemplateV2Result, error) {
+	lib, err := a.ensureTemplateLibrary()
+	if err != nil {
+		return ApplyTemplateV2Result{CharIndex: charIdx}, fmt.Errorf("ApplyBuildTemplateV2FromLibraryToCharacter: %w", err)
+	}
+	tpl, err := lib.LoadTemplate(id)
+	if err != nil {
+		return ApplyTemplateV2Result{CharIndex: charIdx}, fmt.Errorf("ApplyBuildTemplateV2FromLibraryToCharacter: %w", err)
+	}
+	data, err := marshalBuildTemplate(tpl)
+	if err != nil {
+		return ApplyTemplateV2Result{CharIndex: charIdx}, fmt.Errorf("ApplyBuildTemplateV2FromLibraryToCharacter: marshal: %w", err)
+	}
+	return a.ApplyBuildTemplateV2ToCharacterJSON(charIdx, string(data), opts)
+}
+
+// ApplyBuildTemplateV2FromFileToCharacter opens a native open-file dialog
+// filtered to .yaml/.yml, parses the chosen file as a public YAML
+// template, transcodes to canonical JSON, and applies it through the
+// Phase 5A JSON endpoint. The dialog and file I/O happen here; all
+// validation / scope / locking / rollback is delegated.
+//
+// Cancellation (empty path) returns a sentinel result (Applied=false,
+// cancelledPreviewReport) mirroring ApplyBuildTemplateToWorkspaceFromFile.
+// Parse / validation failures land as preview errors rather than Go
+// errors so the UI can render "bad YAML" through the same panel as
+// "scope-rejected v2 template".
+func (a *App) ApplyBuildTemplateV2FromFileToCharacter(charIdx int, opts ApplyTemplateV2Options) (ApplyTemplateV2Result, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "Apply Build Template (YAML)",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "Build Template YAML (*.yaml, *.yml)", Pattern: "*.yaml;*.yml"},
+		},
+	})
+	if err != nil {
+		return ApplyTemplateV2Result{CharIndex: charIdx}, err
+	}
+	if path == "" {
+		return cancelledApplyV2Result(charIdx), nil
+	}
+	return a.applyV2TemplateFromYAMLPath(charIdx, path, opts)
+}
+
+// applyV2TemplateFromYAMLPath is the dialog-less core of the file
+// endpoint. Split out so tests can drive it with a real path from
+// t.TempDir() without going through runtime.OpenFileDialog (which is
+// unmockable in a unit test). Behaviour rules:
+//
+//   - File read errors (missing, too large per maxYAMLImportBytes,
+//     unreadable) surface as preview errors with IssueCodeStructureInvalid,
+//     not Go errors.
+//   - YAML parse / strict-decode / multi-document failures surface as
+//     preview errors via the shared ParseBuildTemplateYAML path
+//     (anti-TOCTOU: we re-encode the parsed template, never re-read
+//     the file).
+//   - The canonical JSON is fed verbatim to ApplyBuildTemplateV2ToCharacterJSON
+//     so every v2 invariant (version gate, scope, edit-session conflict,
+//     inactive slot, snapshot/rollback) is enforced by exactly the same
+//     code path as ApplyBuildTemplateV2ToCharacterJSON callers.
+func (a *App) applyV2TemplateFromYAMLPath(charIdx int, path string, opts ApplyTemplateV2Options) (ApplyTemplateV2Result, error) {
+	data, err := readYAMLFileCapped(path)
+	if err != nil {
+		return ApplyTemplateV2Result{
+			CharIndex: charIdx,
+			Preview:   singleErrorPreview(templates.IssueCodeStructureInvalid, err.Error()),
+			Applied:   false,
+		}, nil
+	}
+	tpl, err := templates.ParseBuildTemplateYAML(data)
+	if err != nil {
+		return ApplyTemplateV2Result{
+			CharIndex: charIdx,
+			Preview:   singleErrorPreview(templates.IssueCodeStructureInvalid, err.Error()),
+			Applied:   false,
+		}, nil
+	}
+	canonical, err := marshalBuildTemplate(tpl)
+	if err != nil {
+		return ApplyTemplateV2Result{
+			CharIndex: charIdx,
+			Preview:   singleErrorPreview(templates.IssueCodeStructureInvalid, fmt.Sprintf("re-encode parsed YAML as canonical JSON: %s", err.Error())),
+			Applied:   false,
+		}, nil
+	}
+	return a.ApplyBuildTemplateV2ToCharacterJSON(charIdx, string(canonical), opts)
+}
+
+// cancelledApplyV2Result is the sentinel for "user backed out of the
+// Apply file dialog". Mirrors cancelledApplyResult from the v1 path:
+// Applied=false, cancelledPreviewReport, CharIndex echoed so the UI
+// can correlate the cancel back to the originating request.
+func cancelledApplyV2Result(charIdx int) ApplyTemplateV2Result {
+	return ApplyTemplateV2Result{
+		CharIndex: charIdx,
+		Preview:   cancelledPreviewReport(),
+		Applied:   false,
+	}
 }
