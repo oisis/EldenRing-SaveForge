@@ -6,6 +6,7 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     PreviewBuildTemplateFromLibrary: vi.fn(),
     ApplyBuildTemplateFromLibrary: vi.fn(),
     ApplyBuildTemplateV2FromLibraryToCharacter: vi.fn(),
+    ApplyBuildTemplateV2ToCharacterJSON: vi.fn(),
     DeleteBuildTemplateFromLibrary: vi.fn(),
     RenameBuildTemplateInLibrary: vi.fn(),
     ExportLibraryBuildTemplateToFile: vi.fn(),
@@ -745,5 +746,273 @@ describe('TemplatesShellModal — Phase 5D.1 v2 Apply orchestration', () => {
         render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
         const applyBtn = await screen.findByTestId('library-apply');
         expect(applyBtn).toBeDisabled();
+    });
+});
+
+describe('TemplatesShellModal — Phase 5D.2 direct imported YAML Apply', () => {
+    const v2CanonicalJSON =
+        '{"schema":"saveforge.build-template","version":2,"selection":{"sections":{"profile":{"level":true}}}}';
+
+    function v2OKImportedPreview() {
+        return {
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0,
+                    storageItems: 0,
+                    weapons: 0,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections: ['profile', 'stats'],
+                    profileFieldsPresent: ['level'],
+                    statFieldsPresent: ['vigor'],
+                },
+            },
+            json: v2CanonicalJSON,
+            path: '/fake/imported.yaml',
+        };
+    }
+
+    function applyV2OKResult(extra: Partial<Record<string, unknown>> = {}) {
+        return {
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 1,
+            appliedFields: ['profile.level'],
+            skippedFields: [],
+            ...extra,
+        };
+    }
+
+    it('Apply to character is enabled on a v2 imported preview when saveLoaded + charIndex', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreview());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeEnabled();
+        // Save to Library remains available next to it.
+        expect(screen.getByTestId('import-preview-save-to-library')).toBeEnabled();
+    });
+
+    it('click calls ApplyBuildTemplateV2ToCharacterJSON with charIndex, canonicalJSON and mode=append', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreview());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OKResult());
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={1} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0];
+        expect(call[0]).toBe(1);
+        expect(call[1]).toBe(v2CanonicalJSON);
+        expect((call[2] as { mode: string }).mode).toBe('append');
+    });
+
+    it('applied=true closes the imported preview, toasts success and calls onCharacterTemplateApplied', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreview());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(applyV2OKResult());
+        const { default: toast } = await import('../../../lib/toast');
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        toastSuccess.mockClear();
+        const onCharacterTemplateApplied = vi.fn();
+
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={1}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(toastSuccess).toHaveBeenCalled();
+        });
+        const successArg = toastSuccess.mock.calls[0][0] as string;
+        expect(successArg).toMatch(/slot 2/);
+        expect(successArg).toMatch(/imported template/);
+        expect(onCharacterTemplateApplied).toHaveBeenCalledWith(1);
+        await waitFor(() => {
+            expect(screen.queryByTestId('import-preview-modal')).not.toBeInTheDocument();
+        });
+    });
+
+    it('skippedFields containing profile.class emits an info toast', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreview());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(
+            applyV2OKResult({ skippedFields: ['profile.class'] }),
+        );
+        const { default: toast } = await import('../../../lib/toast');
+        const toastFn = toast as unknown as ReturnType<typeof vi.fn> & {
+            success: ReturnType<typeof vi.fn>;
+        };
+        toastFn.mockClear();
+        toastFn.success.mockClear();
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(toastFn.success).toHaveBeenCalled();
+        });
+        await waitFor(() => {
+            expect(toastFn).toHaveBeenCalled();
+        });
+        const infoCall = toastFn.mock.calls.find(args => /class/i.test(String(args[0])));
+        expect(infoCall).toBeTruthy();
+    });
+
+    it('applied=false toasts error and leaves the imported preview open', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreview());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue({
+            preview: {
+                ok: false,
+                errors: [{
+                    severity: 'error',
+                    code: 'unsupported_section',
+                    message: 'sections.equipment not supported in Phase 5',
+                }],
+                warnings: [],
+                summary: {},
+            },
+            applied: false,
+            charIndex: 1,
+            appliedFields: [],
+            skippedFields: [],
+        });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        const toastSuccess = (toast as unknown as { success: ReturnType<typeof vi.fn> }).success;
+        toastError.mockClear();
+        toastSuccess.mockClear();
+        const onCharacterTemplateApplied = vi.fn();
+
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={1}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(toastSuccess).not.toHaveBeenCalled();
+        expect(onCharacterTemplateApplied).not.toHaveBeenCalled();
+        expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+    });
+
+    it('thrown binding error toasts error and leaves the imported preview open', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreview());
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockRejectedValue(new Error('rpc broken'));
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+        const onCharacterTemplateApplied = vi.fn();
+
+        render(
+            <TemplatesShellModal
+                onClose={vi.fn()}
+                charIndex={1}
+                saveLoaded
+                onCharacterTemplateApplied={onCharacterTemplateApplied}
+            />,
+        );
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(onCharacterTemplateApplied).not.toHaveBeenCalled();
+        expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
+    });
+
+    it('v1 imported preview never exposes Apply to character', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 4,
+                    storageItems: 0,
+                    weapons: 1,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 1,
+                    selectedSections: ['inventory.workspace'],
+                },
+            },
+            json: '{"schema":"saveforge.build-template","version":1}',
+            path: '/fake/v1.yaml',
+        });
+
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await screen.findByTestId('import-preview-modal');
+        expect(screen.queryByTestId('import-preview-apply-v2')).not.toBeInTheDocument();
+        // Save to Library remains the only path for v1 imports.
+        expect(screen.getByTestId('import-preview-save-to-library')).toBeEnabled();
+    });
+
+    it('v2 imported preview without saveLoaded keeps Apply visible but disabled', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(v2OKImportedPreview());
+        render(<TemplatesShellModal onClose={vi.fn()} />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
     });
 });

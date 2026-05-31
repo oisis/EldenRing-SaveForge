@@ -358,6 +358,211 @@ describe('ImportTemplatePreviewModal — Phase 3D.1 schema v2 metadata', () => {
     });
 });
 
+describe('ImportTemplatePreviewModal — Phase 5D.2 direct v2 Apply', () => {
+    function v2Summary(overrides: Partial<templates.ImportPreviewSummary> = {}) {
+        return templates.ImportPreviewSummary.createFrom({
+            inventoryItems: 0,
+            storageItems: 0,
+            weapons: 0,
+            armor: 0,
+            talismans: 0,
+            stackables: 0,
+            aowAssignments: 0,
+            version: 2,
+            selectedSections: ['profile', 'stats'],
+            profileFieldsPresent: ['level'],
+            statFieldsPresent: ['vigor'],
+            ...overrides,
+        });
+    }
+
+    it('v1 preview never renders Apply to character even when onApplyV2 is provided', () => {
+        const report = makeReport({
+            summary: templates.ImportPreviewSummary.createFrom({
+                inventoryItems: 4,
+                storageItems: 0,
+                weapons: 1,
+                armor: 0,
+                talismans: 0,
+                stackables: 0,
+                aowAssignments: 0,
+                version: 1,
+                selectedSections: ['inventory.workspace'],
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(screen.queryByTestId('import-preview-apply-v2')).not.toBeInTheDocument();
+    });
+
+    it('v2 preview with supported sections, save loaded, charIndex set: Apply enabled', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={1}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeInTheDocument();
+        expect(btn).toBeEnabled();
+        expect(btn).toHaveTextContent(/Apply to character/);
+    });
+
+    it('v2 preview with unsupported section keeps Apply visible but disabled with explanatory title', () => {
+        const report = makeReport({
+            summary: v2Summary({ selectedSections: ['profile', 'equipment'] }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={1}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
+        expect(btn.getAttribute('title')).toMatch(/profile\/stats/i);
+    });
+
+    it('v2 preview without saveLoaded keeps Apply disabled with "Load a save" title', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
+        expect(btn.getAttribute('title')).toMatch(/Load a save/i);
+    });
+
+    it('v2 preview without charIndex keeps Apply disabled with "Select a character" title', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
+        expect(btn.getAttribute('title')).toMatch(/Select a character/i);
+    });
+
+    it('v2 preview with report.ok=false keeps Apply disabled', () => {
+        const report = makeReport({
+            ok: false,
+            errors: [
+                templates.ImportPreviewIssue.createFrom({
+                    severity: 'error',
+                    code: 'structure_invalid',
+                    message: 'bad payload',
+                }),
+            ],
+            summary: v2Summary(),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
+        expect(btn.getAttribute('title')).toMatch(/fix errors/i);
+    });
+
+    it('clicking enabled Apply calls onApplyV2 exactly once', async () => {
+        const { fireEvent } = await import('@testing-library/react');
+        const onApplyV2 = vi.fn();
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={onApplyV2}
+                charIndex={2}
+                saveLoaded
+            />,
+        );
+        fireEvent.click(screen.getByTestId('import-preview-apply-v2'));
+        expect(onApplyV2).toHaveBeenCalledTimes(1);
+    });
+
+    it('Apply shows "Applying…" and is disabled while applyingV2=true', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                applyingV2
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
+        expect(btn).toHaveTextContent(/Applying/);
+    });
+
+    it('Save to Library button continues to work independently of onApplyV2', async () => {
+        const { fireEvent } = await import('@testing-library/react');
+        const onSaveToLibrary = vi.fn();
+        const onApplyV2 = vi.fn();
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onSaveToLibrary={onSaveToLibrary}
+                onApplyV2={onApplyV2}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(screen.getByTestId('import-preview-save-to-library')).toBeEnabled();
+        expect(screen.getByTestId('import-preview-apply-v2')).toBeEnabled();
+        fireEvent.click(screen.getByTestId('import-preview-save-to-library'));
+        expect(onSaveToLibrary).toHaveBeenCalledTimes(1);
+        expect(onApplyV2).not.toHaveBeenCalled();
+    });
+
+    it('v2 preview without onApplyV2 callback does not render the button', () => {
+        const report = makeReport({ summary: v2Summary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(screen.queryByTestId('import-preview-apply-v2')).not.toBeInTheDocument();
+    });
+});
+
 describe('isCancelledPreview', () => {
     it('returns true for the cancelled sentinel report', () => {
         expect(

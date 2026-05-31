@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import toast from '../../lib/toast';
 import {
     ApplyBuildTemplateV2FromLibraryToCharacter,
+    ApplyBuildTemplateV2ToCharacterJSON,
     ExportLibraryBuildTemplateAsYAMLToFile,
     PreviewBuildTemplateImportYAMLFromFile,
     SaveImportedBuildTemplateJSONToLibrary,
@@ -64,6 +65,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
     const [importedPreview, setImportedPreview] = useState<ImportedYAMLPreview | null>(null);
     const [importing, setImporting] = useState(false);
     const [savingToLibrary, setSavingToLibrary] = useState(false);
+    const [applyingV2FromImport, setApplyingV2FromImport] = useState(false);
     const [createTemplateOpen, setCreateTemplateOpen] = useState(false);
     // libraryReloadSignal tells TemplateLibraryModal to re-run its
     // ListBuildTemplateLibrary fetch without unmounting. Bumping the
@@ -215,6 +217,44 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
         }
     }, [importedPreview, savingToLibrary, refreshLibrary]);
 
+    const handleApplyV2FromImportedPreview = useCallback(async () => {
+        // Defensive parent-side guards. The modal already disables the
+        // button under the same conditions, but we never want to invoke
+        // the v2 apply binding without a loaded save + selected character
+        // + non-empty canonical JSON from the preview.
+        if (!importedPreview) return;
+        if (!importedPreview.report.ok) return;
+        if (!importedPreview.canonicalJSON) return;
+        if (!saveLoaded || charIndex === undefined) return;
+        if (applyingV2FromImport) return;
+        setApplyingV2FromImport(true);
+        try {
+            const result = await ApplyBuildTemplateV2ToCharacterJSON(
+                charIndex,
+                importedPreview.canonicalJSON,
+                main.ApplyTemplateV2Options.createFrom({ mode: 'append' }),
+            );
+            if (!result.applied) {
+                const firstErr = result.preview?.errors?.[0]?.message ?? 'Apply did not complete.';
+                toast.error(`Templates: ${firstErr}`);
+                return;
+            }
+            const label = importedPreview.path
+                ? `imported template (${importedPreview.path})`
+                : 'imported template';
+            toast.success(`Applied ${label} to character slot ${charIndex + 1}.`);
+            if ((result.skippedFields ?? []).includes('profile.class')) {
+                toast('Class was skipped in this phase.');
+            }
+            onCharacterTemplateApplied?.(charIndex);
+            setImportedPreview(null);
+        } catch (err) {
+            toast.error(`Templates: ${String(err)}`);
+        } finally {
+            setApplyingV2FromImport(false);
+        }
+    }, [importedPreview, saveLoaded, charIndex, applyingV2FromImport, onCharacterTemplateApplied]);
+
     return (
         <>
             <TemplateLibraryModal
@@ -271,6 +311,10 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                     onClose={() => setImportedPreview(null)}
                     onSaveToLibrary={onSaveImportedToLibrary}
                     savingToLibrary={savingToLibrary}
+                    onApplyV2={handleApplyV2FromImportedPreview}
+                    applyingV2={applyingV2FromImport}
+                    charIndex={charIndex}
+                    saveLoaded={saveLoaded}
                 />
             )}
             {createTemplateOpen && saveLoaded && charIndex !== undefined && (

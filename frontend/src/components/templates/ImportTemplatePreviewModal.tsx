@@ -28,9 +28,41 @@ interface Props {
     // report.ok is false or savingToLibrary is true.
     onSaveToLibrary?: () => void;
     savingToLibrary?: boolean;
+    // Phase 5D.2 — direct v2 apply from an imported preview. When
+    // onApplyV2 is provided AND the report carries a schema v2 summary,
+    // the modal renders an "Apply to character" button. The button is
+    // visible only for v2 previews; v1 previews never expose it,
+    // regardless of whether the caller passes onApplyV2. Enabled only
+    // when all gating rules hold (report.ok, saveLoaded, charIndex,
+    // non-empty selectedSections fully contained in the supported
+    // profile/stats subset). On disabled states, the title attribute
+    // surfaces the reason. The button itself owns no apply state — the
+    // caller drives the JSON apply (ApplyBuildTemplateV2ToCharacterJSON)
+    // and toasts/closes the modal on success.
+    onApplyV2?: () => void;
+    applyingV2?: boolean;
+    charIndex?: number;
+    saveLoaded?: boolean;
 }
 
-export function ImportTemplatePreviewModal({ report, onClose, onApply, applying, onSaveToLibrary, savingToLibrary }: Props) {
+// V2_APPLY_SUPPORTED_SECTIONS — the only selectedSections values for
+// which the Phase 5 backend apply layer accepts a v2 template. Mirrors
+// the backend scope guard in app_templates_v2_apply.go so the UI never
+// offers a button that the backend would refuse.
+const V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats'];
+
+export function ImportTemplatePreviewModal({
+    report,
+    onClose,
+    onApply,
+    applying,
+    onSaveToLibrary,
+    savingToLibrary,
+    onApplyV2,
+    applyingV2,
+    charIndex,
+    saveLoaded,
+}: Props) {
     const dialogRef = useRef<HTMLDivElement | null>(null);
     useEffect(() => {
         dialogRef.current?.focus();
@@ -51,6 +83,29 @@ export function ImportTemplatePreviewModal({ report, onClose, onApply, applying,
     const isV2 = schemaVersion >= 2;
     const showV2Meta =
         isV2 || profileFieldsPresent.length > 0 || statFieldsPresent.length > 0;
+
+    // Phase 5D.2 — direct v2 apply button visibility & gating.
+    // Visible only when the caller wired onApplyV2 AND the report
+    // declares schema v2. v1 previews never see this button.
+    const v2ApplyVisible = !!onApplyV2 && isV2;
+    const v2HasUnsupportedSection =
+        selectedSections.length > 0 &&
+        selectedSections.some(s => !V2_APPLY_SUPPORTED_SECTIONS.includes(s));
+    const v2ApplyDisabledReason: string = !v2ApplyVisible
+        ? ''
+        : !report.ok
+            ? 'Preview blocked — fix errors before applying.'
+            : !saveLoaded
+                ? 'Load a save before applying a v2 template.'
+                : charIndex === undefined
+                    ? 'Select a character before applying.'
+                    : selectedSections.length === 0
+                        ? 'No sections selected.'
+                        : v2HasUnsupportedSection
+                            ? 'Unsupported v2 sections — apply is available only for profile/stats in this phase.'
+                            : '';
+    const v2ApplyEnabled =
+        v2ApplyVisible && !applyingV2 && v2ApplyDisabledReason === '';
 
     return (
         <div
@@ -194,7 +249,7 @@ export function ImportTemplatePreviewModal({ report, onClose, onApply, applying,
                     <button
                         type="button"
                         onClick={onClose}
-                        disabled={applying || savingToLibrary}
+                        disabled={applying || savingToLibrary || applyingV2}
                         className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all disabled:opacity-40"
                     >
                         Close
@@ -227,6 +282,23 @@ export function ImportTemplatePreviewModal({ report, onClose, onApply, applying,
                             }`}
                         >
                             {applying ? 'Applying…' : 'Apply to workspace'}
+                        </button>
+                    )}
+                    {v2ApplyVisible && (
+                        <button
+                            type="button"
+                            data-testid="import-preview-apply-v2"
+                            onClick={onApplyV2}
+                            disabled={!v2ApplyEnabled}
+                            title={v2ApplyDisabledReason || 'Apply schema v2 profile/stats to the selected character.'}
+                            aria-label={v2ApplyDisabledReason || 'Apply schema v2 profile/stats to the selected character.'}
+                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                                v2ApplyEnabled
+                                    ? 'bg-green-700/80 text-white hover:bg-green-700 shadow-sm'
+                                    : 'opacity-40 cursor-not-allowed bg-muted/20 text-muted-foreground'
+                            }`}
+                        >
+                            {applyingV2 ? 'Applying…' : 'Apply to character'}
                         </button>
                     )}
                 </div>
