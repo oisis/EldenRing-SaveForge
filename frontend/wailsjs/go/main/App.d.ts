@@ -18,6 +18,12 @@ export function ApplyBuildTemplateToWorkspaceFromFile(arg1:string,arg2:main.Appl
 
 export function ApplyBuildTemplateToWorkspaceJSON(arg1:string,arg2:string,arg3:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
 
+export function ApplyBuildTemplateV2FromFileToCharacter(arg1:number,arg2:main.ApplyTemplateV2Options):Promise<main.ApplyTemplateV2Result>;
+
+export function ApplyBuildTemplateV2FromLibraryToCharacter(arg1:number,arg2:string,arg3:main.ApplyTemplateV2Options):Promise<main.ApplyTemplateV2Result>;
+
+export function ApplyBuildTemplateV2ToCharacterJSON(arg1:number,arg2:string,arg3:main.ApplyTemplateV2Options):Promise<main.ApplyTemplateV2Result>;
+
 export function ApplyBuiltinCharacterPresetInventory(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
 
 export function ApplyBuiltinCharacterPresetStats(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;

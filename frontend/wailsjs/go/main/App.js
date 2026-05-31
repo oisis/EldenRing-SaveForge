@@ -22,6 +22,18 @@ export function ApplyBuildTemplateToWorkspaceJSON(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyBuildTemplateToWorkspaceJSON'](arg1, arg2, arg3);
 }
 
+export function ApplyBuildTemplateV2FromFileToCharacter(arg1, arg2) {
+  return window['go']['main']['App']['ApplyBuildTemplateV2FromFileToCharacter'](arg1, arg2);
+}
+
+export function ApplyBuildTemplateV2FromLibraryToCharacter(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyBuildTemplateV2FromLibraryToCharacter'](arg1, arg2, arg3);
+}
+
+export function ApplyBuildTemplateV2ToCharacterJSON(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyBuildTemplateV2ToCharacterJSON'](arg1, arg2, arg3);
+}
+
 export function ApplyBuiltinCharacterPresetInventory(arg1, arg2) {
   return window['go']['main']['App']['ApplyBuiltinCharacterPresetInventory'](arg1, arg2);
 }
