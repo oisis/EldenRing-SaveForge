@@ -1,7 +1,7 @@
 # 56 — Templates v2 (Partially Implemented Extension)
 
 > **Type**: Design doc
-> **Status**: 🔄 Partially implemented — Phase 0..6 shipped (additive `version: 2` schema, global Templates library shell, public YAML import/export, create-from-character flow for profile/stats with per-field selection, Save to Library, v2 metadata badge in library and preview, **Phase 5 = library Apply + direct imported-YAML Apply for profile/stats via `ApplyBuildTemplateV2FromLibraryToCharacter` and `ApplyBuildTemplateV2ToCharacterJSON` on the canonical JSON produced by the import preview, Phase 6 = apply-time overrides for the same profile/stats subset on both surfaces via frontend-only canonical-JSON mutation forwarded to the same JSON endpoint**). Apply for v2 sections outside profile/stats remains blocked — Phase 6b+ (weapon level override, equipment/talismans/spells writers, appearance via preset, URL import, multi-character pack) remain design-only. Additive extension of the implemented Build Template subsystem documented in [55-build-template](55-build-template.md).
+> **Status**: 🔄 Partially implemented — Phase 0..6 + Phase 9 shipped (additive `version: 2` schema, global Templates library shell, public YAML import/export, create-from-character flow for profile/stats with per-field selection, Save to Library, v2 metadata badge in library and preview, **Phase 5 = library Apply + direct imported-YAML Apply for profile/stats via `ApplyBuildTemplateV2FromLibraryToCharacter` and `ApplyBuildTemplateV2ToCharacterJSON` on the canonical JSON produced by the import preview, Phase 6 = apply-time overrides for the same profile/stats subset on both surfaces via frontend-only canonical-JSON mutation forwarded to the same JSON endpoint, Phase 9 = `https://` URL import through `PreviewBuildTemplateImportYAMLFromURL` under the full §12.3 SSRF guard list; the URL preview reuses the same `ImportTemplatePreviewModal`, so Save to Library / Apply to character / Apply with overrides all ship unchanged on the URL surface**). Apply for v2 sections outside profile/stats remains blocked — Phase 6b+ (weapon level override, equipment/talismans/spells writers, appearance via preset, multi-character pack) remain design-only. Additive extension of the implemented Build Template subsystem documented in [55-build-template](55-build-template.md).
 > **Scope**: Addytywne rozszerzenie istniejącego `saveforge.build-template` JSON v1 do `version: 2` — z publicznym formatem YAML do udostępniania na zewnątrz, nowym sidebar entry point `Templates`, granular selection model, sekcjami całej postaci (profile, stats, equipment, talismans, spells, appearance via preset), single-character first, weapon level override przy apply, plików `.yaml` import/export, importu z URL z pełnymi guardami bezpieczeństwa oraz późniejszą fazą multi-character pack. Document **does not** redefine the v1 baseline — it inherits it from [55-build-template](55-build-template.md).
 
 ---
@@ -12,15 +12,15 @@
 |---|---|
 | Document number | 56 |
 | Document type | Design doc — partially implemented extension |
-| Status | 🔄 Partially implemented. Phase 0..6 shipped (Phase 5 = library Apply + direct imported-YAML Apply for the profile/stats subset only; Phase 6 = apply-time overrides for the same profile/stats subset, frontend-only mutation of the canonical JSON forwarded to the existing Phase 5 endpoint); Phase 6b+ remain design-only. Each later phase requires a separate user approval per the workflow in `~/.claude/CLAUDE.md`. |
+| Status | 🔄 Partially implemented. Phase 0..6 + Phase 9 shipped (Phase 5 = library Apply + direct imported-YAML Apply for the profile/stats subset only; Phase 6 = apply-time overrides for the same profile/stats subset, frontend-only mutation of the canonical JSON forwarded to the existing Phase 5 endpoint; Phase 9 = `https://` URL import through `PreviewBuildTemplateImportYAMLFromURL` under the full §12.3 SSRF guard list, reusing the same `ImportTemplatePreviewModal` as the file-import path so all three downstream actions ship unchanged on the URL surface); Phase 6b+ remain design-only. Each later phase requires a separate user approval per the workflow in `~/.claude/CLAUDE.md`. |
 | Baseline reference | [55-build-template](55-build-template.md) — implemented `version: 1`, JSON only, inventory + storage only, local library at `$UserConfigDir/EldenRing-SaveEditor/templates/`. |
 | Schema key | Remains `saveforge.build-template` (no rename). Implemented. |
 | Schema version | Reader range `1 ≤ version ≤ MaxSchemaVersion (=2)`. v1 builder still emits `SchemaVersion = 1`; the explicit v2 builder (`backend/templates/export_v2.go`) emits `version: 2`. Implemented. |
 | External public format | YAML (`.yaml`). JSON remains for the existing local library and for backward-compatible import. Implemented for v1 payloads and for v2 documents produced by the v2 builder. |
 | First user-visible entry | Sidebar blue `Templates` button immediately above `Save as...` in `frontend/src/App.tsx` (existing `<aside>` footer block); opens `TemplatesShellModal.tsx`. Implemented. |
 | Character scope (first iteration) | Single character. Multi-character pack is deferred to a later phase (§15). |
-| URL import | Deferred phase. Backend-only fetch with strict guards (§12). Not implemented. |
-| Production code change | Phase 0..6 shipped; later phases remain design-only. Detail in §17 and §17a. |
+| URL import | **Shipped (Phase 9, 2026-05-31)**. Backend-only fetch through `PreviewBuildTemplateImportYAMLFromURL` → `backend/templates/url_import.go::FetchYAMLFromURL` under the full §12.3 SSRF guard list (HTTPS-only, pre-connect IP filter on literal and DNS-resolved addresses, redirect re-check ×3, 1 MiB body cap, 10 s total / 5 s idle timeouts, strict TLS with system root CAs, identifying User-Agent, Content-Type allowlist, no auth / cookies / custom headers, strict struct-typed YAML decode reused unchanged, no auto-refresh; the fetch alone never mutates anything). The URL preview reuses the existing `ImportTemplatePreviewModal`, so Save to Library / Apply to character / Apply with overrides all ship unchanged on the URL surface. **No library schema change** — `sourceURL` metadata is not added to the library in this phase. |
+| Production code change | Phase 0..6 + Phase 9 shipped; later phases remain design-only. Detail in §17 and §17a. |
 
 ---
 
@@ -395,7 +395,7 @@ All additions are optional. Older library entries without these fields remain va
 
 ## 12. URL import flow and security constraints
 
-URL import is a **later phase**, separately approved. Nothing about URL import is in scope for the first Templates v2 implementation phase. This section captures the required design constraints so that when the phase is approved, the implementation is bounded by them.
+URL import is **shipped (Phase 9, 2026-05-31)**, end-to-end manually validated against an `https://` endpoint serving a v2 YAML template. The flow and guards below describe the implemented behaviour; future widening (auth, domain allowlist, auto-refresh, direct apply without preview, optional `sourceURL` library metadata) is **not** part of Phase 9 and requires separate approval before any work begins.
 
 ### 12.1. High-level flow
 
@@ -423,10 +423,10 @@ URL import is a **later phase**, separately approved. Nothing about URL import i
   - Multicast / broadcast / wildcard / quad-zero.
   - Cloud metadata endpoints (e.g. `169.254.169.254`, `fd00:ec2::254`).
 - **Custom redirect policy**: at most 3 redirects; each must pass the IP filter again (TOCTOU defense).
-- **Body size cap**: hard `io.LimitReader` (planned: 1 MB; final value confirmed at implementation).
-- **Timeouts**: request timeout ≤ 10 s; idle timeout ≤ 5 s.
-- **TLS**: system root CAs only, **no** `InsecureSkipVerify`, no custom CA injection from URL.
-- **User-Agent**: a stable, identifying string set by the backend (final value decided at implementation).
+- **Body size cap**: hard `io.LimitReader` — **1 MiB (`1 << 20`)**, decided at Phase 9 implementation and exported as `templates.URLImportMaxBodyBytes`.
+- **Timeouts**: total request timeout **10 s** (`URLImportTotalTimeout`); idle / TLS-handshake / response-header / dial timeouts **5 s** each (`URLImportIdleTimeout`). Decided at Phase 9 implementation.
+- **TLS**: system root CAs only, `MinVersion: tls.VersionTLS12`, **no** `InsecureSkipVerify`, no custom CA injection from URL.
+- **User-Agent**: stable identifying string — `"EldenRing-SaveForge Templates-v2-URL-import"` (`URLImportUserAgent`). Decided at Phase 9 implementation.
 - **Content-Type acceptance list**: `application/json`, `application/yaml`, `application/x-yaml`, `text/yaml`, `text/plain`. Reject `text/html`, `application/octet-stream`, etc.
 - **No body interpretation as code or commands.** YAML is parsed strictly into typed Go structs.
 - **No YAML includes / aliases beyond local anchors that resolve to scalar values.** No cross-document references, no `!!include`, no custom tags, no executable types. The implementation phase picks the YAML library (likely `gopkg.in/yaml.v3` decode into typed structs) with these constraints enforced.
@@ -784,17 +784,18 @@ The first user-visible value is the public sharing format (YAML) for the **alrea
 - **Out of scope**: raw FaceData, multi-character pack, URL import.
 - **Requires separate user decision before continuing**: yes.
 
-### Phase 9 — URL import (separately approved, full guards)
+### Phase 9 — URL import (shipped 2026-05-31, full guards)
 
-- **Goal**: implement URL import per §12 with all guards (https-only, IP filter, redirect re-check, body size, timeouts, strict TLS, struct-typed YAML, no includes, no executable types, preview before library, separate confirm before apply).
-- **Files (planned scope)**: `backend/templates/url_import.go` (new), `app_templates_url.go` (new), strict tests per guard.
-- **Backend impact**: new backend fetch; no other change.
-- **Frontend impact**: new dialog for URL paste; clear sourceURL display on preview.
-- **Tests**: each guard with an explicit test (`https`-only, loopback rejection, private rejection, redirect re-check, body size, timeout, content-type, parse strictness). SSRF unit tests are mandatory.
-- **Manual validation**: a controlled fixture HTTPS endpoint.
-- **Risks**: SSRF — gated by §12.3.
-- **Out of scope**: authenticated fetches; auto-refresh; multi-character pack.
-- **Requires separate user decision before continuing**: yes.
+- **Status**: ✅ Shipped 2026-05-31 on `feature/templates-v2-url-import`, ff-merged to `main`.
+- **Goal**: implement URL import per §12 with all guards (https-only, IP filter, redirect re-check, body size, timeouts, strict TLS, struct-typed YAML, no includes, no executable types, preview before library, separate confirm before apply). All guards landed.
+- **Approach**: extend the existing file-import preview path with an `https://` source. The shell asks the backend to fetch the URL under §12.3 guards, the backend hands the bytes to the same `previewYAMLPayload` the file path uses, and the resulting `LoadedTemplatePreview { Report, JSON, Path }` flows through the same `ImportTemplatePreviewModal`. All three downstream actions (Save to Library, Apply to character via Phase 5D.2, Apply with overrides via Phase 6) ship unchanged on the URL surface.
+- **Files (shipped scope)**: `backend/templates/url_import.go` (**new**, exports `FetchYAMLFromURL`, the `URLImport*` constants, `FetchError`, and all `IssueCodeURL*` codes); `backend/templates/url_import_test.go` (**new**, 28 fetcher cases + 21 `TestIsAllowedAddr` subtests); `app_templates_url.go` (**new**, Wails handler `PreviewBuildTemplateImportYAMLFromURL`); `app_templates_url_test.go` (**new**, 6 integration cases); `frontend/src/components/templates/ImportTemplateFromURLModal.tsx` (**new**); `frontend/src/components/templates/TemplatesShellModal.tsx` (`Import from URL…` button + `onURLImportPreview` callback wiring); `frontend/wailsjs/go/main/App.{d.ts,js}` regenerated by `make build`'s internal `wails generate module` step. `models.ts` unchanged.
+- **Backend impact**: new backend fetch through the standard library `net/http` client with custom `Transport.DialContext` (pre-connect IP filter for literal IPs **and** every DNS-resolved address) and custom `Client.CheckRedirect` (re-checks scheme + re-resolves + re-filters on every hop, capped at 3 redirects). Strict `tls.Config { MinVersion: tls.VersionTLS12 }`, system root CAs only, no `InsecureSkipVerify`, no custom CA. Response body capped through `io.LimitReader` at `URLImportMaxBodyBytes = 1 << 20` (1 MiB). Content-Type parsed by `mime.ParseMediaType` and checked against the allowlist. No auth, no cookies, no custom headers. `http.Transport.DisableKeepAlives: true`.
+- **Frontend impact**: new small modal with a single `https://` URL input, light client-side validation (regex `^https?://`), Enter-to-submit, in-flight "Fetching…" state, inline error rendering that preserves the input on rejection, and a Cancel that does not call the binding. The shell shows a `Import from URL…` header button next to the existing file-import button (testid `templates-shell-import-url`). The URL preview reuses `ImportTemplatePreviewModal` unchanged — there is no parallel "URL preview" surface.
+- **Tests**: each guard is covered by an explicit test. Backend (`backend/templates/url_import_test.go`): `https`-only enforcement, loopback / RFC1918 / link-local / ULA / multicast / broadcast / unspecified rejection, cloud-metadata literal rejection (`169.254.169.254`, `fd00:ec2::254`), DNS-resolved IP filter, redirect re-check on each hop, redirect cap, body size cap, total timeout, TLS error mapping, Content-Type allowlist, bad-status mapping, no auth / no cookies / no custom headers. Handler (`app_templates_url_test.go`): empty URL, whitespace-only URL, `http://` scheme, `data:` scheme, literal loopback, literal cloud-metadata IP. Frontend (`__tests__/ImportTemplateFromURLModal.test.tsx`, 10 cases; `__tests__/TemplatesShellModal.test.tsx` `Phase 9 URL import` block, 9 cases + 1 updated invariant): render, disabled-empty, disabled-non-http(s), trimmed-URL forwarding, in-flight state, inline error preserving input, retry clears error, thrown error surfaced, Cancel does not call the binding, Enter triggers Preview, button visible in shell, successful preview opens `ImportTemplatePreviewModal` with the URL path, Save to Library forwards canonical JSON, Apply to character forwards canonical JSON, Apply with overrides routes through Phase 6, v1 URL imports never see v2 buttons, `report.ok = false` keeps the URL modal open with inline error, thrown binding error keeps the modal open, Cancel closes without calling the binding.
+- **Manual validation**: 2026-05-31 — pasting a public `https://` URL serving a v2 YAML opened the preview through the same modal as a file import; Save to Library persisted the URL payload as a library entry whose canonical JSON matches the preview; Apply to character wrote the selected fields through Phase 5D.2's endpoint; Apply with overrides routed the edited canonical JSON through the same endpoint. SSRF guards rejected, in turn, an `http://` URL, a literal `127.0.0.1`, a literal `169.254.169.254`, an empty URL, and a whitespace-only URL — each with the correct `IssueCode*` tag visible inline in the URL modal.
+- **Risks**: SSRF — gated by §12.3 and exercised by the fetcher and handler test suites.
+- **Out of scope (still future work)**: authenticated downloads (basic / bearer / cookies); URL auto-refresh; domain allowlist; direct apply without preview; optional `sourceURL` metadata persisted in the library schema (deferred until a separate decision approves widening the library shape); multi-character pack.
 
 ### Phase 10 — multi-character pack (separately approved)
 
@@ -840,6 +841,12 @@ The first user-visible value is the public sharing format (YAML) for the **alrea
 | Validation date | 2026-05-31 |
 | Branch under test | `feature/templates-v2-apply-overrides` |
 | Outcome | ✅ Pass — Phase 6 apply-time overrides for profile/stats manually validated end-to-end on both surfaces (direct YAML import preview + library "Apply with overrides…"). Edited values landed on the selected character; unrelated fields untouched; the fast library Apply path (`ApplyBuildTemplateV2FromLibraryToCharacter`) remained unchanged; v1 imports never exposed the overrides button; v2 imports with unsupported sections kept both v2 buttons disabled with the supported-scope tooltip; cancelling the overrides modal discarded edits with no save mutation; `Save to Library` continued to persist the original canonical JSON, ignoring the in-modal edits. |
+
+| Field | Value |
+|---|---|
+| Validation date | 2026-05-31 |
+| Branch under test | `feature/templates-v2-url-import` |
+| Outcome | ✅ Pass — Phase 9 URL import manually validated end-to-end against a public `https://` endpoint serving a v2 YAML. The URL preview surfaced in the same `ImportTemplatePreviewModal` as a file import; Save to Library persisted the URL payload as a library entry whose canonical JSON matches what the preview displayed (no `sourceURL` metadata added); Apply to character wrote the selected fields through Phase 5D.2's `ApplyBuildTemplateV2ToCharacterJSON`; Apply with overrides routed the edited canonical JSON through the same endpoint. SSRF guards rejected, in turn, an `http://` URL (`url_disallowed_scheme`), a literal `127.0.0.1` (`url_forbidden_ip`), a literal `169.254.169.254` (`url_forbidden_ip`), an empty URL (`url_empty`), and a whitespace-only URL (`url_empty` after trim) — each with the correct `IssueCode*` tag visible inline in the URL modal without losing the user's input. |
 
 ### 17a.2. Flow exercised
 
@@ -888,15 +895,27 @@ The following user-facing flow was driven manually and confirmed working:
 10. The existing fast library Apply through `ApplyBuildTemplateV2FromLibraryToCharacter` remains the click target of the original `Apply` button on the same row, with its inline confirm row untouched.
 11. v1 imports and v1 library entries never render the overrides button. v2 imports / entries carrying any unsupported section keep both v2 buttons disabled with the existing "profile / stats only in this phase" tooltip.
 
+### 17a.2d. Phase 9 URL import flow exercised
+
+1. Open the global `Templates` sidebar entry → `Import from URL…` (testid `templates-shell-import-url`).
+2. Paste a public `https://` URL serving a v2 YAML and click `Preview` (or press Enter). `TemplatesShellModal.onURLImportPreview(rawURL)` calls `PreviewBuildTemplateImportYAMLFromURL(rawURL)`, which trims whitespace, delegates to `templates.FetchYAMLFromURL`, and on success hands the bytes to the same `previewYAMLPayload` the file-import path uses.
+3. On `report.ok = true` the URL modal closes, the shell sets `importedPreview = { report, canonicalJSON: bundle.json, path: bundle.path ?? rawURL }`, and the existing `ImportTemplatePreviewModal` opens with the URL as the source label. The modal renders identically to a file-imported v2 preview — same v2 metadata, same `Save to Library`, same `Apply to character` (Phase 5D.2), same `Apply with overrides…` (Phase 6).
+4. On `report.ok = false` the URL modal stays open with the inline `import-url-error` element rendering the backend's `IssueCode*` message (e.g. `url_forbidden_ip: 127.0.0.1 is not allowed.`), the input value is preserved so the user can edit and retry, and no preview modal is opened.
+5. `Save to Library` on a URL-imported preview reuses the existing file-import path: the persisted library entry is byte-for-byte the same canonical JSON the preview displayed; no `sourceURL` metadata is recorded in the library in this phase.
+6. `Apply to character` on a URL-imported preview reuses Phase 5D.2's `ApplyBuildTemplateV2ToCharacterJSON(charIdx, canonicalJSON, { mode: "append" })`; no second fetch, no second URL hit, no TOCTOU re-read.
+7. `Apply with overrides…` on a URL-imported preview reuses Phase 6's `ApplyOverridesModal` end-to-end; the mutated canonical JSON is posted through the same Phase 5D.2 endpoint.
+8. v1 URL imports omit the `onApplyV2` / `onApplyV2WithOverrides` props at the modal level, so neither v2 button is rendered. v2 URL imports carrying any unsupported section keep both v2 buttons disabled with the existing "profile / stats only in this phase" tooltip.
+9. SSRF guards run before any preview opens: `http://` schemes, `data:` schemes, literal loopback IPs, literal cloud-metadata IPs, DNS-resolved private IPs, oversized bodies, disallowed Content-Types, timeouts, TLS errors, and redirects to forbidden destinations are all rejected with a precise `IssueCodeURL*` tag and surfaced inline. The fetch alone never modifies the library or the save.
+
 ### 17a.3. Scope of what is **not** yet validated
 
 - ✅ **Shipped 2026-05-31 (Phase 5D.1)** — Apply of `sections.profile` and `sections.stats` to a real save via `ApplyBuildTemplateV2FromLibraryToCharacter` (library path, `mode: "append"`, `profile.class` intentionally skipped, snapshot + rollback under `slotMu[charIdx]`).
 - ✅ **Shipped 2026-05-31 (Phase 5D.2)** — Direct apply of an imported YAML without first saving it to the library, through `ApplyBuildTemplateV2ToCharacterJSON` on the canonical JSON produced by `PreviewBuildTemplateImportYAMLFromFile` (`Import YAML → Preview → Apply to character`, `mode: "append"`, no second file dialog, no TOCTOU re-read). `ApplyBuildTemplateV2FromFileToCharacter` still exists backend/bindings-side but remains intentionally unwired in UI — the JSON path is preferred because it is WYSIWYG with the preview the user just confirmed.
 - ✅ **Shipped 2026-05-31 (Phase 6)** — Apply-time overrides for the same profile/stats subset on both surfaces, via frontend-only mutation of the canonical JSON forwarded to `ApplyBuildTemplateV2ToCharacterJSON`. No backend, no bindings, no `App.tsx` change. `profile.class` stays read-only. v1 templates and unsupported v2 sections remain blocked. Weapon level override at apply time stays deferred to Phase 6b.
-- Weapon level override at apply time — gated by Phase 6.
+- ✅ **Shipped 2026-05-31 (Phase 9)** — `https://` URL import through `PreviewBuildTemplateImportYAMLFromURL`, backed by `backend/templates/url_import.go::FetchYAMLFromURL` under the full §12.3 SSRF guard list. The URL preview reuses the existing `ImportTemplatePreviewModal`, so Save to Library / Apply to character / Apply with overrides all ship unchanged on the URL surface. No library schema change (`sourceURL` metadata is not added); no `App.tsx` change. Authenticated downloads, domain allowlist, URL auto-refresh, and direct apply without preview remain out of scope.
+- Weapon level override at apply time — gated by Phase 6b.
 - New write paths for `sections.equipment`, `sections.equippedTalismans`, `sections.spells` — gated by Phase 7a / 7b / 7c.
 - Appearance preset apply through the template surface — gated by Phase 8 (the underlying `app_appearance.go::ApplyPresetToCharacter` writer already exists, but no apply layer routes the template through it yet).
-- URL import — gated by Phase 9 (no `https://` fetch surface exists in the backend for templates today).
 - Multi-character pack flow — gated by Phase 10.
 
 Phase 6b+ work remains design-only in this document. Each phase requires a separate user approval before implementation per the workflow in `~/.claude/CLAUDE.md`.
@@ -911,8 +930,8 @@ The following decisions are intentionally not resolved by this document. Each re
 2. **Source-of-truth strategy across JSON + YAML** (single Go struct with both `json:` and `yaml:` tags vs separate DTOs).
 3. **`sessionID` plumbing for the sidebar surface** (lift to App.tsx, lighter-weight session-less library modal, or context).
 4. **Final list of v2 section keys and their canonical names** (e.g. `sections.profile` vs `sections.character.profile`).
-5. **Exact body-size cap for URL import** (proposed: 1 MB).
-6. **Exact request/idle timeouts for URL import** (proposed: 10 s / 5 s).
+5. ~~**Exact body-size cap for URL import**~~ — **decided 2026-05-31 at Phase 9 implementation: 1 MiB (`1 << 20`)**, exported as `templates.URLImportMaxBodyBytes`.
+6. ~~**Exact request/idle timeouts for URL import**~~ — **decided 2026-05-31 at Phase 9 implementation: total 10 s, idle / TLS / header / dial 5 s each**, exported as `templates.URLImportTotalTimeout` and `templates.URLImportIdleTimeout`.
 7. **`selection` granularity for per-spell / per-talisman lists** (boolean shortcut vs explicit list).
 8. **Equipment referential integrity default policy** (warn-and-skip vs opt-in auto-add).
 9. **Talisman slot count clamping policy** (refuse if Pouch upgrade insufficient vs clamp + warning).
