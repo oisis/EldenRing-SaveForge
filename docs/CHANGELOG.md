@@ -4,6 +4,184 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): apply v2 equipment talisman slots
+
+Shipped Phase 7c of the Templates v2 design (`spec/56-templates-v2.md`):
+v2 `sections.equipment` is now extended with the five talisman slots
+`talisman1..5` end-to-end — schema, export, preview, apply through the
+existing Phase 7b.0 `SaveSlot.WriteEquipment` foundation (extended to
+ChrAsmEquipment indices 17–21), and the existing frontend equipment
+surface. Phase 7c intentionally extends `sections.equipment` rather than
+introducing a separate `sections.equippedTalismans`: talismans live in
+the same ChrAsmEquipment struct as weapons/ammo/armor, share hash 8
+recompute, and reuse the Phase 7b.1 resolver, combo guard, preview
+row, frontend gate, and rollback semantics with no new section. The
+earlier spec/56 design note that reserved a separate `sections.
+equippedTalismans` is superseded — see the spec amendment below.
+
+- **Core writer** — `backend/core/equipment_writer.go` adds enum values
+  `EquipSlotTalisman1..5`, a fourth class `slotClassTalisman`, and the
+  five slot-table entries mapping to ChrAsmEquipment indices 17–21
+  (talismans share hash 8 with armor; `armorSlotIndices` in
+  `hash.go` already covers 12–15 + 17–21, so the recompute path needed
+  only the touched-slot range to widen to `r.index >= 17 && r.index <=
+  21`). The `encodeEquipmentValue` switch gains a `slotClassTalisman`
+  branch that accepts only the `ItemTypeAccessory` (0xA0) handle prefix
+  and rejects 0x80 / 0x90 / 0xB0 / 0xC0 with class-specific error
+  messages; the existing weapon / armor / ammo classes continue to
+  reject 0xA0 handles. The encoded slot value is `GaMap[handle]`
+  directly (no OR-mask) because talisman handles map to itemIDs that
+  already carry the 0x20 prefix in the GaMap — mirroring how ammo
+  encodes goods itemIDs without a `| 0x80000000` mask. The Phase 7b.0
+  atomic-batch contract (validate-then-mutate, hash 7 untouched for
+  talisman-only writes, hash 8 untouched for weapon-only writes,
+  duplicate-slot detection, sentinel rejection) is preserved
+  unchanged for the new slot kinds.
+- **Schema** — `backend/templates/schema.go` extends `EquipmentSection`
+  with `Talisman1..5 *EquipmentItemRef`; `equipmentSelectionFields`,
+  `EquipmentSlotOrder`, `equipmentSlotRef`, and `SetEquipmentSlotRef`
+  all grow by the five canonical talisman keys (slots appended after
+  `armorLegs` to preserve the existing 14-slot prefix order). No new
+  ref type is introduced — talismans reuse `EquipmentItemRef` but the
+  apply layer ignores `Upgrade`, `InfusionName`, and `AoWItemID` for
+  talisman slots, and producers should normally omit those fields
+  (talisman items have no upgrade level, no infusion, and no Ash of
+  War). The doc comment on `EquipmentSection` records the deviation
+  from the spec/56 §17 original design and the Talisman5 / pouch
+  gating contract.
+- **Issue codes** — one new stable string in
+  `backend/templates/import.go`:
+  `IssueCodeTalismanSlotPouchInsufficient`
+  (`talisman_slot_pouch_insufficient`, warning — the apply resolver
+  detected a non-empty talisman ref targeting a slot beyond
+  `1 + effective profile.talismanSlots`; the slot is skipped and other
+  applied sections still commit). Slot 5 (Talisman5) always triggers
+  this warning when populated with a non-empty ref because vanilla
+  Elden Ring caps the Talisman Pouch at 4 active slots; an explicit
+  clear (`baseItemID = 0`) for Talisman5 bypasses the gate and is
+  always accepted. Mixed templates that also set
+  `profile.talismanSlots` evaluate pouch state from the template's
+  value (lifted to `1 + value`) before equipment apply runs so a +3
+  pouch bump in the same template unblocks `talisman4` in the same
+  apply.
+- **Export / scanner** — `app_templates_v2_equipment.go` extends
+  `equipmentSlotChrAsmIndex` and `equipmentSlotKindForKey` with the 5
+  talisman keys, adds the `equipmentSlotIsTalisman(slotKey)` helper,
+  and routes the talisman path through the existing
+  `decodeEquipmentSlotToRef` candidate selection: ammo or talisman
+  slots use the raw stored value (no OR-mask), other slots strip the
+  `0x80000000` weapon/armor flag. `buildEquipmentSection` already
+  iterates `EquipmentSlotOrder` and dispatches through
+  `EquipmentSlotRef` / `SetEquipmentSlotRef`, so the existing builder
+  picks up talismans without modification.
+  `itemToEquipmentRef` continues to set `Upgrade` only when
+  `IsWeapon || IsArmor`, so a talisman editable item naturally yields
+  a ref with `BaseItemID + Name` only and no `Upgrade` / `InfusionName`
+  / `AoWItemID` fields.
+- **Apply** — `app_templates_v2_apply.go` introduces
+  `computeActiveTalismanSlots(slot, tpl)` which returns the effective
+  talisman pouch capacity (1..4): when the template selects
+  `profile.talismanSlots` and ships a value in `sections.profile`, the
+  template value wins (clamped to `MaxProfileTalismanSlots = 3`),
+  otherwise the slot's current persisted `Player.TalismanSlots` is
+  used (also clamped). The active capacity is `1 + base`. The Phase
+  7b.1 call site to `resolveEquipmentWrites` extends to pass
+  `activeTalismanSlots` through to the resolver. The resolver in
+  `app_templates_v2_equipment.go` adds the `MaxActiveTalismanSlots = 4`
+  constant + `talismanSlotOrdinal(slotKey)` helper and a pouch gate:
+  for non-empty talisman refs with ordinal beyond the active capacity
+  the resolver emits `talisman_slot_pouch_insufficient` + skips; clear
+  refs always pass through (so clearing `talisman5` is always allowed
+  even when the slot is unreachable). All other apply semantics —
+  rollback atomicity (snapshot covers slot bytes + workspace),
+  `equipment + inventory.workspace` hard reject, `equipment_item_not_in_inventory`
+  warning + skip, `equipment_item_ambiguous` first-wins warning,
+  `equipmentSlotsApplied` counter, fast-apply (no session required for
+  equipment-only) — are unchanged.
+- **Atomicity** — `WriteEquipment` and the surrounding apply continue
+  to take the same `core.SnapshotSlot` snapshot at the top of the slot
+  lock that Phase 7b.1 introduced; a mid-batch validation failure
+  during a mixed armor + talisman write rolls back both slot bytes
+  and hash bytes with zero side effects.
+- **Frontend** — no source-code changes needed.
+  `V2_APPLY_SUPPORTED_SECTIONS` already lists `equipment`, the existing
+  `import-preview-equipment-slots` row enumerates whatever slot keys
+  the summary lists, and the Library / direct-YAML / URL apply paths
+  reuse the canonical JSON pipeline. Talisman keys appear in the
+  preview row when present in the template. Two regression tests are
+  added in `ImportTemplatePreviewModal.test.tsx`:
+  `talisman1..4` render in the equipment row, and a talisman-only
+  equipment template keeps the Apply button enabled.
+- **Bindings** — `make build` triggered the standard
+  `wails generate module` step; `frontend/wailsjs/go/models.ts` shows
+  no diff because the talisman extensions are JSON-payload fields on
+  `EquipmentSection`, which is exchanged with the frontend as opaque
+  template JSON rather than a typed Wails model. `App.d.ts` /
+  `App.js` are untouched (no method signature change). The pre-existing
+  `equipmentSlotsApplied` counter naturally includes talisman writes.
+- **Tests** — `backend/core/equipment_writer_test.go` adds 10
+  talisman-focused cases (encoding, four cross-class rejects, hash 8
+  recompute, hash 7 stable on talisman-only, idempotent write, mixed
+  armor+talisman batch, atomic rollback). `backend/templates/
+  schema_equipment_test.go` adds 8 talisman cases (JSON / YAML
+  round-trip, slot-order tail, selection allowlist for 5 keys, explicit
+  clear, slot ref helpers, preview equipment-slots row listing,
+  `equipment + inventory.workspace` combo guard with a talisman ref,
+  stable issue-code string); the existing
+  `TestEquipmentSelection_RejectsUnknownSlotKey` switches from
+  `"talisman1"` (now valid) to `"equippedSpell1"` and the
+  `PerFieldAllowlistAcceptsAll` test updates the expected
+  `EquipmentSlotOrder` length from 14 to 19.
+  `backend/templates/export_v2_equipment_test.go` adds 3 talisman
+  export cases (verbatim copy of populated slots + explicit clear,
+  per-field selection drops unsupplied slots, JSON shape includes
+  `"talisman1"`). `app_templates_v2_equipment_test.go` adds 4
+  scanner cases (talisman1 match with `IsTalisman` editable item;
+  five talismans populated; unknown talisman emits raw decoded ID;
+  `equipmentSlotIsTalisman` truth table) and renames the negative
+  `TalismansAndGreatRuneNotExported` test to
+  `GreatRuneAndUnknownSlotsNotExported` because talismans now DO
+  export. `app_templates_v2_apply_equipment_test.go` adds 13
+  cases: 6 resolver unit tests (with-pouch happy path, beyond-pouch
+  warns+skips, Talisman5 always warns when populated, Talisman5
+  explicit-clear allowed, clear beyond pouch allowed, missing-item +
+  in-pouch warns just `equipment_item_not_in_inventory`); 4
+  `computeActiveTalismanSlots` tests (slot value when no profile,
+  template overrides slot, template profile not selected ignored,
+  clamps slot value); 3 resolver + writer integration tests that
+  exercise `resolveEquipmentWritesFromItems` + `WriteEquipment`
+  end-to-end without standing up `BuildSnapshot` (happy path 4
+  talismans written + hash 8 recomputed, pouch insufficient skips
+  slots 2/3/4, Talisman5 clear works on byte level). The seven
+  existing resolver call sites in the same file gain the new
+  `activeTalismanSlots = 4` (max, no gating) parameter; one test that
+  used `"talisman1"` as an example of an unknown selection key now
+  uses `"equippedSpell1"`. `frontend/.../ImportTemplatePreviewModal.test.tsx`
+  adds 2 cases for talisman slots in the preview row and the Apply
+  button.
+- **Manual validation** — 2026-06-01, OK. Tests covered: equipment
+  template export with active talismans + slot 5 clear, talisman keys
+  in v2 preview row + Apply button enabled, equipment-only apply
+  (talismans replaced + game-load showed correct HUD + Save & Quit
+  retained state), pouch gating with `TalismanSlots = 0` (slot 1 OK,
+  slots 2/3/4 `talisman_slot_pouch_insufficient` warn + skip), mixed
+  `profile.talismanSlots = 3 + equipment.talisman4` lifted cap inside
+  the same apply, `talisman5` with `baseItemID > 0` warn + skip and
+  `talisman5 baseItemID = 0` clear OK, missing talisman item warn +
+  skip with other slots committing, `equipment + inventory.workspace`
+  hard reject unchanged, weapons / ammo / armor apply regression OK,
+  Phase 7a inventory.workspace + override + Phase 9 URL import
+  regression OK, v1 SortOrderTab weapon override + Profile/Stats apply
+  regression OK.
+- **Future work** — Phase 7d (EquippedSpells writer + v2 spells apply,
+  separate `sections.spells` because spells live in a different binary
+  section), optional Phase 7b.2 lifting the
+  `equipment + inventory.workspace` hard reject once GaMap refresh
+  semantics from the workspace flow are sorted out, EquippedGreatRune
+  (out of scope — written by `SyncPlayerToData`, not `WriteEquipment`),
+  quick items / pouch slots (no write API), appearance presets, sort
+  order packaging, world progress, multi-character pack.
+
 ### feat(templates): apply v2 equipment section
 
 Shipped Phase 7b.1 of the Templates v2 design (`spec/56-templates-v2.md`):
