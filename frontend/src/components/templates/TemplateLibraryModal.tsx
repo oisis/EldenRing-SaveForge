@@ -306,7 +306,7 @@ export function TemplateLibraryModal({
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
         >
             <div className="w-full max-w-3xl rounded-lg bg-card border border-border/60 shadow-xl">
-                <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between gap-3">
+                <div className="px-4 py-3 border-b border-border/60 flex flex-col gap-2">
                     <div className="min-w-0">
                         <h2 className="text-sm font-black uppercase tracking-wider">{title}</h2>
                         <p className="mt-1 text-[11px] text-muted-foreground">
@@ -315,7 +315,7 @@ export function TemplateLibraryModal({
                             to persist.
                         </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center justify-center gap-2">
                         {headerExtras}
                         <button
                             type="button"
@@ -530,7 +530,7 @@ export function TemplateLibraryModal({
                                                             onClick={() => onApplyV2WithOverrides?.(entry)}
                                                             title={overridesTitle}
                                                             aria-label={overridesTitle ?? 'Apply with overrides'}
-                                                            className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-green-700/70 text-green-200 hover:bg-green-900/30 disabled:opacity-40"
+                                                            className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 disabled:opacity-40"
                                                         >
                                                             Apply with overrides…
                                                         </button>
