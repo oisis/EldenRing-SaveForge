@@ -4,6 +4,161 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): enable v2 spells UI apply
+
+Shipped Phase 7d (sub-phases 7d.0 → 7d.4) of the Templates v2 design
+(`spec/56-templates-v2.md`): end-to-end spells import / preview / apply
+through a new `sections.spells` schema section, a new `(s *core.SaveSlot).
+WriteSpells` batch writer with targeted hash[10] recompute, a new
+`db.ItemIDToMagicParamID` 28-bit-mask helper, and full frontend gating /
+preview row / library badge. Five disciplined sub-phases landed on
+`feature/templates-v2-spell-writer-foundation`; the main import / preview /
+apply flow was user-confirmed `manual OK` on 2026-06-02 (Test A — full
+14-slot loadout — and Test B — partial leave-unchanged — both passed).
+The follow-up Phase 7d.4b (create-from-character export + `CreateTemplateV2Modal`
+Spells checkbox) remains planned — see spec/56 §17 for the deferred scope.
+
+- **Phase 7d.0 — core spell writer foundation (commit `6cb2e60`)** —
+  new `backend/core/spell_writer.go` ships single-slot writer
+  `PatchEquippedSpell(slot, slotIndex, spellID) error` for the 14-slot
+  `EquippedSpells` region. Strict pre-validation (nil slot, slot-index
+  range `[0, EquippedSpellSlotCount)`, uninitialised
+  `EquippedSpellsOffset`, out-of-bounds), idempotent no-op when target
+  bytes already match, no hash mutation (the Phase 7d.3 batch writer
+  owns hash[10]). Constants `EquippedSpellSlotCount = 14`,
+  `EquippedSpellSlotSize = 8`, `EquippedSpellEmptySentinel =
+  0xFFFFFFFF`, `EquippedSpellOccupiedFollower = 0xFFFFFFFF`. Empty
+  slot semantics: `spellID == 0xFFFFFFFF → (spell_id=0xFFFFFFFF,
+  follower=0x00000000)`; occupied: `spellID != 0xFFFFFFFF →
+  (spell_id=spellID, follower=0xFFFFFFFF)`. 9 PatchEquippedSpell unit
+  tests.
+- **Phase 7d.1 — schema, DTO, validation (commit `7ac60d0`)** —
+  `backend/templates/schema.go` adds `TemplateSections.Spells
+  *SpellsSection`, `TemplateSelection.Spells *SectionSelection`,
+  `SpellsSection` with 14 named pointer fields `Spell1..Spell14`,
+  `SpellSlotRef { BaseItemID uint32; Name string }`, constants
+  `SpellSlotCount = 14` / `SpellItemIDPrefix = 0x40000000` /
+  `SpellItemIDPrefixMask = 0xF0000000`, canonical iteration order
+  `SpellSlotOrder []string` (`"spell1"..."spell14"`),
+  `spellsSelectionFields` allowlist, validators
+  `validateSpellsSelection` / `validateSpellsSection` /
+  `validateSpellSlotRef` (reject any non-`0x4XXXXXXX` prefix at
+  ingest), and private getter `spellSlotRef`. Both sorceries AND
+  incantations share the `0x40000000` prefix in the SaveForge DB
+  (`backend/db/data/sorceries.go`, `incantations.go`); the earlier
+  briefing that suggested `0x60XXXXXX` for incantations was wrong and
+  is intentionally **not** documented anywhere. `BaseItemID == 0` is
+  the explicit-clear sentinel; the save-level `0xFFFFFFFF` never
+  appears in the public schema. Nil pointer = leave the live slot
+  unchanged. 17 schema unit tests.
+- **Phase 7d.2 — export builder + import preview/summary (commit
+  `fad1315`)** — `backend/templates/export_v2.go` adds
+  `ExportV2Options.EquippedSpellsRaw []uint32` (14 raw IDs from
+  `slot.Data` at the EquippedSpells region; strict-reject when length
+  ≠ `SpellSlotCount` AND `selection.spells` is selected) and
+  `buildSpellsSection(rawIDs, sel)` mapping raw `0xFFFFFFFF` →
+  `&SpellSlotRef{BaseItemID: 0}` (explicit clear) and other raw →
+  `&SpellSlotRef{BaseItemID: SpellItemIDPrefix | rawID}` (`Name` left
+  empty — no DB lookup inside `backend/templates`).
+  `backend/templates/import.go` adds `ImportPreviewSummary.SpellSlotsPresent
+  []string` populated via `spellSlotsPresent(tpl.Sections.Spells)`
+  mirroring `equipmentSlotsPresent`; `selectedSectionsForTemplate`
+  adds `"spells"` when `tpl.Selection.Spells.HasAny()`. 9 builder +
+  6 preview unit tests. Apply remains blocked until Phase 7d.3.
+- **Phase 7d.3 — backend apply + bindings + `db.ItemIDToMagicParamID`
+  (commit `5c3e538`)** — `backend/core/spell_writer.go` adds the
+  batch writer `(s *SaveSlot) WriteSpells(writes []SpellWrite) error`
+  with pre-validation of EVERY write before any byte mutation
+  (duplicate slot indices, out-of-range slot indices, uninitialised
+  `EquippedSpellsOffset`, out-of-bounds region, missing hash block)
+  and a targeted recompute of **only** hash[10] via
+  `binary.LittleEndian.PutUint32(s.Data[HashOffset+10*4:],
+  equipmentHash(readSpellIDs(s.Data, s.EquippedSpellsOffset)))`. The
+  global `RecalculateSlotHash` stays unwired in production;
+  `WriteEquipment` continues to own hash[7] / hash[8]. New DB helper
+  `db.ItemIDToMagicParamID(itemID uint32) uint32 { return itemID &
+  0x0FFFFFFF }` — **28-bit mask**, mirroring the existing
+  `ItemIDToHandlePrefix` convention (4-bit prefix + 28-bit payload);
+  a 16-bit `0x0000FFFF` mask would truncate high-payload spell IDs
+  and is regression-guarded by 4 subtests covering payloads
+  `0xFFFF`, `0x10000`, `0x12ABCD`, `0x0FFFFFFF`.
+  `backend/templates/schema.go` exposes `SpellSlotRefBySlotKey(sec,
+  slotKey) *SpellSlotRef`. `app_templates_v2_spells.go` (new) adds
+  `resolveSpellWrites(slot, sel, sec) ([]core.SpellWrite,
+  []ImportPreviewIssue, error)` with semantics: `!sel.Selected(key)
+  || ref == nil` → no write (live slot unchanged); `BaseItemID == 0`
+  → `core.EquippedSpellEmptySentinel` (explicit clear); `BaseItemID
+  != 0` → defensive prefix re-check + DB membership check via
+  `db.GetItemData(id).Category` (must be `"sorceries"` or
+  `"incantations"`) + `db.ItemIDToMagicParamID` → raw spell ID;
+  unknown valid-prefix → `IssueCodeUnknownItem` warning + skip
+  (mirrors the equipment resolver's not-in-inventory pattern). Go
+  error reserved for infrastructure (nil slot, nil section).
+  `app_templates_v2_apply.go` adds `SpellSlotsApplied int` on
+  `ApplyTemplateV2Result`, extends the empty-selection guard to
+  include `hasSpells`, places the resolver block after the equipment
+  resolver and before the inventory resolver, and places the
+  `WriteSpells` call **after** `vm.MapViewModelToSlot` AND **after**
+  `slot.WriteEquipment` — the post-VM placement is critical because
+  `vm.MapViewModelToSlot` rewrites the EquippedSpells region from the
+  cached VM and would silently clobber any earlier spells write. The
+  `applied` list gains `"spells"` whenever `len(spellWrites) > 0`.
+  Bindings regen (`frontend/wailsjs/go/models.ts` gains
+  `spellSlotsApplied: number` on `ApplyTemplateV2Result` and
+  `spellSlotsPresent?: string[]` on `ImportPreviewSummary` — 4 lines
+  content diff; the three `frontend/wailsjs/runtime/*` files show
+  mode-bit flip 644 → 755 only with zero content diff). 9 WriteSpells
+  + 4 DB-helper + 8 apply unit tests.
+- **Phase 7d.4 — frontend UI for spells apply (commit `9e8aabe`)** —
+  `frontend/src/components/templates/ImportTemplatePreviewModal.tsx`
+  extends `V2_APPLY_SUPPORTED_SECTIONS` from
+  `['profile','stats','inventory.workspace','equipment']` to
+  `['profile','stats','inventory.workspace','equipment','spells']`,
+  adds `spellSlotsPresent` extraction, includes it in `showV2Meta`,
+  renders a new `<div data-testid="import-preview-spell-slots">Spell
+  slots: <span>{joined}</span></div>` row immediately after the
+  equipment-slots row, and widens the unsupported-section disabled
+  tooltip. `frontend/src/components/templates/TemplateLibraryModal.tsx`
+  ORs `selectedSections.includes('spells')` into
+  `v2HasApplyableSections`; the library sections row continues to
+  render `selectedSections.join(', ')` so `"spells"` appears verbatim.
+  `TemplatesShellModal.tsx` unchanged — spells do not need a session.
+  `CreateTemplateV2Modal.tsx` **intentionally untouched** because the
+  backend create-from-character path does not yet pass
+  `EquippedSpellsRaw` (gated by the planned Phase 7d.4b — equipment
+  is in the same deferred state for the same reason). Tests:
+  +5 new cases in `ImportTemplatePreviewModal.test.tsx` (`Phase 7d.4
+  spells section` describe) and +3 new cases in
+  `TemplateLibraryModal.test.tsx` (`Phase 7d.4 spells entries`
+  describe); two pre-existing tests that used `'spells'` as an
+  example of "still unsupported" were rewired to `'inventory.unknown'`
+  with a comment. `cd frontend && npx vitest run
+  src/components/templates` → 247 / 247 pass.
+- **Spec amendment** — `spec/56-templates-v2.md` §17 replaces the
+  earlier single planned "Phase 7d — spell loadout writer (new write
+  path)" with the five shipped sub-phases (7d.0 → 7d.4) and the new
+  planned Phase 7d.4b. §17a.2j adds the v2 spells apply flow
+  walkthrough (13 numbered steps). §17a.3 converts the
+  "EquippedSpells loadout — gated by Phase 7d" bullet into five `✅
+  Shipped 2026-06-02` entries (one per sub-phase) plus a Phase 7d.4b
+  planned bullet. The header status badge widens to mention
+  "Phase 7d.0 → 7d.4 shipped 2026-06-02" and to flag Phase 7d.4b /
+  Phase 8 / Phase 10 as remaining design-only. `spec/lang-pl/56-
+  templates-v2.md` mirrors the EN edits faithfully. `spec/README.md`
+  and `spec/lang-pl/README.md` extend the spec/56 table row.
+- **Manual validation (2026-06-02, user-confirmed `manual OK`)** —
+  Test A (full 14-slot loadout: 6 occupied + 8 explicit clear,
+  `selection.spells: true`) and Test B (partial leave-unchanged:
+  per-field selection of spell1/spell2/spell3 only, slots 4–14
+  retain pre-apply state) both passed end-to-end through Import
+  preview → Apply → Save. Verified spell IDs against
+  `backend/db/data/{sorceries,incantations}.go`: Catch Flame
+  `0x40001770` (incantation), Glintstone Pebble `0x40000FA0`
+  (sorcery), Rock Sling `0x40001266` (sorcery), Heal `0x40001915`
+  (incantation), Rancorcall `0x40001388` (sorcery). The earlier
+  briefing that named `0x40001388` as Glintstone Pebble was wrong —
+  `0x40001388` is Rancorcall; Glintstone Pebble is `0x40000FA0`.
+
 ### feat(templates): apply v2 equipment talisman slots
 
 Shipped Phase 7c of the Templates v2 design (`spec/56-templates-v2.md`):
