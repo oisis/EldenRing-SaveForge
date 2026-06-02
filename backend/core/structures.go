@@ -242,6 +242,7 @@ type SaveSlot struct {
 	TutorialDataOffset    int      // start of TutorialData block (header at offset, per er-save-manager world.py)
 	ClearCountOffset      int      // NG+ cycle counter (uint32) — after BloodStain in dynamic chain
 	EquipItemsIDOffset    int      // start of EquippedItemsItemIds section
+	EquippedSpellsOffset  int      // start of EquippedSpells section (14×8 + 4 active_index = 0x74)
 	UnlockedRegionsOffset int      // start of unlocked_regions struct (count u32 + count*4 IDs)
 	UnlockedRegions       []uint32 // parsed unlocked region IDs (drives invasion / blue-summon eligibility)
 
@@ -353,25 +354,29 @@ func (s *SaveSlot) calculateDynamicOffsets() error {
 	equipedItemsID := activeEquipedItems + DynEquipedItemsID
 	s.EquipItemsIDOffset = equipedItemsID
 	activeEquipedItemsGa := equipedItemsID + DynActiveEquipedItemsGa
-	inventoryHeld := activeEquipedItemsGa + DynInventoryHeld
-	equipedSpells := inventoryHeld + DynEquipedSpells
-	equipedItems := equipedSpells + DynEquipedItems
-	equipedGestures := equipedItems + DynEquipedGestures
+	// EquippedSpells starts immediately at the end of inventory_held (no gap).
+	// Section is 0x74 = 116 bytes: 14 × 8B per-slot (spell_id u32, unk u32) + 4B active index.
+	// Live save verification (Phase 7d.0 audit): raw MagicParam spell_ids appear here.
+	spellsOff := activeEquipedItemsGa + DynInventoryHeld
+	s.EquippedSpellsOffset = spellsOff
+	equipedItemsOff := spellsOff + DynEquipedSpells              // start of EquippedItems (ChrAsm + QuickSlots + Pouch)
+	equipedGesturesOff := equipedItemsOff + DynEquipedItems      // start of EquippedGestures
+	projHeaderOff := equipedGesturesOff + DynEquipedGestures     // start of AcquiredProjectiles count u32
 
 	// Dynamic field #1: acquired_projectiles.
-	// The u32 at equipedGestures is the projectile COUNT. Total skip = count*8 + 4.
+	// The u32 at projHeaderOff is the projectile COUNT. Total skip = count*8 + 4.
 	// Source: Final.py:1453 — equiped_projc_size * 8 + 4
 	// Without this skip, ALL subsequent offsets (FaceData, StorageBox, GaItemData,
 	// EventFlags) are shifted left by projCount*8 bytes, causing storage writes
 	// to land at the wrong position and become invisible to the game.
-	if err := sa.CheckBounds(equipedGestures, 4, "projHeader"); err != nil {
+	if err := sa.CheckBounds(projHeaderOff, 4, "projHeader"); err != nil {
 		return err
 	}
-	projCount, err := sa.ReadDynamicSize(equipedGestures, MaxProjCount, "projCount")
+	projCount, err := sa.ReadDynamicSize(projHeaderOff, MaxProjCount, "projCount")
 	if err != nil {
 		return err
 	}
-	equipedProjectile := equipedGestures + projCount*8 + 4
+	equipedProjectile := projHeaderOff + projCount*8 + 4
 
 	equipedArmaments := equipedProjectile + DynEquipedArmaments
 	equipePhysics := equipedArmaments + DynEquipePhysics

@@ -240,10 +240,14 @@ func ComputeSlotHash(slot *SaveSlot) [HashSize]byte {
 	activeEquipedItems := equipedItemIndex + DynActiveEquipedItems
 	equipItemsIDOff := activeEquipedItems + DynEquipedItemsID
 	activeEquipedItemsGa := equipItemsIDOff + DynActiveEquipedItemsGa
-	inventoryHeld := activeEquipedItemsGa + DynInventoryHeld
-	spellsOff := inventoryHeld + DynEquipedSpells
-	equipedItemsOff := spellsOff + DynEquipedItems
-	equipedGesturesOff := equipedItemsOff + DynEquipedGestures
+	// EquippedSpells starts immediately at the end of inventory_held (no gap).
+	// Mirrors calculateDynamicOffsets() exactly. Chain layout:
+	//   spellsOff (size 0x74) → equipedItemsOff (size 0x8C) → gestures (size 0x18) → projHeaderOff
+	// Live save verification confirmed raw MagicParam spell_ids appear at spellsOff
+	// and quick items appear inside [equipedItemsOff + ChrAsmEquipmentSize, +DynEquipedItems).
+	spellsOff := activeEquipedItemsGa + DynInventoryHeld
+	equipedItemsOff := spellsOff + DynEquipedSpells
+	projHeaderOff := equipedItemsOff + DynEquipedItems + DynEquipedGestures
 
 	// [7-8] Equipment IDs — from EquipedItemsID section (before dynamic fields)
 	if equipItemsIDOff+ChrAsmEquipmentSize <= len(slot.Data) {
@@ -259,7 +263,7 @@ func ComputeSlotHash(slot *SaveSlot) [HashSize]byte {
 	}
 
 	// [9-10] Validate offset chain is reachable by checking projHeader bounds.
-	err := sa.CheckBounds(equipedGesturesOff, 4, "hash/projHeader")
+	err := sa.CheckBounds(projHeaderOff, 4, "hash/projHeader")
 	if err == nil {
 
 		// [10] Equipped Spells — from EquipedSpells section
