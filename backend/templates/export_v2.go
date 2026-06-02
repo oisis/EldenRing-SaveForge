@@ -64,6 +64,24 @@ type ExportV2Options struct {
 	// pointer-soup.
 	Equipment *EquipmentSection
 
+	// EquippedSpellsRaw is the Phase 7d.2 source: the 14-slot raw spell
+	// loadout as it sits in the save (i.e. the slice returned by
+	// core.readSpellIDs(slot.Data, slot.EquippedSpellsOffset)).
+	//
+	// Each entry is a raw MagicParam ID, with the save's empty-slot
+	// sentinel 0xFFFFFFFF marking unused slots. BuildV2Template
+	// translates this into the template schema's user-facing form:
+	//   - raw 0xFFFFFFFF → SpellSlotRef{BaseItemID: 0} (explicit clear),
+	//     consistent with Phase 7d.1's empty-slot convention;
+	//   - any other raw ID → SpellSlotRef{BaseItemID: 0x40000000 | raw},
+	//     producing the full DB-style item ID stored in templates.
+	//
+	// Producers MUST supply exactly SpellSlotCount entries when
+	// selection.spells is selected. A wrong-length slice is a hard
+	// error — the builder refuses to silently truncate or pad because
+	// either would mis-bind slot indices to spell IDs.
+	EquippedSpellsRaw []uint32
+
 	Selection *TemplateSelection
 }
 
@@ -104,6 +122,14 @@ func BuildV2Template(opts ExportV2Options) (*BuildTemplate, error) {
 	if opts.Selection.Equipment.HasAny() && opts.Equipment == nil {
 		return nil, fmt.Errorf("BuildV2Template: selection.equipment is selected but no Equipment source was provided")
 	}
+	if opts.Selection.Spells.HasAny() {
+		if opts.EquippedSpellsRaw == nil {
+			return nil, fmt.Errorf("BuildV2Template: selection.spells is selected but no EquippedSpellsRaw source was provided")
+		}
+		if len(opts.EquippedSpellsRaw) != SpellSlotCount {
+			return nil, fmt.Errorf("BuildV2Template: EquippedSpellsRaw length is %d, want %d", len(opts.EquippedSpellsRaw), SpellSlotCount)
+		}
+	}
 
 	outSelection := &TemplateSelection{}
 	var outSections TemplateSections
@@ -133,6 +159,17 @@ func BuildV2Template(opts ExportV2Options) (*BuildTemplate, error) {
 	if opts.Selection.InventoryWorkspace.HasAny() {
 		outSections.InventoryWorkspace = opts.InventoryWorkspace
 		outSelection.InventoryWorkspace = &SectionSelection{All: true}
+	}
+
+	if opts.Selection.Spells.HasAny() {
+		spells, emittedSlots := buildSpellsSection(opts.EquippedSpellsRaw, opts.Selection.Spells)
+		if opts.Selection.Spells.All {
+			outSections.Spells = spells
+			outSelection.Spells = &SectionSelection{All: true}
+		} else if len(emittedSlots) > 0 {
+			outSections.Spells = spells
+			outSelection.Spells = &SectionSelection{Fields: emittedSlots}
+		}
 	}
 
 	if opts.Selection.Equipment.HasAny() {
@@ -290,6 +327,47 @@ func buildStatsSection(src *StatsSource, sel *SectionSelection) (*StatsSection, 
 			*st.dst = &v
 			emitted[st.key] = true
 		}
+	}
+	return out, emitted
+}
+
+// buildSpellsSection translates the 14-slot raw spell loadout from the
+// save into the template's user-facing SpellsSection shape. Length is
+// pre-validated by BuildV2Template, so the index lookup is always safe.
+//
+// Per-slot translation:
+//   - rawID == 0xFFFFFFFF (save empty-slot sentinel) → BaseItemID = 0
+//     (template explicit-clear). The save-format sentinel never leaks
+//     into the public template, matching the Phase 7d.1 schema rule.
+//   - rawID != 0xFFFFFFFF → BaseItemID = SpellItemIDPrefix | rawID,
+//     producing the full DB-style item ID (e.g. raw 0x1770 →
+//     0x40001770 = Catch Flame).
+//
+// Per-selection behaviour mirrors buildEquipmentSection: the boolean
+// shortcut emits all 14 slots; per-field selection emits only the
+// listed slot keys.
+//
+// Name is intentionally left empty: the DB lookup that would resolve
+// raw IDs to human names belongs in a higher layer (the app endpoint
+// that already has the DB handy in 7d.3+), and ImportPreviewSummary
+// already documents Name as debug-only metadata. Keeping this builder
+// dependency-free preserves the package's lookup-free invariant.
+func buildSpellsSection(rawIDs []uint32, sel *SectionSelection) (*SpellsSection, map[string]bool) {
+	const saveEmptySentinel uint32 = 0xFFFFFFFF
+
+	out := &SpellsSection{}
+	emitted := map[string]bool{}
+	for i, key := range SpellSlotOrder {
+		if !sel.Selected(key) {
+			continue
+		}
+		raw := rawIDs[i]
+		ref := &SpellSlotRef{}
+		if raw != saveEmptySentinel {
+			ref.BaseItemID = SpellItemIDPrefix | raw
+		}
+		setSpellSlotRef(out, key, ref)
+		emitted[key] = true
 	}
 	return out, emitted
 }

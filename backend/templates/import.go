@@ -73,6 +73,12 @@ type ImportPreviewSummary struct {
 	// Phase 7b.1 — list of equipment slot keys whose pointer is non-nil
 	// in sections.equipment. Stable canonical order (EquipmentSlotOrder).
 	EquipmentSlotsPresent []string `json:"equipmentSlotsPresent,omitempty"`
+
+	// Phase 7d.2 — list of spell slot keys whose pointer is non-nil in
+	// sections.spells. Stable canonical order (SpellSlotOrder).
+	// Lets the UI render "Spells: spell1, spell14" before the apply
+	// runs, mirroring the EquipmentSlotsPresent surface.
+	SpellSlotsPresent []string `json:"spellSlotsPresent,omitempty"`
 }
 
 // Issue codes — stable strings. UI surfaces and tests assert on these.
@@ -248,6 +254,7 @@ func PreviewBuildTemplateImport(tpl *BuildTemplate, opts ImportPreviewOptions) I
 	rep.Summary.ProfileFieldsPresent = profileFieldsPresent(tpl.Sections.Profile)
 	rep.Summary.StatFieldsPresent = statFieldsPresent(tpl.Sections.Stats)
 	rep.Summary.EquipmentSlotsPresent = equipmentSlotsPresent(tpl.Sections.Equipment)
+	rep.Summary.SpellSlotsPresent = spellSlotsPresent(tpl.Sections.Spells)
 
 	// Phase 7b.1 — equipment + inventory.workspace combo guard.
 	// Detected at preview time so the user sees a single, clean error in
@@ -491,6 +498,9 @@ func selectedSectionsForTemplate(tpl *BuildTemplate) []string {
 	if tpl.Selection.Equipment.HasAny() {
 		out = append(out, "equipment")
 	}
+	if tpl.Selection.Spells.HasAny() {
+		out = append(out, "spells")
+	}
 	return out
 }
 
@@ -505,6 +515,23 @@ func equipmentSlotsPresent(eq *EquipmentSection) []string {
 	var out []string
 	for _, key := range EquipmentSlotOrder {
 		if EquipmentSlotRef(eq, key) != nil {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// spellSlotsPresent enumerates the canonical-ordered slot keys whose
+// pointer is non-nil in the spells section. Mirrors equipmentSlotsPresent
+// for the Phase 7d.1 SpellsSection so the preview UI can surface which of
+// the 14 spell slots the template ships before apply runs.
+func spellSlotsPresent(s *SpellsSection) []string {
+	if s == nil {
+		return nil
+	}
+	var out []string
+	for _, key := range SpellSlotOrder {
+		if spellSlotRef(s, key) != nil {
 			out = append(out, key)
 		}
 	}

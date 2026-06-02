@@ -981,6 +981,47 @@ func spellSlotRef(s *SpellsSection, slotKey string) *SpellSlotRef {
 	return nil
 }
 
+// setSpellSlotRef assigns ref into the named slot field on s. No-op
+// when the key is unknown so the export pipeline can iterate over
+// SpellSlotOrder without re-checking allowlist membership. Mirrors
+// SetEquipmentSlotRef but kept unexported — the only caller today is
+// the v2 spells export builder inside this package.
+func setSpellSlotRef(s *SpellsSection, slotKey string, ref *SpellSlotRef) {
+	if s == nil {
+		return
+	}
+	switch slotKey {
+	case "spell1":
+		s.Spell1 = ref
+	case "spell2":
+		s.Spell2 = ref
+	case "spell3":
+		s.Spell3 = ref
+	case "spell4":
+		s.Spell4 = ref
+	case "spell5":
+		s.Spell5 = ref
+	case "spell6":
+		s.Spell6 = ref
+	case "spell7":
+		s.Spell7 = ref
+	case "spell8":
+		s.Spell8 = ref
+	case "spell9":
+		s.Spell9 = ref
+	case "spell10":
+		s.Spell10 = ref
+	case "spell11":
+		s.Spell11 = ref
+	case "spell12":
+		s.Spell12 = ref
+	case "spell13":
+		s.Spell13 = ref
+	case "spell14":
+		s.Spell14 = ref
+	}
+}
+
 // validateSpellsSelection enforces the per-field allowlist for
 // selection.spells.Fields. Boolean shortcut and nil are accepted
 // without further checks.
