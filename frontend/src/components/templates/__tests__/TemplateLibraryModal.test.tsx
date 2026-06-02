@@ -853,3 +853,56 @@ describe('TemplateLibraryModal — Phase 7b.1 equipment entries', () => {
         expect(applyBtn).toBeDisabled();
     });
 });
+
+describe('TemplateLibraryModal — Phase 7d.4 spells entries', () => {
+    const v2SpellsEntry = {
+        id: 'tpl-v2-spells',
+        name: 'V2 Spell Loadout',
+        description: 'schema v2 spells-only',
+        tags: [],
+        filename: 'tpl-v2-spells.json',
+        createdAt: '2026-06-01T12:00:00Z',
+        updatedAt: '2026-06-01T12:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['spells'],
+    };
+
+    it('enables v2 Apply for spells-only entries (no session required)', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2SpellsEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeEnabled();
+        expect(applyBtn).toHaveAttribute('title', 'Apply schema v2 template to character slot 1');
+    });
+
+    it('still disables Apply when save not loaded for spells-only entry', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2SpellsEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: false, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeDisabled();
+    });
+
+    it('renders the spells label in the sections row', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2SpellsEntry]);
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2: vi.fn() })}
+            />,
+        );
+        const sections = await screen.findByTestId('library-entry-sections');
+        expect(sections).toHaveTextContent(/spells/);
+    });
+});

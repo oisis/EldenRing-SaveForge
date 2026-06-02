@@ -420,11 +420,11 @@ describe('ImportTemplatePreviewModal — Phase 5D.2 direct v2 Apply', () => {
     });
 
     it('v2 preview with unsupported section keeps Apply visible but disabled with explanatory title', () => {
-        // Phase 7b.1 added `equipment` to the supported set; pick a section
-        // that is still genuinely planned (spells) to keep the negative
-        // case meaningful.
+        // Phase 7b.1 added `equipment` and Phase 7d.4 added `spells` to the
+        // supported set; pick a section name that is still genuinely outside
+        // the supported list to keep the negative case meaningful.
         const report = makeReport({
-            summary: v2Summary({ selectedSections: ['profile', 'spells'] }),
+            summary: v2Summary({ selectedSections: ['profile', 'inventory.unknown'] }),
         });
         render(
             <ImportTemplatePreviewModal
@@ -643,11 +643,11 @@ describe('ImportTemplatePreviewModal — Phase 6 Apply with overrides', () => {
     });
 
     it('v2 preview with unsupported sections keeps overrides disabled with explanatory title', () => {
-        // Phase 7b.1 added `equipment` to the supported set; pick a section
-        // that is still genuinely planned (spells) to keep the negative
-        // case meaningful.
+        // Phase 7b.1 added `equipment` and Phase 7d.4 added `spells` to the
+        // supported set; pick a section name that is still genuinely outside
+        // the supported list to keep the negative case meaningful.
         const report = makeReport({
-            summary: v2Summary({ selectedSections: ['profile', 'spells'] }),
+            summary: v2Summary({ selectedSections: ['profile', 'inventory.unknown'] }),
         });
         render(
             <ImportTemplatePreviewModal
@@ -863,5 +863,99 @@ describe('ImportTemplatePreviewModal — Phase 7b.1 equipment section', () => {
         expect(errBlock).toHaveTextContent(/equipment_inventory_combo_unsupported/);
         const btn = screen.getByTestId('import-preview-apply-v2');
         expect(btn).toBeDisabled();
+    });
+});
+
+describe('ImportTemplatePreviewModal — Phase 7d.4 spells section', () => {
+    function spellsSummary(overrides: Partial<templates.ImportPreviewSummary> = {}) {
+        return templates.ImportPreviewSummary.createFrom({
+            inventoryItems: 0,
+            storageItems: 0,
+            weapons: 0,
+            armor: 0,
+            talismans: 0,
+            stackables: 0,
+            aowAssignments: 0,
+            version: 2,
+            selectedSections: ['spells'],
+            spellSlotsPresent: ['spell1', 'spell2', 'spell3'],
+            ...overrides,
+        });
+    }
+
+    it('treats spells as an applyable v2 section', () => {
+        const report = makeReport({ summary: spellsSummary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeEnabled();
+    });
+
+    it('renders the spell slots row when summary lists slots', () => {
+        const report = makeReport({ summary: spellsSummary() });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        const row = screen.getByTestId('import-preview-spell-slots');
+        expect(row).toHaveTextContent(/spell1/);
+        expect(row).toHaveTextContent(/spell2/);
+        expect(row).toHaveTextContent(/spell3/);
+    });
+
+    it('does not render the spell slots row when none are present', () => {
+        const report = makeReport({
+            summary: spellsSummary({ spellSlotsPresent: [] }),
+        });
+        render(<ImportTemplatePreviewModal report={report} onClose={() => {}} />);
+        expect(screen.queryByTestId('import-preview-spell-slots')).not.toBeInTheDocument();
+    });
+
+    it('keeps Apply enabled for a spells-only template combined with equipment', () => {
+        const report = makeReport({
+            summary: spellsSummary({
+                selectedSections: ['equipment', 'spells'],
+                equipmentSlotsPresent: ['weaponRightHand1'],
+                spellSlotsPresent: ['spell1'],
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeEnabled();
+    });
+
+    it('disables Apply when an unsupported section accompanies spells', () => {
+        const report = makeReport({
+            summary: spellsSummary({
+                selectedSections: ['spells', 'inventory.unknown'],
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
+        expect(btn).toHaveAttribute(
+            'title',
+            'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, and spells in this phase.',
+        );
     });
 });

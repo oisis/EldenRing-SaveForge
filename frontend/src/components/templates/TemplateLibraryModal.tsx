@@ -380,11 +380,16 @@ export function TemplateLibraryModal({
                                 // the equipment + inventory.workspace combo is hard-rejected
                                 // at backend preview time, so we leave Apply enabled here and
                                 // let the shell surface the resulting error.
+                                //
+                                // Phase 7d.4 — spells join as an apply-eligible section.
+                                // Spells-only templates do NOT require a session; WriteSpells
+                                // writes directly into slot.Data and recomputes hash[10].
                                 const v2HasApplyableSections =
                                     selectedSections.includes('profile') ||
                                     selectedSections.includes('stats') ||
                                     selectedSections.includes('inventory.workspace') ||
-                                    selectedSections.includes('equipment');
+                                    selectedSections.includes('equipment') ||
+                                    selectedSections.includes('spells');
 
                                 // Per-entry Apply gating. v1 path is
                                 // preserved verbatim: requires sessionID,

@@ -68,7 +68,12 @@ interface Props {
 // equipment_inventory_combo_unsupported code, so this modal sees a
 // non-OK report and disables Apply automatically without any extra
 // gating here.
-const V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats', 'inventory.workspace', 'equipment'];
+//
+// Phase 7d.4 adds spells. Spells-only templates do NOT require an
+// active session — WriteSpells operates directly on slot.Data and
+// recomputes hash[10] inline. Spells coexist freely with profile/
+// stats/equipment/inventory.workspace; no combo restrictions apply.
+const V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats', 'inventory.workspace', 'equipment', 'spells'];
 
 export function ImportTemplatePreviewModal({
     report,
@@ -101,12 +106,14 @@ export function ImportTemplatePreviewModal({
     const profileFieldsPresent = summary?.profileFieldsPresent ?? [];
     const statFieldsPresent = summary?.statFieldsPresent ?? [];
     const equipmentSlotsPresent = summary?.equipmentSlotsPresent ?? [];
+    const spellSlotsPresent = summary?.spellSlotsPresent ?? [];
     const isV2 = schemaVersion >= 2;
     const showV2Meta =
         isV2 ||
         profileFieldsPresent.length > 0 ||
         statFieldsPresent.length > 0 ||
-        equipmentSlotsPresent.length > 0;
+        equipmentSlotsPresent.length > 0 ||
+        spellSlotsPresent.length > 0;
 
     // Phase 5D.2 — direct v2 apply button visibility & gating. v1
     // previews never expose the v2 buttons; for v2 previews the same
@@ -128,7 +135,7 @@ export function ImportTemplatePreviewModal({
                     : selectedSections.length === 0
                         ? 'No sections selected.'
                         : v2HasUnsupportedSection
-                            ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, and equipment in this phase.'
+                            ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, and spells in this phase.'
                             : '';
     const v2ApplyDisabledReason = v2ApplyVisible ? v2DisabledReason : '';
     const v2ApplyEnabled =
@@ -202,6 +209,11 @@ export function ImportTemplatePreviewModal({
                             {equipmentSlotsPresent.length > 0 && (
                                 <div data-testid="import-preview-equipment-slots">
                                     Equipment slots: <span className="font-bold">{equipmentSlotsPresent.join(', ')}</span>
+                                </div>
+                            )}
+                            {spellSlotsPresent.length > 0 && (
+                                <div data-testid="import-preview-spell-slots">
+                                    Spell slots: <span className="font-bold">{spellSlotsPresent.join(', ')}</span>
                                 </div>
                             )}
                         </section>
