@@ -83,3 +83,91 @@ func PatchEquippedSpell(slot *SaveSlot, slotIndex int, spellID uint32) error {
 	binary.LittleEndian.PutUint32(slot.Data[off+4:], newFollower)
 	return nil
 }
+
+// CalculateDynamicOffsets is the exported wrapper over the
+// package-internal calculateDynamicOffsets. Phase 7d.3 introduces it so
+// the apply-spells test fixtures (in package main) can materialise a
+// calibrated SaveSlot from a hand-built buffer without running the full
+// Read pipeline. The production code paths still call the unexported
+// form via parseFromData; this wrapper exists solely as a test seam.
+func (s *SaveSlot) CalculateDynamicOffsets() error {
+	return s.calculateDynamicOffsets()
+}
+
+// SpellWrite is a single equipped-spell mutation request. SlotIndex is
+// 0..13 (matches the save's spell slot ordering); SpellID is a raw
+// MagicParam ID (e.g. 0x1770 for Catch Flame) or
+// EquippedSpellEmptySentinel (0xFFFFFFFF) to clear the slot.
+//
+// Templates v2 stores spells with full DB-style item IDs (0x40XXXXXX);
+// the apply layer is responsible for stripping the prefix via
+// db.ItemIDToMagicParamID before constructing SpellWrite entries.
+type SpellWrite struct {
+	SlotIndex int
+	SpellID   uint32
+}
+
+// WriteSpells is the batch equivalent of PatchEquippedSpell with one
+// extra responsibility: it recomputes hash entry [10] (the EquippedSpells
+// hash) so the in-save hash block stays consistent with the new spell
+// loadout. Mirrors the WriteEquipment pattern (hash[7] / hash[8] inline
+// recompute) and is deliberately the ONLY production-code path that
+// touches hash[10].
+//
+// Atomicity: every write is structurally validated (slot index range +
+// duplicate detection) BEFORE any byte is mutated. Any validation
+// failure returns the error without touching slot.Data, matching
+// WriteEquipment's no-partial-write invariant. Per-write semantic
+// validation (offset bounds, nil slot, etc.) is delegated to
+// PatchEquippedSpell, which itself never mutates on failure.
+//
+// Hash discipline: only hash[10] is touched. hash[7] (weapons),
+// hash[8] (armor/talismans) and every other hash entry are left
+// untouched — this writer never invalidates work done by WriteEquipment
+// or by any future per-section writer.
+//
+// Concurrency: callers that share a SaveSlot across goroutines must
+// hold the slot-level lock for the entire WriteSpells call.
+func (s *SaveSlot) WriteSpells(writes []SpellWrite) error {
+	if s == nil {
+		return fmt.Errorf("WriteSpells: nil slot")
+	}
+	if s.EquippedSpellsOffset <= 0 {
+		return fmt.Errorf("WriteSpells: EquippedSpellsOffset not initialised (got %d); call calculateDynamicOffsets first", s.EquippedSpellsOffset)
+	}
+	if s.EquippedSpellsOffset+EquippedSpellSlotCount*EquippedSpellSlotSize > len(s.Data) {
+		return fmt.Errorf("WriteSpells: EquippedSpells section out of bounds (offset 0x%X, Data length %d)", s.EquippedSpellsOffset, len(s.Data))
+	}
+	if HashOffset+HashSize > len(s.Data) {
+		return fmt.Errorf("WriteSpells: hash block out of bounds")
+	}
+	if len(writes) == 0 {
+		return nil
+	}
+
+	seen := make(map[int]int, len(writes))
+	for i, w := range writes {
+		if w.SlotIndex < 0 || w.SlotIndex >= EquippedSpellSlotCount {
+			return fmt.Errorf("WriteSpells[%d]: slotIndex %d out of range [0,%d)", i, w.SlotIndex, EquippedSpellSlotCount)
+		}
+		if prev, dup := seen[w.SlotIndex]; dup {
+			return fmt.Errorf("WriteSpells[%d]: slot index %d already written at writes[%d]", i, w.SlotIndex, prev)
+		}
+		seen[w.SlotIndex] = i
+	}
+
+	for _, w := range writes {
+		if err := PatchEquippedSpell(s, w.SlotIndex, w.SpellID); err != nil {
+			return fmt.Errorf("WriteSpells: %w", err)
+		}
+	}
+
+	// Recompute hash[10] from the current EquippedSpells region. We
+	// re-read via readSpellIDs (the same helper ComputeSlotHash uses)
+	// so the in-save hash stays bit-equivalent to a full
+	// ComputeSlotHash for entry [10] without touching any other entry.
+	spellIDs := readSpellIDs(s.Data, s.EquippedSpellsOffset)
+	binary.LittleEndian.PutUint32(s.Data[HashOffset+10*4:], equipmentHash(spellIDs))
+
+	return nil
+}

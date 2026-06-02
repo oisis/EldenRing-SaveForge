@@ -1358,6 +1358,7 @@ export namespace main {
 	    storageItemsApplied: number;
 	    workspace?: editor.InventoryWorkspaceSnapshot;
 	    equipmentSlotsApplied: number;
+	    spellSlotsApplied: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ApplyTemplateV2Result(source);
@@ -1375,6 +1376,7 @@ export namespace main {
 	        this.storageItemsApplied = source["storageItemsApplied"];
 	        this.workspace = this.convertValues(source["workspace"], editor.InventoryWorkspaceSnapshot);
 	        this.equipmentSlotsApplied = source["equipmentSlotsApplied"];
+	        this.spellSlotsApplied = source["spellSlotsApplied"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1894,6 +1896,7 @@ export namespace templates {
 	    profileFieldsPresent?: string[];
 	    statFieldsPresent?: string[];
 	    equipmentSlotsPresent?: string[];
+	    spellSlotsPresent?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ImportPreviewSummary(source);
@@ -1913,6 +1916,7 @@ export namespace templates {
 	        this.profileFieldsPresent = source["profileFieldsPresent"];
 	        this.statFieldsPresent = source["statFieldsPresent"];
 	        this.equipmentSlotsPresent = source["equipmentSlotsPresent"];
+	        this.spellSlotsPresent = source["spellSlotsPresent"];
 	    }
 	}
 	export class ImportPreviewReport {

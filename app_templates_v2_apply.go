@@ -70,6 +70,12 @@ type ApplyTemplateV2Result struct {
 	// Slots reported as not-in-inventory warnings are NOT counted; the
 	// counter reflects successful writer dispatch only.
 	EquipmentSlotsApplied int `json:"equipmentSlotsApplied"`
+
+	// Phase 7d.3 — spells apply counter. Number of EquippedSpells slots
+	// actually written to slot.Data by SaveSlot.WriteSpells. Slots
+	// downgraded to warnings (unknown spell ID, wrong prefix) are NOT
+	// counted; the counter reflects successful writer dispatch only.
+	SpellSlotsApplied int `json:"spellSlotsApplied"`
 }
 
 // Canonical apply ordering. Defined once so the AppliedFields /
@@ -209,7 +215,8 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	hasStats := tpl.Selection != nil && tpl.Selection.Stats.HasAny()
 	hasInventory := tpl.Selection != nil && tpl.Selection.InventoryWorkspace.HasAny()
 	hasEquipment := tpl.Selection != nil && tpl.Selection.Equipment.HasAny()
-	if !hasProfile && !hasStats && !hasInventory && !hasEquipment {
+	hasSpells := tpl.Selection != nil && tpl.Selection.Spells.HasAny()
+	if !hasProfile && !hasStats && !hasInventory && !hasEquipment && !hasSpells {
 		// ValidateBuildTemplate already rejects an empty selection
 		// (HasAnySelected == false) — this branch defends against future
 		// validator drift.
@@ -428,6 +435,31 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}
 	}
 
+	// Phase 7d.3 — resolve spell writes ahead of the VM flush, so the
+	// resolver's structural / DB-membership warnings land in the report
+	// in the same pre-mutation phase as equipment. The actual
+	// slot.WriteSpells call happens later, after vm.MapViewModelToSlot
+	// and after slot.WriteEquipment, so the spell bytes and hash[10]
+	// recompute sit on top of the freshest VM-flushed state.
+	var spellWrites []core.SpellWrite
+	var spellSlotsApplied int
+	if hasSpells {
+		writes, spellWarn, spellErr := resolveSpellWrites(slot, tpl.Selection.Spells, tpl.Sections.Spells)
+		if spellErr != nil {
+			rollbackBoth()
+			return ApplyTemplateV2Result{
+				CharIndex: charIdx,
+				Preview:   buildApplyErrorReport(report, fmt.Errorf("ApplyBuildTemplateV2: spells resolver: %w", spellErr)),
+				Applied:   false,
+			}, nil
+		}
+		report.Warnings = append(report.Warnings, spellWarn...)
+		if len(writes) > 0 {
+			spellWrites = writes
+			applied = append(applied, "spells")
+		}
+	}
+
 	// Phase 7a — inventory.workspace apply runs against the workspace
 	// snapshot through the same applyTemplateItemsToWorkspace helper
 	// the v1 path uses. Phase 7a.2 threads opts.WeaponLevelOverride into
@@ -547,6 +579,31 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		equipmentSlotsApplied = len(equipmentWrites)
 	}
 
+	// Phase 7d.3 — apply spell writes AFTER vm.MapViewModelToSlot
+	// (which already ran above) and AFTER slot.WriteEquipment, so the
+	// spell bytes and hash[10] recompute land on top of fully
+	// VM-flushed + equipment-written state. Any earlier placement
+	// would be overwritten by MapViewModelToSlot. WriteSpells batches
+	// PatchEquippedSpell with pre-validation; a non-nil error means no
+	// byte was mutated.
+	if len(spellWrites) > 0 {
+		if err := slot.WriteSpells(spellWrites); err != nil {
+			rollbackBoth()
+			report.OK = false
+			report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+				Severity: "error",
+				Code:     templates.IssueCodeStructureInvalid,
+				Message:  fmt.Sprintf("spell write rolled back: %s", err.Error()),
+			})
+			return ApplyTemplateV2Result{
+				CharIndex: charIdx,
+				Preview:   report,
+				Applied:   false,
+			}, nil
+		}
+		spellSlotsApplied = len(spellWrites)
+	}
+
 	// Phase 7a — mark the workspace dirty + revalidate when items
 	// actually landed. Mirrors the v1 ApplyBuildTemplateToWorkspaceJSON
 	// success tail so the user still commits by clicking Save changes.
@@ -569,6 +626,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		SkippedFields:         skipped,
 		Character:             freshVM,
 		InventoryItemsApplied: inventoryItemsApplied,
+		SpellSlotsApplied:     spellSlotsApplied,
 		StorageItemsApplied:   storageItemsApplied,
 		EquipmentSlotsApplied: equipmentSlotsApplied,
 	}

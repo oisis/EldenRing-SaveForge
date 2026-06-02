@@ -622,6 +622,25 @@ func ItemIDToHandlePrefix(id uint32) uint32 {
 	}
 }
 
+// ItemIDToMagicParamID extracts the raw MagicParam ID from a full DB-style
+// spell item ID by stripping the 4-bit type prefix (0x40000000 for both
+// sorceries and incantations in this codebase). Example: Catch Flame
+// 0x40001770 → raw 0x1770.
+//
+// The 28-bit payload mask 0x0FFFFFFF mirrors ItemIDToHandlePrefix's 4-bit
+// prefix convention — NOT a 16-bit mask. Spell IDs can carry payload bits
+// above 0xFFFF (e.g. DLC sorceries with IDs in the high four-digit range
+// once shifted), and a narrower mask would silently drop them.
+//
+// The function is prefix-agnostic by design: callers (the Phase 7d.3
+// spells apply resolver) are expected to validate the prefix before
+// invoking this helper. The Phase 7d.1 schema validator already rejects
+// non-0x40 prefixes at template ingest time, so a templates → apply
+// pipeline never feeds a non-spell ID through this conversion.
+func ItemIDToMagicParamID(itemID uint32) uint32 {
+	return itemID & 0x0FFFFFFF
+}
+
 // GetItemsByCategory returns a sorted list of items for a given category.
 // The database stores only PC-style item IDs (0x00=weapon, 0x10=armor, 0x20=talisman,
 // 0x40=goods, 0x80=AoW). Platform conversion to handle prefixes happens at runtime

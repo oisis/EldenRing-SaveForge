@@ -981,6 +981,16 @@ func spellSlotRef(s *SpellsSection, slotKey string) *SpellSlotRef {
 	return nil
 }
 
+// SpellSlotRefBySlotKey returns the pointer at the named slot field on s.
+// Exported wrapper over the private spellSlotRef getter so the Phase
+// 7d.3 apply resolver (which lives outside the templates package) can
+// walk SpellsSection without re-implementing the 14-key switch. Returns
+// nil when s is nil or the key is unknown. Mirrors
+// EquipmentSlotRef-as-a-package-API.
+func SpellSlotRefBySlotKey(s *SpellsSection, slotKey string) *SpellSlotRef {
+	return spellSlotRef(s, slotKey)
+}
+
 // setSpellSlotRef assigns ref into the named slot field on s. No-op
 // when the key is unknown so the export pipeline can iterate over
 // SpellSlotOrder without re-checking allowlist membership. Mirrors
