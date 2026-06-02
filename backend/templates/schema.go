@@ -114,11 +114,17 @@ type TemplateMetadata struct {
 // armor section. Driven by the same Selection model as profile / stats.
 // Talismans, spells, EquippedGreatRune, and the unknown slots 11 / 16
 // stay out of scope of this phase per Phase 7b.0 writer coverage.
+//
+// Phase 7d.1 adds Spells — the optional 14-slot equipped-spells loadout.
+// Spells live in their own save region (EquippedSpells offset, hash[10])
+// and use raw MagicParam IDs at apply time, so they ship as a separate
+// section rather than as more fields on EquipmentSection.
 type TemplateSections struct {
 	InventoryWorkspace *InventoryWorkspaceSection `json:"inventory.workspace,omitempty" yaml:"inventory.workspace,omitempty"`
 	Profile            *ProfileSection            `json:"profile,omitempty" yaml:"profile,omitempty"`
 	Stats              *StatsSection              `json:"stats,omitempty" yaml:"stats,omitempty"`
 	Equipment          *EquipmentSection          `json:"equipment,omitempty" yaml:"equipment,omitempty"`
+	Spells             *SpellsSection             `json:"spells,omitempty" yaml:"spells,omitempty"`
 }
 
 // InventoryWorkspaceSection is the v1 payload — items from the
@@ -279,6 +285,7 @@ type TemplateSelection struct {
 	Stats              *SectionSelection `json:"stats,omitempty" yaml:"stats,omitempty"`
 	InventoryWorkspace *SectionSelection `json:"inventory.workspace,omitempty" yaml:"inventory.workspace,omitempty"`
 	Equipment          *SectionSelection `json:"equipment,omitempty" yaml:"equipment,omitempty"`
+	Spells             *SectionSelection `json:"spells,omitempty" yaml:"spells,omitempty"`
 }
 
 // SectionSelection is a per-section toggle that accepts either a
@@ -330,7 +337,7 @@ func (t *TemplateSelection) HasAnySelected() bool {
 	if t == nil {
 		return false
 	}
-	return t.Profile.HasAny() || t.Stats.HasAny() || t.InventoryWorkspace.HasAny() || t.Equipment.HasAny()
+	return t.Profile.HasAny() || t.Stats.HasAny() || t.InventoryWorkspace.HasAny() || t.Equipment.HasAny() || t.Spells.HasAny()
 }
 
 // UnmarshalJSON accepts either a JSON boolean (shortcut) or a JSON
@@ -526,6 +533,9 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 	if err := validateEquipmentSelection(tpl.Selection.Equipment); err != nil {
 		return err
 	}
+	if err := validateSpellsSelection(tpl.Selection.Spells); err != nil {
+		return err
+	}
 
 	if tpl.Selection.Profile.HasAny() && tpl.Sections.Profile == nil {
 		return fmt.Errorf("ValidateBuildTemplate: selection.profile is selected but sections.profile is missing")
@@ -538,6 +548,9 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 	}
 	if tpl.Selection.Equipment.HasAny() && tpl.Sections.Equipment == nil {
 		return fmt.Errorf("ValidateBuildTemplate: selection.equipment is selected but sections.equipment is missing")
+	}
+	if tpl.Selection.Spells.HasAny() && tpl.Sections.Spells == nil {
+		return fmt.Errorf("ValidateBuildTemplate: selection.spells is selected but sections.spells is missing")
 	}
 
 	if tpl.Sections.Profile != nil {
@@ -560,6 +573,11 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 	}
 	if tpl.Sections.Equipment != nil {
 		if err := validateEquipmentSection(tpl.Sections.Equipment); err != nil {
+			return err
+		}
+	}
+	if tpl.Sections.Spells != nil {
+		if err := validateSpellsSection(tpl.Sections.Spells); err != nil {
 			return err
 		}
 	}
@@ -850,4 +868,161 @@ type ExportWarning struct {
 // Empty Warnings means a clean export.
 type ExportReport struct {
 	Warnings []ExportWarning `json:"warnings"`
+}
+
+// ─── spells (Phase 7d.1) ────────────────────────────────────────────────
+
+// SpellSlotCount is the fixed number of equipped-spell slots in the save
+// (memory + skills shortcuts combined). Mirrors the constant used by the
+// core writer (core.EquippedSpellSlotCount).
+const SpellSlotCount = 14
+
+// SpellItemIDPrefix is the goods-item prefix used by both sorceries and
+// incantations in the project's item-ID database (e.g. Catch Flame is
+// 0x40001770). Verified against backend/db/data/{sorceries,incantations}.go
+// — both categories use the 0x40000000 prefix; there is NO 0x60-prefixed
+// incantation form in this codebase.
+const SpellItemIDPrefix uint32 = 0x40000000
+
+// SpellItemIDPrefixMask is the high-nibble mask used to extract the
+// type prefix from a full item ID. Mirrors backend/db.ItemIDToHandlePrefix
+// conventions (4-bit prefix, 28-bit payload).
+const SpellItemIDPrefixMask uint32 = 0xF0000000
+
+// SpellsSection captures up to 14 equipped-spell slots as a template.
+// Each slot is a pointer so absent fields round-trip as nil (the field
+// is omitted from JSON/YAML via omitempty) — semantically "slot not
+// targeted by this template; apply leaves the live slot untouched."
+// An explicit *SpellSlotRef with BaseItemID == 0 means "clear this
+// slot," mirroring the EquipmentSection clear convention.
+//
+// The DB-style full item ID is stored here (e.g. 0x40001770 for Catch
+// Flame). Conversion to the raw 28-bit MagicParam ID that the core
+// writer expects is deferred to the apply phase (Phase 7d.3) via a
+// helper in backend/db. Storing the full DB-style ID keeps templates
+// human-greppable and consistent with EquipmentSection.
+type SpellsSection struct {
+	Spell1  *SpellSlotRef `json:"spell1,omitempty" yaml:"spell1,omitempty"`
+	Spell2  *SpellSlotRef `json:"spell2,omitempty" yaml:"spell2,omitempty"`
+	Spell3  *SpellSlotRef `json:"spell3,omitempty" yaml:"spell3,omitempty"`
+	Spell4  *SpellSlotRef `json:"spell4,omitempty" yaml:"spell4,omitempty"`
+	Spell5  *SpellSlotRef `json:"spell5,omitempty" yaml:"spell5,omitempty"`
+	Spell6  *SpellSlotRef `json:"spell6,omitempty" yaml:"spell6,omitempty"`
+	Spell7  *SpellSlotRef `json:"spell7,omitempty" yaml:"spell7,omitempty"`
+	Spell8  *SpellSlotRef `json:"spell8,omitempty" yaml:"spell8,omitempty"`
+	Spell9  *SpellSlotRef `json:"spell9,omitempty" yaml:"spell9,omitempty"`
+	Spell10 *SpellSlotRef `json:"spell10,omitempty" yaml:"spell10,omitempty"`
+	Spell11 *SpellSlotRef `json:"spell11,omitempty" yaml:"spell11,omitempty"`
+	Spell12 *SpellSlotRef `json:"spell12,omitempty" yaml:"spell12,omitempty"`
+	Spell13 *SpellSlotRef `json:"spell13,omitempty" yaml:"spell13,omitempty"`
+	Spell14 *SpellSlotRef `json:"spell14,omitempty" yaml:"spell14,omitempty"`
+}
+
+// SpellSlotRef is the per-slot payload. Name is optional metadata for
+// human-readability and is not used by the validator or (future) apply
+// resolver.
+type SpellSlotRef struct {
+	BaseItemID uint32 `json:"baseItemID" yaml:"baseItemID"`
+	Name       string `json:"name,omitempty" yaml:"name,omitempty"`
+}
+
+// SpellSlotOrder is the canonical iteration order over the 14 spell
+// slots. spell1 maps to save slot index 0, spell14 to index 13.
+var SpellSlotOrder = []string{
+	"spell1", "spell2", "spell3", "spell4", "spell5", "spell6", "spell7",
+	"spell8", "spell9", "spell10", "spell11", "spell12", "spell13", "spell14",
+}
+
+// spellsSelectionFields enumerates the legal keys for a per-field
+// selection of sections.spells. Mirrors equipmentSelectionFields.
+var spellsSelectionFields = map[string]bool{
+	"spell1": true, "spell2": true, "spell3": true, "spell4": true,
+	"spell5": true, "spell6": true, "spell7": true, "spell8": true,
+	"spell9": true, "spell10": true, "spell11": true, "spell12": true,
+	"spell13": true, "spell14": true,
+}
+
+// spellSlotRef returns the pointer for slotKey, or nil if the key is
+// not a known spell slot. Mirrors equipmentSlotRef.
+func spellSlotRef(s *SpellsSection, slotKey string) *SpellSlotRef {
+	if s == nil {
+		return nil
+	}
+	switch slotKey {
+	case "spell1":
+		return s.Spell1
+	case "spell2":
+		return s.Spell2
+	case "spell3":
+		return s.Spell3
+	case "spell4":
+		return s.Spell4
+	case "spell5":
+		return s.Spell5
+	case "spell6":
+		return s.Spell6
+	case "spell7":
+		return s.Spell7
+	case "spell8":
+		return s.Spell8
+	case "spell9":
+		return s.Spell9
+	case "spell10":
+		return s.Spell10
+	case "spell11":
+		return s.Spell11
+	case "spell12":
+		return s.Spell12
+	case "spell13":
+		return s.Spell13
+	case "spell14":
+		return s.Spell14
+	}
+	return nil
+}
+
+// validateSpellsSelection enforces the per-field allowlist for
+// selection.spells.Fields. Boolean shortcut and nil are accepted
+// without further checks.
+func validateSpellsSelection(sel *SectionSelection) error {
+	if sel == nil {
+		return nil
+	}
+	for key := range sel.Fields {
+		if !spellsSelectionFields[key] {
+			return fmt.Errorf("ValidateBuildTemplate: selection.spells has unknown slot %q", key)
+		}
+	}
+	return nil
+}
+
+// validateSpellsSection enforces structural ranges on every present
+// spell slot. baseItemID == 0 is accepted as the explicit-clear
+// sentinel; non-zero IDs must carry the 0x40000000 spell prefix.
+// DB membership lookups are intentionally deferred to the apply
+// resolver (mirrors validateEquipmentSection).
+func validateSpellsSection(s *SpellsSection) error {
+	for _, slotKey := range SpellSlotOrder {
+		ref := spellSlotRef(s, slotKey)
+		if ref == nil {
+			continue
+		}
+		if err := validateSpellSlotRef(slotKey, ref); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateSpellSlotRef runs the per-ref structural checks. Kept
+// separate so the tests can exercise it directly.
+func validateSpellSlotRef(slotKey string, ref *SpellSlotRef) error {
+	if ref.BaseItemID == 0 {
+		// Explicit clear: accepted unconditionally.
+		return nil
+	}
+	if (ref.BaseItemID & SpellItemIDPrefixMask) != SpellItemIDPrefix {
+		return fmt.Errorf("ValidateBuildTemplate: spells.%s.baseItemID=0x%08X has wrong prefix (expected 0x4XXXXXXX)", slotKey, ref.BaseItemID)
+	}
+	return nil
 }
