@@ -83,19 +83,26 @@ const INVENTORY_WORKSPACE_SECTION = 'inventory.workspace';
 // active-session gate with inventory.workspace; both also surface the
 // runtime weapon level override in the overrides modal.
 const ITEMS_SECTION = 'items';
+// Phase 8E.2 — layout sections share the active-session gate with items
+// and inventory.workspace. The backend Phase 8E.1 writer mutates
+// sess.Workspace ordering, so an active edit session is mandatory even
+// for layout-only templates.
+const INVENTORY_LAYOUT_SECTION = 'inventoryLayout';
+const STORAGE_LAYOUT_SECTION = 'storageLayout';
 const ITEM_APPLY_MODE_ADD_MISSING = 'addMissing';
+const LAYOUT_APPLY_MODE_REORDER_ONLY = 'reorderOnly';
 
-// canonicalJSONHasItems returns true when the canonical JSON's
-// selection nominates sections.items. Used to gate items-specific
-// rewrites (e.g. explicit addMissing injection) and the
-// items-apply session check on the JSON apply path.
-function canonicalJSONHasItems(canonical: string): boolean {
+// canonicalJSONHasSelection returns true when the canonical JSON's
+// selection nominates the given section key. Truthy when the value is
+// `true`, an object with `all: true`, or any object with at least one
+// concrete child entry. Used to gate per-section rewrites (e.g. explicit
+// mode injection) and the per-section session check on the JSON apply
+// path.
+function canonicalJSONHasSelection(canonical: string, sectionKey: string): boolean {
     if (!canonical) return false;
     try {
-        const parsed = JSON.parse(canonical) as {
-            selection?: { items?: unknown };
-        };
-        const sel = parsed?.selection?.[ITEMS_SECTION];
+        const parsed = JSON.parse(canonical) as { selection?: Record<string, unknown> };
+        const sel = parsed?.selection?.[sectionKey];
         if (sel === undefined || sel === null) return false;
         if (typeof sel === 'boolean') return sel;
         if (typeof sel === 'object') {
@@ -109,25 +116,70 @@ function canonicalJSONHasItems(canonical: string): boolean {
     }
 }
 
-// injectExplicitAddMissing rewrites the canonical JSON so its
-// applyOptions.items.mode is set to "addMissing" when sections.items
-// is selected. Phase 8D.1 backend already defaults to addMissing when
-// ApplyOptions.Items is nil, but Phase 8D.2 UI sends the mode
-// explicitly so the intent is testable from the JSON payload itself.
-// Pass-through on any parse error so the caller never blocks on a
-// rewrite failure — the backend will surface the underlying issue.
-function injectExplicitAddMissing(canonical: string): string {
+function canonicalJSONHasItems(canonical: string): boolean {
+    return canonicalJSONHasSelection(canonical, ITEMS_SECTION);
+}
+
+function canonicalJSONHasInventoryLayout(canonical: string): boolean {
+    return canonicalJSONHasSelection(canonical, INVENTORY_LAYOUT_SECTION);
+}
+
+function canonicalJSONHasStorageLayout(canonical: string): boolean {
+    return canonicalJSONHasSelection(canonical, STORAGE_LAYOUT_SECTION);
+}
+
+function canonicalJSONHasAnyLayout(canonical: string): boolean {
+    return (
+        canonicalJSONHasInventoryLayout(canonical) ||
+        canonicalJSONHasStorageLayout(canonical)
+    );
+}
+
+// injectExplicitApplyDefaults rewrites the canonical JSON so its
+// applyOptions block carries the UI's explicit defaults on the wire:
+//   - items → mode = "addMissing"
+//   - inventoryLayout → mode = "reorderOnly"
+//   - storageLayout → mode = "reorderOnly"
+// Phase 8D.1 / 8E.1 backends both default these modes when the option
+// is nil, but the UI sends them explicitly so the intent is testable
+// from the JSON payload itself. Pass-through on any parse error so the
+// caller never blocks on a rewrite failure — the backend will surface
+// the underlying issue.
+function injectExplicitApplyDefaults(canonical: string): string {
     if (!canonical) return canonical;
-    if (!canonicalJSONHasItems(canonical)) return canonical;
+    const wantItems = canonicalJSONHasItems(canonical);
+    const wantInvLayout = canonicalJSONHasInventoryLayout(canonical);
+    const wantStoLayout = canonicalJSONHasStorageLayout(canonical);
+    if (!wantItems && !wantInvLayout && !wantStoLayout) return canonical;
     try {
         const parsed = JSON.parse(canonical) as Record<string, unknown>;
         const ao = (parsed.applyOptions as Record<string, unknown> | undefined) ?? {};
-        const items = (ao.items as Record<string, unknown> | undefined) ?? {};
-        if (items.mode === ITEM_APPLY_MODE_ADD_MISSING) {
-            return canonical;
+        let mutated = false;
+        if (wantItems) {
+            const items = (ao.items as Record<string, unknown> | undefined) ?? {};
+            if (items.mode !== ITEM_APPLY_MODE_ADD_MISSING) {
+                items.mode = ITEM_APPLY_MODE_ADD_MISSING;
+                ao.items = items;
+                mutated = true;
+            }
         }
-        items.mode = ITEM_APPLY_MODE_ADD_MISSING;
-        ao.items = items;
+        if (wantInvLayout) {
+            const il = (ao.inventoryLayout as Record<string, unknown> | undefined) ?? {};
+            if (il.mode !== LAYOUT_APPLY_MODE_REORDER_ONLY) {
+                il.mode = LAYOUT_APPLY_MODE_REORDER_ONLY;
+                ao.inventoryLayout = il;
+                mutated = true;
+            }
+        }
+        if (wantStoLayout) {
+            const sl = (ao.storageLayout as Record<string, unknown> | undefined) ?? {};
+            if (sl.mode !== LAYOUT_APPLY_MODE_REORDER_ONLY) {
+                sl.mode = LAYOUT_APPLY_MODE_REORDER_ONLY;
+                ao.storageLayout = sl;
+                mutated = true;
+            }
+        }
+        if (!mutated) return canonical;
         parsed.applyOptions = ao;
         return JSON.stringify(parsed);
     } catch {
@@ -338,29 +390,40 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             // active-session gate. Library entries that nominate items
             // (with or without layout) need a session for the same
             // reason: both mutate sess.Workspace.
+            //
+            // Phase 8E.2 — layout sections (inventoryLayout / storageLayout)
+            // share the same gate. The 8E.1 writer reorders sess.Workspace
+            // so an active edit session is mandatory even for layout-only
+            // entries.
             const hasItems = selectedSections.includes(ITEMS_SECTION);
+            const hasLayout =
+                selectedSections.includes(INVENTORY_LAYOUT_SECTION) ||
+                selectedSections.includes(STORAGE_LAYOUT_SECTION);
             const needsSession =
-                selectedSections.includes(INVENTORY_WORKSPACE_SECTION) || hasItems;
+                selectedSections.includes(INVENTORY_WORKSPACE_SECTION) || hasItems || hasLayout;
             const sessionID = await fetchActiveSessionID(charIndex);
             if (needsSession && !sessionID) {
                 toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
                 throw new Error(NO_SESSION_MESSAGE);
             }
-            // Phase 8D.3 — for items-bearing library entries we want
-            // applyOptions.items.mode to land on the wire explicitly,
-            // mirroring the imported preview / overrides apply paths.
+            // Phase 8D.3 / 8E.2 — for items- or layout-bearing library
+            // entries we want applyOptions.items.mode and
+            // applyOptions.{inventory,storage}Layout.mode to land on
+            // the wire explicitly, mirroring the imported preview /
+            // overrides apply paths.
             // ApplyBuildTemplateV2FromLibraryToCharacter accepts only
             // (charIdx, id, opts) and the entry's stored applyOptions
             // are read inside the backend with no per-call override
             // hook, so we route via PreviewBuildTemplateFromLibrary
             // (which returns canonical JSON) + the JSON apply binding.
-            // For profile/stats/equipment/spells-only entries this
-            // round-trip is unnecessary noise, so the FromLibrary path
-            // stays. The two backends share applyBuildTemplateV2
-            // internally — switching paths does not change semantics.
+            // Profile/stats/equipment/spells-only entries skip the
+            // round-trip and stay on the FromLibrary path. The two
+            // backends share applyBuildTemplateV2 internally —
+            // switching paths does not change semantics.
+            const needsJSONRoute = hasItems || hasLayout;
             let result: main.ApplyTemplateV2Result;
             try {
-                if (hasItems) {
+                if (needsJSONRoute) {
                     const preview = await PreviewBuildTemplateFromLibrary(entry.id);
                     if (!preview.report?.ok) {
                         const firstErr =
@@ -368,7 +431,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                         toast.error(`Templates: ${firstErr}`);
                         throw new Error(firstErr);
                     }
-                    const payloadJSON = injectExplicitAddMissing(preview.json ?? '');
+                    const payloadJSON = injectExplicitApplyDefaults(preview.json ?? '');
                     result = await ApplyBuildTemplateV2ToCharacterJSON(
                         charIndex,
                         payloadJSON,
@@ -403,7 +466,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 toast('Class was skipped in this phase.');
             }
             onCharacterTemplateApplied?.(charIndex);
-            if (hasItems) {
+            if (hasItems || hasLayout) {
                 setItemsApplyResult({ sourceLabel, charIndex, result });
             }
         },
@@ -512,17 +575,28 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             // Phase 8D.2 — sections.items rides the same gate: both
             // inventory.workspace and items mutate sess.Workspace and
             // need an active edit session.
+            //
+            // Phase 8E.2 — inventoryLayout / storageLayout also reorder
+            // sess.Workspace and therefore share the active-session
+            // requirement.
             const hasItems = canonicalJSONHasItems(mutatedJSON);
-            const needsSession = canonicalJSONNeedsSession(mutatedJSON) || hasItems;
+            const hasLayout = canonicalJSONHasAnyLayout(mutatedJSON);
+            const needsSession =
+                canonicalJSONNeedsSession(mutatedJSON) || hasItems || hasLayout;
             const sessionID = await fetchActiveSessionID(charIndex);
             if (needsSession && !sessionID) {
                 toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
                 return;
             }
-            // Phase 8D.2 — surface the explicit addMissing mode on the
-            // wire when sections.items is part of this apply. No-op
-            // otherwise.
-            const payloadJSON = hasItems ? injectExplicitAddMissing(mutatedJSON) : mutatedJSON;
+            // Phase 8D.2 / 8E.2 — surface the explicit addMissing and
+            // layout reorderOnly modes on the wire when their respective
+            // sections are part of this apply. injectExplicitApplyDefaults
+            // is a no-op when none of items / inventoryLayout /
+            // storageLayout are selected.
+            const payloadJSON =
+                hasItems || hasLayout
+                    ? injectExplicitApplyDefaults(mutatedJSON)
+                    : mutatedJSON;
             setApplyingV2WithOverrides(true);
             try {
                 // Phase 7a.2 — runtime weapon level override travels as
@@ -557,7 +631,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 }
                 const sourceLabel = overridesSource.sourceLabel;
                 setOverridesSource(null);
-                if (hasItems) {
+                if (hasItems || hasLayout) {
                     setItemsApplyResult({ sourceLabel, charIndex, result });
                 }
             } catch (err) {
@@ -592,23 +666,29 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
         // Phase 8D.2 — sections.items shares the same active-session
         // gate. Both apply paths mutate sess.Workspace; both surface
         // the same "open the Sort Order workspace first" guidance.
+        //
+        // Phase 8E.2 — inventoryLayout / storageLayout reorder
+        // sess.Workspace too; same gate, same guidance.
         const selectedSections = importedPreview.report.summary?.selectedSections ?? [];
+        const hasItems = selectedSections.includes(ITEMS_SECTION);
+        const hasLayout =
+            selectedSections.includes(INVENTORY_LAYOUT_SECTION) ||
+            selectedSections.includes(STORAGE_LAYOUT_SECTION);
         const needsSession =
-            selectedSections.includes(INVENTORY_WORKSPACE_SECTION) ||
-            selectedSections.includes(ITEMS_SECTION);
+            selectedSections.includes(INVENTORY_WORKSPACE_SECTION) || hasItems || hasLayout;
         const sessionID = await fetchActiveSessionID(charIndex);
         if (needsSession && !sessionID) {
             toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
             return;
         }
-        const hasItems = selectedSections.includes(ITEMS_SECTION);
-        // Phase 8D.2 — make the addMissing intent explicit on the
-        // wire when sections.items is present. injectExplicitAddMissing
-        // is a no-op when items is not selected or the mode is
-        // already addMissing.
-        const payloadJSON = hasItems
-            ? injectExplicitAddMissing(importedPreview.canonicalJSON)
-            : importedPreview.canonicalJSON;
+        // Phase 8D.2 / 8E.2 — make addMissing (items) and reorderOnly
+        // (inventoryLayout / storageLayout) intents explicit on the
+        // wire. injectExplicitApplyDefaults is a no-op when none of
+        // these sections are selected.
+        const payloadJSON =
+            hasItems || hasLayout
+                ? injectExplicitApplyDefaults(importedPreview.canonicalJSON)
+                : importedPreview.canonicalJSON;
         setApplyingV2FromImport(true);
         try {
             const result = await ApplyBuildTemplateV2ToCharacterJSON(
@@ -633,10 +713,11 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             }
             onCharacterTemplateApplied?.(charIndex);
             setImportedPreview(null);
-            // Phase 8D.2 — surface per-items detail when sections.items
-            // was part of this apply. Profile/stats-only applies keep
-            // the existing toast UX without an extra modal.
-            if (hasItems) {
+            // Phase 8D.2 / 8E.2 — surface per-items / per-layout
+            // detail when sections.items or layout sections were part
+            // of this apply. Profile/stats-only applies keep the
+            // existing toast UX without an extra modal.
+            if (hasItems || hasLayout) {
                 setItemsApplyResult({ sourceLabel: label, charIndex, result });
             }
         } catch (err) {
@@ -866,6 +947,19 @@ function ApplyItemsResultModal({
         ...(grouped.get('weapon_unupgradeable') ?? []),
     ];
     const templateOverrideIgnored = grouped.get('items_template_override_ignored') ?? [];
+    // Phase 8E.2 — layout warning groups. layout_entry_missing and
+    // layout_entry_ambiguous are amber (user-actionable: template
+    // referenced something the live workspace can't resolve).
+    // layout_sparse_normalized and layout_extra_items_preserved are
+    // informational ("nothing went wrong, but here's what the writer
+    // did"). layout_mode_unsupported flags a skipped layout section
+    // (append/replace/etc.) that the UI never sends — it can still
+    // surface from hand-authored YAML.
+    const layoutEntryMissing = grouped.get('layout_entry_missing') ?? [];
+    const layoutEntryAmbiguous = grouped.get('layout_entry_ambiguous') ?? [];
+    const layoutSparseNormalized = grouped.get('layout_sparse_normalized') ?? [];
+    const layoutExtraItemsPreserved = grouped.get('layout_extra_items_preserved') ?? [];
+    const layoutModeUnsupported = grouped.get('layout_mode_unsupported') ?? [];
     const KNOWN_CODES = new Set([
         'items_layout_ignored',
         'items_already_present',
@@ -873,20 +967,47 @@ function ApplyItemsResultModal({
         'weapon_level_clamped',
         'weapon_unupgradeable',
         'items_template_override_ignored',
+        'layout_entry_missing',
+        'layout_entry_ambiguous',
+        'layout_sparse_normalized',
+        'layout_extra_items_preserved',
+        'layout_mode_unsupported',
     ]);
     const otherWarnings = warnings.filter(w => !KNOWN_CODES.has(w.code));
+    // Phase 8E.2 — layout counters are non-zero only when the apply
+    // touched inventoryLayout / storageLayout. Show the layout block
+    // whenever any of the counters or warnings is non-zero so the
+    // modal stays quiet for items-only applies.
+    const layoutInventoryApplied = result.layoutInventoryEntriesApplied ?? 0;
+    const layoutStorageApplied = result.layoutStorageEntriesApplied ?? 0;
+    const layoutInventoryMissing = result.layoutInventoryEntriesMissing ?? 0;
+    const layoutStorageMissing = result.layoutStorageEntriesMissing ?? 0;
+    const layoutInventoryExtras = result.layoutInventoryExtrasPreserved ?? 0;
+    const layoutStorageExtras = result.layoutStorageExtrasPreserved ?? 0;
+    const showLayoutCounters =
+        layoutInventoryApplied > 0 ||
+        layoutStorageApplied > 0 ||
+        layoutInventoryMissing > 0 ||
+        layoutStorageMissing > 0 ||
+        layoutInventoryExtras > 0 ||
+        layoutStorageExtras > 0 ||
+        layoutEntryMissing.length > 0 ||
+        layoutEntryAmbiguous.length > 0 ||
+        layoutSparseNormalized.length > 0 ||
+        layoutExtraItemsPreserved.length > 0 ||
+        layoutModeUnsupported.length > 0;
     return (
         <div
             data-testid="items-apply-result-modal"
             role="dialog"
             aria-modal="true"
-            aria-label="Items apply result"
+            aria-label="Template apply result"
             className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
         >
             <div className="w-full max-w-xl rounded-lg bg-card border border-border/60 shadow-xl flex flex-col max-h-[80vh]">
                 <div className="px-4 py-3 border-b border-border/60">
                     <h2 className="text-sm font-black uppercase tracking-wider">
-                        Items apply result
+                        Template apply result
                     </h2>
                     <p
                         data-testid="items-apply-result-source"
@@ -911,6 +1032,49 @@ function ApplyItemsResultModal({
                             <span className="font-bold">{result.storageItemsApplied}</span>
                         </div>
                     </section>
+                    {showLayoutCounters && (
+                        <section
+                            data-testid="items-apply-result-layout-counters"
+                            aria-label="Layout reorder counts"
+                            className="space-y-0.5"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                Layout reordered
+                            </h3>
+                            <div data-testid="items-apply-result-layout-inv-applied">
+                                Inventory entries applied:{' '}
+                                <span className="font-bold">{layoutInventoryApplied}</span>
+                            </div>
+                            <div data-testid="items-apply-result-layout-sto-applied">
+                                Storage entries applied:{' '}
+                                <span className="font-bold">{layoutStorageApplied}</span>
+                            </div>
+                            <div data-testid="items-apply-result-layout-inv-missing">
+                                Inventory entries missing (skipped):{' '}
+                                <span className="font-bold">{layoutInventoryMissing}</span>
+                            </div>
+                            <div data-testid="items-apply-result-layout-sto-missing">
+                                Storage entries missing (skipped):{' '}
+                                <span className="font-bold">{layoutStorageMissing}</span>
+                            </div>
+                            <div data-testid="items-apply-result-layout-inv-extras">
+                                Inventory extras preserved (appended):{' '}
+                                <span className="font-bold">{layoutInventoryExtras}</span>
+                            </div>
+                            <div data-testid="items-apply-result-layout-sto-extras">
+                                Storage extras preserved (appended):{' '}
+                                <span className="font-bold">{layoutStorageExtras}</span>
+                            </div>
+                            <p
+                                data-testid="items-apply-result-layout-note"
+                                className="mt-1 text-[10px] text-muted-foreground"
+                            >
+                                Layout apply is reorder-only — no items are added, removed, or
+                                replaced. Extras stay; missing entries are skipped with
+                                warnings.
+                            </p>
+                        </section>
+                    )}
                     <WarningGroup
                         testId="items-apply-result-already-present"
                         title="Skipped — already present"
@@ -925,8 +1089,38 @@ function ApplyItemsResultModal({
                     />
                     <WarningGroup
                         testId="items-apply-result-layout-ignored"
-                        title="Layout ignored (export-only)"
+                        title="Layout ignored (items+layout interop)"
                         items={layoutIgnored}
+                        tone="amber"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-layout-missing"
+                        title="Layout entries missing — skipped"
+                        items={layoutEntryMissing}
+                        tone="amber"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-layout-ambiguous"
+                        title="Layout entries ambiguous — first match used"
+                        items={layoutEntryAmbiguous}
+                        tone="amber"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-layout-sparse"
+                        title="Layout normalized (sparse positions)"
+                        items={layoutSparseNormalized}
+                        tone="muted"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-layout-extras"
+                        title="Extras preserved (appended)"
+                        items={layoutExtraItemsPreserved}
+                        tone="muted"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-layout-mode-unsupported"
+                        title="Layout mode unsupported — section skipped"
+                        items={layoutModeUnsupported}
                         tone="amber"
                     />
                     <WarningGroup

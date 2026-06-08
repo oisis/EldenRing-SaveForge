@@ -2798,6 +2798,268 @@ describe('TemplatesShellModal — Phase 8D.2 items apply', () => {
         await screen.findByTestId('items-apply-result-modal');
         const layout = screen.getByTestId('items-apply-result-layout-ignored');
         expect(layout).toHaveAttribute('data-warning-severity', 'info');
-        expect(layout).toHaveTextContent(/Layout ignored.*export-only/i);
+        expect(layout).toHaveTextContent(/Layout ignored/i);
+    });
+});
+
+describe('TemplatesShellModal — Phase 8E.2 layout apply', () => {
+    function layoutOnlyCanonical() {
+        return JSON.stringify({
+            schema: 'saveforge.build-template',
+            version: 2,
+            selection: { inventoryLayout: { all: true }, storageLayout: { all: true } },
+            sections: {
+                inventoryLayout: { entries: [{ entryID: 'i_1', position: 0 }] },
+                storageLayout: { entries: [{ entryID: 's_1', position: 0 }] },
+            },
+        });
+    }
+
+    function itemsPlusLayoutCanonical() {
+        return JSON.stringify({
+            schema: 'saveforge.build-template',
+            version: 2,
+            selection: {
+                items: { all: true },
+                inventoryLayout: { all: true },
+            },
+            sections: {
+                items: [
+                    { entryID: 'i_1', itemID: 1, quantity: 1, location: 'inventory' },
+                ],
+                inventoryLayout: { entries: [{ entryID: 'i_1', position: 0 }] },
+            },
+        });
+    }
+
+    function layoutPreview(canonical: string, summaryOverrides: Record<string, unknown> = {}) {
+        return {
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0,
+                    storageItems: 0,
+                    weapons: 0,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections: ['inventoryLayout', 'storageLayout'],
+                    profileFieldsPresent: [],
+                    itemsEntries: 0,
+                    inventoryLayoutCount: 1,
+                    storageLayoutCount: 1,
+                    ...summaryOverrides,
+                },
+            },
+            json: canonical,
+            path: '/fake/layout.yaml',
+        };
+    }
+
+    function layoutApplyResultOK(extra: Partial<Record<string, unknown>> = {}) {
+        return {
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 0,
+            appliedFields: ['inventoryLayout', 'storageLayout'],
+            skippedFields: [],
+            inventoryItemsApplied: 0,
+            storageItemsApplied: 0,
+            equipmentSlotsApplied: 0,
+            spellSlotsApplied: 0,
+            layoutInventoryEntriesApplied: 2,
+            layoutStorageEntriesApplied: 1,
+            layoutInventoryEntriesMissing: 1,
+            layoutStorageEntriesMissing: 0,
+            layoutInventoryExtrasPreserved: 3,
+            layoutStorageExtrasPreserved: 0,
+            ...extra,
+        };
+    }
+
+    it('layout-only imported preview without an active session toasts the session error and skips apply', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            layoutPreview(layoutOnlyCanonical()),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+    });
+
+    it('layout-only imported preview with an active session injects applyOptions.{inventory,storage}Layout.mode=reorderOnly onto the wire and opens the result modal', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            layoutPreview(layoutOnlyCanonical()),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-layout' });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(layoutApplyResultOK());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0];
+        const payload = JSON.parse(call[1] as string);
+        expect(payload?.applyOptions?.inventoryLayout?.mode).toBe('reorderOnly');
+        expect(payload?.applyOptions?.storageLayout?.mode).toBe('reorderOnly');
+        // No append/replace mode ever leaves the UI.
+        expect(payload?.applyOptions?.inventoryLayout?.mode).not.toBe('append');
+        expect(payload?.applyOptions?.storageLayout?.mode).not.toBe('replace');
+        expect((call[2] as { sessionID: string }).sessionID).toBe('ses-layout');
+        const modal = await screen.findByTestId('items-apply-result-modal');
+        expect(modal).toBeInTheDocument();
+        expect(screen.getByTestId('items-apply-result-layout-counters')).toBeInTheDocument();
+        expect(screen.getByTestId('items-apply-result-layout-inv-applied')).toHaveTextContent('2');
+        expect(screen.getByTestId('items-apply-result-layout-sto-applied')).toHaveTextContent('1');
+        expect(screen.getByTestId('items-apply-result-layout-inv-missing')).toHaveTextContent('1');
+        expect(screen.getByTestId('items-apply-result-layout-inv-extras')).toHaveTextContent('3');
+    });
+
+    it('items + layout imported preview injects both items.mode=addMissing and layout reorderOnly modes on the wire', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            layoutPreview(itemsPlusLayoutCanonical(), {
+                selectedSections: ['items', 'inventoryLayout'],
+                itemsEntries: 1,
+                inventoryLayoutCount: 1,
+                storageLayoutCount: 0,
+            }),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-mix' });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(
+            layoutApplyResultOK({ inventoryItemsApplied: 1 }),
+        );
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const payload = JSON.parse(
+            mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0][1] as string,
+        );
+        expect(payload?.applyOptions?.items?.mode).toBe('addMissing');
+        expect(payload?.applyOptions?.inventoryLayout?.mode).toBe('reorderOnly');
+    });
+
+    it('library layout-bearing entry routes through PreviewBuildTemplateFromLibrary + JSON apply with explicit reorderOnly', async () => {
+        const v2LayoutEntry = {
+            id: 'tpl-v2-layout',
+            name: 'V2 Layout',
+            description: 'layout-only',
+            tags: [],
+            filename: 'tpl-v2-layout.json',
+            createdAt: '2026-06-08T12:00:00Z',
+            updatedAt: '2026-06-08T12:00:00Z',
+            inventoryItems: 0,
+            storageItems: 0,
+            warnings: 0,
+            version: 2,
+            selectedSections: ['inventoryLayout', 'storageLayout'],
+        };
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LayoutEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-lib-layout' });
+        mocks.PreviewBuildTemplateFromLibrary.mockResolvedValue({
+            report: { ok: true, errors: [], warnings: [], summary: {} },
+            json: layoutOnlyCanonical(),
+            path: 'tpl-v2-layout',
+        });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(layoutApplyResultOK());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        // Layout-bearing library entries route via JSON apply so explicit
+        // reorderOnly rides the wire — mirroring the items routing.
+        expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).not.toHaveBeenCalled();
+        expect(mocks.PreviewBuildTemplateFromLibrary).toHaveBeenCalledWith('tpl-v2-layout');
+        const call = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0];
+        const payload = JSON.parse(call[1] as string);
+        expect(payload?.applyOptions?.inventoryLayout?.mode).toBe('reorderOnly');
+        expect(payload?.applyOptions?.storageLayout?.mode).toBe('reorderOnly');
+        expect((call[2] as { sessionID: string }).sessionID).toBe('ses-lib-layout');
+        await screen.findByTestId('items-apply-result-modal');
+        expect(screen.getByTestId('items-apply-result-layout-counters')).toBeInTheDocument();
+    });
+
+    it('result modal groups layout warning codes: missing / ambiguous / sparse-normalized / extras-preserved / mode-unsupported', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(
+            layoutPreview(layoutOnlyCanonical()),
+        );
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-warn' });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(
+            layoutApplyResultOK({
+                preview: {
+                    ok: true,
+                    errors: [],
+                    warnings: [
+                        { severity: 'warning', code: 'layout_entry_missing', message: 'entry i_X not found' },
+                        { severity: 'warning', code: 'layout_entry_ambiguous', message: 'entry i_Y matched 2 live items' },
+                        { severity: 'warning', code: 'layout_sparse_normalized', message: 'sparse positions normalized' },
+                        { severity: 'warning', code: 'layout_extra_items_preserved', message: '3 extras appended' },
+                        { severity: 'warning', code: 'layout_mode_unsupported', message: 'append mode skipped' },
+                    ],
+                    summary: {},
+                },
+            }),
+        );
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        await act(async () => {
+            fireEvent.click(await screen.findByTestId('import-preview-apply-v2'));
+        });
+        await screen.findByTestId('items-apply-result-modal');
+        expect(screen.getByTestId('items-apply-result-layout-missing')).toHaveTextContent(/missing/i);
+        expect(screen.getByTestId('items-apply-result-layout-ambiguous')).toHaveTextContent(/ambiguous/i);
+        expect(screen.getByTestId('items-apply-result-layout-sparse')).toHaveTextContent(/normalized/i);
+        expect(screen.getByTestId('items-apply-result-layout-extras')).toHaveTextContent(/preserved|appended/i);
+        expect(screen.getByTestId('items-apply-result-layout-mode-unsupported')).toHaveTextContent(/unsupported/i);
+        // All five layout warning groups are informational, not fatal.
+        for (const id of [
+            'items-apply-result-layout-missing',
+            'items-apply-result-layout-ambiguous',
+            'items-apply-result-layout-sparse',
+            'items-apply-result-layout-extras',
+            'items-apply-result-layout-mode-unsupported',
+        ]) {
+            expect(screen.getByTestId(id)).toHaveAttribute('data-warning-severity', 'info');
+        }
     });
 });

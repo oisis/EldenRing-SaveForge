@@ -964,7 +964,7 @@ describe('TemplateLibraryModal — Phase 8D.2 items entries', () => {
         ).not.toBeInTheDocument();
     });
 
-    it('Phase 8D.2 — items + layout entry enables Apply and shows the layout-ignored warning in the confirm row', async () => {
+    it('Phase 8E.2 — items + layout entry enables Apply and shows the reorder-only layout copy with items-first order in the confirm row', async () => {
         mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ItemsPlusLayoutEntry]);
         const onApplyV2 = vi.fn();
         render(
@@ -977,12 +977,18 @@ describe('TemplateLibraryModal — Phase 8D.2 items entries', () => {
         fireEvent.click(applyBtn);
         await screen.findByTestId('library-apply-v2-confirm');
         expect(screen.getByTestId('library-apply-v2-items-mode')).toBeInTheDocument();
-        expect(screen.getByTestId('library-apply-v2-layout-ignored')).toHaveTextContent(
-            /layout will be ignored/i,
-        );
+        const layoutCopy = screen.getByTestId('library-apply-v2-layout-reorder-only');
+        expect(layoutCopy).toHaveTextContent(/Reorder only/i);
+        expect(layoutCopy).toHaveTextContent(/Missing items are added first, then layout is applied/i);
+        expect(layoutCopy.textContent ?? '').not.toMatch(/ignored/i);
+        expect(layoutCopy.textContent ?? '').not.toMatch(/export-only/i);
+        // The old layout-ignored testid must not surface anymore.
+        expect(
+            screen.queryByTestId('library-apply-v2-layout-ignored'),
+        ).not.toBeInTheDocument();
     });
 
-    it('Phase 8D.2 — layout-only entry disables Apply with the layout-only reason', async () => {
+    it('Phase 8E.2 — layout-only entry enables Apply and shows reorder-only / preserve-extras copy in the confirm row', async () => {
         mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LayoutOnlyEntry]);
         const onApplyV2 = vi.fn();
         render(
@@ -991,9 +997,19 @@ describe('TemplateLibraryModal — Phase 8D.2 items entries', () => {
             />,
         );
         const applyBtn = await screen.findByTestId('library-apply');
-        expect(applyBtn).toBeDisabled();
-        expect(applyBtn.getAttribute('title')).toMatch(
-            /Inventory layout \/ storage layout are export-only/,
-        );
+        expect(applyBtn).toBeEnabled();
+        expect(applyBtn.getAttribute('title') ?? '').not.toMatch(/export-only/i);
+        expect(applyBtn.getAttribute('title') ?? '').not.toMatch(/no apply path/i);
+        fireEvent.click(applyBtn);
+        await screen.findByTestId('library-apply-v2-confirm');
+        const layoutCopy = screen.getByTestId('library-apply-v2-layout-reorder-only');
+        expect(layoutCopy).toHaveTextContent(/Reorder only/i);
+        expect(layoutCopy).toHaveTextContent(/reorders matching workspace items/i);
+        expect(layoutCopy).toHaveTextContent(/Extras are preserved/i);
+        expect(layoutCopy).toHaveTextContent(/skipped with warnings/i);
+        // Layout-only entries do NOT show the items mode banner.
+        expect(
+            screen.queryByTestId('library-apply-v2-items-mode'),
+        ).not.toBeInTheDocument();
     });
 });

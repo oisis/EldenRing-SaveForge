@@ -955,7 +955,7 @@ describe('ImportTemplatePreviewModal — Phase 7d.4 spells section', () => {
         expect(btn).toBeDisabled();
         expect(btn).toHaveAttribute(
             'title',
-            'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, spells, and items in this phase. Inventory layout / storage layout are export-only.',
+            'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, spells, items, inventoryLayout, and storageLayout in this phase.',
         );
     });
 });
@@ -1004,7 +1004,7 @@ describe('ImportTemplatePreviewModal — Phase 8C.1 items / inventoryLayout / st
         ).not.toBeInTheDocument();
     });
 
-    it('Phase 8D.2 — enables Apply for an items + layout template and shows layout-ignored copy', () => {
+    it('Phase 8E.2 — enables Apply for an items + layout template and shows items-first-then-layout copy', () => {
         const report = makeReport({ summary: itemsSummary() });
         render(
             <ImportTemplatePreviewModal
@@ -1017,9 +1017,12 @@ describe('ImportTemplatePreviewModal — Phase 8C.1 items / inventoryLayout / st
         );
         const btn = screen.getByTestId('import-preview-apply-v2');
         expect(btn).not.toBeDisabled();
-        expect(
-            screen.getByTestId('import-preview-items-apply-supported').textContent,
-        ).toMatch(/layout.*ignored/i);
+        const copy = screen.getByTestId('import-preview-items-apply-supported').textContent ?? '';
+        expect(copy).toMatch(/Missing items are added first/i);
+        expect(copy).toMatch(/layout is applied/i);
+        expect(copy).toMatch(/reorder-only/i);
+        expect(copy).not.toMatch(/ignored/i);
+        expect(copy).not.toMatch(/export-only/i);
     });
 
     it('Phase 8D.3 — items-bearing template shows the Apply-with-overrides weapon hint', () => {
@@ -1088,7 +1091,7 @@ describe('ImportTemplatePreviewModal — Phase 8C.1 items / inventoryLayout / st
         expect(copy.textContent).not.toMatch(/ignored/i);
     });
 
-    it('Phase 8D.2 — layout-only template disables Apply with the layout-only reason', () => {
+    it('Phase 8E.2 — layout-only template enables Apply with reorder-only copy (session gate is enforced by the shell, not this modal)', () => {
         const report = makeReport({
             summary: itemsSummary({
                 selectedSections: ['inventoryLayout'],
@@ -1108,13 +1111,19 @@ describe('ImportTemplatePreviewModal — Phase 8C.1 items / inventoryLayout / st
             />,
         );
         const btn = screen.getByTestId('import-preview-apply-v2');
-        expect(btn).toBeDisabled();
-        expect(btn.getAttribute('title')).toMatch(
-            /Inventory layout \/ storage layout are export-only/,
-        );
+        expect(btn).not.toBeDisabled();
+        // Old "export-only" / "no apply path in Phase 8D.2" copy must
+        // not surface for a layout-bearing v2 template anymore.
+        expect(btn.getAttribute('title') ?? '').not.toMatch(/export-only/i);
+        expect(btn.getAttribute('title') ?? '').not.toMatch(/no apply path/i);
+        const reorderCopy = screen.getByTestId('import-preview-layout-reorder-only');
+        expect(reorderCopy).toHaveTextContent(/Layout apply is reorder-only/i);
+        expect(reorderCopy).toHaveTextContent(/does not add, remove, or replace/i);
+        expect(reorderCopy).toHaveTextContent(/Extra items are preserved/i);
+        expect(reorderCopy).toHaveTextContent(/Missing template entries are skipped/i);
         expect(
-            screen.getByTestId('import-preview-items-export-only'),
-        ).toBeInTheDocument();
+            screen.queryByTestId('import-preview-items-export-only'),
+        ).not.toBeInTheDocument();
         expect(
             screen.queryByTestId('import-preview-items-apply-supported'),
         ).not.toBeInTheDocument();

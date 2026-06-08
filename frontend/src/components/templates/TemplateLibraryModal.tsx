@@ -369,23 +369,25 @@ export function TemplateLibraryModal({
                                 // writes directly into slot.Data and recomputes hash[10].
                                 //
                                 // Phase 8D.2 — items joins as an apply-eligible section
-                                // (add-missing only). Layout sections (inventoryLayout /
-                                // storageLayout) stay export-only; an entry that nominates
-                                // ONLY layout has no apply path. When layout sits alongside
-                                // items, Apply stays enabled and the confirm row warns that
-                                // layout will be ignored.
+                                // (add-missing only).
+                                //
+                                // Phase 8E.2 — inventoryLayout / storageLayout become
+                                // apply-eligible too, as reorder-only. A layout-only
+                                // template is applyable when an active session is open;
+                                // items + layout applies items first (add-missing) and
+                                // then reorders the workspace via the layout writer.
+                                const hasItemsSection = selectedSections.includes('items');
+                                const hasLayoutSection =
+                                    selectedSections.includes('inventoryLayout') ||
+                                    selectedSections.includes('storageLayout');
                                 const v2HasApplyableSections =
                                     selectedSections.includes('profile') ||
                                     selectedSections.includes('stats') ||
                                     selectedSections.includes('inventory.workspace') ||
                                     selectedSections.includes('equipment') ||
                                     selectedSections.includes('spells') ||
-                                    selectedSections.includes('items');
-                                const hasLayoutSection =
-                                    selectedSections.includes('inventoryLayout') ||
-                                    selectedSections.includes('storageLayout');
-                                const hasItemsSection = selectedSections.includes('items');
-                                const layoutIgnoredOnApply = hasItemsSection && hasLayoutSection;
+                                    hasItemsSection ||
+                                    hasLayoutSection;
 
                                 // Per-entry Apply gating. v1 path is
                                 // preserved verbatim: requires sessionID,
@@ -407,9 +409,7 @@ export function TemplateLibraryModal({
                                     applyHandler = () => onApply(entry);
                                 } else if (!v2HasApplyableSections) {
                                     applyDisabled = true;
-                                    applyTitle = hasLayoutSection
-                                        ? 'Inventory layout / storage layout are export-only — no apply path in Phase 8D.2.'
-                                        : 'This schema v2 template has no apply-eligible sections.';
+                                    applyTitle = 'This schema v2 template has no apply-eligible sections.';
                                     applyAriaLabel = applyTitle;
                                     applyHandler = () => {};
                                 } else if (!onApplyV2) {
@@ -659,12 +659,23 @@ export function TemplateLibraryModal({
                                                         </div>
                                                     </>
                                                 )}
-                                                {layoutIgnoredOnApply && (
+                                                {hasLayoutSection && (
                                                     <div
-                                                        data-testid="library-apply-v2-layout-ignored"
-                                                        className="text-amber-200/90"
+                                                        data-testid="library-apply-v2-layout-reorder-only"
+                                                        className="text-muted-foreground space-y-0.5"
                                                     >
-                                                        Inventory / storage layout will be ignored — layout apply is not supported in Phase 8D.2.
+                                                        <div>
+                                                            Layout mode: <span className="font-bold">Reorder only</span> — no items are added or removed.
+                                                        </div>
+                                                        {hasItemsSection ? (
+                                                            <div>
+                                                                Missing items are added first, then layout is applied.
+                                                            </div>
+                                                        ) : (
+                                                            <div>
+                                                                Layout reorders matching workspace items. Extras are preserved and appended; missing entries are skipped with warnings.
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 )}
                                                 <div className="text-muted-foreground">

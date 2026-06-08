@@ -230,6 +230,19 @@ describe('Wails binding contract: apply DTOs (Phase D)', () => {
         expect('json' in sample).toBe(true);
         expect('path' in sample).toBe(true);
     });
+
+    // Phase 8E.2 — the apply result modal reads back layout counters
+    // produced by the Phase 8E.1 writer. A binding rename here would
+    // silently zero those numbers in the UI; lock the field names.
+    it('exposes ApplyTemplateV2Result layout counters the result modal reads', () => {
+        const sample = main.ApplyTemplateV2Result.createFrom({});
+        expect('layoutInventoryEntriesApplied' in sample).toBe(true);
+        expect('layoutStorageEntriesApplied' in sample).toBe(true);
+        expect('layoutInventoryEntriesMissing' in sample).toBe(true);
+        expect('layoutStorageEntriesMissing' in sample).toBe(true);
+        expect('layoutInventoryExtrasPreserved' in sample).toBe(true);
+        expect('layoutStorageExtrasPreserved' in sample).toBe(true);
+    });
 });
 
 describe('Wails binding contract: template library DTOs (Phase E)', () => {

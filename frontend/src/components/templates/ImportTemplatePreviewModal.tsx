@@ -76,11 +76,14 @@ interface Props {
 //
 // Phase 8D.2 adds items. sections.items applies as add-missing only
 // and shares the active-session gate with inventory.workspace; the
-// shell performs the session lookup. sections.inventoryLayout and
-// sections.storageLayout remain export-only — when they appear
-// alongside items, the apply proceeds and the backend emits an
-// items_layout_ignored warning; when they appear without items, the
-// apply is disabled (LAYOUT_ONLY_SECTIONS lists the layout keys).
+// shell performs the session lookup.
+//
+// Phase 8E.2 promotes inventoryLayout / storageLayout from export-only
+// to apply-eligible as reorder-only (the only mode the writer supports
+// today). The backend defaults nil/empty layout mode to reorderOnly
+// and the UI sends the mode explicitly via injectExplicitApplyDefaults.
+// Layout apply also requires an active inventory edit session because
+// the writer mutates sess.Workspace ordering.
 const V2_APPLY_SUPPORTED_SECTIONS = [
     'profile',
     'stats',
@@ -88,8 +91,10 @@ const V2_APPLY_SUPPORTED_SECTIONS = [
     'equipment',
     'spells',
     'items',
+    'inventoryLayout',
+    'storageLayout',
 ];
-const LAYOUT_ONLY_SECTIONS = ['inventoryLayout', 'storageLayout'];
+const LAYOUT_SECTIONS = ['inventoryLayout', 'storageLayout'];
 
 export function ImportTemplatePreviewModal({
     report,
@@ -142,27 +147,12 @@ export function ImportTemplatePreviewModal({
     // Apply with overrides (Phase 6) buttons.
     const v2ApplyVisible = !!onApplyV2 && isV2;
     const v2OverridesVisible = !!onApplyV2WithOverrides && isV2;
-    const supportedSectionsPresent = selectedSections.filter(s =>
-        V2_APPLY_SUPPORTED_SECTIONS.includes(s),
-    );
-    const layoutOnlySectionsPresent = selectedSections.filter(s =>
-        LAYOUT_ONLY_SECTIONS.includes(s),
+    const layoutSectionsPresent = selectedSections.filter(s =>
+        LAYOUT_SECTIONS.includes(s),
     );
     const v2HasUnsupportedSection =
         selectedSections.length > 0 &&
-        selectedSections.some(
-            s =>
-                !V2_APPLY_SUPPORTED_SECTIONS.includes(s) &&
-                !LAYOUT_ONLY_SECTIONS.includes(s),
-        );
-    // Phase 8D.2 — layout sections (inventoryLayout / storageLayout)
-    // are export-only. A template that nominates ONLY layout sections
-    // has no applyable content; one that pairs layout with items keeps
-    // Apply enabled and the backend emits items_layout_ignored.
-    const v2OnlyLayoutSelected =
-        selectedSections.length > 0 &&
-        supportedSectionsPresent.length === 0 &&
-        layoutOnlySectionsPresent.length > 0;
+        selectedSections.some(s => !V2_APPLY_SUPPORTED_SECTIONS.includes(s));
     const v2DisabledReason: string = !isV2
         ? ''
         : !report.ok
@@ -173,15 +163,19 @@ export function ImportTemplatePreviewModal({
                     ? 'Select a character before applying.'
                     : selectedSections.length === 0
                         ? 'No sections selected.'
-                        : v2OnlyLayoutSelected
-                            ? 'Inventory layout / storage layout are export-only — no apply path in Phase 8D.2.'
-                            : v2HasUnsupportedSection
-                                ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, spells, and items in this phase. Inventory layout / storage layout are export-only.'
-                                : '';
+                        : v2HasUnsupportedSection
+                            ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, spells, items, inventoryLayout, and storageLayout in this phase.'
+                            : '';
     // Phase 8D.2 — `items` section apply visibility helpers.
     const itemsSectionSelected = selectedSections.includes('items');
     const hasLayoutAlongsideItems =
-        itemsSectionSelected && layoutOnlySectionsPresent.length > 0;
+        itemsSectionSelected && layoutSectionsPresent.length > 0;
+    // Phase 8E.2 — layout-only template helper: layout is selected
+    // without items. The preview block surfaces the reorder-only copy
+    // (no items added or removed) so users understand what apply
+    // actually does.
+    const isLayoutOnly =
+        !itemsSectionSelected && layoutSectionsPresent.length > 0;
     const v2ApplyDisabledReason = v2ApplyVisible ? v2DisabledReason : '';
     const v2ApplyEnabled =
         v2ApplyVisible && !applyingV2 && v2ApplyDisabledReason === '';
@@ -282,7 +276,7 @@ export function ImportTemplatePreviewModal({
                                             >
                                                 Items: apply supported (add missing only).
                                                 {hasLayoutAlongsideItems
-                                                    ? ' Inventory layout / storage layout are export-only and will be ignored on apply.'
+                                                    ? ' Missing items are added first, then layout is applied (reorder-only).'
                                                     : ''}
                                             </div>
                                             <div
@@ -293,13 +287,21 @@ export function ImportTemplatePreviewModal({
                                             </div>
                                         </>
                                     )}
-                                    {!itemsSectionSelected && layoutOnlySectionsPresent.length > 0 && (
+                                    {isLayoutOnly && (
                                         <div
-                                            data-testid="import-preview-items-export-only"
-                                            className="text-[10px] text-amber-300/90"
+                                            data-testid="import-preview-layout-reorder-only"
+                                            className="text-[10px] text-emerald-300/90 space-y-0.5"
                                         >
-                                            Inventory layout / storage layout are export-only — apply is not
-                                            supported yet.
+                                            <div>Layout apply is reorder-only.</div>
+                                            <div className="text-muted-foreground">
+                                                It reorders matching existing workspace items. It does
+                                                not add, remove, or replace items.
+                                            </div>
+                                            <div className="text-muted-foreground">
+                                                Extra items are preserved and appended after
+                                                template-ordered items. Missing template entries are
+                                                skipped with warnings.
+                                            </div>
                                         </div>
                                     )}
                                 </>
