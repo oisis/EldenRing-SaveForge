@@ -1909,6 +1909,12 @@ Oryginalna pojedyncza Phase 7d dostarczona została jako pięć zdyscyplinowanyc
 
 | Pole | Wartość |
 |---|---|
+| Data walidacji | 2026-06-09 |
+| Branch pod testem | `feature/templates-v2-spell-writer-foundation` (HEAD `4d1df246`) |
+| Wynik | ✅ Pass — gate manual validation Phase 8G dla items + layout zgłoszony przez użytkownika jako zaliczony (`manual OK`). Zakres zgłoszony przez użytkownika: items addMissing direct apply, Apply with overrides… z weapon level override na items, `inventoryLayout` reorderOnly, `storageLayout` reorderOnly, items + layout combined (najpierw items, potem layout), guard "brak aktywnej sesji" dla apply niosących layout, sanity persistencji — bez `Save changes` mutacje workspace nie trafiają do save file; po `Save changes` stan workspace utrwala się i przeżywa restart aplikacji + reload save. Żaden fail case nie został zgłoszony. Żadna runtime adjustment nie była potrzebna. Brak zmian backendu / frontendu / testów / Wails bindings w tym przejściu walidacji — kod milestone'u był dostarczony w fazach 8B → 8E.2; Phase 8G to wyłącznie gate walidacyjny zamykający milestone items + layout. Branch gotowy do finalnego merge'a do `main` po zwykłych safeguardach merge (PR review / czysty rebase / final automated sweep). |
+
+| Pole | Wartość |
+|---|---|
 | Data walidacji | 2026-06-01 |
 | Branch pod testem | `feature/templates-v2-equipment-apply` (HEAD `42ff906`) |
 | Wynik | ✅ Pass — Phase 7b.1 v2 `sections.equipment` end-to-end zwalidowany manualnie na prawdziwym save. Wyeksportowany szablon equipment-only z postaci która ma equipped bronie na RH1 / LH1 i armor na wszystkich czterech slotach armor — wynikowy YAML niósł `sections.equipment` z kanonicznymi nazwami pól 14 slotów bez przecieków talisman / GreatRune / slot 11 / slot 16 / spells / pouch. Import tego samego szablonu do modalu preview wyrenderował nowy wiersz `import-preview-equipment-slots` listujący `weaponRightHand1, weaponLeftHand1, armorHead, armorChest, armorArms, armorLegs`; Apply pozostał włączony dla szablonu equipment-only bez aktywnej Inventory Edit Session. Fast library Apply re-equippował listed items; `Save changes` nie było potrzebne; zapis i reload save'a przez edytor pokazał equipment intact; in-game load na realnym PC save następnie potwierdził że postać zespawnowała się z poprawnym equipment loadout, stats / attack rating / poise zgodne z equipped items, a Save & Quit + reload round-trip zachowały equipment. Szablon referowujący item brakujący w inventory (nadal w DB, tylko usunięty z postaci) wyemitował warningi `equipment_item_not_in_inventory` w preview report i pominął slot przy apply time — brak auto-add i brak mutacji dotkniętego slotu. Szablon z `BaseItemID: 0` dla `weaponLeftHand1` wyczyścił slot do empty (zapisując `0xFFFFFFFF` pod spodem) zostawiając inne sloty nietknięte. Szablon niosący dwie identyczne bronie w inventory (ten sam baseItemID, ten sam upgrade level) zrezolwował do pierwszego match'a i wyemitował warning `equipment_item_ambiguous`. Szablon niosący jednocześnie `sections.equipment` i `sections.inventory.workspace` powierzchniował błąd `equipment_inventory_combo_unsupported` przy preview time — Apply pozostał disabled, shell nie wywołał bindingu, i zero side effects wylądowało na slocie czy otwartym workspace. Regression sweep zweryfikował: Apply v2 profile/stats (Phase 5 / 5D.2) bez zmian; Apply v2 inventory.workspace nadal wymaga aktywnej sesji i nadal używa `Save changes` jako jedynego commit pointu dla inventory (Phase 7a); v2 weapon level override na ścieżce inventory.workspace nadal renderuje `WeaponLevelOverridePanel` wewnątrz `ApplyOverridesModal` i aplikuje poprawnie (Phase 7a.2); URL import nadal płynie przez tę samą ścieżkę preview / Apply również dla szablonów equipment-only (Phase 9); dropdown v1 `SortOrderTab.tsx` Phase 6b bez zmian byte-for-byte. `App.tsx` i `SortOrderTab.tsx` nietknięte; `ApplyOverridesPanel.tsx` i `WeaponLevelOverridePanel.tsx` nie niosą equipment-specific kontrolek. |
@@ -2258,10 +2264,88 @@ każdą grupę na pięciu widocznych wierszach z overflow `+ N more
 - Destruktywny delete / remove live itemów przez template apply.
 - Per-entry audyt wyniku z nazwami itemów i ItemID (dziś result
   modal surface'uje wyłącznie countery + grupowane warningi).
-- Manual validation — odłożona do Phase 8G (matryca w §17a.3).
-- Finalny merge do `main` — odłożony do przejścia Phase 8G.
+- Manual validation — **ukończona w Phase 8G dnia 2026-06-09**
+  (`manual OK`, zob. wpis w §17a.1 dla
+  `feature/templates-v2-spell-writer-foundation` HEAD `4d1df246`
+  oraz §17a.2l dla zwalidowanego flow).
+- Finalny merge do `main` — Phase 8G przeszła; pozostają
+  wyłącznie zwykłe safeguardy merge'a (PR review / czysty rebase /
+  final automated sweep).
 - Ponowne wprowadzenie publicznego JSON — usunięte w Phase 8A,
   nadal usunięte.
+
+### 17a.2l. Phase 8G items + layout flow manual validation zwalidowany
+
+Ta podsekcja loguje gate manual validation zgłoszony przez
+użytkownika jako `manual OK` dnia 2026-06-09 dla branchu
+`feature/templates-v2-spell-writer-foundation` HEAD `4d1df246`.
+Sformułowania są celowo wąskie: poniżej listujemy wyłącznie te
+ścieżki i właściwości, które użytkownik faktycznie zgłosił jako
+zwalidowane. Save sloty, identyfikatory platformy, ItemID,
+screenshoty czy wyniki liczbowe nie są przypisywane użytkownikowi
+poza tym, co zgłosił. Load-bearing techniczny kontrakt apply items
++ layout znajduje się w §17a.2k; ta podsekcja jest wyłącznie
+logiem walidacji.
+
+1. **Items addMissing direct apply** — zaimportowany YAML v2 z
+   `sections.items` (bez layoutu, bez innych sekcji) dociera do
+   przycisku Apply na powierzchni import preview, leci przez
+   `ApplyBuildTemplateV2ToCharacterJSON` i ląduje brakujące itemy
+   do aktywnego workspace Inventory Edit Session. Używany jest
+   match tuple `(itemID, category, upgrade, infusion, AoW,
+   container)`; itemy, których tuple już rezolwuje się w live
+   workspace, są pomijane z `items_already_present`. Modal
+   "Template apply result" z Phase 8E.2 otwiera się i prezentuje
+   countery items zgodnie z oczekiwaniami.
+2. **Apply with overrides — weapon level override na items** —
+   przycisk `Apply with overrides…` na import preview otwiera
+   `ApplyOverridesModal` z `WeaponLevelOverridePanel` z Phase 7a.2;
+   włączenie override i kliknięcie Apply nakłada override na nowo
+   dodane weapon-like itemy w tym samym apply (helper uruchamia
+   się po każdym weapon write w
+   `applyTemplateItemsAddMissingToWorkspace`). Direct Apply bez
+   override nadal używa poziomów zadeklarowanych w szablonie (lub
+   addMissing-default level gdy szablon je pomija).
+3. **`inventoryLayout` reorderOnly** — layout-only YAML v2 (wpisy
+   `sections.items` jako portable refs + wiersze
+   `sections.inventoryLayout` + `applyOptions.inventoryLayout.mode
+   = "reorderOnly"`) routuje przez gate needs-session z Phase
+   8E.2, reorderuje listę inventory w live workspace i prezentuje
+   sześć counterów layoutu z Phase 8E.2
+   (`layout{Inventory,Storage}{EntriesApplied,EntriesMissing,ExtrasPreserved}`)
+   w result modalu.
+4. **`storageLayout` reorderOnly** — analogicznie do (3) dla
+   kontenera storage.
+5. **Items + layout combined** — YAML v2 z obiema sekcjami
+   `sections.items` i `sections.inventoryLayout` (lub
+   `sections.storageLayout`) najpierw aplikuje items, potem pass
+   layout; nowo dodane itemy docierają do writera layout w tym
+   samym apply i lądują na docelowych pozycjach. Invariant
+   z Phase 8D.3 "items first, then layout" w
+   `applyTemplateItemsAddMissingToWorkspace` →
+   `applyTemplateLayoutToWorkspace` jest zachowany na faktycznym
+   wire.
+6. **Guard "brak aktywnej sesji"** — kliknięcie Apply na szablonie
+   v2 niosącym layout bez aktywnej Inventory Edit Session
+   prezentuje istniejący toast "Open the Sort Order workspace
+   before applying inventory templates." (copy z Phase 7a),
+   binding nie jest wywoływany; workspace ani `slot.Data` nie są
+   dotknięte.
+7. **Sanity persistencji** — użytkownik potwierdził obie połowy
+   kontraktu commit inventory: kliknięcie Apply bez kolejnego
+   kliknięcia `Save changes` **nie** utrwala mutacji workspace
+   w save file na dysku; kliknięcie `Save changes` po Apply
+   utrwala stan workspace, a po restarcie aplikacji + reload save
+   workspace pokazuje stan po-apply. Invariant z Phase 7a, że
+   `SaveInventoryWorkspaceChanges` jest jedynym commit point dla
+   sekcji mediowanych przez workspace, trzyma się w produkcji.
+
+Użytkownik nie zgłosił żadnego fail case w (1)–(7). Żadna runtime
+adjustment nie była potrzebna. Milestone items + layout jest zatem
+uznany za apply-complete *i* manualnie zwalidowany. Jedyna
+pozostała praca przed finalnym merge'em do `main` to standardowe
+safeguardy merge (PR review / czysty rebase względem `main` /
+final automated sweep).
 
 ### 17a.3. Scope tego, co **nie** jest jeszcze zwalidowane
 

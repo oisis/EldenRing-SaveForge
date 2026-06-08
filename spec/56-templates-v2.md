@@ -1934,6 +1934,12 @@ loadout — and Test B — partial leave-unchanged — both passed; see
 
 | Field | Value |
 |---|---|
+| Validation date | 2026-06-09 |
+| Branch under test | `feature/templates-v2-spell-writer-foundation` (HEAD `4d1df246`) |
+| Outcome | ✅ Pass — Phase 8G items + layout manual validation gate reported as passed by the user (`manual OK`). User-reported coverage: items addMissing direct apply, Apply with overrides… weapon level override on items, `inventoryLayout` reorderOnly, `storageLayout` reorderOnly, items + layout combined (items first, then layout), no active session guard on layout-bearing applies, persistence sanity — without `Save changes` the workspace mutations do not reach the save file; after `Save changes` the workspace state persists through an app restart + save reload. No fail case reported. No runtime adjustment requested. No backend / frontend / test / Wails-binding change in this validation pass — the milestone code shipped in Phases 8B → 8E.2; Phase 8G is purely the validation gate that closes the items + layout milestone. The branch is ready for the final merge to `main` once the usual merge safeguards (PR review / clean rebase / final automated sweep) are agreed. |
+
+| Field | Value |
+|---|---|
 | Validation date | 2026-06-01 |
 | Branch under test | `feature/templates-v2-equipment-apply` (HEAD `42ff906`) |
 | Outcome | ✅ Pass — Phase 7b.1 v2 `sections.equipment` end-to-end manually validated on a real save. Exported an equipment-only template from a character with weapons equipped on RH1 / LH1 and armor on all four armor slots — the resulting YAML carried `sections.equipment` with the canonical 14-slot field names and no talisman / GreatRune / slot 11 / slot 16 / spells / pouch leak. Importing the same template into the preview modal rendered the new `import-preview-equipment-slots` row listing `weaponRightHand1, weaponLeftHand1, armorHead, armorChest, armorArms, armorLegs`; Apply stayed enabled for the equipment-only template without an active Inventory Edit Session. Fast library Apply re-equipped the listed items; `Save changes` was not needed; saving and reloading the save through the editor showed the equipment intact; an in-game load on a real PC save subsequently confirmed the character spawned with the correct equipment loadout, stats / attack rating / poise matched the equipped items, and a Save & Quit + reload round-trip preserved the equipment. A template referencing an item missing from inventory (still in the DB, just removed from the character) emitted `equipment_item_not_in_inventory` warnings in the preview report and skipped the slot at apply time — no auto-add and no mutation of the affected slot. A template with `BaseItemID: 0` for `weaponLeftHand1` cleared the slot to empty (writing `0xFFFFFFFF` underneath) while leaving the other slots untouched. A template carrying two identical weapons in inventory (same baseItemID, same upgrade level) resolved to the first match and emitted the `equipment_item_ambiguous` warning. A template carrying both `sections.equipment` and `sections.inventory.workspace` surfaced the `equipment_inventory_combo_unsupported` error at preview time — Apply stayed disabled, the shell did not call the binding, and zero side effects landed on the slot or any open workspace. Regression sweep verified: v2 profile/stats Apply (Phase 5 / 5D.2) unchanged; v2 inventory.workspace Apply still requires an active session and continues to use `Save changes` as the only commit point for inventory (Phase 7a); v2 weapon level override on the inventory.workspace path still renders the `WeaponLevelOverridePanel` inside `ApplyOverridesModal` and applies correctly (Phase 7a.2); URL import still flows through the same preview / Apply path including for equipment-only templates (Phase 9); v1 `SortOrderTab.tsx` Phase 6b dropdown unchanged byte-for-byte. `App.tsx` and `SortOrderTab.tsx` were untouched; `ApplyOverridesPanel.tsx` and `WeaponLevelOverridePanel.tsx` carry no equipment-specific controls. |
@@ -2279,9 +2285,85 @@ at five visible rows with a `+ N more (total: X)` overflow line.
   apply.
 - Per-entry result audit with item names and item IDs (today the
   result modal surfaces counters + grouped warnings only).
-- Manual validation — deferred to Phase 8G (matrix in §17a.3).
-- Final merge to `main` — deferred until Phase 8G passes.
+- Manual validation — **completed in Phase 8G on 2026-06-09**
+  (`manual OK`, see §17a.1 row for `feature/templates-v2-spell-writer-foundation`
+  HEAD `4d1df246` and §17a.2l for the validated flow).
+- Final merge to `main` — Phase 8G has passed; only the usual
+  merge safeguards (PR review / clean rebase / final automated
+  sweep) remain.
 - Public JSON re-introduction — removed in Phase 8A, still gone.
+
+### 17a.2l. Phase 8G items + layout manual validation flow exercised
+
+This subsection records the manual validation gate that the user
+reported as `manual OK` on 2026-06-09 against
+`feature/templates-v2-spell-writer-foundation` HEAD `4d1df246`.
+The wording stays deliberately narrow: only the paths and properties
+the user actually reported as validated are listed below. No save
+slots, platform identifiers, item IDs, screenshots, or numeric
+results are attributed to the user beyond what was reported. The
+load-bearing technical contract for items + layout apply is in
+§17a.2k; this subsection is purely a validation log.
+
+1. **Items addMissing direct apply** — an imported v2 YAML with
+   `sections.items` (no layout, no other sections) reaches the
+   Apply button on the import preview surface, runs through
+   `ApplyBuildTemplateV2ToCharacterJSON`, and lands missing items
+   into the active Inventory Edit Session workspace. The
+   `(itemID, category, upgrade, infusion, AoW, container)` match
+   tuple is used; items whose tuple already resolves in the live
+   workspace are skipped with `items_already_present`. The Phase
+   8E.2 "Template apply result" modal opens and surfaces the items
+   counters as expected.
+2. **Apply with overrides — weapon level override on items** — the
+   imported preview's `Apply with overrides…` button opens
+   `ApplyOverridesModal` with the Phase 7a.2
+   `WeaponLevelOverridePanel`; enabling the override and clicking
+   Apply lands the override on newly added weapon-like items
+   inside the same apply (the helper runs after every weapon write
+   in `applyTemplateItemsAddMissingToWorkspace`). Direct Apply
+   without overrides keeps using the template's declared levels
+   (or the addMissing-default level when the template omits it).
+3. **`inventoryLayout` reorderOnly** — a layout-only v2 YAML
+   (`sections.items` entries serving as portable refs +
+   `sections.inventoryLayout` rows + `applyOptions.inventoryLayout.mode
+   = "reorderOnly"`) routes through the Phase 8E.2 needs-session
+   gate, reorders the live workspace's inventory list, and
+   surfaces the six Phase 8E.2 layout counters
+   (`layout{Inventory,Storage}{EntriesApplied,EntriesMissing,ExtrasPreserved}`)
+   in the result modal.
+4. **`storageLayout` reorderOnly** — same as (3) for the storage
+   container.
+5. **Items + layout combined** — a v2 YAML with both
+   `sections.items` and `sections.inventoryLayout` (or
+   `sections.storageLayout`) applies items first, then the layout
+   pass; newly added items reach the layout writer in the same
+   apply and land at their target positions. The Phase 8D.3
+   "items first, then layout" ordering invariant in
+   `applyTemplateItemsAddMissingToWorkspace` →
+   `applyTemplateLayoutToWorkspace` is preserved on the actual
+   wire.
+6. **No active session guard** — clicking Apply on a layout-bearing
+   v2 template without an active Inventory Edit Session surfaces
+   the existing "Open the Sort Order workspace before applying
+   inventory templates." toast (Phase 7a copy) and the binding is
+   not called; the workspace and `slot.Data` are not touched.
+7. **Persistence sanity** — the user confirmed both halves of the
+   inventory commit contract: clicking Apply without subsequently
+   clicking `Save changes` does **not** persist the workspace
+   mutations to the save file on disk; clicking `Save changes`
+   after Apply persists the workspace state, and after an app
+   restart + save reload the workspace shows the post-apply
+   state. The Phase 7a invariant that `SaveInventoryWorkspaceChanges`
+   is the only commit point for workspace-mediated sections holds
+   in production.
+
+The user did not report any fail case across (1)–(7). No further
+runtime adjustment was requested. The items + layout milestone is
+therefore considered apply-complete *and* manually validated. The
+only remaining work before the final merge to `main` is the
+standard merge safeguards (PR review / clean rebase against
+`main` / final automated sweep).
 
 ### 17a.3. Scope of what is **not** yet validated
 

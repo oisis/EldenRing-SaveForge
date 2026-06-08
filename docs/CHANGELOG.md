@@ -4,6 +4,72 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### docs(templates): record v2 items layout manual validation (Phase 8G)
+
+Closes the Templates v2 items + layout milestone by recording the
+manual validation pass the user reported as `manual OK`. Docs-only
+update — no runtime code, no test code, no Wails bindings, no
+`tmp/manual-validation/templates-v2/` change.
+
+Manual validation gate was reported as passed by the user across the
+items + layout matrix on the branch's current HEAD
+(`feature/templates-v2-spell-writer-foundation`, commit
+`4d1df246a68922b67e5c9cd1859ccdf08e117c05`). Validated paths:
+
+- items addMissing direct apply,
+- Apply with overrides… weapon level override on items,
+- inventoryLayout reorderOnly,
+- storageLayout reorderOnly,
+- items + layout combined (items first, then layout),
+- no active session guard on layout-bearing applies,
+- persistence sanity: without `Save changes` the save file stays
+  unchanged on disk; after `Save changes` the workspace state is
+  persisted and survives an app restart + save reload.
+
+The user did not report any fail case, and no further runtime
+adjustment was requested.
+
+Spec updates (EN + PL twins of `spec/56-templates-v2.md`):
+- New row in §17a.1 "Manual validation log" recording the 2026-06-09
+  pass on the items + layout matrix.
+- New §17a.2l "Phase 8G items + layout manual validation flow
+  exercised" subsection summarising the validated paths above. No
+  fabricated numbers, no fabricated save slots, no fabricated
+  platform / screenshot details — only what the user reported.
+- §17a.2k "Non-goals deferred beyond Phase 8E.2" updated: the
+  "Manual validation — deferred to Phase 8G" non-goal is now marked
+  as completed (2026-06-09, `manual OK`), and the "Final merge to
+  `main`" entry is restated as "pending final merge safeguards" now
+  that Phase 8G has passed.
+
+ROADMAP (`docs/ROADMAP.md`):
+- Templates v2 "Done" list gains a one-line Phase 8G manual
+  validation bullet (2026-06-09, `manual OK`).
+- "Planned" header trimmed: Phase 8G no longer appears in the planned
+  list. The remaining work for the milestone is the create-bridge
+  (Phase 7d.4b), appearance preset (Phase 8), and multi-character
+  pack (Phase 10); items + layout are now apply-complete and
+  manually validated.
+
+Validation in this phase is docs-only:
+- `git diff --check` — clean (no whitespace / conflict markers).
+- Public JSON regression sweep — grep confirms no docs claim a
+  public JSON exchange surface exists; `JSON file dialog` / `Export
+  JSON` etc. are absent from the new copy. The Phase 8A removal
+  remains the authoritative statement.
+- Heading parity across `spec/56-templates-v2.md` (EN) and
+  `spec/lang-pl/56-templates-v2.md` (PL) — H2 / H3 counts match
+  after the §17a.2l addition.
+- `git diff --stat` — four files changed (`docs/CHANGELOG.md`,
+  `docs/ROADMAP.md`, `spec/56-templates-v2.md`,
+  `spec/lang-pl/56-templates-v2.md`).
+
+Backend, frontend, tests, generated bindings, and the
+`tmp/manual-validation/templates-v2/` scratch directory are
+untouched. The branch is ready for final merge to `main` once the
+usual merge safeguards (PR review / clean rebase against `main` /
+final automated sweep) are agreed.
+
 ### docs(templates): document v2 items and layout apply (Phase 8F)
 
 Cumulative docs/spec sweep that closes the Templates v2 items + layout
