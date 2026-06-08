@@ -9,7 +9,6 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     ApplyBuildTemplateV2ToCharacterJSON: vi.fn(),
     DeleteBuildTemplateFromLibrary: vi.fn(),
     RenameBuildTemplateInLibrary: vi.fn(),
-    ExportLibraryBuildTemplateToFile: vi.fn(),
     ExportLibraryBuildTemplateAsYAMLToFile: vi.fn(),
     PreviewBuildTemplateImportYAMLFromFile: vi.fn(),
     PreviewBuildTemplateImportYAMLFromURL: vi.fn(),

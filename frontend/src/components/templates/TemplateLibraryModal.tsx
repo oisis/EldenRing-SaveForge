@@ -2,7 +2,6 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 're
 import {
     ApplyBuildTemplateFromLibrary,
     DeleteBuildTemplateFromLibrary,
-    ExportLibraryBuildTemplateToFile,
     GetBuildTemplateLibraryPath,
     ListBuildTemplateLibrary,
     PreviewBuildTemplateFromLibrary,
@@ -30,12 +29,9 @@ interface Props {
     onApplied: (result: main.ApplyTemplateResult, entry: templates.LibraryTemplateEntry) => void;
     onPreviewed?: (preview: main.LoadedTemplatePreview, entry: templates.LibraryTemplateEntry) => void;
     onError: (err: unknown) => void;
-    onExportedToFile?: (result: main.BuildTemplateExportResult, entry: templates.LibraryTemplateEntry) => void;
-    // onExportAsYAML, when provided, surfaces an additional per-entry
-    // "Export YAML" action alongside the existing JSON Export. Phase 1
-    // callers (SortOrderTab) omit it and keep JSON-only behaviour; the
-    // Phase 2B global Templates shell passes it to drive the public
-    // YAML sharing format.
+    // Phase 8A removed the public JSON file export. onExportAsYAML, when
+    // provided, surfaces the per-entry "Export YAML" action — now the
+    // sole public exchange format.
     onExportAsYAML?: (entry: templates.LibraryTemplateEntry) => void | Promise<void>;
     onDeleted?: (id: string) => void;
     // onRefreshed fires after a successful rebuild so the parent can
@@ -87,7 +83,6 @@ export function TemplateLibraryModal({
     onApplied,
     onPreviewed,
     onError,
-    onExportedToFile,
     onExportAsYAML,
     onDeleted,
     onRefreshed,
@@ -189,18 +184,6 @@ export function TemplateLibraryModal({
                 main.ApplyTemplateOptions.createFrom({ mode: 'append' }),
             );
             onApplied(result, entry);
-        } catch (err) {
-            onError(err);
-        } finally {
-            setBusyID('');
-        }
-    };
-
-    const onExport = async (entry: templates.LibraryTemplateEntry) => {
-        setBusyID(entry.id);
-        try {
-            const result = await ExportLibraryBuildTemplateToFile(entry.id);
-            onExportedToFile?.(result, entry);
         } catch (err) {
             onError(err);
         } finally {
@@ -540,15 +523,6 @@ export function TemplateLibraryModal({
                                                             Apply with overrides…
                                                         </button>
                                                     )}
-                                                    <button
-                                                        type="button"
-                                                        data-testid="library-export"
-                                                        disabled={busy}
-                                                        onClick={() => onExport(entry)}
-                                                        className="px-2 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 hover:bg-muted/40 disabled:opacity-40"
-                                                    >
-                                                        Export
-                                                    </button>
                                                     {onExportAsYAML && (
                                                         <button
                                                             type="button"

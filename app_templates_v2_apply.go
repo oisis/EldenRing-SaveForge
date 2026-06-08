@@ -134,7 +134,7 @@ var (
 //   - ProfileSummaries[charIdx].Level / CharacterName is updated ONLY
 //     when profile.level / profile.name actually landed.
 //
-// Failure model mirrors ApplyBuildTemplateToWorkspaceJSON: parse /
+// Failure model mirrors applyBuildTemplateToWorkspaceFromJSON: parse /
 // schema / scope / validation errors return
 // (ApplyTemplateV2Result{Applied:false, Preview:{Errors}}, nil error).
 // Infrastructure failures (no save loaded, invalid character index,
@@ -153,7 +153,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	}
 
 	// Phase 7a.2 — weaponLevelOverride structural validation. Mirrors v1
-	// ApplyBuildTemplateToWorkspaceJSON: runs BEFORE acquireSession /
+	// applyBuildTemplateToWorkspaceFromJSON: runs BEFORE acquireSession /
 	// snapshot / mutation so a broken request bounces with zero side
 	// effects. Out-of-range positive values pass here and are clamped by
 	// editor.ClampUpgrade later, surfacing as warnings.
@@ -186,7 +186,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	if tpl.Version == 1 {
 		return ApplyTemplateV2Result{
 			CharIndex: charIdx,
-			Preview:   singleErrorPreview(templates.IssueCodeStructureInvalid, "this endpoint accepts schema v2 templates only; use ApplyBuildTemplateToWorkspaceJSON for schema v1"),
+			Preview:   singleErrorPreview(templates.IssueCodeStructureInvalid, "this endpoint accepts schema v2 templates only; schema v1 payloads are supported only via ApplyBuildTemplateFromLibrary for already-stored library entries"),
 			Applied:   false,
 		}, nil
 	}
@@ -367,7 +367,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	}
 
 	// Phase 7a — capacity preflight for inventory.workspace BEFORE any
-	// mutation. Mirrors the v1 ApplyBuildTemplateToWorkspaceJSON guard so
+	// mutation. Mirrors the v1 applyBuildTemplateToWorkspaceFromJSON guard so
 	// a "would not fit" diagnosis surfaces as a preview error without
 	// touching either snapshot.
 	if hasInventory {
@@ -605,7 +605,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	}
 
 	// Phase 7a — mark the workspace dirty + revalidate when items
-	// actually landed. Mirrors the v1 ApplyBuildTemplateToWorkspaceJSON
+	// actually landed. Mirrors the v1 applyBuildTemplateToWorkspaceFromJSON
 	// success tail so the user still commits by clicking Save changes.
 	if hasInventory && (inventoryItemsApplied > 0 || storageItemsApplied > 0) {
 		sess.Workspace.Dirty = true
@@ -812,7 +812,7 @@ func containsString(haystack []string, needle string) bool {
 // ApplyBuildTemplateV2FromLibraryToCharacter loads a stored template by
 // id from the local library and applies it to slot charIdx via the
 // canonical Phase 5A JSON endpoint. Mirrors the v1 ApplyBuildTemplateFromLibrary
-// delegation shape (load → marshalBuildTemplate → ApplyBuildTemplateToWorkspaceJSON)
+// delegation shape (load → marshalBuildTemplate → applyBuildTemplateToWorkspaceFromJSON)
 // so all v2 validation, scope guards, locking and rollback live in exactly
 // one place.
 //

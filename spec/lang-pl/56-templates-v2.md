@@ -963,6 +963,38 @@ Oryginalna pojedyncza Phase 7d dostarczona została jako pięć zdyscyplinowanyc
 - **Cel**: zdecydować czy istniejący dropdown staje się redirect do sidebar surface, jest usunięty, czy pozostaje jako shortcut.
 - **Out of scope dopóki nie jest osobno zaakceptowany**.
 
+### Phase 8A — usunięcie publicznego JSON template exchange (shipped 2026-06-08)
+
+- **Cel**: zwinąć publiczny format wymiany do YAML-only. JSON zostaje wyłącznie jako internal storage (on-disk format lokalnej biblioteki) oraz internal hand-off contract pomiędzy preview, library save i v2 apply. Żaden publicznie widoczny przepływ nie produkuje ani nie konsumuje pliku JSON template.
+- **Usunięte Wails App methods** (nie ma ich już w bindings):
+  - `ExportBuildTemplateJSON`
+  - `ExportBuildTemplateToFile`
+  - `PreviewBuildTemplateImportJSON`
+  - `PreviewBuildTemplateImportFromFile`
+  - `ApplyBuildTemplateToWorkspaceJSON` — przeniesiony do internal `applyBuildTemplateToWorkspaceFromJSON`, wywoływany jedynie przez `ApplyBuildTemplateFromLibrary` (legacy v1 library).
+  - `ApplyBuildTemplateToWorkspaceFromFile`
+  - `ExportLibraryBuildTemplateToFile` — per-entry JSON file export.
+- **Usunięty helper biblioteki**: `backend/templates.(*TemplateLibrary).ExportTemplateToFile` (był JSON-file twin dla `ExportTemplateToYAMLFile`).
+- **Usunięta powierzchnia frontu**:
+  - `frontend/src/components/templates/ExportTemplateModal.tsx` (skasowany razem z testami) — v1 JSON-only modal "Export Build Template" nie miał następcy YAML w tej zakładce.
+  - W `SortOrderTab` dropdown "Export Template ▾", "Import Template Preview", przycisk "Template Library" oraz panel weapon level override żyjący wewnątrz dropdownu. Globalny Templates shell modal (sidebar entry) zostaje jedynym miejscem pracy z templatekami. `SortOrderTab` udostępnia teraz wyłącznie edytor inventory / save / discard.
+  - W `TemplateLibraryModal` przycisk per-entry "Export" (JSON) + prop `onExportedToFile` — zastąpione przez "Export YAML" już dostarczone.
+- **Pozostawione jako internal contract** (mają aktywnych callerów):
+  - `App.SaveImportedBuildTemplateJSONToLibrary` — odbiera canonical JSON re-zserializowany przez YAML preview i zapisuje do biblioteki.
+  - `App.ApplyBuildTemplateV2ToCharacterJSON` — używany przez globalny Templates shell po mutacji canonical JSON przez overrides modal.
+  - `App.ExportBuildTemplateV2JSONFromCharacter` — carry-over między `CreateTemplateV2Modal` preview a save do biblioteki; do ponownego przeglądu w Phase 8B.
+  - `App.ApplyBuildTemplateFromLibrary` — jedyna publiczna ścieżka konsumująca v1 JSON (deleguje do internal helpera) tak, by stare wpisy v1 nadal dało się aplikować.
+  - `templates.ParseBuildTemplateJSON`, on-disk JSON biblioteki, pole `LoadedTemplatePreview.JSON` canonical hand-off.
+- **Walidacja**:
+  - `go test ./backend/templates/... -count=1` — zielony.
+  - `go test . -run 'Test.*Template|Test.*BuildTemplate|Test.*Library|Test.*Import|Test.*Export|Test.*Apply' -count=1` — zielony.
+  - `go vet ./backend/templates/...` — czysty.
+  - `cd frontend && npx tsc --noEmit` — czysty.
+  - `cd frontend && npx vitest run src/components/templates` + suites SortOrderTab i wails-bindings contract — wszystkie zielone.
+- **Wails bindings**: `frontend/wailsjs/go/main/App.{d.ts,js}` zaktualizowane w lockstepie z usunięciami w backendzie (manual surgical edit; CLI `wails` nie jest dostępne w środowisku dev). Brak zmian treści w `frontend/wailsjs/runtime/*`.
+- **Otwarte follow-upy dla Phase 8B**:
+  - Zdecydować czy `ExportBuildTemplateV2JSONFromCharacter` i canonical JSON niesiony w stanie globalnego shella da się zastąpić backend-side preview ticketem zamiast JSON blobem.
+
 ---
 
 ## 17a. Status walidacji

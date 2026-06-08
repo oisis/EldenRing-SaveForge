@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### chore(templates): remove public json template exchange (Phase 8A)
+
+YAML is now the **only** publicly accessible format for sharing build
+templates. JSON survives exclusively as the on-disk library storage and
+as an internal hand-off contract (canonical JSON re-serialised by the
+YAML preview endpoints, consumed by `SaveImportedBuildTemplateJSONToLibrary`
+and `ApplyBuildTemplateV2ToCharacterJSON`).
+
+Removed Wails App methods (and their tests / bindings): `ExportBuildTemplateJSON`,
+`ExportBuildTemplateToFile`, `PreviewBuildTemplateImportJSON`, `PreviewBuildTemplateImportFromFile`,
+`ApplyBuildTemplateToWorkspaceFromFile`, `ExportLibraryBuildTemplateToFile`.
+`ApplyBuildTemplateToWorkspaceJSON` was de-exported to `applyBuildTemplateToWorkspaceFromJSON`
+(still reachable via `ApplyBuildTemplateFromLibrary` for already-stored
+v1 library entries — the only public path that still consumes v1 JSON).
+
+Removed `backend/templates.(*TemplateLibrary).ExportTemplateToFile`
+(JSON-file helper); the YAML twin (`ExportTemplateToYAMLFile`) remains.
+
+Removed frontend surface: `ExportTemplateModal.tsx` + its tests, the
+entire `SortOrderTab` "Export Template ▾" dropdown (export quick-paths,
+import preview, weapon-level override panel, Template Library entry),
+the per-entry "Export" (JSON) button + `onExportedToFile` prop on
+`TemplateLibraryModal`. The global Templates shell (sidebar entry) is
+now the only place to interact with templates.
+
+Spec updated: `spec/56-templates-v2.md` + `spec/lang-pl/56-templates-v2.md`
+gain a new "Phase 8A — drop public JSON template exchange" section
+documenting the precise removal list and what stays as internal contract.
+
 ### feat(templates): enable v2 spells UI apply
 
 Shipped Phase 7d (sub-phases 7d.0 → 7d.4) of the Templates v2 design

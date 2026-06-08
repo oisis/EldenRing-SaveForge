@@ -1,7 +1,6 @@
 package templates
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,35 +262,6 @@ func TestLibrary_LoadTemplate_UnknownIDErrors(t *testing.T) {
 	lib := NewTemplateLibrary(t.TempDir())
 	if _, err := lib.LoadTemplate("does-not-exist"); err == nil {
 		t.Fatal("expected error for unknown id")
-	}
-}
-
-func TestLibrary_ExportTemplateToFile_WritesIdenticalPayload(t *testing.T) {
-	lib := NewTemplateLibrary(t.TempDir())
-	entry, err := lib.SaveTemplate(makeTemplate("share me"))
-	if err != nil {
-		t.Fatalf("SaveTemplate: %v", err)
-	}
-	dest := filepath.Join(t.TempDir(), "exported.json")
-	if err := lib.ExportTemplateToFile(entry.ID, dest); err != nil {
-		t.Fatalf("ExportTemplateToFile: %v", err)
-	}
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("read exported file: %v", err)
-	}
-	var tpl BuildTemplate
-	if err := json.Unmarshal(data, &tpl); err != nil {
-		t.Fatalf("unmarshal exported: %v", err)
-	}
-	if tpl.Metadata == nil || tpl.Metadata.Name != "share me" {
-		t.Errorf("exported template metadata lost: %#v", tpl.Metadata)
-	}
-	if err := lib.ExportTemplateToFile("missing-id", dest); err == nil {
-		t.Errorf("expected error for unknown id")
-	}
-	if err := lib.ExportTemplateToFile(entry.ID, ""); err == nil {
-		t.Errorf("expected error for empty path")
 	}
 }
 

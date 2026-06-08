@@ -237,14 +237,6 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
         // imported-YAML preview cannot be confused with it.
         setLibraryPreview(preview.report);
     }, []);
-    const onLibraryExportedToFile = useCallback(
-        (result: main.BuildTemplateExportResult, entry: templates.LibraryTemplateEntry) => {
-            if (result.path) {
-                toast.success(`Template "${entry.name || entry.id}" exported to ${result.path}`);
-            }
-        },
-        [],
-    );
     const onLibraryDeleted = useCallback(
         (id: string) => toast.success(`Template ${id} deleted from library.`),
         [],
@@ -524,7 +516,6 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 onApplied={onLibraryApplied}
                 onError={onLibraryError}
                 onPreviewed={onLibraryPreviewed}
-                onExportedToFile={onLibraryExportedToFile}
                 onExportAsYAML={onExportAsYAML}
                 reloadSignal={libraryReloadSignal}
                 onDeleted={onLibraryDeleted}

@@ -29,29 +29,19 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.DiscardInventoryEditSession).toBe('function');
     });
 
-    it('exposes Phase B build template export endpoints', () => {
-        expect(typeof App.ExportBuildTemplateJSON).toBe('function');
-        expect(typeof App.ExportBuildTemplateToFile).toBe('function');
-    });
-
-    it('exposes Phase C build template preview endpoints', () => {
-        expect(typeof App.PreviewBuildTemplateImportJSON).toBe('function');
-        expect(typeof App.PreviewBuildTemplateImportFromFile).toBe('function');
-    });
-
-    it('exposes Phase D build template apply endpoints', () => {
-        expect(typeof App.ApplyBuildTemplateToWorkspaceJSON).toBe('function');
-        expect(typeof App.ApplyBuildTemplateToWorkspaceFromFile).toBe('function');
-    });
-
     it('exposes Phase E local build template library endpoints', () => {
+        // Phase 8A removed the public JSON template exchange. Library
+        // entries remain on-disk JSON (internal storage) but the public
+        // exchange contract is YAML-only; the legacy v1 library apply
+        // path (ApplyBuildTemplateFromLibrary) still ships because
+        // already-stored v1 entries must remain applicable.
         expect(typeof App.SaveBuildTemplateToLibrary).toBe('function');
         expect(typeof App.ListBuildTemplateLibrary).toBe('function');
         expect(typeof App.PreviewBuildTemplateFromLibrary).toBe('function');
         expect(typeof App.ApplyBuildTemplateFromLibrary).toBe('function');
         expect(typeof App.DeleteBuildTemplateFromLibrary).toBe('function');
         expect(typeof App.RenameBuildTemplateInLibrary).toBe('function');
-        expect(typeof App.ExportLibraryBuildTemplateToFile).toBe('function');
+        expect(typeof App.ExportLibraryBuildTemplateAsYAMLToFile).toBe('function');
     });
 
     it('exposes Phase F library refresh / path endpoints', () => {

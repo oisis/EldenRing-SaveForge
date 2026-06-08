@@ -270,40 +270,10 @@ func (l *TemplateLibrary) RenameTemplate(id, name, description string, tags []st
 	return entry, nil
 }
 
-// ExportTemplateToFile copies a stored template to an arbitrary path.
-// The on-disk format is identical to the per-library file; this exists
-// so a user can hand a shareable copy to someone else without exposing
-// the library directory.
-func (l *TemplateLibrary) ExportTemplateToFile(id, path string) error {
-	if path == "" {
-		return fmt.Errorf("ExportTemplateToFile: empty destination path")
-	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	entry, err := l.findEntryLocked(id)
-	if err != nil {
-		return err
-	}
-	src := filepath.Join(l.rootDir, entry.Filename)
-	tpl, err := readAndValidateTemplate(src)
-	if err != nil {
-		return fmt.Errorf("ExportTemplateToFile: %w", err)
-	}
-	data, err := json.MarshalIndent(tpl, "", "  ")
-	if err != nil {
-		return fmt.Errorf("ExportTemplateToFile: marshal: %w", err)
-	}
-	if err := atomicWriteFile(path, data, 0644); err != nil {
-		return err
-	}
-	return nil
-}
-
 // ExportTemplateToYAMLFile copies a stored template to an arbitrary
-// path, serialised as YAML rather than JSON. The library's internal
-// JSON file and _index.json are not touched — this is purely a
-// second public-share format for the same v1 payload. Mirrors the
-// concurrency and atomic-write contract of ExportTemplateToFile.
+// path, serialised as YAML — the sole public exchange format. The
+// library's internal JSON file and _index.json are not touched.
+// Atomic-write semantics match the rest of the library writers.
 func (l *TemplateLibrary) ExportTemplateToYAMLFile(id, path string) error {
 	if path == "" {
 		return fmt.Errorf("ExportTemplateToYAMLFile: empty destination path")

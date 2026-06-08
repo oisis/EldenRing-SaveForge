@@ -7,7 +7,6 @@ vi.mock('../../../../wailsjs/go/main/App', () => ({
     ApplyBuildTemplateFromLibrary: vi.fn(),
     DeleteBuildTemplateFromLibrary: vi.fn(),
     RenameBuildTemplateInLibrary: vi.fn(),
-    ExportLibraryBuildTemplateToFile: vi.fn(),
     RebuildBuildTemplateLibraryIndex: vi.fn(),
     GetBuildTemplateLibraryPath: vi.fn(),
 }));
@@ -325,7 +324,6 @@ describe('TemplateLibraryModal — allowApply gate', () => {
         render(<TemplateLibraryModal {...defaultProps({ allowApply: false })} />);
         await screen.findAllByTestId('library-entry');
         expect(screen.getAllByTestId('library-preview').length).toBeGreaterThan(0);
-        expect(screen.getAllByTestId('library-export').length).toBeGreaterThan(0);
         expect(screen.getAllByTestId('library-rename').length).toBeGreaterThan(0);
         expect(screen.getAllByTestId('library-delete').length).toBeGreaterThan(0);
         expect(screen.getByTestId('library-refresh')).toBeInTheDocument();
@@ -435,49 +433,23 @@ describe('TemplateLibraryModal — Phase 3D.1 schema v2 surface', () => {
         expect(onApplied).toHaveBeenCalled();
     });
 
-    it('keeps Preview, Export, Rename and Delete available on v2 entries', async () => {
+    it('keeps Preview, Rename and Delete available on v2 entries', async () => {
         mocks.ListBuildTemplateLibrary.mockResolvedValue([v2Entry]);
         const onExportAsYAML = vi.fn();
         render(<TemplateLibraryModal {...defaultProps({ onExportAsYAML })} />);
         await screen.findAllByTestId('library-entry');
         expect(screen.getByTestId('library-preview')).toBeEnabled();
-        expect(screen.getByTestId('library-export')).toBeEnabled();
         expect(screen.getByTestId('library-export-yaml')).toBeEnabled();
         expect(screen.getByTestId('library-rename')).toBeEnabled();
         expect(screen.getByTestId('library-delete')).toBeEnabled();
     });
 });
 
-describe('TemplateLibraryModal — Export to file', () => {
-    it('calls ExportLibraryBuildTemplateToFile and forwards result via onExportedToFile', async () => {
-        mocks.ExportLibraryBuildTemplateToFile.mockResolvedValue({
-            path: '/tmp/exported.json',
-            warnings: [],
-            skippedItems: 0,
-        });
-        const onExportedToFile = vi.fn();
-        render(<TemplateLibraryModal {...defaultProps({ onExportedToFile })} />);
-        const btns = await screen.findAllByTestId('library-export');
-        await act(async () => {
-            fireEvent.click(btns[0]);
-        });
-        await waitFor(() => {
-            expect(mocks.ExportLibraryBuildTemplateToFile).toHaveBeenCalledWith('tpl-1');
-        });
-        expect(onExportedToFile).toHaveBeenCalled();
-        const [result, entry] = onExportedToFile.mock.calls[0];
-        expect(result.path).toBe('/tmp/exported.json');
-        expect(entry.id).toBe('tpl-1');
-    });
-});
-
-describe('TemplateLibraryModal — Phase 2B YAML export', () => {
+describe('TemplateLibraryModal — Phase 8A YAML-only public export', () => {
     it('does not render Export YAML when onExportAsYAML is not provided', async () => {
         render(<TemplateLibraryModal {...defaultProps()} />);
         await screen.findAllByTestId('library-entry');
         expect(screen.queryByTestId('library-export-yaml')).not.toBeInTheDocument();
-        // Existing JSON Export must remain visible — Phase 2B is additive.
-        expect(screen.getAllByTestId('library-export').length).toBeGreaterThan(0);
     });
 
     it('renders Export YAML on each entry when onExportAsYAML is provided', async () => {
@@ -510,9 +482,7 @@ describe('TemplateLibraryModal — Phase 2B YAML export', () => {
         );
         await screen.findAllByTestId('library-entry');
         expect(screen.queryByTestId('library-apply')).not.toBeInTheDocument();
-        // YAML export and JSON export remain visible.
         expect(screen.getAllByTestId('library-export-yaml').length).toBeGreaterThan(0);
-        expect(screen.getAllByTestId('library-export').length).toBeGreaterThan(0);
     });
 
     it('routes Export YAML errors through onError', async () => {

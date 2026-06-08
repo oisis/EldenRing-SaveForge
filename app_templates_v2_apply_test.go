@@ -801,17 +801,16 @@ func TestApplyBuildTemplateV2_UndoPushedBeforeMutation(t *testing.T) {
 // ─── 19. Existing v1 apply path unchanged ─────────────────────────────
 
 func TestApplyBuildTemplateV2_V1WorkspaceApplyPathStillRejectsV2(t *testing.T) {
-	// The v1 workspace endpoint (ApplyBuildTemplateToWorkspaceJSON) must
-	// continue to reject v2 payloads with its own guard. This narrow
-	// regression case keeps Phase 5A from accidentally removing the
-	// existing v2-block in the workspace endpoint.
+	// The internal v1 apply helper (applyBuildTemplateToWorkspaceFromJSON)
+	// must continue to reject v2 payloads with its own guard. Phase 8A
+	// renamed the historical public method to an internal helper used
+	// only by ApplyBuildTemplateFromLibrary; the v2 guard semantics are
+	// preserved. This regression case keeps that guard wired.
 	app := applyV2Fixture()
 	v2 := makeV2Template(t, app, `{"profile":{"level":true}}`, nil)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON("nonexistent-session", v2, ApplyTemplateOptions{})
-	// The endpoint rejects either on session lookup or on the v2 guard.
-	// Both are acceptable as long as Applied stays false.
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON("nonexistent-session", v2, ApplyTemplateOptions{})
 	if err == nil && res.Applied {
-		t.Fatal("ApplyBuildTemplateToWorkspaceJSON applied a v2 template")
+		t.Fatal("applyBuildTemplateToWorkspaceFromJSON applied a v2 template")
 	}
 }
 

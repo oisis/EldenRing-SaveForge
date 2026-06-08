@@ -14,14 +14,6 @@ export function ApplyBuildTemplateFromLibrary(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyBuildTemplateFromLibrary'](arg1, arg2, arg3);
 }
 
-export function ApplyBuildTemplateToWorkspaceFromFile(arg1, arg2) {
-  return window['go']['main']['App']['ApplyBuildTemplateToWorkspaceFromFile'](arg1, arg2);
-}
-
-export function ApplyBuildTemplateToWorkspaceJSON(arg1, arg2, arg3) {
-  return window['go']['main']['App']['ApplyBuildTemplateToWorkspaceJSON'](arg1, arg2, arg3);
-}
-
 export function ApplyBuildTemplateV2FromFileToCharacter(arg1, arg2) {
   return window['go']['main']['App']['ApplyBuildTemplateV2FromFileToCharacter'](arg1, arg2);
 }
@@ -126,14 +118,6 @@ export function DownloadRemoteSave(arg1) {
   return window['go']['main']['App']['DownloadRemoteSave'](arg1);
 }
 
-export function ExportBuildTemplateJSON(arg1, arg2) {
-  return window['go']['main']['App']['ExportBuildTemplateJSON'](arg1, arg2);
-}
-
-export function ExportBuildTemplateToFile(arg1, arg2) {
-  return window['go']['main']['App']['ExportBuildTemplateToFile'](arg1, arg2);
-}
-
 export function ExportBuildTemplateV2JSONFromCharacter(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportBuildTemplateV2JSONFromCharacter'](arg1, arg2, arg3);
 }
@@ -148,10 +132,6 @@ export function ExportCharacterPresetToFile(arg1, arg2) {
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1) {
   return window['go']['main']['App']['ExportLibraryBuildTemplateAsYAMLToFile'](arg1);
-}
-
-export function ExportLibraryBuildTemplateToFile(arg1) {
-  return window['go']['main']['App']['ExportLibraryBuildTemplateToFile'](arg1);
 }
 
 export function GetActiveInventoryEditSessionForCharacter(arg1) {
@@ -348,14 +328,6 @@ export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
 
 export function PreviewBuildTemplateFromLibrary(arg1) {
   return window['go']['main']['App']['PreviewBuildTemplateFromLibrary'](arg1);
-}
-
-export function PreviewBuildTemplateImportFromFile() {
-  return window['go']['main']['App']['PreviewBuildTemplateImportFromFile']();
-}
-
-export function PreviewBuildTemplateImportJSON(arg1) {
-  return window['go']['main']['App']['PreviewBuildTemplateImportJSON'](arg1);
 }
 
 export function PreviewBuildTemplateImportYAMLFromFile() {

@@ -152,7 +152,7 @@ func TestValidateWeaponLevelOverride_NegativeLevelsRejected(t *testing.T) {
 func TestApplyTemplate_OverrideNil_DoesNotChangeUpgrade(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSON(idStandardDagger, 3)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{})
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{})
 	if err != nil || !res.Applied {
 		t.Fatalf("apply: err=%v applied=%v preview=%+v", err, res.Applied, res.Preview)
 	}
@@ -165,7 +165,7 @@ func TestApplyTemplate_OverrideNil_DoesNotChangeUpgrade(t *testing.T) {
 func TestApplyTemplate_OverrideDisabled_BehavesLikeKeep(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSON(idStandardDagger, 3)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: false, StandardLevel: intPtr(20)},
 	})
 	if err != nil || !res.Applied {
@@ -180,7 +180,7 @@ func TestApplyTemplate_OverrideDisabled_BehavesLikeKeep(t *testing.T) {
 func TestApplyTemplate_OverrideEnabledButEmpty_RejectedBeforeApply(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSON(idStandardDagger, 0)
-	_, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	_, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true},
 	})
 	if err == nil {
@@ -198,7 +198,7 @@ func TestApplyTemplate_OverrideEnabledButEmpty_RejectedBeforeApply(t *testing.T)
 func TestApplyTemplate_OverrideStandardOnly_TouchesStandardWeapons(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSONMultiple(idStandardDagger, idSomberGolemBow)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, StandardLevel: intPtr(15)},
 	})
 	if err != nil || !res.Applied {
@@ -217,7 +217,7 @@ func TestApplyTemplate_OverrideStandardOnly_TouchesStandardWeapons(t *testing.T)
 func TestApplyTemplate_OverrideSomberOnly_TouchesSomberWeapons(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSONMultiple(idStandardDagger, idSomberGolemBow, idSomberMaraisSword)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, SomberLevel: intPtr(7)},
 	})
 	if err != nil || !res.Applied {
@@ -238,7 +238,7 @@ func TestApplyTemplate_OverrideSomberOnly_TouchesSomberWeapons(t *testing.T) {
 func TestApplyTemplate_OverrideBothLevels_TouchesEachClassSeparately(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSONMultiple(idStandardClaymore, idSomberGolemBow)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{
 			Enabled:       true,
 			StandardLevel: intPtr(25),
@@ -261,7 +261,7 @@ func TestApplyTemplate_OverrideBothLevels_TouchesEachClassSeparately(t *testing.
 func TestApplyTemplate_OverrideStandardOverMax_ClampedWithWarning(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSON(idStandardDagger, 0)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, StandardLevel: intPtr(99)},
 	})
 	if err != nil || !res.Applied {
@@ -280,7 +280,7 @@ func TestApplyTemplate_OverrideStandardOverMax_ClampedWithWarning(t *testing.T) 
 func TestApplyTemplate_OverrideSomberOverMax_ClampedWithWarning(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSON(idSomberGolemBow, 0)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, SomberLevel: intPtr(99)},
 	})
 	if err != nil || !res.Applied {
@@ -298,7 +298,7 @@ func TestApplyTemplate_OverrideSomberOverMax_ClampedWithWarning(t *testing.T) {
 func TestApplyTemplate_OverrideAtMaxBoundary_NoWarning(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSON(idStandardDagger, 0)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, StandardLevel: intPtr(25)},
 	})
 	if err != nil || !res.Applied {
@@ -316,7 +316,7 @@ func TestApplyTemplate_OverrideAtMaxBoundary_NoWarning(t *testing.T) {
 func TestApplyTemplate_OverrideUnupgradeable_SkippedWithWarning(t *testing.T) {
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSON(idUnupgradeableArm, 0)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, StandardLevel: intPtr(10)},
 	})
 	if err != nil || !res.Applied {
@@ -337,7 +337,7 @@ func TestApplyTemplate_OverrideDoesNotMutateSlotData(t *testing.T) {
 	before := append([]byte(nil), slot.Data...)
 
 	jsonText := overrideTemplateJSON(idStandardDagger, 0)
-	_, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	_, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, StandardLevel: intPtr(20)},
 	})
 	if err != nil {
@@ -372,7 +372,7 @@ func TestApplyTemplate_OverrideOnPreviewError_NoMutation(t *testing.T) {
     }
   }
 }`
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, badJSON, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, badJSON, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, StandardLevel: intPtr(15)},
 	})
 	if err != nil {
@@ -392,7 +392,7 @@ func TestApplyTemplate_OverrideClampZeroRequest_NoWarning(t *testing.T) {
 	// for that class).
 	app, sessionID := freshOverrideFixture(t)
 	jsonText := overrideTemplateJSON(idStandardDagger, 5)
-	res, err := app.ApplyBuildTemplateToWorkspaceJSON(sessionID, jsonText, ApplyTemplateOptions{
+	res, err := app.applyBuildTemplateToWorkspaceFromJSON(sessionID, jsonText, ApplyTemplateOptions{
 		WeaponLevelOverride: &WeaponLevelOverride{Enabled: true, StandardLevel: intPtr(0)},
 	})
 	if err != nil || !res.Applied {

@@ -37,87 +37,6 @@ type BuildTemplateExportResult struct {
 	SkippedItems int                       `json:"skippedItems"`
 }
 
-// ExportBuildTemplateJSON returns the template payload as a JSON string
-// without touching the filesystem. The frontend uses this when it wants
-// to preview a payload, paste it into a textbox, or run additional
-// validation before asking the user to choose a file path.
-//
-// Phase B contract:
-//   - Operates on the in-memory workspace snapshot of the session ID.
-//   - Does NOT call SaveInventoryWorkspaceChanges and does NOT mutate
-//     the slot or any session state.
-//   - A dirty workspace is a valid export source — exporting before
-//     Save is the whole point of the feature.
-func (a *App) ExportBuildTemplateJSON(sessionID string, opts BuildTemplateExportOptions) (BuildTemplateExportResult, error) {
-	// saveMu.RLock pins a.save for the slot-name read inside
-	// sourceCharacterName (called transitively by buildAndValidateTemplate).
-	// Released before marshalling — the rest works on local template data
-	// and never touches a.save.
-	a.saveMu.RLock()
-	tpl, report, err := a.buildAndValidateTemplate(sessionID, opts)
-	a.saveMu.RUnlock()
-	if err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-	data, err := marshalBuildTemplate(tpl)
-	if err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-	return BuildTemplateExportResult{
-		JSON:     string(data),
-		Warnings: report.Warnings,
-	}, nil
-}
-
-// ExportBuildTemplateToFile shows a native save-file dialog and writes
-// the build template JSON to the chosen path. Cancellation surfaces as
-// an empty Path + nil error — this matches how the frontend uses
-// runtime dialogs elsewhere and is documented in the test cases.
-//
-// File mode 0644 mirrors the existing ExportCharacterPresetToFile
-// pattern; templates are not secrets and may be shared with other
-// SaveForge users.
-func (a *App) ExportBuildTemplateToFile(sessionID string, opts BuildTemplateExportOptions) (BuildTemplateExportResult, error) {
-	// saveMu.RLock around buildAndValidateTemplate only — dialog and
-	// disk write run unlocked. See ExportBuildTemplateJSON.
-	a.saveMu.RLock()
-	tpl, report, err := a.buildAndValidateTemplate(sessionID, opts)
-	a.saveMu.RUnlock()
-	if err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-	data, err := marshalBuildTemplate(tpl)
-	if err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Export Build Template",
-		DefaultFilename: defaultTemplateFilename(tpl),
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Build Template (*.json)", Pattern: "*.json"},
-		},
-	})
-	if err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-	if path == "" {
-		// User cancelled the dialog. Surface as a benign empty result
-		// rather than an error so the frontend can stay quiet about
-		// expected user-initiated cancellation. Warnings are still
-		// returned in case the UI wants to display them anyway.
-		return BuildTemplateExportResult{Warnings: report.Warnings}, nil
-	}
-
-	if err := writeBuildTemplateFile(path, data); err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-	return BuildTemplateExportResult{
-		Path:     path,
-		Warnings: report.Warnings,
-	}, nil
-}
-
 // buildAndValidateTemplate is the shared core: resolve session, build
 // the template, validate it. Exposed via package-private receiver so
 // app_templates_test.go can drive it without going through Wails.
@@ -176,8 +95,10 @@ func (a *App) sourceCharacterName(charIdx int) string {
 }
 
 // marshalBuildTemplate is the canonical encoder. Templates ship as
-// indented JSON so the file is reasonably diff-friendly for users who
-// open it in an editor — these files are meant to be shareable.
+// indented JSON so the file is reasonably diff-friendly. The encoder is
+// internal-only — the public exchange format is YAML; JSON remains as
+// the library on-disk format and as the canonical hand-off between
+// preview, library save, and v2 apply paths.
 func marshalBuildTemplate(tpl *templates.BuildTemplate) ([]byte, error) {
 	data, err := json.MarshalIndent(tpl, "", "  ")
 	if err != nil {
@@ -186,54 +107,11 @@ func marshalBuildTemplate(tpl *templates.BuildTemplate) ([]byte, error) {
 	return data, nil
 }
 
-// writeBuildTemplateFile writes the template payload to disk with the
-// same 0644 mode the existing preset exporter uses. Factored out so
-// tests can exercise the disk write path without a save dialog.
-func writeBuildTemplateFile(path string, data []byte) error {
-	if path == "" {
-		return fmt.Errorf("writeBuildTemplateFile: empty path")
-	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("write template: %w", err)
-	}
-	return nil
-}
-
-// PreviewBuildTemplateImportJSON runs the Phase C dry-run validator on
-// a JSON payload provided directly by the caller (UI textbox, clipboard,
-// test harness). It is the building block that
-// PreviewBuildTemplateImportFromFile composes with a file read.
-//
-// Phase C contract:
-//   - Does NOT mutate any session, save, or workspace.
-//   - Does NOT call AddInventoryWorkspaceItem or
-//     SaveInventoryWorkspaceChanges.
-//   - Malformed payloads return a non-OK report with a single error
-//     coded structure_invalid rather than a flat Go error, so the
-//     frontend can render parse failures and validation failures via
-//     the same panel.
-func (a *App) PreviewBuildTemplateImportJSON(jsonText string) (templates.ImportPreviewReport, error) {
-	tpl, err := templates.ParseBuildTemplateJSON([]byte(jsonText))
-	if err != nil {
-		return templates.ImportPreviewReport{
-			OK: false,
-			Errors: []templates.ImportPreviewIssue{{
-				Severity: "error",
-				Code:     templates.IssueCodeStructureInvalid,
-				Message:  err.Error(),
-			}},
-			Warnings: []templates.ImportPreviewIssue{},
-			Summary:  templates.ImportPreviewSummary{},
-		}, nil
-	}
-	return templates.PreviewBuildTemplateImport(tpl, templates.ImportPreviewOptions{Mode: "append"}), nil
-}
-
-// LoadedTemplatePreview bundles the report with the raw JSON text and
-// file path so the UI can pass the same payload to a follow-up Apply
-// call without making the user pick the file again. Returned by
-// PreviewBuildTemplateImportFromFile; the Apply flow consumes JSON via
-// ApplyBuildTemplateToWorkspaceJSON.
+// LoadedTemplatePreview bundles the report with the canonical JSON text
+// and file path so the UI can pass the same payload to a follow-up
+// Save-to-Library or Apply call without re-reading the source file.
+// Returned by the YAML preview endpoints; the canonical JSON is an
+// internal contract and is never written to disk as a public artifact.
 type LoadedTemplatePreview struct {
 	Report templates.ImportPreviewReport `json:"report"`
 	JSON   string                        `json:"json,omitempty"`
@@ -248,50 +126,10 @@ type LoadedTemplatePreview struct {
 // phase to avoid changing existing behaviour.
 const maxYAMLImportBytes int64 = 1 << 20
 
-// PreviewBuildTemplateImportFromFile opens a native file dialog, reads
-// the chosen JSON file, and runs the same dry-run preview as
-// PreviewBuildTemplateImportJSON. Cancellation (empty path) is not an
-// error: the call returns a sentinel result with empty JSON/Path and
-// the zero report so the UI can detect "user backed out" via
-// isCancelledPreview on the report's shape.
-//
-// The JSON text is returned alongside the report so the Apply flow
-// (Phase D) can re-use the same payload without re-opening the file
-// dialog. Path is informational and used only by the UI for the
-// "applied X.json" toast.
-func (a *App) PreviewBuildTemplateImportFromFile() (LoadedTemplatePreview, error) {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Preview Build Template",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Build Template (*.json)", Pattern: "*.json"},
-		},
-	})
-	if err != nil {
-		return LoadedTemplatePreview{}, err
-	}
-	if path == "" {
-		return LoadedTemplatePreview{Report: cancelledPreviewReport()}, nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return LoadedTemplatePreview{}, fmt.Errorf("read template: %w", err)
-	}
-	report, err := a.PreviewBuildTemplateImportJSON(string(data))
-	if err != nil {
-		return LoadedTemplatePreview{}, err
-	}
-	return LoadedTemplatePreview{
-		Report: report,
-		JSON:   string(data),
-		Path:   path,
-	}, nil
-}
-
-// PreviewBuildTemplateImportYAMLFromFile is the YAML twin of
-// PreviewBuildTemplateImportFromFile. It opens a native open-file
-// dialog filtered to .yaml/.yml, enforces a 1 MiB size cap, parses
-// the YAML into a BuildTemplate with strict-mode decoding, and runs
-// the same per-item preview validator as the JSON path.
+// PreviewBuildTemplateImportYAMLFromFile is the YAML import preview.
+// It opens a native open-file dialog filtered to .yaml/.yml, enforces a
+// 1 MiB size cap, parses the YAML into a BuildTemplate with strict-mode
+// decoding, and runs the per-item preview validator.
 //
 // Anti-TOCTOU contract: the returned LoadedTemplatePreview.JSON field
 // carries a canonical JSON re-serialisation of the successfully parsed
@@ -302,8 +140,8 @@ func (a *App) PreviewBuildTemplateImportFromFile() (LoadedTemplatePreview, error
 // cannot be swapped under us.
 //
 // Cancellation surfaces as a sentinel result with the cancelled
-// report and empty JSON/Path, mirroring PreviewBuildTemplateImportFromFile.
-// Parse / validation failures are reported as IssueCodeStructureInvalid
+// report and empty JSON/Path. Parse / validation failures are
+// reported as IssueCodeStructureInvalid
 // inside the report rather than as a Go error so the UI can render
 // "bad YAML" and "bad DB lookup" through the same panel.
 func (a *App) PreviewBuildTemplateImportYAMLFromFile() (LoadedTemplatePreview, error) {
@@ -327,8 +165,8 @@ func (a *App) PreviewBuildTemplateImportYAMLFromFile() (LoadedTemplatePreview, e
 }
 
 // previewYAMLPayload runs the YAML parse + structural + per-item
-// validators in the same shape as PreviewBuildTemplateImportJSON and
-// returns the bundle the frontend stores between Preview and Save.
+// validators and returns the bundle the frontend stores between Preview
+// and Save.
 // Pure function — does not touch any session, save, or filesystem.
 func previewYAMLPayload(data []byte, path string) LoadedTemplatePreview {
 	tpl, err := templates.ParseBuildTemplateYAML(data)
@@ -484,10 +322,14 @@ type ApplyTemplateResult struct {
 	Applied   bool                              `json:"applied"`
 }
 
-// ApplyBuildTemplateToWorkspaceJSON parses, validates, and applies a
-// build template to the active edit session in-memory.
+// applyBuildTemplateToWorkspaceFromJSON parses, validates, and applies
+// a build template to the active edit session in-memory. This is an
+// internal helper used by ApplyBuildTemplateFromLibrary (legacy v1
+// library apply for templates already persisted in the local library).
+// It is intentionally NOT exposed via Wails — JSON is no longer a
+// public exchange format for template files.
 //
-// Phase D contract:
+// Phase D contract (unchanged from the historical public method):
 //   - Does NOT call SaveInventoryWorkspaceChanges.
 //   - Does NOT mutate slot.Data or the underlying save.
 //   - Mutates only sess.Workspace (sets Dirty=true on success).
@@ -508,7 +350,7 @@ type ApplyTemplateResult struct {
 // reserved for unexpected failures (session lookup race, mid-apply
 // editor bug). Both shapes carry the current Workspace so the UI can
 // always re-render.
-func (a *App) ApplyBuildTemplateToWorkspaceJSON(sessionID string, jsonText string, opts ApplyTemplateOptions) (ApplyTemplateResult, error) {
+func (a *App) applyBuildTemplateToWorkspaceFromJSON(sessionID string, jsonText string, opts ApplyTemplateOptions) (ApplyTemplateResult, error) {
 	mode := opts.Mode
 	if mode == "" {
 		mode = "append"
@@ -641,59 +483,6 @@ func validateWeaponLevelOverride(o *WeaponLevelOverride) error {
 		return fmt.Errorf("ApplyBuildTemplate: weaponLevelOverride.somberLevel = %d (must be >= 0)", *o.SomberLevel)
 	}
 	return nil
-}
-
-// ApplyBuildTemplateToWorkspaceFromFile opens a file dialog and applies
-// the chosen template to the workspace. Cancellation (empty path) is a
-// non-error sentinel: Applied=false, no preview content. Mirrors the
-// cancel UX of PreviewBuildTemplateImportFromFile.
-func (a *App) ApplyBuildTemplateToWorkspaceFromFile(sessionID string, opts ApplyTemplateOptions) (ApplyTemplateResult, error) {
-	// Cheap existence probe under the registry lock so we can fail
-	// before opening the native file dialog. The actual apply path
-	// (ApplyBuildTemplateToWorkspaceJSON) re-acquires the session under
-	// its own per-session lock; we deliberately do NOT hold either lock
-	// across the dialog.
-	a.editSessionsMu.Lock()
-	_, ok := a.editSessions[sessionID]
-	a.editSessionsMu.Unlock()
-	if !ok {
-		return ApplyTemplateResult{}, fmt.Errorf("inventory edit session %q not found", sessionID)
-	}
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Apply Build Template",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Build Template (*.json)", Pattern: "*.json"},
-		},
-	})
-	if err != nil {
-		return ApplyTemplateResult{}, err
-	}
-	if path == "" {
-		return cancelledApplyResult(a, sessionID), nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ApplyTemplateResult{}, fmt.Errorf("read template: %w", err)
-	}
-	return a.ApplyBuildTemplateToWorkspaceJSON(sessionID, string(data), opts)
-}
-
-// cancelledApplyResult is the sentinel for "user backed out of the
-// Apply file dialog". Mirrors cancelledPreviewReport's contract:
-// Applied=false, empty preview, current workspace echoed so the UI can
-// stay in lock-step.
-func cancelledApplyResult(a *App, sessionID string) ApplyTemplateResult {
-	res := ApplyTemplateResult{
-		Preview: cancelledPreviewReport(),
-		Applied: false,
-	}
-	// Read the workspace echo under the per-session lock — Discard or a
-	// concurrent Save could otherwise tear the snapshot mid-copy.
-	if sess, err := a.acquireSession(sessionID); err == nil {
-		res.Workspace = sess.Workspace
-		sess.Unlock()
-	}
-	return res
 }
 
 // applyTemplateItemsToWorkspace iterates one section's items and calls
@@ -921,12 +710,11 @@ func (a *App) ensureTemplateLibrary() (*templates.TemplateLibrary, error) {
 }
 
 // SaveBuildTemplateToLibrary builds a template from the active workspace
-// session (same code path as ExportBuildTemplateJSON) and stores it in
-// the local library. Returns the new index entry. Workspace and save
-// are untouched.
+// session and stores it in the local library. Returns the new index
+// entry. Workspace and save are untouched.
 func (a *App) SaveBuildTemplateToLibrary(sessionID string, opts BuildTemplateExportOptions) (templates.LibraryTemplateEntry, error) {
 	// saveMu.RLock around buildAndValidateTemplate only — library write
-	// runs unlocked. See ExportBuildTemplateJSON.
+	// runs unlocked.
 	a.saveMu.RLock()
 	tpl, _, err := a.buildAndValidateTemplate(sessionID, opts)
 	a.saveMu.RUnlock()
@@ -950,10 +738,9 @@ func (a *App) ListBuildTemplateLibrary() ([]templates.LibraryTemplateEntry, erro
 }
 
 // PreviewBuildTemplateFromLibrary loads a stored template by ID and
-// runs the same dry-run validator as PreviewBuildTemplateImportJSON.
-// The JSON payload is included so the Apply flow can re-use it without
-// a second library read. Path is the on-disk filename relative to the
-// library root.
+// runs the dry-run preview validator. The canonical JSON payload is
+// included so the Apply flow can re-use it without a second library
+// read. Path is the on-disk filename relative to the library root.
 func (a *App) PreviewBuildTemplateFromLibrary(id string) (LoadedTemplatePreview, error) {
 	lib, err := a.ensureTemplateLibrary()
 	if err != nil {
@@ -975,10 +762,16 @@ func (a *App) PreviewBuildTemplateFromLibrary(id string) (LoadedTemplatePreview,
 	}, nil
 }
 
-// ApplyBuildTemplateFromLibrary loads a stored template and applies it
-// to the active workspace via the existing JSON-based apply path.
+// ApplyBuildTemplateFromLibrary loads a stored v1 template and applies
+// it to the active workspace via the internal JSON-based apply helper.
 // RAM-only — save state is not touched. The caller still has to invoke
 // SaveInventoryWorkspaceChanges separately to persist.
+//
+// The library on-disk format remains canonical JSON; this endpoint is
+// the only public surface that still consumes that canonical JSON, and
+// it does so via the internal applyBuildTemplateToWorkspaceFromJSON
+// helper rather than a public JSON entry point. v2 library entries
+// route through ApplyBuildTemplateV2FromLibraryToCharacter instead.
 func (a *App) ApplyBuildTemplateFromLibrary(sessionID, id string, opts ApplyTemplateOptions) (ApplyTemplateResult, error) {
 	lib, err := a.ensureTemplateLibrary()
 	if err != nil {
@@ -992,7 +785,7 @@ func (a *App) ApplyBuildTemplateFromLibrary(sessionID, id string, opts ApplyTemp
 	if err != nil {
 		return ApplyTemplateResult{}, fmt.Errorf("ApplyBuildTemplateFromLibrary: marshal: %w", err)
 	}
-	return a.ApplyBuildTemplateToWorkspaceJSON(sessionID, string(data), opts)
+	return a.applyBuildTemplateToWorkspaceFromJSON(sessionID, string(data), opts)
 }
 
 // DeleteBuildTemplateFromLibrary removes a template from the library.
@@ -1053,42 +846,10 @@ func (a *App) GetBuildTemplateLibraryPath() (string, error) {
 	return lib.RootDir(), nil
 }
 
-// ExportLibraryBuildTemplateToFile loads a stored template, opens a
-// native save-file dialog, and writes the chosen path. Cancellation
-// surfaces as an empty Path + nil error (mirrors ExportBuildTemplateToFile).
-func (a *App) ExportLibraryBuildTemplateToFile(id string) (BuildTemplateExportResult, error) {
-	lib, err := a.ensureTemplateLibrary()
-	if err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-	tpl, err := lib.LoadTemplate(id)
-	if err != nil {
-		return BuildTemplateExportResult{}, fmt.Errorf("ExportLibraryBuildTemplateToFile: %w", err)
-	}
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Export Build Template",
-		DefaultFilename: defaultTemplateFilename(tpl),
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Build Template (*.json)", Pattern: "*.json"},
-		},
-	})
-	if err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-	if path == "" {
-		return BuildTemplateExportResult{}, nil
-	}
-	if err := lib.ExportTemplateToFile(id, path); err != nil {
-		return BuildTemplateExportResult{}, err
-	}
-	return BuildTemplateExportResult{Path: path}, nil
-}
-
-// ExportLibraryBuildTemplateAsYAMLToFile is the YAML twin of
-// ExportLibraryBuildTemplateToFile. The library entry on disk is not
-// touched — this only writes a second, public-share-friendly YAML copy
-// to the user-chosen path. Cancellation surfaces as an empty Path + nil
-// error, matching the JSON helper.
+// ExportLibraryBuildTemplateAsYAMLToFile writes a library entry to a
+// user-chosen path as YAML — the sole public exchange format. The
+// library entry on disk is not touched. Cancellation surfaces as an
+// empty Path + nil error.
 func (a *App) ExportLibraryBuildTemplateAsYAMLToFile(id string) (BuildTemplateExportResult, error) {
 	lib, err := a.ensureTemplateLibrary()
 	if err != nil {
@@ -1119,14 +880,15 @@ func (a *App) ExportLibraryBuildTemplateAsYAMLToFile(id string) (BuildTemplateEx
 
 // SaveImportedBuildTemplateJSONToLibrary persists a previously-previewed
 // template payload to the local library. The caller is expected to pass
-// the canonical JSON returned by either PreviewBuildTemplateImportJSON,
-// PreviewBuildTemplateImportFromFile, or PreviewBuildTemplateImportYAMLFromFile.
+// the canonical JSON returned by the YAML preview endpoints
+// (PreviewBuildTemplateImportYAMLFromFile / FromURL). The canonical
+// JSON is an internal hand-off contract — not a public exchange format.
 //
 // Anti-TOCTOU: parsing+validation re-runs against the exact bytes the
-// frontend held since Preview, so the file on disk (for the YAML import
-// path) cannot be swapped under us. The endpoint also re-runs the
-// per-item DB / AoW preview so that a template that became invalid
-// between Preview and Save (e.g. DB hotpatch) is refused.
+// frontend held since Preview, so the file on disk cannot be swapped
+// under us. The endpoint also re-runs the per-item DB / AoW preview
+// so that a template that became invalid between Preview and Save
+// (e.g. DB hotpatch) is refused.
 //
 // On disk the library stays JSON-internal: the parsed BuildTemplate is
 // handed straight to Library.SaveTemplate, which writes JSON via the

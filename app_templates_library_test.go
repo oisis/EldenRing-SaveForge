@@ -251,13 +251,9 @@ func TestPreviewYAMLPayload_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	exp, err := app.ExportBuildTemplateJSON(snap.SessionID, BuildTemplateExportOptions{IncludeInventory: true})
+	tpl, _, err := app.buildAndValidateTemplate(snap.SessionID, BuildTemplateExportOptions{IncludeInventory: true})
 	if err != nil {
-		t.Fatalf("export: %v", err)
-	}
-	tpl, err := templates.ParseBuildTemplateJSON([]byte(exp.JSON))
-	if err != nil {
-		t.Fatalf("parse JSON: %v", err)
+		t.Fatalf("buildAndValidateTemplate: %v", err)
 	}
 	yamlBytes, err := templates.MarshalBuildTemplateYAML(tpl)
 	if err != nil {
@@ -521,28 +517,6 @@ func TestSaveImportedBuildTemplateJSONToLibrary_NoSessionRequired(t *testing.T) 
 	}
 	if entry.Name != "no-session" {
 		t.Errorf("Name=%q want no-session", entry.Name)
-	}
-}
-
-func TestExportLibraryBuildTemplateToFile_ViaLibraryHelper(t *testing.T) {
-	// We bypass the runtime SaveFileDialog (which requires a Wails ctx)
-	// and exercise the underlying library helper directly. This matches
-	// the existing writeBuildTemplateFile-style test pattern in Phase B.
-	app, _, id := libraryFixture(t)
-	dest := filepath.Join(t.TempDir(), "exported.json")
-	if err := app.templateLibrary.ExportTemplateToFile(id, dest); err != nil {
-		t.Fatalf("ExportTemplateToFile: %v", err)
-	}
-	data, err := os.ReadFile(dest)
-	if err != nil {
-		t.Fatalf("read exported: %v", err)
-	}
-	var tpl templates.BuildTemplate
-	if err := json.Unmarshal(data, &tpl); err != nil {
-		t.Fatalf("unmarshal exported: %v", err)
-	}
-	if tpl.Schema != templates.SchemaKey {
-		t.Errorf("exported payload has wrong schema: %q", tpl.Schema)
 	}
 }
 

@@ -14,10 +14,6 @@ export function AddItemsToCharacter(arg1:number,arg2:Array<number>,arg3:number,a
 
 export function ApplyBuildTemplateFromLibrary(arg1:string,arg2:string,arg3:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
 
-export function ApplyBuildTemplateToWorkspaceFromFile(arg1:string,arg2:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
-
-export function ApplyBuildTemplateToWorkspaceJSON(arg1:string,arg2:string,arg3:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
-
 export function ApplyBuildTemplateV2FromFileToCharacter(arg1:number,arg2:main.ApplyTemplateV2Options):Promise<main.ApplyTemplateV2Result>;
 
 export function ApplyBuildTemplateV2FromLibraryToCharacter(arg1:number,arg2:string,arg3:main.ApplyTemplateV2Options):Promise<main.ApplyTemplateV2Result>;
@@ -70,10 +66,6 @@ export function DiscardInventoryEditSession(arg1:string):Promise<void>;
 
 export function DownloadRemoteSave(arg1:string):Promise<string>;
 
-export function ExportBuildTemplateJSON(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<main.BuildTemplateExportResult>;
-
-export function ExportBuildTemplateToFile(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<main.BuildTemplateExportResult>;
-
 export function ExportBuildTemplateV2JSONFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
 
 export function ExportBuildTemplateV2YAMLFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
@@ -81,8 +73,6 @@ export function ExportBuildTemplateV2YAMLFromCharacter(arg1:number,arg2:string,a
 export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSettings):Promise<string>;
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
-
-export function ExportLibraryBuildTemplateToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
 
 export function GetActiveInventoryEditSessionForCharacter(arg1:number):Promise<main.ActiveInventoryEditSession>;
 
@@ -181,10 +171,6 @@ export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,a
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
 
 export function PreviewBuildTemplateFromLibrary(arg1:string):Promise<main.LoadedTemplatePreview>;
-
-export function PreviewBuildTemplateImportFromFile():Promise<main.LoadedTemplatePreview>;
-
-export function PreviewBuildTemplateImportJSON(arg1:string):Promise<templates.ImportPreviewReport>;
 
 export function PreviewBuildTemplateImportYAMLFromFile():Promise<main.LoadedTemplatePreview>;
 
