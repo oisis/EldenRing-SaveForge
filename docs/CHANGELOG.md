@@ -4,6 +4,386 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### docs(templates): document v2 items and layout apply (Phase 8F)
+
+Cumulative docs/spec sweep that closes the Templates v2 items + layout
+milestone (Phase 8A through Phase 8E.2) ahead of manual validation
+(Phase 8G). No runtime code changes in this commit.
+
+Spec updates (EN + PL twins of `spec/56-templates-v2.md`):
+- New "Phase 8D.1 — backend v2 items apply (addMissing only)" section.
+- New "Phase 8D.2 — UI items apply controls + weapon level override
+  exposure" section.
+- New "Phase 8D.3 — items apply polish (explicit addMissing on wire,
+  warning grouping, result modal)" section.
+- New "Phase 8E.1 — backend v2 inventory/storage layout apply
+  (reorderOnly only)" section.
+- New "Phase 8E.2 — UI layout apply controls + result modal layout
+  counters" section.
+- New "Cumulative summary after Phase 8E.2" section in §17a covering
+  public exchange surface (YAML-only since 8A), items semantics
+  (entryID + match key + duplicate-same-itemID), layout semantics
+  (reorderOnly, extras preserved, missing skipped, sparse normalized,
+  ambiguous resolved first-match-wins), apply behavior (session gate,
+  items-first-then-layout ordering, weapon level override scope), the
+  full warning code catalogue, and the explicit non-goals deferred
+  beyond Phase 8E.2.
+
+ROADMAP (`docs/ROADMAP.md`):
+- Templates v2 "Done" entry extended with one-line summaries of
+  Phase 8D.1 / 8D.2 / 8D.3 / 8E.1 / 8E.2 (matching the existing
+  one-liner-per-phase style of the surrounding bullets).
+- "Planned" Phase 7d.4b+ paragraph trimmed to reflect that items +
+  layout no longer block the milestone — what remains is the
+  create-bridge for spells / equipment, appearance via preset, and
+  multi-character pack.
+- New Phase 8G placeholder under "Planned" for the manual validation
+  sweep (matrix specified in spec/56 §17a).
+
+Validation in this phase is automated-only:
+- `go test ./backend/... . -count=1` — green.
+- `go test -race -run 'Test.*ApplyBuildTemplateV2' .` — green.
+- `go vet ./backend/... ./` — clean.
+- `go build ./backend/... ./` — green.
+- `cd frontend && npx tsc --noEmit` — clean.
+- `cd frontend && npx vitest run src/components/templates
+   src/wails-bindings.contract` — green (295/295).
+
+Manual validation across the real-save items + layout matrix is
+intentionally deferred to Phase 8G per the workflow agreement.
+
+### feat(templates): apply v2 layout reorder-only UI (Phase 8E.2)
+
+Frontend-only flip that lifts inventory layout / storage layout from
+export-only to apply-eligible (reorder-only). Backend Phase 8E.1
+writer already handles the mutation; this phase only exposes it.
+
+UI gating
+(`frontend/src/components/templates/ImportTemplatePreviewModal.tsx`,
+`TemplateLibraryModal.tsx`, `TemplatesShellModal.tsx`):
+- `V2_APPLY_SUPPORTED_SECTIONS` now includes `inventoryLayout` and
+  `storageLayout`. The `LAYOUT_ONLY_SECTIONS` short-circuit and the
+  "no apply path in Phase 8D.2" tooltip are gone.
+- Library `v2HasApplyableSections` widens to enable Apply on
+  layout-bearing entries (items-less layout-only templates included).
+- Old `library-apply-v2-layout-ignored` confirm-row copy is replaced
+  by `library-apply-v2-layout-reorder-only`:
+  - layout-only: "Layout mode: Reorder only — no items are added or
+    removed. Layout reorders matching workspace items. Extras are
+    preserved and appended; missing entries are skipped with
+    warnings."
+  - items + layout: same "Reorder only" header + "Missing items are
+    added first, then layout is applied."
+- Preview modal renders `import-preview-layout-reorder-only` for
+  layout-only templates (four lines of plain-English semantics).
+
+Session gate
+(`frontend/src/components/templates/TemplatesShellModal.tsx`):
+- The Inventory Edit Session requirement now also covers layout
+  applies (layout writer reorders `sess.Workspace`). Layout-only
+  templates require an active session; missing session surfaces the
+  same `NO_SESSION_MESSAGE` toast as items and inventory.workspace.
+
+Explicit defaults on the wire
+(`frontend/src/components/templates/TemplatesShellModal.tsx`):
+- `injectExplicitAddMissing` renamed to `injectExplicitApplyDefaults`
+  and extended. Helper now writes
+  `applyOptions.items.mode = "addMissing"`,
+  `applyOptions.inventoryLayout.mode = "reorderOnly"`, and
+  `applyOptions.storageLayout.mode = "reorderOnly"` whenever the
+  corresponding section is selected. Backend defaults nil layout
+  mode to `reorderOnly` (Phase 8E.1) — the UI just makes the intent
+  testable from the JSON payload.
+- Library routing: layout-bearing entries now go through
+  `PreviewBuildTemplateFromLibrary` → JSON apply (so explicit modes
+  ride the wire), mirroring the items routing from Phase 8D.3.
+  Profile/stats/equipment/spells-only entries stay on the fast
+  `ApplyBuildTemplateV2FromLibraryToCharacter` path.
+
+Result modal extensions (`ApplyItemsResultModal`):
+- Modal aria-label and headline change to "Template apply result".
+- New "Layout reordered" section with six counters
+  (`items-apply-result-layout-{inv,sto}-{applied,missing,extras}`)
+  + a plain-English footnote explaining reorder-only semantics.
+- Five new warning groups for layout codes:
+  `items-apply-result-layout-missing` (amber),
+  `items-apply-result-layout-ambiguous` (amber),
+  `items-apply-result-layout-sparse` (muted/info),
+  `items-apply-result-layout-extras` (muted/info),
+  `items-apply-result-layout-mode-unsupported` (amber). All five
+  carry `data-warning-severity="info"` because layout warnings are
+  reporting, not blocking.
+- Modal now opens for layout-only applies (items-only used to be
+  the only trigger).
+
+Tests:
+- `src/wails-bindings.contract.test.ts` gains a contract test pinning
+  the six `ApplyTemplateV2Result.layout*` fields so a binding rename
+  would zero the counters loudly instead of silently.
+- `__tests__/ImportTemplatePreviewModal.test.tsx`: two updated cases
+  (items + layout copy, layout-only enabled with reorder-only copy)
+  + tooltip text update.
+- `__tests__/TemplateLibraryModal.test.tsx`: two updated cases (items
+  + layout confirm row uses new copy; layout-only entry Apply
+  enabled with reorder-only confirm row).
+- `__tests__/TemplatesShellModal.test.tsx`: five new Phase 8E.2 cases
+  (layout-only without session, layout-only with session + reorderOnly
+  on the wire + result modal counters, items + layout both modes on
+  the wire, library layout entry routes via JSON, result modal warning
+  grouping severity).
+
+Validation:
+- `cd frontend && npx tsc --noEmit` — clean.
+- `cd frontend && npx vitest run src/components/templates
+   src/wails-bindings.contract` — 295 / 295 green.
+
+Backend untouched. No new writers. No public JSON re-introduction.
+No `frontend/wailsjs/runtime/*` content change.
+
+### feat(templates): apply v2 layout reorder-only (Phase 8E.1)
+
+Backend-side apply path for `sections.inventoryLayout` and
+`sections.storageLayout` in `reorderOnly` mode. The UI piece lands
+in Phase 8E.2.
+
+Writer wiring (`app_templates_v2_apply.go`):
+- `applyTemplateLayoutToWorkspace(sess.Workspace, container, section,
+  mode)` reorders the workspace list in place. Mode allowlist is
+  `reorderOnly` (and the nil/empty default — also resolved to
+  `reorderOnly`); `ignore` is a documented no-op; `append`, `replace`,
+  and any other unknown mode emit `layout_mode_unsupported` and
+  skip that section.
+- Match key is the same tuple the items resolver uses (itemID +
+  category + upgrade + infusion + AoW + container), keyed by the
+  template-local entryID. A LayoutEntry whose entryRef cannot resolve
+  to a live workspace item emits `layout_entry_missing` and is
+  skipped. Two live items matching the same entry emit
+  `layout_entry_ambiguous`; the first live match wins so the apply
+  remains deterministic.
+- Sparse / non-zero-based positions are accepted and normalised to
+  compact 0..N-1; the writer emits
+  `layout_sparse_normalized` (info) when normalisation actually
+  happens so producers see what changed.
+- Live items not referenced by the template layout are NOT deleted.
+  They are appended after the template-ordered prefix in their
+  original relative order and the writer emits
+  `layout_extra_items_preserved` (info) with the count.
+
+Apply ordering (`app_templates_v2_apply.go`):
+- Items addMissing runs **before** the layout writer. Newly added
+  items become eligible for ordering inside the same apply.
+- Layout writer dispatches inside the existing Phase 7a dual snapshot
+  scope, so any writer failure rolls both `slot.Data` and the
+  workspace value snapshot.
+
+Result + summary plumbing (`backend/templates/import.go`,
+`frontend/wailsjs/go/models.ts`):
+- New issue codes
+  `IssueCodeLayoutModeUnsupported = "layout_mode_unsupported"`,
+  `IssueCodeLayoutEntryMissing = "layout_entry_missing"`,
+  `IssueCodeLayoutEntryAmbiguous = "layout_entry_ambiguous"`,
+  `IssueCodeLayoutSparseNormalized = "layout_sparse_normalized"`,
+  `IssueCodeLayoutExtraItemsPreserved = "layout_extra_items_preserved"`.
+- `ApplyTemplateV2Result` gains six counters:
+  `LayoutInventoryEntriesApplied`, `LayoutStorageEntriesApplied`,
+  `LayoutInventoryEntriesMissing`, `LayoutStorageEntriesMissing`,
+  `LayoutInventoryExtrasPreserved`, `LayoutStorageExtrasPreserved`.
+  Wails models regenerated (`frontend/wailsjs/go/models.ts`).
+
+Apply gate
+(`app_templates_v2_apply.go` scope detection):
+- Layout sections require an active Inventory Edit Session — the
+  writer mutates `sess.Workspace`. Without a session the apply
+  returns `inventory_session_required` and zero side effects, same
+  as items and inventory.workspace.
+
+Tests: new `app_templates_v2_apply_layout_test.go` (24 cases): mode
+allowlist (reorderOnly, ignore, append/replace/other), missing /
+ambiguous / sparse / extras paths, items + layout interop ordering,
+no-session reject, both containers, atomicity (writer failure leaves
+slot and workspace untouched), warning counts, deterministic
+first-match-wins, weapon match key reuse.
+
+Validation:
+- `go vet ./backend/templates/... ./` — clean.
+- `go test . -run 'Test.*ApplyBuildTemplateV2.*Layout|Test.*Layout|Test.*ApplyBuildTemplateV2.*Items' -count=1` — green.
+- `go test -race -run 'Test.*ApplyBuildTemplateV2' .` — green.
+- `go build ./backend/... ./` — green.
+
+Not implemented (Phase 8E.2 / Phase 8F+ scope):
+- Frontend exposure of the apply path (Phase 8E.2).
+- `append` / `replace` layout modes — schema-allowed, writer-rejected.
+- Items modes beyond `addMissing`.
+
+### chore(templates): polish v2 items apply UX (Phase 8D.3)
+
+Follow-up to Phase 8D.2 with three focused improvements; no schema,
+no writer, no new section.
+
+Explicit `addMissing` on the wire
+(`frontend/src/components/templates/TemplatesShellModal.tsx`):
+- New `injectExplicitAddMissing(canonicalJSON)` helper rewrites
+  `applyOptions.items.mode` to `"addMissing"` whenever
+  `selection.items` is present (pass-through otherwise). Backend
+  Phase 8D.1 already defaults to `addMissing` when the option is
+  nil, but the UI now makes the intent testable from the JSON
+  payload itself. Applied on both the imported preview JSON apply
+  path and the overrides apply path.
+- Library items entries now route through
+  `PreviewBuildTemplateFromLibrary` → `injectExplicitAddMissing` →
+  `ApplyBuildTemplateV2ToCharacterJSON` instead of the fast
+  `ApplyBuildTemplateV2FromLibraryToCharacter` path, so explicit
+  `addMissing` rides the wire for the library surface too. Non-items
+  entries (profile / stats / equipment / spells) remain on the fast
+  FromLibrary path — no extra round-trip noise.
+
+Warning grouping in the new result modal
+(`TemplatesShellModal.tsx::ApplyItemsResultModal`):
+- Warnings are now grouped by code rather than rendered as a flat
+  list. Five named groups so far:
+  `items-apply-result-already-present`,
+  `items-apply-result-unsupported-category`,
+  `items-apply-result-layout-ignored`,
+  `items-apply-result-weapon-warnings`
+  (covers `weapon_level_clamped` and `weapon_unupgradeable`),
+  `items-apply-result-template-override-ignored`. Unknown codes
+  fall into `items-apply-result-other-warnings` with the code
+  prefix shown.
+- Each group caps the visible items at `WARNING_PREVIEW_LIMIT = 5`
+  with a `+ N more (total: X)` line, so a noisy apply doesn't blow
+  up the modal.
+- All groups expose `data-warning-severity="info"` — every code
+  surfaced here is informational, not a blocking failure.
+
+UI copy + tests:
+- `ImportTemplatePreviewModal.tsx` now renders an
+  `import-preview-items-weapon-hint` line ("Direct Apply uses
+  template / default upgrade levels. Use 'Apply with overrides…'
+  to override standard (+0–25) or somber (+0–10) weapon levels for
+  newly added items.") whenever the items section is selected.
+- `TemplateLibraryModal.tsx` adds the same hint to the v2 confirm
+  row (`library-apply-v2-weapon-hint`).
+- Test additions cover wire-format injection on the imported
+  preview, overrides, and library routes; warning-group expansion;
+  layout-ignored severity stays `info`; weapon hint visibility in
+  both the preview modal and the library confirm row.
+
+Validation: `npx tsc --noEmit` clean,
+`npx vitest run src/components/templates src/wails-bindings.contract`
+— green.
+
+### feat(templates): add v2 items apply controls (Phase 8D.2)
+
+Frontend half of items apply: lift the Phase 8D.1 backend behavior
+into the UI without changing any apply semantics.
+
+Apply gating
+(`frontend/src/components/templates/ImportTemplatePreviewModal.tsx`,
+`TemplateLibraryModal.tsx`):
+- `V2_APPLY_SUPPORTED_SECTIONS` adds `'items'`. Items-bearing v2
+  templates can now reach the Apply button on the imported preview
+  surface, the library list, and the URL preview (the URL preview
+  reuses the import preview modal, so it inherits the change for
+  free).
+- The previous "items / inventoryLayout / storageLayout are
+  export-only" tooltip is split: items templates show "Items: apply
+  supported (add missing only)"; layout-only templates keep the
+  "export-only" reason (until Phase 8E.2 lifts that too).
+- Items + layout combo shows the new copy "Inventory layout /
+  storage layout are export-only and will be ignored on apply."
+  — backend Phase 8D.1 emits `items_layout_ignored` to match.
+
+Session gate + apply path
+(`frontend/src/components/templates/TemplatesShellModal.tsx`):
+- The Inventory Edit Session requirement now covers items applies
+  (items mutate `sess.Workspace`, same as inventory.workspace).
+- New `ApplyItemsResultModal` (`items-apply-result-modal` testid)
+  opens after every items apply with the counters that the new
+  `ApplyTemplateV2Result.{inventoryItemsApplied,
+  storageItemsApplied}` fields surface. Profile/stats-only applies
+  keep the existing toast UX with no extra modal.
+
+Weapon level override exposure
+(`frontend/src/components/templates/ApplyOverridesPanel.tsx`,
+`WeaponLevelOverridePanel.tsx`):
+- The Phase 7a.2 `WeaponLevelOverridePanel` is now rendered for
+  items-bearing v2 templates too — the helper already runs after
+  each weapon write, so newly added items pick up the override
+  inside the same apply. Direct Apply (without overrides) keeps
+  using template / default upgrade levels.
+
+Tests: extensive additions in the four templates test files
+covering the new gating, the items confirm row, the result modal,
+and the weapon override surface. Validation: `npx tsc --noEmit`
+clean, `npx vitest run src/components/templates
+src/wails-bindings.contract` — green.
+
+### feat(templates): apply v2 items add-missing (Phase 8D.1)
+
+First v2 apply path for `sections.items`. Mode allowlist is
+**`addMissing` only**: existing live items are preserved and
+template entries whose `(itemID, category, upgrade, infusion, AoW,
+container)` tuple already resolves to a live workspace item are
+skipped with a warning. The UI piece lands in Phase 8D.2.
+
+Writer wiring (`app_templates_v2_apply.go`):
+- New `applyTemplateItemsAddMissingToWorkspace(sess.Workspace, sec,
+  weaponOverride)` walks `sections.items.entries`, builds the match
+  tuple for each entry, and dispatches missing items through the
+  existing `editor.AddItem` / workspace add helper so storage and
+  inventory both go through the same allocator. Duplicate same-itemID
+  entries are supported via the template-local `entryID`.
+- Categories outside `editor.SupportedCategories` are skipped with
+  `unsupported_category` (warning, not fatal). Items with
+  `quantity == 0` are rejected at the schema validator (Phase 8B);
+  the apply path never sees them.
+- Weapon level override (Phase 7a.2) is honoured for newly added
+  weapon-like items: after each successful add, the helper runs
+  `applyWeaponLevelOverride` so the override applies to template
+  additions just like it does to existing weapon patches. Templates
+  carry no override field on the wire — the runtime option travels
+  through `ApplyTemplateV2Options.WeaponLevelOverride`.
+- Layout sections (`inventoryLayout`, `storageLayout`) appearing
+  alongside `items` are dropped with `items_layout_ignored` (info,
+  not fatal). The dedicated layout writer arrives in Phase 8E.1.
+
+Apply gate (`app_templates_v2_apply.go` scope detection):
+- Items section requires an active Inventory Edit Session — same
+  reason as `inventory.workspace`. No session → `inventory_session_required`.
+- `equipment + items` is allowed; `equipment + inventory.workspace`
+  remains hard-rejected (Phase 7b.1).
+
+Result + summary plumbing
+(`backend/templates/import.go`, `frontend/wailsjs/go/models.ts`):
+- New issue codes
+  `IssueCodeItemsAlreadyPresent = "items_already_present"`,
+  `IssueCodeItemsUnsupportedCategory = "unsupported_category"`,
+  `IssueCodeItemsLayoutIgnored = "items_layout_ignored"`,
+  `IssueCodeItemsTemplateOverrideIgnored = "items_template_override_ignored"`.
+- `ApplyTemplateV2Result` gains `InventoryItemsApplied` and
+  `StorageItemsApplied`.
+
+Tests: new `app_templates_v2_apply_items_v2_test.go` (~25 cases):
+add to empty inventory + storage; duplicate same itemID via
+entryID; categories outside `SupportedCategories` skipped + warned;
+weapon override applied on add; explicit `addMissing` mode on the
+wire; no-session reject; items + layout coexistence with the
+ignored-layout warning; rollback on writer failure; preserved
+existing items; match tuple includes upgrade / infusion / AoW.
+
+Validation:
+- `go vet ./backend/templates/... ./` — clean.
+- `go test . -run 'Test.*ApplyBuildTemplateV2.*Items' -count=1` —
+  green.
+- `go test -race -run 'Test.*ApplyBuildTemplateV2' .` — green.
+- `go build ./backend/... ./` — green.
+
+Not implemented in this phase:
+- Frontend UI surface for items apply (Phase 8D.2).
+- Items modes beyond `addMissing` (`updateExisting`, `merge`,
+  `replace`).
+- Layout writers (Phase 8E.1).
+
 ### feat(templates): wire v2 items layout export UI (Phase 8C.1)
 
 App layer + UI wiring for the Phase 8C items / inventoryLayout /
