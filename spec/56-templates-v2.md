@@ -1032,6 +1032,138 @@ loadout — and Test B — partial leave-unchanged — both passed; see
     canonical JSON state carried inside the global shell can be
     replaced by a backend-side preview ticket instead of a JSON blob.
 
+### Phase 8B — v2 items / layout schema foundation (shipped 2026-06-08)
+
+- **Goal**: lock the on-the-wire schema for the upcoming v2 items /
+  inventory layout / storage layout / apply-options surface BEFORE any
+  exporter, importer, apply path, UI, or Wails binding is written.
+  This phase ships type definitions and structural validators only;
+  every observable behaviour outside `backend/templates` is unchanged.
+- **No exporter, no importer, no apply, no UI, no bindings** —
+  Phase 8C+ scope.
+- **New top-level field on `BuildTemplate`**:
+  - `applyOptions` (optional `*ApplyOptions`) — sub-DTOs
+    `items` / `inventoryLayout` / `storageLayout` /
+    `weaponLevelOverride`. v1 documents ignore it (consistent with
+    how the v1 branch already ignores `selection`).
+- **New `sections.*` keys (v2 only)** — camelCase without the legacy
+  dotted spelling:
+  - `items.entries[]` — flat list of `TemplateItemEntryV2` records.
+    Each entry has:
+    - `entryID` (string, required, unique within the template) —
+      template-local identity. The only stable handle the layout
+      sections can reference.
+    - `itemID` (uint32, required, ≠ 0) — DB-style full item ID.
+    - `name` (string, optional, informational only).
+    - `category` (string, required) — fail-closed allowlist of
+      18 categories mirroring `backend/db/data` (`melee_armaments`,
+      `ranged_and_catalysts`, `shields`, `ashes_of_war`, `head`,
+      `chest`, `arms`, `legs`, `talismans`, `sorceries`,
+      `incantations`, `tools`, `crafting_materials`,
+      `bolstering_materials`, `arrows_and_bolts`, `key_items`,
+      `gestures`, `dlc`).
+    - `quantity` (uint32, required, ≥ 1) — zero is fail-closed
+      (clear/remove semantics belong to apply mode, not the entry
+      payload).
+    - `location` (string, required) — allowlist `inventory` /
+      `storage` / `both`.
+    - `upgradeKind` (string, optional) — discriminator `standard` /
+      `somber` / `none`. Empty string ≡ `none`. Any other value is
+      fail-closed.
+    - `upgradeLevel` (`*uint8`, conditional) — required when
+      `upgradeKind` is `standard` (range 0–25) or `somber`
+      (range 0–10); MUST be nil when `upgradeKind` is `none` /
+      empty.
+    - `infusionName` (string, optional).
+    - `ashOfWarItemID` (`*uint32`, optional) — when set, must be
+      ≠ 0 (omit the field to mean any-AoW, mirroring
+      `EquipmentItemRef`).
+  - `inventoryLayout.entries[]` and `storageLayout.entries[]` —
+    ordered lists of `LayoutEntry{entryRef, position}` pairs.
+    `entryRef` must resolve to an existing
+    `items.entries[*].entryID`. `entryRef` is unique within a layout;
+    `position` is unique within a layout. Positions are NOT required
+    to be contiguous, dense, or zero-based (the future writer will
+    normalise).
+- **New `selection.*` keys** — boolean-only (no per-field maps):
+  `items`, `inventoryLayout`, `storageLayout`.
+  `TemplateSelection.HasAnySelected()` honours all three.
+- **Duplicate-item identity**: two entries may share `itemID`
+  provided their `entryID` differs. The "two Longswords, one Heavy
+  +25 in inventory, one Cold +20 in storage" case is the motivating
+  example and is covered by a dedicated test.
+- **`applyOptions.items.mode`** allowlist:
+  - `addMissing` — only insert items the character does not own
+    (safest default).
+  - `updateExisting` — refresh attributes of items already owned.
+  - `merge` — addMissing ∪ updateExisting.
+  - `replace` — delete any inventory/storage entry NOT in the
+    template before applying. **Destructive — Phase 8C+ UI must
+    require explicit confirmation before emitting this mode.**
+  - `preserveExtraItems` (bool) — downgrades `replace` to the
+    non-destructive interpretation.
+- **`applyOptions.{inventory,storage}Layout.mode`** allowlist:
+  `ignore` / `append` / `reorderOnly` / `replace`. `replace` is the
+  destructive option for ordering metadata only — it does NOT delete
+  items (that lives under `applyOptions.items.mode`).
+- **`applyOptions.weaponLevelOverride`** semantics:
+  - `useTemplateLevels=true` (no overrides) — honour the level
+    encoded in each entry. Default reading when `weaponLevelOverride`
+    is absent.
+  - `useTemplateLevels=false` with `standardOverride` /
+    `somberOverride` set — flatten every weapon-shaped item to the
+    named override (Phase 8C+ resolver decides per item which
+    override applies).
+  - `useTemplateLevels=false` with both overrides nil — leave live
+    upgrade levels untouched at apply time.
+  - `useTemplateLevels=true` alongside any override field is
+    rejected (no coherent reading).
+  - Per-override ranges: `standardOverride` 0–25, `somberOverride`
+    0–10.
+- **YAML strict mode**: `KnownFields(true)` still refuses unknown
+  top-level keys; `applyOptions` is now part of the known-fields set
+  via the `BuildTemplate` struct tag.
+- **v1 unaffected**: v1 documents must NOT carry the new fields (the
+  v1 validator branch does not look at them, and producers ship the
+  fields only on v2). Reading a v1 document with stray
+  `applyOptions` / `sections.items` keys is benign — the validator
+  ignores them as it already does for `selection`.
+- **Code added (this phase only)**:
+  - `backend/templates/schema_items_layout.go` — types, allowlists,
+    `validateItemsSection`, `validateLayoutSection`,
+    `validateApplyOptions`, `validateWeaponLevelOverride`,
+    `validateBooleanOnlySelection`.
+  - `backend/templates/schema_items_layout_test.go` — 30 structural
+    tests covering every allowlist branch, fail-closed branch,
+    duplicate-item identity, layout reference validation, and a
+    YAML marshal/parse round-trip.
+- **Modified**: `backend/templates/schema.go` only — three field
+  additions to `BuildTemplate`, `TemplateSections`,
+  `TemplateSelection`; `HasAnySelected()` updated; new section /
+  selection / apply-options branches grafted into
+  `validateBuildTemplateV2`.
+- **Validation**:
+  - `go vet ./backend/templates/...` — clean.
+  - `go test ./backend/templates/... -count=1` — all green
+    (existing + new).
+  - `go test ./backend/templates/... -run
+    'Test.*Item|Test.*Items|Test.*Layout|Test.*Override|Test.*Selection|Test.*Validate|Test.*YAML'
+    -count=1` — green.
+  - `go build ./backend/... ./` — green.
+- **Open follow-ups for Phase 8C+**:
+  - Decide the layout-position normalisation strategy when writing
+    back (current schema accepts non-dense positions; writer must
+    pick a canonical mapping).
+  - Decide whether `location: both` requires splitting `quantity`
+    proportionally or whether the apply mode policy is delegated to
+    the resolver.
+  - Decide whether `applyOptions.items.mode=replace` interacts with
+    talisman pouch cap (vanilla 1 + profile.talismanSlots) or with
+    DLC item gating (currency / faction lock items).
+  - Decide the v2 exporter's `category` source: trust
+    `editor.EditableItem.Category` verbatim, or re-resolve via
+    `backend/db/db.go::GetItemSubCategory`?
+
 ---
 
 ## 17a. Validation status

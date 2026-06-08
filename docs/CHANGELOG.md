@@ -4,6 +4,61 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): add v2 items layout schema (Phase 8B)
+
+Schema-only foundation for the v2 items / inventory layout / storage
+layout surface. Adds new sections, selection keys, and apply-options
+DTOs to `backend/templates` together with their structural validators.
+**No exporter, no importer, no apply path, no UI, no Wails bindings** —
+that work lands in Phase 8C+.
+
+New top-level fields on `BuildTemplate`:
+- `applyOptions` (optional) — `items`, `inventoryLayout`, `storageLayout`,
+  `weaponLevelOverride` sub-DTOs. v1 ignores it; v2 validator enforces
+  mode allowlists and override ranges.
+
+New `sections.*` keys (v2):
+- `items.entries[]` — flat list of `TemplateItemEntryV2`. Each entry has
+  a template-local `entryID` (stable string slug), `itemID`,
+  `category` (fail-closed allowlist of 18 categories from
+  `backend/db/data`), `quantity` (≥1, fail-closed on 0),
+  `location` (`inventory`/`storage`/`both`), `upgradeKind`
+  (`standard|somber|none`, empty string ≡ `none`), `upgradeLevel`
+  (validated per kind: standard 0–25, somber 0–10, omitted/nil for
+  none), `infusionName`, `ashOfWarItemID`.
+- `inventoryLayout.entries[]` / `storageLayout.entries[]` — ordered
+  `{entryRef, position}` pairs. `entryRef` must match an existing
+  `items.entries[*].entryID`. EntryRef + position must be unique within
+  the layout.
+
+New `selection.*` keys (boolean-only — no per-field maps): `items`,
+`inventoryLayout`, `storageLayout`. `HasAnySelected()` updated.
+
+Apply-mode allowlists (Phase 8C+ will honor these):
+- Items: `addMissing`, `updateExisting`, `merge`, `replace`
+  (destructive, opt-in).
+- Layout: `ignore`, `append`, `reorderOnly`, `replace`.
+
+`WeaponLevelOverride`: `useTemplateLevels=true` ⊥ `standardOverride`/
+`somberOverride`; bare struct (all nil + `useTemplateLevels=false`)
+means "leave live levels untouched."
+
+Decisions worth surfacing for Phase 8C:
+- **Item identity**: the template-local `entryID` is the only handle
+  layouts can use. Multiple entries may share `itemID` so the
+  "two Longswords, different Ashes" case round-trips faithfully.
+- **Layout reachability**: `inventoryLayout` / `storageLayout` always
+  validate against `sections.items`; a layout without an items section
+  is rejected by the entryRef check.
+- **YAML strict mode**: KnownFields(true) keeps refusing unknown
+  top-level keys; `applyOptions` is now part of the allowlist via the
+  `BuildTemplate` field.
+
+Tests: 30 new structural tests in
+`backend/templates/schema_items_layout_test.go` cover every allowlist,
+every fail-closed branch, the YAML round-trip, and the duplicate-item
+identity case. All existing tests still pass.
+
 ### chore(templates): remove public json template exchange (Phase 8A)
 
 YAML is now the **only** publicly accessible format for sharing build

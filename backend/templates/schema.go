@@ -80,13 +80,14 @@ const (
 //     documents must not include them and v2 documents must select them
 //     via Selection before they become load-bearing.
 type BuildTemplate struct {
-	Schema     string             `json:"schema" yaml:"schema"`
-	Version    int                `json:"version" yaml:"version"`
-	CreatedAt  string             `json:"createdAt" yaml:"createdAt"`
-	AppVersion string             `json:"appVersion,omitempty" yaml:"appVersion,omitempty"`
-	Metadata   *TemplateMetadata  `json:"metadata,omitempty" yaml:"metadata,omitempty"`
-	Selection  *TemplateSelection `json:"selection,omitempty" yaml:"selection,omitempty"`
-	Sections   TemplateSections   `json:"sections" yaml:"sections"`
+	Schema       string             `json:"schema" yaml:"schema"`
+	Version      int                `json:"version" yaml:"version"`
+	CreatedAt    string             `json:"createdAt" yaml:"createdAt"`
+	AppVersion   string             `json:"appVersion,omitempty" yaml:"appVersion,omitempty"`
+	Metadata     *TemplateMetadata  `json:"metadata,omitempty" yaml:"metadata,omitempty"`
+	Selection    *TemplateSelection `json:"selection,omitempty" yaml:"selection,omitempty"`
+	Sections     TemplateSections   `json:"sections" yaml:"sections"`
+	ApplyOptions *ApplyOptions      `json:"applyOptions,omitempty" yaml:"applyOptions,omitempty"`
 }
 
 // TemplateMetadata is purely informational. None of these fields drive
@@ -125,6 +126,9 @@ type TemplateSections struct {
 	Stats              *StatsSection              `json:"stats,omitempty" yaml:"stats,omitempty"`
 	Equipment          *EquipmentSection          `json:"equipment,omitempty" yaml:"equipment,omitempty"`
 	Spells             *SpellsSection             `json:"spells,omitempty" yaml:"spells,omitempty"`
+	Items              *ItemsSection              `json:"items,omitempty" yaml:"items,omitempty"`
+	InventoryLayout    *InventoryLayoutSection    `json:"inventoryLayout,omitempty" yaml:"inventoryLayout,omitempty"`
+	StorageLayout      *StorageLayoutSection      `json:"storageLayout,omitempty" yaml:"storageLayout,omitempty"`
 }
 
 // InventoryWorkspaceSection is the v1 payload — items from the
@@ -286,6 +290,9 @@ type TemplateSelection struct {
 	InventoryWorkspace *SectionSelection `json:"inventory.workspace,omitempty" yaml:"inventory.workspace,omitempty"`
 	Equipment          *SectionSelection `json:"equipment,omitempty" yaml:"equipment,omitempty"`
 	Spells             *SectionSelection `json:"spells,omitempty" yaml:"spells,omitempty"`
+	Items              *SectionSelection `json:"items,omitempty" yaml:"items,omitempty"`
+	InventoryLayout    *SectionSelection `json:"inventoryLayout,omitempty" yaml:"inventoryLayout,omitempty"`
+	StorageLayout      *SectionSelection `json:"storageLayout,omitempty" yaml:"storageLayout,omitempty"`
 }
 
 // SectionSelection is a per-section toggle that accepts either a
@@ -337,7 +344,14 @@ func (t *TemplateSelection) HasAnySelected() bool {
 	if t == nil {
 		return false
 	}
-	return t.Profile.HasAny() || t.Stats.HasAny() || t.InventoryWorkspace.HasAny() || t.Equipment.HasAny() || t.Spells.HasAny()
+	return t.Profile.HasAny() ||
+		t.Stats.HasAny() ||
+		t.InventoryWorkspace.HasAny() ||
+		t.Equipment.HasAny() ||
+		t.Spells.HasAny() ||
+		t.Items.HasAny() ||
+		t.InventoryLayout.HasAny() ||
+		t.StorageLayout.HasAny()
 }
 
 // UnmarshalJSON accepts either a JSON boolean (shortcut) or a JSON
@@ -536,6 +550,15 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 	if err := validateSpellsSelection(tpl.Selection.Spells); err != nil {
 		return err
 	}
+	if err := validateBooleanOnlySelection("selection.items", tpl.Selection.Items); err != nil {
+		return err
+	}
+	if err := validateBooleanOnlySelection("selection.inventoryLayout", tpl.Selection.InventoryLayout); err != nil {
+		return err
+	}
+	if err := validateBooleanOnlySelection("selection.storageLayout", tpl.Selection.StorageLayout); err != nil {
+		return err
+	}
 
 	if tpl.Selection.Profile.HasAny() && tpl.Sections.Profile == nil {
 		return fmt.Errorf("ValidateBuildTemplate: selection.profile is selected but sections.profile is missing")
@@ -551,6 +574,15 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 	}
 	if tpl.Selection.Spells.HasAny() && tpl.Sections.Spells == nil {
 		return fmt.Errorf("ValidateBuildTemplate: selection.spells is selected but sections.spells is missing")
+	}
+	if tpl.Selection.Items.HasAny() && tpl.Sections.Items == nil {
+		return fmt.Errorf("ValidateBuildTemplate: selection.items is selected but sections.items is missing")
+	}
+	if tpl.Selection.InventoryLayout.HasAny() && tpl.Sections.InventoryLayout == nil {
+		return fmt.Errorf("ValidateBuildTemplate: selection.inventoryLayout is selected but sections.inventoryLayout is missing")
+	}
+	if tpl.Selection.StorageLayout.HasAny() && tpl.Sections.StorageLayout == nil {
+		return fmt.Errorf("ValidateBuildTemplate: selection.storageLayout is selected but sections.storageLayout is missing")
 	}
 
 	if tpl.Sections.Profile != nil {
@@ -578,6 +610,26 @@ func validateBuildTemplateV2(tpl *BuildTemplate) error {
 	}
 	if tpl.Sections.Spells != nil {
 		if err := validateSpellsSection(tpl.Sections.Spells); err != nil {
+			return err
+		}
+	}
+	if tpl.Sections.Items != nil {
+		if err := validateItemsSection(tpl.Sections.Items); err != nil {
+			return err
+		}
+	}
+	if tpl.Sections.InventoryLayout != nil {
+		if err := validateLayoutSection("inventoryLayout.entries", tpl.Sections.InventoryLayout.Entries, tpl.Sections.Items); err != nil {
+			return err
+		}
+	}
+	if tpl.Sections.StorageLayout != nil {
+		if err := validateLayoutSection("storageLayout.entries", tpl.Sections.StorageLayout.Entries, tpl.Sections.Items); err != nil {
+			return err
+		}
+	}
+	if tpl.ApplyOptions != nil {
+		if err := validateApplyOptions(tpl.ApplyOptions); err != nil {
 			return err
 		}
 	}
