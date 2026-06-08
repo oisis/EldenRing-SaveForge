@@ -275,15 +275,23 @@ export function ImportTemplatePreviewModal({
                                         <span className="font-bold">{storageLayoutCount}</span>
                                     </div>
                                     {itemsSectionSelected && (
-                                        <div
-                                            data-testid="import-preview-items-apply-supported"
-                                            className="text-[10px] text-emerald-300/90"
-                                        >
-                                            Items: apply supported (add missing only).
-                                            {hasLayoutAlongsideItems
-                                                ? ' Inventory layout / storage layout are export-only and will be ignored on apply.'
-                                                : ''}
-                                        </div>
+                                        <>
+                                            <div
+                                                data-testid="import-preview-items-apply-supported"
+                                                className="text-[10px] text-emerald-300/90"
+                                            >
+                                                Items: apply supported (add missing only).
+                                                {hasLayoutAlongsideItems
+                                                    ? ' Inventory layout / storage layout are export-only and will be ignored on apply.'
+                                                    : ''}
+                                            </div>
+                                            <div
+                                                data-testid="import-preview-items-weapon-hint"
+                                                className="text-[10px] text-muted-foreground italic"
+                                            >
+                                                Direct Apply uses template / default upgrade levels. Use “Apply with overrides…” to override standard (+0–25) or somber (+0–10) weapon levels for newly added items.
+                                            </div>
+                                        </>
                                     )}
                                     {!itemsSectionSelected && layoutOnlySectionsPresent.length > 0 && (
                                         <div

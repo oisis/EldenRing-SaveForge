@@ -644,12 +644,20 @@ export function TemplateLibraryModal({
                                                     </div>
                                                 )}
                                                 {hasItemsSection && (
-                                                    <div
-                                                        data-testid="library-apply-v2-items-mode"
-                                                        className="text-muted-foreground"
-                                                    >
-                                                        Items mode: <span className="font-bold">Add missing only</span> — existing items are preserved.
-                                                    </div>
+                                                    <>
+                                                        <div
+                                                            data-testid="library-apply-v2-items-mode"
+                                                            className="text-muted-foreground"
+                                                        >
+                                                            Items mode: <span className="font-bold">Add missing only</span> — existing items are preserved.
+                                                        </div>
+                                                        <div
+                                                            data-testid="library-apply-v2-weapon-hint"
+                                                            className="text-muted-foreground italic"
+                                                        >
+                                                            Direct Apply uses template / default upgrade levels. Use “Apply with overrides…” to override weapon levels for newly added items.
+                                                        </div>
+                                                    </>
                                                 )}
                                                 {layoutIgnoredOnApply && (
                                                     <div

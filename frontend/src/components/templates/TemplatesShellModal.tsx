@@ -346,16 +346,47 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
                 throw new Error(NO_SESSION_MESSAGE);
             }
+            // Phase 8D.3 — for items-bearing library entries we want
+            // applyOptions.items.mode to land on the wire explicitly,
+            // mirroring the imported preview / overrides apply paths.
+            // ApplyBuildTemplateV2FromLibraryToCharacter accepts only
+            // (charIdx, id, opts) and the entry's stored applyOptions
+            // are read inside the backend with no per-call override
+            // hook, so we route via PreviewBuildTemplateFromLibrary
+            // (which returns canonical JSON) + the JSON apply binding.
+            // For profile/stats/equipment/spells-only entries this
+            // round-trip is unnecessary noise, so the FromLibrary path
+            // stays. The two backends share applyBuildTemplateV2
+            // internally — switching paths does not change semantics.
             let result: main.ApplyTemplateV2Result;
             try {
-                result = await ApplyBuildTemplateV2FromLibraryToCharacter(
-                    charIndex,
-                    entry.id,
-                    main.ApplyTemplateV2Options.createFrom({
-                        mode: 'append',
-                        sessionID: sessionID ?? '',
-                    }),
-                );
+                if (hasItems) {
+                    const preview = await PreviewBuildTemplateFromLibrary(entry.id);
+                    if (!preview.report?.ok) {
+                        const firstErr =
+                            preview.report?.errors?.[0]?.message ?? 'Library preview rejected.';
+                        toast.error(`Templates: ${firstErr}`);
+                        throw new Error(firstErr);
+                    }
+                    const payloadJSON = injectExplicitAddMissing(preview.json ?? '');
+                    result = await ApplyBuildTemplateV2ToCharacterJSON(
+                        charIndex,
+                        payloadJSON,
+                        main.ApplyTemplateV2Options.createFrom({
+                            mode: 'append',
+                            sessionID: sessionID ?? '',
+                        }),
+                    );
+                } else {
+                    result = await ApplyBuildTemplateV2FromLibraryToCharacter(
+                        charIndex,
+                        entry.id,
+                        main.ApplyTemplateV2Options.createFrom({
+                            mode: 'append',
+                            sessionID: sessionID ?? '',
+                        }),
+                    );
+                }
             } catch (err) {
                 toast.error(`Templates: ${String(err)}`);
                 throw err;
@@ -722,18 +753,95 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
     );
 }
 
-// ApplyItemsResultModal — Phase 8D.2. Surfaces the per-items detail
-// of an ApplyTemplateV2Result after sections.items was part of the
-// apply: applied inventory / storage counts, the canonical
-// items_already_present skip list, layout-ignored warnings, weapon
-// override clamps, and any other backend issue codes that flowed
-// through report.warnings or report.skips. Profile/stats-only applies
-// never open this modal — those keep the existing toast UX.
+// ApplyItemsResultModal — Phase 8D.2 (8D.3 polish). Surfaces the
+// per-items detail of an ApplyTemplateV2Result after sections.items
+// was part of the apply: applied inventory / storage counts, the
+// canonical items_already_present skip list, layout-ignored warnings,
+// weapon override clamps, and any other backend issue codes that
+// flowed through preview.warnings. Profile/stats-only applies never
+// open this modal — those keep the existing toast UX.
+//
+// Phase 8D.4 follow-up: backend AppliedFields currently emits the
+// literal "items" string rather than per-entry IDs. Once that lands,
+// the Added section can list the actual entryIDs that materialised
+// (today only counts come from inventoryItemsApplied /
+// storageItemsApplied). Warnings already carry entryID prefixes in
+// their `message` field — we render those as-is.
 interface ApplyItemsResultModalProps {
     sourceLabel: string;
     charIndex: number;
     result: main.ApplyTemplateV2Result;
     onClose: () => void;
+}
+
+// WARNING_PREVIEW_LIMIT — Phase 8D.3 polish: cap each warning section
+// at this many lines, with a "+ N more (total: X)" suffix when the
+// real list is longer. Limit chosen so a 200-entry add-missing apply
+// with a fully-occupied inventory still fits on a single 80-vh modal
+// without scrolling jail.
+const WARNING_PREVIEW_LIMIT = 5;
+
+interface WarningGroupProps {
+    testId: string;
+    title: string;
+    items: templates.ImportPreviewIssue[];
+    tone: 'muted' | 'amber';
+    showCodePrefix?: boolean;
+}
+
+function WarningGroup({
+    testId,
+    title,
+    items,
+    tone,
+    showCodePrefix = false,
+}: WarningGroupProps) {
+    if (items.length === 0) return null;
+    const visible = items.slice(0, WARNING_PREVIEW_LIMIT);
+    const hiddenCount = Math.max(0, items.length - visible.length);
+    const headerClass =
+        tone === 'amber'
+            ? 'text-[10px] font-bold uppercase tracking-wider text-amber-200'
+            : 'text-[10px] font-bold uppercase tracking-wider text-muted-foreground';
+    const itemClass = tone === 'amber' ? 'text-amber-100' : 'text-muted-foreground';
+    return (
+        <section
+            data-testid={testId}
+            aria-label={title}
+            data-warning-severity="info"
+            className="space-y-1"
+        >
+            <h3 className={headerClass}>
+                {title} ({items.length})
+            </h3>
+            <ul className="space-y-0.5 list-disc pl-5">
+                {visible.map((w, i) => (
+                    <li key={i} className={itemClass}>
+                        {showCodePrefix && (
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                                [{w.code}]
+                            </span>
+                        )}
+                        {showCodePrefix ? ' ' : ''}
+                        {w.container ? (
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                                ({w.container}){' '}
+                            </span>
+                        ) : null}
+                        {w.message}
+                    </li>
+                ))}
+                {hiddenCount > 0 && (
+                    <li
+                        data-testid={`${testId}-more`}
+                        className="text-[10px] text-muted-foreground italic list-none -ml-5"
+                    >
+                        + {hiddenCount} more (total: {items.length})
+                    </li>
+                )}
+            </ul>
+        </section>
+    );
 }
 
 function ApplyItemsResultModal({
@@ -744,30 +852,29 @@ function ApplyItemsResultModal({
 }: ApplyItemsResultModalProps) {
     const warnings = result.preview?.warnings ?? [];
     const skippedFields = result.skippedFields ?? [];
-    const layoutIgnored = warnings.filter(
-        w => w.code === 'items_layout_ignored',
-    );
-    const alreadyPresent = warnings.filter(
-        w => w.code === 'items_already_present',
-    );
-    const unsupportedCategory = warnings.filter(
-        w => w.code === 'unsupported_category',
-    );
-    const weaponClamped = warnings.filter(
-        w => w.code === 'weapon_level_clamped' || w.code === 'weapon_unupgradeable',
-    );
-    const templateOverrideIgnored = warnings.filter(
-        w => w.code === 'items_template_override_ignored',
-    );
-    const otherWarnings = warnings.filter(
-        w =>
-            w.code !== 'items_layout_ignored' &&
-            w.code !== 'items_already_present' &&
-            w.code !== 'unsupported_category' &&
-            w.code !== 'weapon_level_clamped' &&
-            w.code !== 'weapon_unupgradeable' &&
-            w.code !== 'items_template_override_ignored',
-    );
+    const grouped = new Map<string, templates.ImportPreviewIssue[]>();
+    for (const w of warnings) {
+        const arr = grouped.get(w.code) ?? [];
+        arr.push(w);
+        grouped.set(w.code, arr);
+    }
+    const layoutIgnored = grouped.get('items_layout_ignored') ?? [];
+    const alreadyPresent = grouped.get('items_already_present') ?? [];
+    const unsupportedCategory = grouped.get('unsupported_category') ?? [];
+    const weaponClamped = [
+        ...(grouped.get('weapon_level_clamped') ?? []),
+        ...(grouped.get('weapon_unupgradeable') ?? []),
+    ];
+    const templateOverrideIgnored = grouped.get('items_template_override_ignored') ?? [];
+    const KNOWN_CODES = new Set([
+        'items_layout_ignored',
+        'items_already_present',
+        'unsupported_category',
+        'weapon_level_clamped',
+        'weapon_unupgradeable',
+        'items_template_override_ignored',
+    ]);
+    const otherWarnings = warnings.filter(w => !KNOWN_CODES.has(w.code));
     return (
         <div
             data-testid="items-apply-result-modal"
@@ -804,117 +911,43 @@ function ApplyItemsResultModal({
                             <span className="font-bold">{result.storageItemsApplied}</span>
                         </div>
                     </section>
-                    {alreadyPresent.length > 0 && (
-                        <section
-                            data-testid="items-apply-result-already-present"
-                            aria-label="Skipped — already present"
-                            className="space-y-1"
-                        >
-                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                Skipped — already present ({alreadyPresent.length})
-                            </h3>
-                            <ul className="space-y-0.5 list-disc pl-5">
-                                {alreadyPresent.map((w, i) => (
-                                    <li key={i} className="text-muted-foreground">
-                                        {w.message}
-                                    </li>
-                                ))}
-                            </ul>
-                        </section>
-                    )}
-                    {unsupportedCategory.length > 0 && (
-                        <section
-                            data-testid="items-apply-result-unsupported-category"
-                            aria-label="Skipped — unsupported category"
-                            className="space-y-1"
-                        >
-                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
-                                Skipped — unsupported category ({unsupportedCategory.length})
-                            </h3>
-                            <ul className="space-y-0.5 list-disc pl-5">
-                                {unsupportedCategory.map((w, i) => (
-                                    <li key={i} className="text-amber-100">
-                                        {w.message}
-                                    </li>
-                                ))}
-                            </ul>
-                        </section>
-                    )}
-                    {layoutIgnored.length > 0 && (
-                        <section
-                            data-testid="items-apply-result-layout-ignored"
-                            aria-label="Layout ignored"
-                            className="space-y-1"
-                        >
-                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
-                                Layout ignored ({layoutIgnored.length})
-                            </h3>
-                            <ul className="space-y-0.5 list-disc pl-5">
-                                {layoutIgnored.map((w, i) => (
-                                    <li key={i} className="text-amber-100">
-                                        {w.message}
-                                    </li>
-                                ))}
-                            </ul>
-                        </section>
-                    )}
-                    {weaponClamped.length > 0 && (
-                        <section
-                            data-testid="items-apply-result-weapon-warnings"
-                            aria-label="Weapon level override warnings"
-                            className="space-y-1"
-                        >
-                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
-                                Weapon level overrides ({weaponClamped.length})
-                            </h3>
-                            <ul className="space-y-0.5 list-disc pl-5">
-                                {weaponClamped.map((w, i) => (
-                                    <li key={i} className="text-amber-100">
-                                        {w.message}
-                                    </li>
-                                ))}
-                            </ul>
-                        </section>
-                    )}
-                    {templateOverrideIgnored.length > 0 && (
-                        <section
-                            data-testid="items-apply-result-template-override-ignored"
-                            aria-label="Template weapon override ignored"
-                            className="space-y-1"
-                        >
-                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                                Template weapon override ignored
-                            </h3>
-                            <ul className="space-y-0.5 list-disc pl-5">
-                                {templateOverrideIgnored.map((w, i) => (
-                                    <li key={i} className="text-muted-foreground">
-                                        {w.message}
-                                    </li>
-                                ))}
-                            </ul>
-                        </section>
-                    )}
-                    {otherWarnings.length > 0 && (
-                        <section
-                            data-testid="items-apply-result-other-warnings"
-                            aria-label="Other warnings"
-                            className="space-y-1"
-                        >
-                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
-                                Other warnings ({otherWarnings.length})
-                            </h3>
-                            <ul className="space-y-0.5 list-disc pl-5">
-                                {otherWarnings.map((w, i) => (
-                                    <li key={i} className="text-amber-100">
-                                        <span className="font-mono text-[10px] text-muted-foreground">
-                                            [{w.code}]
-                                        </span>{' '}
-                                        {w.message}
-                                    </li>
-                                ))}
-                            </ul>
-                        </section>
-                    )}
+                    <WarningGroup
+                        testId="items-apply-result-already-present"
+                        title="Skipped — already present"
+                        items={alreadyPresent}
+                        tone="muted"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-unsupported-category"
+                        title="Skipped — unsupported category"
+                        items={unsupportedCategory}
+                        tone="amber"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-layout-ignored"
+                        title="Layout ignored (export-only)"
+                        items={layoutIgnored}
+                        tone="amber"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-weapon-warnings"
+                        title="Weapon level overrides"
+                        items={weaponClamped}
+                        tone="amber"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-template-override-ignored"
+                        title="Template weapon override ignored"
+                        items={templateOverrideIgnored}
+                        tone="muted"
+                    />
+                    <WarningGroup
+                        testId="items-apply-result-other-warnings"
+                        title="Other warnings"
+                        items={otherWarnings}
+                        tone="amber"
+                        showCodePrefix
+                    />
                     {skippedFields.length > 0 && (
                         <section
                             data-testid="items-apply-result-skipped-fields"

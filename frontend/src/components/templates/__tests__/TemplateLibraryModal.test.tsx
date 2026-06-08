@@ -925,6 +925,45 @@ describe('TemplateLibraryModal — Phase 8D.2 items entries', () => {
         ).not.toBeInTheDocument();
     });
 
+    it('Phase 8D.3 — items entry shows the Apply-with-overrides weapon hint in the confirm row', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ItemsEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        const hint = screen.getByTestId('library-apply-v2-weapon-hint');
+        expect(hint).toHaveTextContent(/Apply with overrides/);
+        expect(hint).toHaveTextContent(/weapon levels/i);
+    });
+
+    it('Phase 8D.3 — non-items v2 entry does NOT render the items weapon hint', async () => {
+        const v2ProfileOnlyEntry = {
+            ...v2ItemsEntry,
+            id: 'tpl-v2-profile',
+            name: 'V2 Profile Only',
+            selectedSections: ['profile', 'stats'],
+        };
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ProfileOnlyEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        expect(
+            screen.queryByTestId('library-apply-v2-weapon-hint'),
+        ).not.toBeInTheDocument();
+        expect(
+            screen.queryByTestId('library-apply-v2-items-mode'),
+        ).not.toBeInTheDocument();
+    });
+
     it('Phase 8D.2 — items + layout entry enables Apply and shows the layout-ignored warning in the confirm row', async () => {
         mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ItemsPlusLayoutEntry]);
         const onApplyV2 = vi.fn();

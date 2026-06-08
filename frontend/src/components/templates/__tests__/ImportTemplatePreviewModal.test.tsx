@@ -1022,6 +1022,46 @@ describe('ImportTemplatePreviewModal — Phase 8C.1 items / inventoryLayout / st
         ).toMatch(/layout.*ignored/i);
     });
 
+    it('Phase 8D.3 — items-bearing template shows the Apply-with-overrides weapon hint', () => {
+        const report = makeReport({ summary: itemsSummary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const hint = screen.getByTestId('import-preview-items-weapon-hint');
+        expect(hint).toHaveTextContent(/Apply with overrides/);
+        expect(hint).toHaveTextContent(/standard.*0–25/);
+        expect(hint).toHaveTextContent(/somber.*0–10/);
+    });
+
+    it('Phase 8D.3 — items-bearing weapon hint is absent when no items section is selected', () => {
+        const report = makeReport({
+            summary: itemsSummary({
+                selectedSections: ['inventoryLayout'],
+                itemsEntries: 0,
+                inventoryLayoutCount: 3,
+                storageLayoutCount: 0,
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(
+            screen.queryByTestId('import-preview-items-weapon-hint'),
+        ).not.toBeInTheDocument();
+    });
+
     it('Phase 8D.2 — items-only template enables Apply and renders the supported copy without a layout-ignored note', () => {
         const report = makeReport({
             summary: itemsSummary({
