@@ -1897,6 +1897,9 @@ export namespace templates {
 	    statFieldsPresent?: string[];
 	    equipmentSlotsPresent?: string[];
 	    spellSlotsPresent?: string[];
+	    itemsEntries?: number;
+	    inventoryLayoutCount?: number;
+	    storageLayoutCount?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ImportPreviewSummary(source);
@@ -1917,6 +1920,9 @@ export namespace templates {
 	        this.statFieldsPresent = source["statFieldsPresent"];
 	        this.equipmentSlotsPresent = source["equipmentSlotsPresent"];
 	        this.spellSlotsPresent = source["spellSlotsPresent"];
+	        this.itemsEntries = source["itemsEntries"];
+	        this.inventoryLayoutCount = source["inventoryLayoutCount"];
+	        this.storageLayoutCount = source["storageLayoutCount"];
 	    }
 	}
 	export class ImportPreviewReport {

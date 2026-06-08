@@ -362,3 +362,72 @@ describe('CreateTemplateV2Modal — Save from preview flow', () => {
         expect(screen.getByTestId('import-preview-modal')).toBeInTheDocument();
     });
 });
+
+describe('CreateTemplateV2Modal — containers (Phase 8C.1)', () => {
+    it('renders items, inventory layout, and storage layout checkboxes with the export-only badge', () => {
+        render(<CreateTemplateV2Modal {...defaultProps()} />);
+        expect(screen.getByTestId('create-template-v2-items')).toBeInTheDocument();
+        expect(screen.getByTestId('create-template-v2-inventory-layout')).toBeInTheDocument();
+        expect(screen.getByTestId('create-template-v2-storage-layout')).toBeInTheDocument();
+        expect(screen.getByTestId('create-template-v2-containers-export-only')).toBeInTheDocument();
+    });
+
+    it('keeps layout checkboxes disabled until Items is selected', () => {
+        render(<CreateTemplateV2Modal {...defaultProps()} />);
+        const inv = screen.getByTestId('create-template-v2-inventory-layout') as HTMLInputElement;
+        const sto = screen.getByTestId('create-template-v2-storage-layout') as HTMLInputElement;
+        expect(inv.disabled).toBe(true);
+        expect(sto.disabled).toBe(true);
+        fireEvent.click(screen.getByTestId('create-template-v2-items'));
+        expect((screen.getByTestId('create-template-v2-inventory-layout') as HTMLInputElement).disabled).toBe(false);
+        expect((screen.getByTestId('create-template-v2-storage-layout') as HTMLInputElement).disabled).toBe(false);
+    });
+
+    it('unchecking Items clears layout selections and re-disables the layout checkboxes', () => {
+        render(<CreateTemplateV2Modal {...defaultProps()} />);
+        fireEvent.click(screen.getByTestId('create-template-v2-items'));
+        fireEvent.click(screen.getByTestId('create-template-v2-inventory-layout'));
+        fireEvent.click(screen.getByTestId('create-template-v2-storage-layout'));
+        fireEvent.click(screen.getByTestId('create-template-v2-items'));
+        const inv = screen.getByTestId('create-template-v2-inventory-layout') as HTMLInputElement;
+        const sto = screen.getByTestId('create-template-v2-storage-layout') as HTMLInputElement;
+        expect(inv.checked).toBe(false);
+        expect(sto.checked).toBe(false);
+        expect(inv.disabled).toBe(true);
+        expect(sto.disabled).toBe(true);
+    });
+
+    it('Items alone enables Preview and sends items=true in selection JSON', async () => {
+        mocks.PreviewBuildTemplateV2FromCharacter.mockResolvedValue({ report: makeV2Report(['items']) });
+        render(<CreateTemplateV2Modal {...defaultProps({ charIndex: 4 })} />);
+
+        fireEvent.click(screen.getByTestId('create-template-v2-items'));
+        expect((screen.getByTestId('create-template-v2-preview') as HTMLButtonElement).disabled).toBe(false);
+
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('create-template-v2-preview'));
+        });
+
+        await waitFor(() => expect(mocks.PreviewBuildTemplateV2FromCharacter).toHaveBeenCalledTimes(1));
+        const json = mocks.PreviewBuildTemplateV2FromCharacter.mock.calls[0][1] as string;
+        expect(JSON.parse(json)).toEqual({ items: true });
+    });
+
+    it('Items + Inventory layout sends both selectors; storage stays off', async () => {
+        mocks.PreviewBuildTemplateV2FromCharacter.mockResolvedValue({
+            report: makeV2Report(['items', 'inventoryLayout']),
+        });
+        render(<CreateTemplateV2Modal {...defaultProps({ charIndex: 2 })} />);
+
+        fireEvent.click(screen.getByTestId('create-template-v2-items'));
+        fireEvent.click(screen.getByTestId('create-template-v2-inventory-layout'));
+
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('create-template-v2-preview'));
+        });
+
+        await waitFor(() => expect(mocks.PreviewBuildTemplateV2FromCharacter).toHaveBeenCalledTimes(1));
+        const json = mocks.PreviewBuildTemplateV2FromCharacter.mock.calls[0][1] as string;
+        expect(JSON.parse(json)).toEqual({ items: true, inventoryLayout: true });
+    });
+});

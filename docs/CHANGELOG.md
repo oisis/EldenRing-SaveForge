@@ -4,6 +4,83 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): wire v2 items layout export UI (Phase 8C.1)
+
+App layer + UI wiring for the Phase 8C items / inventoryLayout /
+storageLayout sections. **Still export-only**: apply for these
+sections remains unsupported and the existing modal-level allowlist
+keeps the Apply button disabled when a template carries any of them.
+
+App layer (`app_templates_v2.go`):
+- `ExportBuildTemplateV2JSONFromCharacter`,
+  `ExportBuildTemplateV2YAMLFromCharacter`,
+  `PreviewBuildTemplateV2FromCharacter`, and
+  `SaveBuildTemplateV2FromCharacterToLibrary` now derive an
+  `ItemsLayoutSource` from the live character whenever the
+  selection includes `items`, `inventoryLayout`, or `storageLayout`.
+- New helper `(*App).buildItemsSourceForCharacter(charIndex)` reuses
+  `editor.BuildSnapshot` under the same `saveMu.RLock + slotMu` pattern
+  as `GetCharacter` (mirrors `app_save_audit.go`). No save mutation,
+  no edit session required, no raw handles surface to JS.
+- Selection that mentions layout without items is rejected up-front by
+  `BuildV2Template`'s guard — surfaced verbatim to the JS caller.
+
+Preview / library summary (`backend/templates/import.go`):
+- `ImportPreviewSummary` gains `itemsEntries`, `inventoryLayoutCount`,
+  `storageLayoutCount`. Counts are read directly from
+  `tpl.Sections.{Items,InventoryLayout,StorageLayout}`.
+- `selectedSectionsForTemplate` now emits `items`, `inventoryLayout`,
+  and `storageLayout` alongside the existing entries so the modal
+  gating (`V2_APPLY_SUPPORTED_SECTIONS`) automatically treats them
+  as unsupported and disables Apply.
+- `LibraryTemplateEntry.SelectedSections` therefore also captures the
+  new entries — no library schema rewrite needed.
+
+UI (`frontend/src/components/templates/CreateTemplateV2Modal.tsx`):
+- New "Containers" section with three checkboxes: Items, Inventory
+  layout, Storage layout. Labelled as **Export-only** via a high-
+  contrast pill and a single descriptive line.
+- **Decision: layout disabled until Items is checked.** The label
+  reads "Inventory layout (requires items)" / "Storage layout
+  (requires items)" with a tooltip explaining why. Unchecking Items
+  clears + re-disables both layout checkboxes. Alternative considered
+  — auto-checking Items when the user picks layout — was rejected
+  because the implicit state change can surprise the user. The
+  explicit gate matches the backend `BuildV2Template` guard exactly.
+- `buildSelectionJSON` accepts an optional `containers` argument and
+  emits `items: true` / `inventoryLayout: true` / `storageLayout:
+  true` flags at the top level (matches the backend parser).
+
+UI (`frontend/src/components/templates/ImportTemplatePreviewModal.tsx`):
+- v2 metadata block now shows Items / Inventory layout / Storage
+  layout counts when any are non-zero, plus a short export-only
+  note.
+- Disabled-Apply tooltip extended: it now explicitly names "Items /
+  inventoryLayout / storageLayout are export-only".
+
+Wails bindings regenerated for the three new
+`ImportPreviewSummary` fields. No new App methods, no struct rename
+— bindings noise stayed minimal.
+
+Tests:
+- Backend (`app_templates_v2_items_test.go`): export with items
+  only, export with items + layout, layout-without-items rejection,
+  preview counts in summary, library save preserves
+  items/layout/SelectedSections, apply gating still blocks
+  items-only payloads.
+- Frontend (`CreateTemplateV2Modal.test.tsx`,
+  `ImportTemplatePreviewModal.test.tsx`): containers checkboxes
+  render, disabled-without-items behaviour, selection JSON wire
+  format, preview counts surface, Apply stays disabled when items
+  is in `selectedSections`.
+
+What stays explicitly out of scope (Phase 8D+ candidates):
+- Apply for items / inventoryLayout / storageLayout.
+- Inventory / storage writers driven from these sections.
+- Manual layout validation, weapon-level override apply for
+  imported items.
+- Public JSON exchange (removed in Phase 8A and still gone).
+
 ### feat(templates): export v2 items and layout (Phase 8C)
 
 Backend builder for the v2 items / inventoryLayout / storageLayout

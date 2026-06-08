@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 	"github.com/oisis/EldenRing-SaveForge/backend/templates"
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 )
@@ -115,6 +116,15 @@ func (a *App) buildAndValidateTemplateV2FromCharacter(charIndex int, selectionJS
 		return nil, "", err
 	}
 	profile, stats := buildTemplateV2SourcesFromCharacter(charVM, selection)
+	var itemsSource *templates.ItemsLayoutSource
+	if selection.Items.HasAny() ||
+		selection.InventoryLayout.HasAny() ||
+		selection.StorageLayout.HasAny() {
+		itemsSource, err = a.buildItemsSourceForCharacter(charIndex)
+		if err != nil {
+			return nil, "", fmt.Errorf("build v2 items source: %w", err)
+		}
+	}
 	tags := opts.Tags
 	if tags == nil {
 		tags = []string{}
@@ -129,9 +139,10 @@ func (a *App) buildAndValidateTemplateV2FromCharacter(charIndex int, selectionJS
 			SourceCharacterIndex: charIndex,
 			SourceCharacterName:  charVM.Name,
 		},
-		Profile:   profile,
-		Stats:     stats,
-		Selection: selection,
+		Profile:     profile,
+		Stats:       stats,
+		ItemsSource: itemsSource,
+		Selection:   selection,
 	})
 	if err != nil {
 		return nil, "", fmt.Errorf("build v2 template: %w", err)
@@ -209,4 +220,33 @@ func (a *App) SaveBuildTemplateV2FromCharacterToLibrary(charIndex int, selection
 		return templates.LibraryTemplateEntry{}, err
 	}
 	return lib.SaveTemplate(tpl)
+}
+
+// buildItemsSourceForCharacter builds a read-only ItemsLayoutSource from
+// the live slot data of charIndex. Used by the v2 export pipeline when
+// selection asks for items / inventoryLayout / storageLayout — the save
+// is not mutated and no edit session is required.
+//
+// Locks: saveMu.RLock for the swap-safe a.save pointer, then slotMu
+// for the duration of BuildSnapshot so a concurrent writer cannot torn
+// the slot bytes mid-scan. Matches the audit pattern in app_save_audit.go.
+func (a *App) buildItemsSourceForCharacter(charIndex int) (*templates.ItemsLayoutSource, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIndex < 0 || charIndex >= len(a.save.Slots) {
+		return nil, fmt.Errorf("invalid slot index %d", charIndex)
+	}
+	a.slotMu[charIndex].Lock()
+	defer a.slotMu[charIndex].Unlock()
+	snap, err := editor.BuildSnapshot(&a.save.Slots[charIndex], "", charIndex)
+	if err != nil {
+		return nil, err
+	}
+	return &templates.ItemsLayoutSource{
+		InventoryItems: snap.InventoryItems,
+		StorageItems:   snap.StorageItems,
+	}, nil
 }

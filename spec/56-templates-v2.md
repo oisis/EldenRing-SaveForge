@@ -1283,6 +1283,167 @@ loadout — and Test B — partial leave-unchanged — both passed; see
     keeps the exporter cheap and the per-row notice surfaces the
     decision to the user.
 
+### Phase 8C.1 — v2 items / layout App layer + UI export wiring (shipped 2026-06-08)
+
+- **Goal**: connect the Phase 8C export-only builder to the live
+  character so the four user-facing endpoints (JSON export, YAML
+  export, preview, library save) can ship the new sections, and
+  surface the choice in the Create modal. Apply remains unsupported.
+- **Scope**: App layer wiring, `CreateTemplateV2Modal` checkboxes,
+  preview/library counts, import-preview tooltip extension. **No
+  apply, no inventory/storage writer, no manual layout validation,
+  no public JSON re-introduction.**
+- **App layer (`app_templates_v2.go`)**:
+  - `buildAndValidateTemplateV2FromCharacter` now constructs an
+    `ItemsLayoutSource` whenever the parsed `TemplateSelection` has
+    `Items.HasAny()`, `InventoryLayout.HasAny()`, or
+    `StorageLayout.HasAny()`. The source is passed verbatim to
+    `templates.BuildV2Template`; the existing Phase 8C guards then
+    reject layout-without-items and missing-source combinations at
+    the builder boundary.
+  - All four endpoints (`ExportBuildTemplateV2JSONFromCharacter`,
+    `ExportBuildTemplateV2YAMLFromCharacter`,
+    `PreviewBuildTemplateV2FromCharacter`,
+    `SaveBuildTemplateV2FromCharacterToLibrary`) share this helper
+    and therefore reach the new path with no per-endpoint copy.
+  - New private helper `(*App).buildItemsSourceForCharacter(charIndex int)`
+    reuses `editor.BuildSnapshot(slot, "", charIndex)` under the
+    `saveMu.RLock + slotMu[charIndex].Lock` pattern already used by
+    `app_save_audit.go::AuditAllSlots`. Empty sessionID is correct —
+    `BuildSnapshot`'s sessionID is metadata only; the export does
+    not start an edit session. No save bytes change, no GA handle
+    reaches JS, no raw record surfaces as a public contract.
+- **`ImportPreviewSummary` (`backend/templates/import.go`)**:
+  - Three new fields: `ItemsEntries`, `InventoryLayoutCount`,
+    `StorageLayoutCount`. Populated directly from
+    `tpl.Sections.{Items,InventoryLayout,StorageLayout}` length; zero
+    for v1 documents and for v2 documents that did not opt in.
+  - `selectedSectionsForTemplate` now appends `items`,
+    `inventoryLayout`, `storageLayout` when their selection has any
+    field. This means `LibraryTemplateEntry.SelectedSections` also
+    carries them (the same helper builds both), so the library
+    surface shows what's inside without a separate counts column.
+- **`CreateTemplateV2Modal.tsx`** — UI:
+  - New "Containers" section under Stats with three checkboxes:
+    Items, Inventory layout, Storage layout. The section header is
+    paired with an "Export-only" pill and a one-line description
+    that calls out the export-only scope explicitly.
+  - **Decision: layout disabled until Items is checked.** Both
+    layout checkboxes have `disabled={!includeItems}`; the labels
+    read "Inventory layout (requires items)" / "Storage layout
+    (requires items)" with a tooltip explaining why ("Select Items
+    first — layout entries reference item IDs."). Unchecking Items
+    clears `includeInventoryLayout`/`includeStorageLayout` and
+    re-disables both checkboxes.
+  - **Why disabled over auto-check**: the
+    `BuildV2Template` guard already rejects layout-without-items, so
+    only one of "auto-check Items" or "disable layout" matches the
+    backend. Auto-check would silently flip a checkbox the user
+    didn't click — a hidden state change the user sees only when
+    they review the YAML, with no in-modal explanation. Disabling
+    the layout checkboxes makes the dependency visible, the tooltip
+    explains the contract, and the user cannot reach an
+    invalid-from-the-backend state at any intermediate render.
+  - `buildSelectionJSON` gains an optional `containers` argument
+    that emits top-level `items: true` / `inventoryLayout: true` /
+    `storageLayout: true` flags. The selection-JSON parser already
+    accepts the boolean shape (Phase 8B); no parser change needed.
+  - The Preview button enables for Items-only selections too — a
+    template that only carries items + (optionally) layout is a
+    valid v2 document. Items still satisfies `HasAnySelected()`.
+- **`ImportTemplatePreviewModal.tsx`** — preview / library badge:
+  - When any of the three counts is non-zero, the v2 metadata block
+    renders three new rows ("Items entries", "Inventory layout
+    entries", "Storage layout entries") plus a single yellow
+    one-liner: "Items, inventory layout, and storage layout are
+    export-only — apply is not supported yet."
+  - The existing `V2_APPLY_SUPPORTED_SECTIONS` allowlist already
+    catches `items` / `inventoryLayout` / `storageLayout` as
+    unsupported (they are not in the list); the disabled-Apply
+    tooltip is extended to "Items / inventoryLayout / storageLayout
+    are export-only" so the user knows _which_ section is blocking.
+- **Wails bindings**: regenerated for the three new
+  `ImportPreviewSummary` fields. No new App methods, no struct
+  rename. `frontend/wailsjs/runtime/*` content stayed unchanged
+  (only the model fields shifted). No `frontend/package.json.md5`
+  change.
+- **Apply gating preserved**:
+  - The backend `ApplyBuildTemplateV2ToCharacterJSON` early-rejects
+    a selection that is not in `{profile, stats, inventory.workspace,
+    equipment, spells}`. An items-only selection therefore returns
+    `Applied=false` with the existing "selects neither profile,
+    stats, inventory.workspace, nor equipment" error.
+  - The frontend `V2_APPLY_SUPPORTED_SECTIONS` mirrors the same
+    allowlist, so the Apply button stays disabled for any template
+    whose `selectedSections` includes `items` / `inventoryLayout` /
+    `storageLayout`.
+  - Neither path can ever "accidentally" apply a Phase 8C section,
+    even via Apply from Library, direct YAML Apply, or URL Apply
+    (they all funnel through the same JSON endpoint).
+- **Files added (this phase)**:
+  - `app_templates_v2_items_test.go` — six structural tests covering
+    items-only export, items + layout export, layout-without-items
+    rejection, preview counts in summary, library save preserves
+    items/layout/SelectedSections, items-only apply blocked.
+- **Files modified (this phase)**:
+  - `app_templates_v2.go` — `editor` import, items source helper
+    invocation, new private helper at the bottom of the file.
+  - `backend/templates/import.go` — three new `ImportPreviewSummary`
+    fields, populator block in `PreviewBuildTemplateImport`, three
+    new entries in `selectedSectionsForTemplate`.
+  - `frontend/src/components/templates/CreateTemplateV2Modal.tsx` —
+    `ContainerSelection` interface, three new `useState` hooks, new
+    "Containers" section in the form, intro-copy update, dep array
+    update for `onPreview`.
+  - `frontend/src/components/templates/ImportTemplatePreviewModal.tsx`
+    — three new summary fields read, three new metadata rows + one
+    export-only note, unsupported-sections tooltip extension.
+  - `frontend/src/components/templates/__tests__/CreateTemplateV2Modal.test.tsx`
+    — Phase 8C.1 describe block (five cases).
+  - `frontend/src/components/templates/__tests__/ImportTemplatePreviewModal.test.tsx`
+    — Phase 8C.1 describe block (three cases) + tooltip-text update.
+  - `frontend/wailsjs/go/models.ts` — three new fields on
+    `ImportPreviewSummary` (regenerated).
+- **Validation**:
+  - `go vet ./backend/templates/... ./` — clean.
+  - `go test ./backend/templates/... -count=1` — green.
+  - `go test . -run 'Test.*Template|Test.*BuildTemplate|Test.*Library|Test.*Import|Test.*Export|Test.*Apply|Test.*Item|Test.*Layout|Test.*Preview' -count=1`
+    — green.
+  - `go build ./backend/... ./` — green.
+  - `cd frontend && npx tsc --noEmit` — clean.
+  - `cd frontend && npx vitest run src/components/templates src/wails-bindings.contract`
+    — 265 / 265 green.
+  - Manual validation deferred to the end of the v2 items / layout
+    milestone (consistent with Phase 8A / 8B / 8C).
+- **Not implemented in this phase** (Phase 8D+ scope):
+  - Apply path for `sections.items`, `sections.inventoryLayout`,
+    `sections.storageLayout` (still gated by
+    `V2_APPLY_SUPPORTED_SECTIONS` + backend selection check).
+  - Inventory / storage writers that materialise the new sections
+    into the save.
+  - Manual layout validation (e.g. detecting human-authored
+    non-dense layouts and warning).
+  - Weapon-level override apply for items imported from a template.
+  - Public JSON file exchange (removed in Phase 8A — still gone).
+  - `CreateTemplateV2Modal` Spells / Equipment checkboxes (the
+    sibling Phase 7d.4b for Spells and the equipment create-bridge
+    remain separate work).
+
+- **Open follow-ups for Phase 8D**:
+  - `buildItemsSourceForCharacter` currently discards
+    `ItemsExportReport.Skipped`. Surfacing skip notices via
+    `ImportPreviewReport.Warnings` is the natural Phase 8D entry
+    point (the same notices already exist on the builder side).
+  - The App layer reads the snapshot under `slotMu` and the VM
+    under a separate `GetCharacter` call — short window where the
+    two could disagree. For a manual export this is acceptable
+    (consistent with Phase 7d's spells export), but Phase 8D's
+    apply path will likely need a single lock window.
+  - Library index does not currently surface items/layout counts
+    separately from `SelectedSections`. If users want to filter
+    "large templates only" we can add the three counts to
+    `LibraryTemplateEntry` once the apply story stabilises.
+
 ---
 
 ## 17a. Validation status

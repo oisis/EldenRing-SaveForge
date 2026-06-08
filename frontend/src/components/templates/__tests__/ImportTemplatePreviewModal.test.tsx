@@ -955,7 +955,85 @@ describe('ImportTemplatePreviewModal — Phase 7d.4 spells section', () => {
         expect(btn).toBeDisabled();
         expect(btn).toHaveAttribute(
             'title',
-            'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, and spells in this phase.',
+            'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, and spells in this phase. Items / inventoryLayout / storageLayout are export-only.',
         );
+    });
+});
+
+describe('ImportTemplatePreviewModal — Phase 8C.1 items / inventoryLayout / storageLayout', () => {
+    function itemsSummary(overrides: Partial<templates.ImportPreviewSummary> = {}) {
+        return templates.ImportPreviewSummary.createFrom({
+            inventoryItems: 0,
+            storageItems: 0,
+            weapons: 0,
+            armor: 0,
+            talismans: 0,
+            stackables: 0,
+            aowAssignments: 0,
+            version: 2,
+            selectedSections: ['profile', 'items', 'inventoryLayout', 'storageLayout'],
+            profileFieldsPresent: ['level'],
+            itemsEntries: 12,
+            inventoryLayoutCount: 8,
+            storageLayoutCount: 4,
+            ...overrides,
+        });
+    }
+
+    it('renders items entries and layout counts from the summary', () => {
+        const report = makeReport({ summary: itemsSummary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(screen.getByTestId('import-preview-items-entries')).toHaveTextContent('12');
+        expect(screen.getByTestId('import-preview-inventory-layout-count')).toHaveTextContent('8');
+        expect(screen.getByTestId('import-preview-storage-layout-count')).toHaveTextContent('4');
+        expect(screen.getByTestId('import-preview-items-export-only')).toBeInTheDocument();
+    });
+
+    it('disables Apply when the template carries the items section', () => {
+        const report = makeReport({ summary: itemsSummary() });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).toBeDisabled();
+        expect(btn.getAttribute('title')).toMatch(/Items \/ inventoryLayout \/ storageLayout are export-only/);
+    });
+
+    it('hides the items block when no items/layout counts are reported', () => {
+        const report = makeReport({
+            summary: itemsSummary({
+                selectedSections: ['profile'],
+                itemsEntries: 0,
+                inventoryLayoutCount: 0,
+                storageLayoutCount: 0,
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        expect(screen.queryByTestId('import-preview-items-entries')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-inventory-layout-count')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-storage-layout-count')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('import-preview-items-export-only')).not.toBeInTheDocument();
     });
 });

@@ -107,6 +107,9 @@ export function ImportTemplatePreviewModal({
     const statFieldsPresent = summary?.statFieldsPresent ?? [];
     const equipmentSlotsPresent = summary?.equipmentSlotsPresent ?? [];
     const spellSlotsPresent = summary?.spellSlotsPresent ?? [];
+    const itemsEntries = summary?.itemsEntries ?? 0;
+    const inventoryLayoutCount = summary?.inventoryLayoutCount ?? 0;
+    const storageLayoutCount = summary?.storageLayoutCount ?? 0;
     const isV2 = schemaVersion >= 2;
     const showV2Meta =
         isV2 ||
@@ -114,6 +117,8 @@ export function ImportTemplatePreviewModal({
         statFieldsPresent.length > 0 ||
         equipmentSlotsPresent.length > 0 ||
         spellSlotsPresent.length > 0;
+    const showItemsBlock =
+        itemsEntries > 0 || inventoryLayoutCount > 0 || storageLayoutCount > 0;
 
     // Phase 5D.2 — direct v2 apply button visibility & gating. v1
     // previews never expose the v2 buttons; for v2 previews the same
@@ -135,7 +140,7 @@ export function ImportTemplatePreviewModal({
                     : selectedSections.length === 0
                         ? 'No sections selected.'
                         : v2HasUnsupportedSection
-                            ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, and spells in this phase.'
+                            ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, and spells in this phase. Items / inventoryLayout / storageLayout are export-only.'
                             : '';
     const v2ApplyDisabledReason = v2ApplyVisible ? v2DisabledReason : '';
     const v2ApplyEnabled =
@@ -215,6 +220,28 @@ export function ImportTemplatePreviewModal({
                                 <div data-testid="import-preview-spell-slots">
                                     Spell slots: <span className="font-bold">{spellSlotsPresent.join(', ')}</span>
                                 </div>
+                            )}
+                            {showItemsBlock && (
+                                <>
+                                    <div data-testid="import-preview-items-entries">
+                                        Items entries: <span className="font-bold">{itemsEntries}</span>
+                                    </div>
+                                    <div data-testid="import-preview-inventory-layout-count">
+                                        Inventory layout entries:{' '}
+                                        <span className="font-bold">{inventoryLayoutCount}</span>
+                                    </div>
+                                    <div data-testid="import-preview-storage-layout-count">
+                                        Storage layout entries:{' '}
+                                        <span className="font-bold">{storageLayoutCount}</span>
+                                    </div>
+                                    <div
+                                        data-testid="import-preview-items-export-only"
+                                        className="text-[10px] text-amber-300/90"
+                                    >
+                                        Items, inventory layout, and storage layout are export-only — apply is not
+                                        supported yet.
+                                    </div>
+                                </>
                             )}
                         </section>
                     )}

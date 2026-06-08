@@ -79,6 +79,16 @@ type ImportPreviewSummary struct {
 	// Lets the UI render "Spells: spell1, spell14" before the apply
 	// runs, mirroring the EquipmentSlotsPresent surface.
 	SpellSlotsPresent []string `json:"spellSlotsPresent,omitempty"`
+
+	// Phase 8C.1 — counts for the v2 items / inventoryLayout /
+	// storageLayout sections. Export-only: apply for these sections is
+	// still unsupported, so the counts surface "what's inside the
+	// portable template" without implying the payload can be re-applied.
+	// All three remain 0 for v1 documents and for v2 documents that did
+	// not opt-in to the items selection.
+	ItemsEntries         int `json:"itemsEntries,omitempty"`
+	InventoryLayoutCount int `json:"inventoryLayoutCount,omitempty"`
+	StorageLayoutCount   int `json:"storageLayoutCount,omitempty"`
 }
 
 // Issue codes — stable strings. UI surfaces and tests assert on these.
@@ -255,6 +265,15 @@ func PreviewBuildTemplateImport(tpl *BuildTemplate, opts ImportPreviewOptions) I
 	rep.Summary.StatFieldsPresent = statFieldsPresent(tpl.Sections.Stats)
 	rep.Summary.EquipmentSlotsPresent = equipmentSlotsPresent(tpl.Sections.Equipment)
 	rep.Summary.SpellSlotsPresent = spellSlotsPresent(tpl.Sections.Spells)
+	if tpl.Sections.Items != nil {
+		rep.Summary.ItemsEntries = len(tpl.Sections.Items.Entries)
+	}
+	if tpl.Sections.InventoryLayout != nil {
+		rep.Summary.InventoryLayoutCount = len(tpl.Sections.InventoryLayout.Entries)
+	}
+	if tpl.Sections.StorageLayout != nil {
+		rep.Summary.StorageLayoutCount = len(tpl.Sections.StorageLayout.Entries)
+	}
 
 	// Phase 7b.1 — equipment + inventory.workspace combo guard.
 	// Detected at preview time so the user sees a single, clean error in
@@ -500,6 +519,20 @@ func selectedSectionsForTemplate(tpl *BuildTemplate) []string {
 	}
 	if tpl.Selection.Spells.HasAny() {
 		out = append(out, "spells")
+	}
+	// Phase 8C.1 — items/layout selection is surfaced on the same list so
+	// the UI can show the user which sections will ship inside a saved
+	// template. Apply for items/inventoryLayout/storageLayout is still
+	// unsupported; the gating lives in the modal layer alongside the
+	// existing V2_APPLY_SUPPORTED_SECTIONS allowlist.
+	if tpl.Selection.Items.HasAny() {
+		out = append(out, "items")
+	}
+	if tpl.Selection.InventoryLayout.HasAny() {
+		out = append(out, "inventoryLayout")
+	}
+	if tpl.Selection.StorageLayout.HasAny() {
+		out = append(out, "storageLayout")
 	}
 	return out
 }

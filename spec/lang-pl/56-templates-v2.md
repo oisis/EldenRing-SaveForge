@@ -1251,6 +1251,176 @@ Oryginalna pojedyncza Phase 7d dostarczona została jako pięć zdyscyplinowanyc
     utrzymuje exporter tani, a per-row notice surface'uje decyzję
     do użytkownika.
 
+### Phase 8C.1 — wiring App layer + UI dla v2 items / layout (shipped 2026-06-08)
+
+- **Cel**: podłączyć builder Phase 8C export-only do żywej postaci tak,
+  aby cztery user-facing endpointy (eksport JSON, eksport YAML, podgląd,
+  zapis do biblioteki) mogły dowieźć nowe sekcje, oraz wyłożyć wybór
+  w modalu Create. Apply pozostaje nieobsługiwany.
+- **Zakres**: wiring App layer, checkboxy `CreateTemplateV2Modal`,
+  liczniki w preview / library, rozszerzenie tooltipu na
+  import-preview. **Bez apply, bez writera inventory/storage, bez
+  manualnej walidacji layoutu, bez przywracania publicznego JSON.**
+- **App layer (`app_templates_v2.go`)**:
+  - `buildAndValidateTemplateV2FromCharacter` buduje teraz
+    `ItemsLayoutSource` zawsze, gdy sparsowana `TemplateSelection`
+    ma `Items.HasAny()`, `InventoryLayout.HasAny()` albo
+    `StorageLayout.HasAny()`. Źródło jest przekazywane verbatim do
+    `templates.BuildV2Template`; istniejące guardy Phase 8C
+    odrzucają kombinacje layout-bez-items i missing-source przy
+    granicy buildera.
+  - Wszystkie cztery endpointy
+    (`ExportBuildTemplateV2JSONFromCharacter`,
+    `ExportBuildTemplateV2YAMLFromCharacter`,
+    `PreviewBuildTemplateV2FromCharacter`,
+    `SaveBuildTemplateV2FromCharacterToLibrary`) korzystają z tego
+    samego helpera i przez to wchodzą na nowy path bez per-endpoint
+    duplikatu.
+  - Nowy prywatny helper
+    `(*App).buildItemsSourceForCharacter(charIndex int)` używa
+    `editor.BuildSnapshot(slot, "", charIndex)` pod patternem
+    `saveMu.RLock + slotMu[charIndex].Lock`, który już stosuje
+    `app_save_audit.go::AuditAllSlots`. Puste sessionID jest
+    poprawne — sessionID w `BuildSnapshot` to tylko metadata; export
+    nie startuje edit session. Żaden bajt save nie jest zmieniany,
+    żaden handle GA nie dociera do JS, żaden raw record nie staje
+    się publicznym kontraktem.
+- **`ImportPreviewSummary` (`backend/templates/import.go`)**:
+  - Trzy nowe pola: `ItemsEntries`, `InventoryLayoutCount`,
+    `StorageLayoutCount`. Wypełniane bezpośrednio z długości
+    `tpl.Sections.{Items,InventoryLayout,StorageLayout}`; zero dla
+    dokumentów v1 oraz dla dokumentów v2, które nie opt-inowały.
+  - `selectedSectionsForTemplate` dorzuca teraz `items`,
+    `inventoryLayout`, `storageLayout` gdy ich selection ma
+    cokolwiek. To znaczy, że `LibraryTemplateEntry.SelectedSections`
+    też je niesie (ten sam helper buduje obie listy), więc surface
+    biblioteki pokazuje co jest wewnątrz bez osobnej kolumny
+    countów.
+- **`CreateTemplateV2Modal.tsx`** — UI:
+  - Nowa sekcja "Containers" pod Stats z trzema checkboxami: Items,
+    Inventory layout, Storage layout. Nagłówek sekcji ma "pill"
+    "Export-only" plus jednoliniowy opis wprost mówiący, że zakres
+    jest export-only.
+  - **Decyzja: layout disabled dopóki Items nie jest wybrane.**
+    Oba checkboxy layoutu mają `disabled={!includeItems}`; labele
+    brzmią "Inventory layout (requires items)" / "Storage layout
+    (requires items)" z tooltipem ("Select Items first — layout
+    entries reference item IDs."). Odznaczenie Items czyści
+    `includeInventoryLayout`/`includeStorageLayout` i ponownie
+    blokuje oba checkboxy.
+  - **Dlaczego disabled, a nie auto-check**: guard
+    `BuildV2Template` już odrzuca layout-bez-items, więc tylko
+    jedna z opcji "auto-check Items" lub "disable layout" pasuje
+    do backendu. Auto-check po cichu przełączyłby checkbox, którego
+    użytkownik nie kliknął — ukryta zmiana stanu, którą widzi
+    dopiero przy review YAMLa, bez wyjaśnienia w modalu. Wyłączenie
+    layoutu sprawia, że zależność jest jawna, tooltip wyjaśnia
+    kontrakt, a użytkownik nie może wejść w stan niepoprawny dla
+    backendu na żadnym pośrednim renderze.
+  - `buildSelectionJSON` dostaje opcjonalny argument `containers`,
+    który emituje na poziomie top-level flagi `items: true` /
+    `inventoryLayout: true` / `storageLayout: true`. Parser
+    selection-JSON akceptuje shape boolean od Phase 8B; żadna
+    zmiana parsera nie jest potrzebna.
+  - Przycisk Preview enablowany też dla selectu Items-only —
+    template, który niesie tylko items + (opcjonalnie) layout to
+    poprawny dokument v2. Items i tak spełnia `HasAnySelected()`.
+- **`ImportTemplatePreviewModal.tsx`** — preview / library badge:
+  - Gdy którakolwiek z trzech wartości > 0, blok metadanych v2
+    renderuje trzy nowe wiersze ("Items entries", "Inventory
+    layout entries", "Storage layout entries") plus jeden żółty
+    one-liner: "Items, inventory layout, and storage layout are
+    export-only — apply is not supported yet."
+  - Istniejąca allowlista `V2_APPLY_SUPPORTED_SECTIONS` już łapie
+    `items` / `inventoryLayout` / `storageLayout` jako
+    nieobsługiwane (nie ma ich na liście); tooltip disabled-Apply
+    jest rozszerzony o "Items / inventoryLayout / storageLayout
+    are export-only" tak, żeby użytkownik wiedział _która_ sekcja
+    blokuje.
+- **Wails bindings**: regen pod kątem trzech nowych pól
+  `ImportPreviewSummary`. Bez nowych metod App, bez zmiany nazwy
+  struktury. Treść `frontend/wailsjs/runtime/*` bez zmian (tylko
+  pola modelu się przesunęły). Bez zmian w `frontend/package.json.md5`.
+- **Apply gating zachowany**:
+  - Backend `ApplyBuildTemplateV2ToCharacterJSON` early-rejectuje
+    selection, który nie należy do `{profile, stats,
+    inventory.workspace, equipment, spells}`. Selection items-only
+    zwraca więc `Applied=false` z istniejącym błędem "selects
+    neither profile, stats, inventory.workspace, nor equipment".
+  - Frontend `V2_APPLY_SUPPORTED_SECTIONS` mirroruje tę samą
+    allowlistę, więc przycisk Apply pozostaje wyłączony dla każdego
+    template'u, którego `selectedSections` zawiera `items` /
+    `inventoryLayout` / `storageLayout`.
+  - Żaden path nie może przypadkowo zaaplikować sekcji Phase 8C —
+    ani via Apply z Library, ani via direct YAML Apply, ani via
+    URL Apply (wszystkie przechodzą przez ten sam JSON endpoint).
+- **Pliki dodane (ta faza)**:
+  - `app_templates_v2_items_test.go` — sześć testów strukturalnych
+    pokrywających items-only export, items + layout export,
+    odrzucenie layout-bez-items, liczniki preview w summary,
+    library save zachowuje items/layout/SelectedSections,
+    items-only apply blocked.
+- **Pliki zmodyfikowane (ta faza)**:
+  - `app_templates_v2.go` — import `editor`, wywołanie helpera
+    items source, nowy prywatny helper na końcu pliku.
+  - `backend/templates/import.go` — trzy nowe pola
+    `ImportPreviewSummary`, blok wypełniający w
+    `PreviewBuildTemplateImport`, trzy nowe wpisy w
+    `selectedSectionsForTemplate`.
+  - `frontend/src/components/templates/CreateTemplateV2Modal.tsx` —
+    interfejs `ContainerSelection`, trzy nowe hooki `useState`,
+    nowa sekcja "Containers" w formularzu, aktualizacja intro-copy,
+    rozszerzenie tablicy zależności dla `onPreview`.
+  - `frontend/src/components/templates/ImportTemplatePreviewModal.tsx`
+    — odczyt trzech nowych pól summary, trzy nowe wiersze metadanych
+    + jeden export-only note, rozszerzenie tooltipu unsupported-
+    sections.
+  - `frontend/src/components/templates/__tests__/CreateTemplateV2Modal.test.tsx`
+    — blok describe Phase 8C.1 (pięć przypadków).
+  - `frontend/src/components/templates/__tests__/ImportTemplatePreviewModal.test.tsx`
+    — blok describe Phase 8C.1 (trzy przypadki) + aktualizacja
+    tekstu tooltipu.
+  - `frontend/wailsjs/go/models.ts` — trzy nowe pola na
+    `ImportPreviewSummary` (regenerowane).
+- **Walidacja**:
+  - `go vet ./backend/templates/... ./` — clean.
+  - `go test ./backend/templates/... -count=1` — green.
+  - `go test . -run 'Test.*Template|Test.*BuildTemplate|Test.*Library|Test.*Import|Test.*Export|Test.*Apply|Test.*Item|Test.*Layout|Test.*Preview' -count=1`
+    — green.
+  - `go build ./backend/... ./` — green.
+  - `cd frontend && npx tsc --noEmit` — clean.
+  - `cd frontend && npx vitest run src/components/templates src/wails-bindings.contract`
+    — 265 / 265 green.
+  - Walidacja manualna odroczona do końca milestonu v2 items /
+    layout (spójnie z Phase 8A / 8B / 8C).
+- **Nie zaimplementowane w tej fazie** (scope Phase 8D+):
+  - Apply path dla `sections.items`, `sections.inventoryLayout`,
+    `sections.storageLayout` (nadal zablokowane przez
+    `V2_APPLY_SUPPORTED_SECTIONS` + backend selection check).
+  - Writery inventory / storage materializujące nowe sekcje do save.
+  - Manualna walidacja layoutu (np. wykrywanie ręcznie pisanych
+    non-dense layoutów i warning).
+  - Apply weapon-level override dla itemów importowanych z template.
+  - Public JSON file exchange (usunięty w Phase 8A — nadal nie ma).
+  - Checkboxy Spells / Equipment w `CreateTemplateV2Modal`
+    (siostrzane Phase 7d.4b dla Spells i equipment create-bridge
+    pozostają osobną pracą).
+
+- **Otwarte follow-upy do Phase 8D**:
+  - `buildItemsSourceForCharacter` aktualnie odrzuca
+    `ItemsExportReport.Skipped`. Surface skip notices via
+    `ImportPreviewReport.Warnings` to naturalny entry point Phase
+    8D (te same notice'y już istnieją po stronie buildera).
+  - App layer czyta snapshot pod `slotMu` i VM przez osobne wołanie
+    `GetCharacter` — krótkie okno, w którym oba mogą się rozjeżdżać.
+    Dla manualnego eksportu to akceptowalne (spójnie z eksportem
+    spells Phase 7d), ale apply path Phase 8D najpewniej będzie
+    potrzebował jednego lock-window.
+  - Indeks library nie surface'uje countów items/layout osobno od
+    `SelectedSections`. Jeśli użytkownicy będą chcieli filtrować
+    "tylko duże templates", można dorzucić trzy liczby do
+    `LibraryTemplateEntry`, gdy historia apply ustabilizuje się.
+
 ---
 
 ## 17a. Status walidacji

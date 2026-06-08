@@ -55,11 +55,23 @@ interface Props {
     onError?: (err: unknown) => void;
 }
 
+// ContainerSelection bundles the Phase 8C.1 export-only sections: items
+// is the actual payload; inventoryLayout and storageLayout reference the
+// items entries and require items to be selected first. The UI enforces
+// the dependency by disabling the layout toggles when items is unchecked
+// (matches the BuildV2Template guard in backend/templates/export_v2.go).
+interface ContainerSelection {
+    items?: boolean;
+    inventoryLayout?: boolean;
+    storageLayout?: boolean;
+}
+
 export function buildSelectionJSON(
     profile: SelectionMap<ProfileFieldKey>,
     stats: SelectionMap<StatsFieldKey>,
+    containers: ContainerSelection = {},
 ): string {
-    const out: Record<string, Record<string, boolean>> = {};
+    const out: Record<string, unknown> = {};
     const profilePairs: [string, boolean][] = [];
     for (const f of PROFILE_TEMPLATE_FIELDS) {
         if (profile[f.key] === true) profilePairs.push([f.key, true]);
@@ -73,6 +85,11 @@ export function buildSelectionJSON(
     }
     if (statsPairs.length > 0) {
         out.stats = Object.fromEntries(statsPairs);
+    }
+    if (containers.items === true) {
+        out.items = true;
+        if (containers.inventoryLayout === true) out.inventoryLayout = true;
+        if (containers.storageLayout === true) out.storageLayout = true;
     }
     return JSON.stringify(out);
 }
@@ -91,6 +108,9 @@ export function CreateTemplateV2Modal({ charIndex, onClose, onSaved, onError }: 
     const [tagsText, setTagsText] = useState('');
     const [profileSelection, setProfileSelection] = useState<SelectionMap<ProfileFieldKey>>({});
     const [statsSelection, setStatsSelection] = useState<SelectionMap<StatsFieldKey>>({});
+    const [includeItems, setIncludeItems] = useState(false);
+    const [includeInventoryLayout, setIncludeInventoryLayout] = useState(false);
+    const [includeStorageLayout, setIncludeStorageLayout] = useState(false);
     const [previewing, setPreviewing] = useState(false);
     const [savingToLibrary, setSavingToLibrary] = useState(false);
     const [previewReport, setPreviewReport] = useState<templates.ImportPreviewReport | null>(null);
@@ -110,7 +130,8 @@ export function CreateTemplateV2Modal({ charIndex, onClose, onSaved, onError }: 
         () => STATS_TEMPLATE_FIELDS.some(f => statsSelection[f.key] === true),
         [statsSelection],
     );
-    const canPreview = (hasAnyProfile || hasAnyStats) && !previewing;
+    const canPreview =
+        (hasAnyProfile || hasAnyStats || includeItems) && !previewing;
 
     const selectAllProfile = useCallback(() => {
         const next: SelectionMap<ProfileFieldKey> = {};
@@ -126,8 +147,12 @@ export function CreateTemplateV2Modal({ charIndex, onClose, onSaved, onError }: 
     const clearStats = useCallback(() => setStatsSelection({}), []);
 
     const onPreview = useCallback(async () => {
-        if (!hasAnyProfile && !hasAnyStats) return;
-        const selectionJSON = buildSelectionJSON(profileSelection, statsSelection);
+        if (!hasAnyProfile && !hasAnyStats && !includeItems) return;
+        const selectionJSON = buildSelectionJSON(profileSelection, statsSelection, {
+            items: includeItems,
+            inventoryLayout: includeItems && includeInventoryLayout,
+            storageLayout: includeItems && includeStorageLayout,
+        });
         const opts = main.BuildTemplateV2ExportOptions.createFrom({
             name,
             description,
@@ -149,6 +174,9 @@ export function CreateTemplateV2Modal({ charIndex, onClose, onSaved, onError }: 
         charIndex,
         hasAnyProfile,
         hasAnyStats,
+        includeItems,
+        includeInventoryLayout,
+        includeStorageLayout,
         profileSelection,
         statsSelection,
         name,
@@ -194,8 +222,9 @@ export function CreateTemplateV2Modal({ charIndex, onClose, onSaved, onError }: 
                 <div className="px-4 py-3 border-b border-border/60">
                     <h2 className="text-sm font-black uppercase tracking-wider">Create Build Template</h2>
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                        Pick the profile and stat fields to capture from the current character. Schema v2 templates
-                        carry only the fields you check — nothing else is exported.
+                        Pick the profile, stat, and container sections to capture from the current character.
+                        Schema v2 templates carry only the fields you check — items and layout sections are
+                        export-only in this phase.
                     </p>
                 </div>
 
@@ -272,6 +301,87 @@ export function CreateTemplateV2Modal({ charIndex, onClose, onSaved, onError }: 
                         onSelectAll={selectAllStats}
                         onClear={clearStats}
                     />
+
+                    <section aria-label="Containers" className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                Containers
+                            </h3>
+                            <span
+                                data-testid="create-template-v2-containers-export-only"
+                                className="text-[10px] uppercase tracking-wider text-amber-300/90"
+                            >
+                                Export-only
+                            </span>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                            Items and layout are written into the saved template for review and sharing. Apply
+                            back into a character is not supported yet.
+                        </p>
+                        <ul className="grid grid-cols-1 gap-y-1">
+                            <li className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="create-template-v2-items"
+                                    data-testid="create-template-v2-items"
+                                    checked={includeItems}
+                                    onChange={e => {
+                                        const next = e.target.checked;
+                                        setIncludeItems(next);
+                                        if (!next) {
+                                            setIncludeInventoryLayout(false);
+                                            setIncludeStorageLayout(false);
+                                        }
+                                    }}
+                                />
+                                <label htmlFor="create-template-v2-items" className="cursor-pointer select-none">
+                                    Items (inventory + storage contents)
+                                </label>
+                            </li>
+                            <li className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="create-template-v2-inventory-layout"
+                                    data-testid="create-template-v2-inventory-layout"
+                                    checked={includeItems && includeInventoryLayout}
+                                    disabled={!includeItems}
+                                    onChange={e => setIncludeInventoryLayout(e.target.checked)}
+                                />
+                                <label
+                                    htmlFor="create-template-v2-inventory-layout"
+                                    className={`select-none ${includeItems ? 'cursor-pointer' : 'cursor-not-allowed text-muted-foreground/60'}`}
+                                    title={
+                                        includeItems
+                                            ? ''
+                                            : 'Select Items first — layout entries reference item IDs.'
+                                    }
+                                >
+                                    Inventory layout (requires items)
+                                </label>
+                            </li>
+                            <li className="flex items-center gap-2">
+                                <input
+                                    type="checkbox"
+                                    id="create-template-v2-storage-layout"
+                                    data-testid="create-template-v2-storage-layout"
+                                    checked={includeItems && includeStorageLayout}
+                                    disabled={!includeItems}
+                                    onChange={e => setIncludeStorageLayout(e.target.checked)}
+                                />
+                                <label
+                                    htmlFor="create-template-v2-storage-layout"
+                                    className={`select-none ${includeItems ? 'cursor-pointer' : 'cursor-not-allowed text-muted-foreground/60'}`}
+                                    title={
+                                        includeItems
+                                            ? ''
+                                            : 'Select Items first — layout entries reference item IDs.'
+                                    }
+                                >
+                                    Storage layout (requires items)
+                                </label>
+                            </li>
+                        </ul>
+                    </section>
                 </div>
 
                 <div className="px-4 py-3 border-t border-border/60 flex items-center justify-end gap-2">
