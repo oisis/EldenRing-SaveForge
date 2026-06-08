@@ -82,6 +82,16 @@ type ExportV2Options struct {
 	// either would mis-bind slot indices to spell IDs.
 	EquippedSpellsRaw []uint32
 
+	// ItemsSource is the Phase 8C source for the v2 items /
+	// inventoryLayout / storageLayout sections. Producers fill the
+	// inventory and storage slices directly from the live workspace
+	// snapshot (`editor.InventoryWorkspaceSnapshot.{Inventory,Storage}Items`).
+	// The builder is responsible for sorting, normalising layout
+	// positions, generating stable per-template entryIDs, and per-row
+	// skipping (unknown category / quantity=0 / baseItemID=0). See
+	// `buildItemsAndLayouts` for the translation contract.
+	ItemsSource *ItemsLayoutSource
+
 	Selection *TemplateSelection
 }
 
@@ -121,6 +131,15 @@ func BuildV2Template(opts ExportV2Options) (*BuildTemplate, error) {
 	}
 	if opts.Selection.Equipment.HasAny() && opts.Equipment == nil {
 		return nil, fmt.Errorf("BuildV2Template: selection.equipment is selected but no Equipment source was provided")
+	}
+	if opts.Selection.Items.HasAny() && opts.ItemsSource == nil {
+		return nil, fmt.Errorf("BuildV2Template: selection.items is selected but no ItemsSource was provided")
+	}
+	if (opts.Selection.InventoryLayout.HasAny() || opts.Selection.StorageLayout.HasAny()) && opts.ItemsSource == nil {
+		return nil, fmt.Errorf("BuildV2Template: selection.inventoryLayout / selection.storageLayout is selected but no ItemsSource was provided")
+	}
+	if (opts.Selection.InventoryLayout.HasAny() || opts.Selection.StorageLayout.HasAny()) && !opts.Selection.Items.HasAny() {
+		return nil, fmt.Errorf("BuildV2Template: selection.inventoryLayout / selection.storageLayout require selection.items (layout entries reference items.entries.entryID)")
 	}
 	if opts.Selection.Spells.HasAny() {
 		if opts.EquippedSpellsRaw == nil {
@@ -180,6 +199,24 @@ func BuildV2Template(opts ExportV2Options) (*BuildTemplate, error) {
 		} else if len(emittedSlots) > 0 {
 			outSections.Equipment = equipment
 			outSelection.Equipment = &SectionSelection{Fields: emittedSlots}
+		}
+	}
+
+	if opts.Selection.Items.HasAny() {
+		items, invLayout, stoLayout, _ := buildItemsAndLayouts(
+			opts.ItemsSource,
+			opts.Selection.InventoryLayout.HasAny(),
+			opts.Selection.StorageLayout.HasAny(),
+		)
+		outSections.Items = items
+		outSelection.Items = &SectionSelection{All: true}
+		if opts.Selection.InventoryLayout.HasAny() {
+			outSections.InventoryLayout = invLayout
+			outSelection.InventoryLayout = &SectionSelection{All: true}
+		}
+		if opts.Selection.StorageLayout.HasAny() {
+			outSections.StorageLayout = stoLayout
+			outSelection.StorageLayout = &SectionSelection{All: true}
 		}
 	}
 

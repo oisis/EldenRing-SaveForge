@@ -1150,19 +1150,138 @@ loadout — and Test B — partial leave-unchanged — both passed; see
     'Test.*Item|Test.*Items|Test.*Layout|Test.*Override|Test.*Selection|Test.*Validate|Test.*YAML'
     -count=1` — green.
   - `go build ./backend/... ./` — green.
-- **Open follow-ups for Phase 8C+**:
-  - Decide the layout-position normalisation strategy when writing
-    back (current schema accepts non-dense positions; writer must
-    pick a canonical mapping).
-  - Decide whether `location: both` requires splitting `quantity`
-    proportionally or whether the apply mode policy is delegated to
-    the resolver.
-  - Decide whether `applyOptions.items.mode=replace` interacts with
-    talisman pouch cap (vanilla 1 + profile.talismanSlots) or with
-    DLC item gating (currency / faction lock items).
-  - Decide the v2 exporter's `category` source: trust
-    `editor.EditableItem.Category` verbatim, or re-resolve via
-    `backend/db/db.go::GetItemSubCategory`?
+### Phase 8C — v2 items / layout export-only builder (shipped 2026-06-08)
+
+- **Goal**: stand up the export half of the Phase 8B contract so a
+  consumer can YAML-share / library-save the new sections, without
+  touching the apply / writer / UI paths.
+- **Scope is export-only**: the App layer (`app_templates_v2.go`)
+  is NOT modified, Wails bindings are NOT extended, the UI is NOT
+  changed, no inventory/storage writer runs. Apply and importer
+  preview wiring lands in Phase 8D+.
+- **`templates.ExportV2Options` gains** `ItemsSource *ItemsLayoutSource`
+  with `editor.EditableItem` slices for inventory + storage. The
+  builder is responsible for sorting / skipping / entryID generation
+  / layout position normalisation.
+- **`buildItemsAndLayouts(src, emitInvLayout, emitStoLayout)`**:
+  - Stable-sorts each container by `EditableItem.Position` (matches
+    the v1 `convertItems` rule).
+  - Generates `entryID = "<container>_<4-digit zero-padded post-sort
+    index>"`. Format examples: `inv_0000`, `sto_0042`. The four-digit
+    width makes lexicographic sort equal numerical sort up to 10 000
+    items per container; ER caps inventory and storage below this.
+  - Per-row skips with notice, no fatal: `baseItemID==0` (sentinel),
+    `quantity==0` (Phase 8B fail-closed), `category` outside the
+    allowlist. The notice list is returned for the App layer to
+    surface, but currently has no caller (Phase 8C.1 wires it).
+  - Layouts, when emitted, reference only entryIDs from the matching
+    container. Positions are **compact 0..N-1 after skips**.
+- **`convertEditableToV2Entry(it, entryID, location)`**:
+  - Copies `BaseItemID → ItemID`, `Name`, `Category`, `Quantity`,
+    `Location`.
+  - Upgrade kind/level decision table:
+    - `IsWeapon=true,  MaxUpgrade=25` → `upgradeKind=standard`,
+      `upgradeLevel=CurrentUpgrade`.
+    - `IsWeapon=true,  MaxUpgrade=10` → `upgradeKind=somber`,
+      `upgradeLevel=CurrentUpgrade`.
+    - `IsWeapon=true,  MaxUpgrade=0`  → `upgradeKind=none` (rare;
+      unupgradable special weapons).
+    - `IsWeapon=false`                → `upgradeKind=""` (empty;
+      validator reads it as none), no `upgradeLevel`.
+  - Infusion: copied verbatim when `InfusionName != ""`.
+  - AoW: only `CurrentAoWStatus=custom` with `CurrentAoWItemID != 0`
+    reaches the schema. `missing` / `shared` / `none` / `""` drop
+    the AoW silently — the workspace UI already surfaces these
+    states; the schema would have no truthful way to encode them.
+- **`BuildV2Template` selection guards** (fail-closed):
+  - `selection.items` set without `ItemsSource` → error.
+  - `selection.{inventory,storage}Layout` set without `ItemsSource`
+    → error.
+  - `selection.{inventory,storage}Layout` set without
+    `selection.items` → error (Phase 8B layout refs require an
+    items section to point at).
+- **Layout reachability**: layout sections are always emitted in
+  the same builder call as the items section, so `entryRef`s
+  resolve by construction. The validator's
+  "missing items.entries.entryID" branch is the regression guard.
+- **v1 apply gate untouched**: a Phase 8C-emitted template fills
+  `sections.items` / `sections.inventoryLayout` /
+  `sections.storageLayout` only. `sections.inventory.workspace`
+  remains `nil`, so the v1 apply path
+  (`app_templates.go::applyTemplateItemsToWorkspace`) continues to
+  see "no inventory content to apply" — apply for the v2 sections
+  is intentionally NOT enabled until Phase 8D+.
+- **YAML / library**: both formats round-trip the new sections
+  unchanged (Phase 8B already added `applyOptions` and the section
+  keys to the `KnownFields(true)` allowlist via the `BuildTemplate`
+  struct tags; the exporter just fills them in).
+- **Files added (this phase)**:
+  - `backend/templates/export_v2_items.go` — `ItemsLayoutSource`,
+    `ItemsExportReport`, `ItemsSkipNotice`, `buildItemsAndLayouts`,
+    `convertEditableToV2Entry`, EntryID-prefix constants.
+  - `backend/templates/export_v2_items_test.go` — 17 structural
+    tests (baseline negative paths, items-across-containers,
+    duplicate same itemID, upgrade kind mapping, AoW emission /
+    suppression, per-row skips, layout reference correctness,
+    layout position compactness after skips, EntryID prefix
+    invariants, YAML round-trip, v1 apply gate non-regression,
+    library save/load round-trip).
+- **Files modified (this phase)**:
+  - `backend/templates/export_v2.go` — added `ItemsSource` field to
+    `ExportV2Options`; added 3 selection guards; added items/layout
+    branch in `BuildV2Template`.
+- **Validation**:
+  - `go vet ./backend/templates/...` — clean.
+  - `go test ./backend/templates/... -count=1` — green
+    (existing + 17 new).
+  - `go test . -run 'Test.*Template|Test.*BuildTemplate|Test.*Library|Test.*Import|Test.*Export|Test.*Apply|Test.*Item|Test.*Layout' -count=1`
+    — green.
+  - `go build ./backend/... ./` — green.
+- **Not implemented in this phase** (Phase 8C.1 / 8D+ scope):
+  - App layer (`app_templates_v2.go`) wiring of `ItemsSource` from
+    the live workspace session. Without this, the new sections can
+    only be produced by direct backend callers / tests.
+  - UI selection checkboxes for items / inventoryLayout /
+    storageLayout in `CreateTemplateV2Modal` (Phase 8C.1).
+  - Importer preview that reports counts of items / layout
+    entries (Phase 8C.1 — preview already runs validator, so
+    template structure is checked; the human-readable summary is
+    the missing piece).
+  - Apply path for items + layout (Phase 8D+).
+  - Inventory / storage writer that materialises the new sections
+    into the save (Phase 8D+).
+  - Manual validation flow — deferred to the end of the v2 items /
+    layout milestone.
+
+- **Open follow-ups for Phase 8D+** (apply / writer):
+  - When does `location: both` enter the picture? The Phase 8C
+    exporter NEVER emits `both`; each save snapshot stack belongs
+    to exactly one container. `both` is reserved for hand-authored
+    YAML and for the Phase 8D apply-mode reconciler. Does the
+    reconciler split `quantity` proportionally between containers,
+    or is the policy per apply mode?
+  - How does the apply layer correlate a re-imported `entryID`
+    (`inv_0007`) with the live workspace? The string is
+    template-local — Phase 8D will need a per-(itemID, upgrade,
+    AoW, infusion) match key.
+  - Should Phase 8C.1 surface `ItemsSkipNotice` in the App-layer
+    return value, or pipe it through `ImportPreviewReport`'s
+    warnings? Today the notice is built but discarded.
+  - Layout-position canonical-form on the writer side: the schema
+    accepts non-dense positions, the Phase 8C exporter emits a
+    compact form. Should the writer canonicalise non-dense
+    user-authored layouts to compact form before writing?
+  - Does `applyOptions.items.mode=replace` interact with the
+    talisman pouch cap (vanilla 1 + `profile.talismanSlots`) or
+    with DLC item gating (currency / faction lock items)?
+
+- **Resolved in Phase 8C**:
+  - **`category` source**: the exporter trusts
+    `editor.EditableItem.Category` verbatim and skips rows whose
+    category is outside the Phase 8B allowlist (rather than
+    re-resolving via `backend/db/db.go::GetItemSubCategory`). This
+    keeps the exporter cheap and the per-row notice surfaces the
+    decision to the user.
 
 ---
 

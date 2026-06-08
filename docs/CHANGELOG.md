@@ -4,6 +4,85 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(templates): export v2 items and layout (Phase 8C)
+
+Backend builder for the v2 items / inventoryLayout / storageLayout
+sections. Scope is **export-only**: a producer can now emit the
+new sections through `templates.BuildV2Template`, and a consumer can
+round-trip them through YAML / library save. **No apply, no importer
+preview wiring, no writer, no UI** — that work lands in Phase 8C.1
+(App layer + UI) and Phase 8D+ (apply / writer).
+
+`templates.ExportV2Options` gains an `ItemsSource *ItemsLayoutSource`
+field carrying `editor.EditableItem` slices for inventory and storage.
+The builder:
+- Stable-sorts each container by `EditableItem.Position`.
+- Translates each row to `TemplateItemEntryV2` with a deterministic
+  per-template `entryID = "<container>_<4-digit post-sort index>"`
+  (`inv_0000`, `sto_0042`).
+- Per-row skips with notice (no fatal): `baseItemID==0`,
+  `quantity==0`, `category` outside the Phase 8B allowlist. Surviving
+  entries land in `sections.items.entries`.
+- Inventory layout entries reference only `inv_*` IDs; storage layout
+  entries reference only `sto_*` IDs.
+- Layout positions are **compact 0..N-1 after skips** (matches the v1
+  `convertItems` rule and avoids leaking workspace acquisition-index
+  gaps).
+- Weapon upgrade mapping: `MaxUpgrade=25` → `standard`,
+  `MaxUpgrade=10` → `somber`, `MaxUpgrade=0` → `none`; non-weapon
+  rows emit no upgrade fields.
+- AoW emission mirrors the v1 exporter: only
+  `CurrentAoWStatus="custom"` with `CurrentAoWItemID!=0` reaches the
+  schema. Missing / shared / none / empty statuses drop the AoW
+  silently (workspace UI already surfaces these states).
+
+`BuildV2Template` selection guards:
+- `selection.items` without an `ItemsSource` → fail-closed.
+- `selection.inventoryLayout` / `selection.storageLayout` without
+  `selection.items` → fail-closed (layout refs require items).
+- `selection.{inventory,storage}Layout` without an `ItemsSource` →
+  fail-closed.
+
+Phase 8B validator stays in charge: the exporter feeds its own output
+through `ValidateBuildTemplate` and a Phase 8C test asserts that round.
+
+YAML / library / preview behaviour:
+- `MarshalBuildTemplateYAML` / `ParseBuildTemplateYAML` round-trip
+  the new sections (confirmed by `TestBuildV2_YAMLRoundTrip_*`).
+- `TemplateLibrary.SaveTemplate` / `LoadTemplate` preserve items +
+  layout (confirmed by `TestBuildV2_LibrarySaveLoad_*`).
+- The v1 apply gate (`sections.inventory.workspace`) is NOT touched
+  — a Phase 8C-emitted template carries `items` / `inventoryLayout`
+  / `storageLayout` but leaves the v1 inventory-workspace section
+  `nil`. Existing apply paths therefore continue to see the
+  template as having no apply-able inventory content
+  (confirmed by `TestBuildV2_TemplateWithItems_RemainsUnsupportedForV1ApplyGate`).
+
+Decisions worth surfacing for Phase 8C.1 (App layer wiring) and 8D+
+(apply / writer):
+- **EntryID strategy**: `<container>_<4-digit zero-padded post-sort
+  index>`. Stable for a given source snapshot, lexicographically
+  identical to numerical order, prefix disambiguates the inv / sto
+  namespaces.
+- **Layout position normalisation**: compact 0..N-1 after skips. The
+  Phase 8B validator allows non-dense positions, but the exporter
+  picks the dense canonical form so YAML diffs stay readable and a
+  future writer doesn't have to guess what the producer meant.
+- **Per-row skipping vs whole-template failure**: v2 exporter skips
+  individual rows. Rationale in `ItemsExportReport` doc — v2 items
+  span every inventory/storage category, so one stray row should
+  not kill the whole export.
+- **`location: both` is never emitted**: each save snapshot puts a
+  stack in exactly one container; the exporter mirrors that and emits
+  two separate entries when the same `baseItemID` lives in both.
+
+Tests: 17 new structural tests in
+`backend/templates/export_v2_items_test.go` cover baseline negative
+paths, items export across categories, upgrade-kind mapping, AoW
+emission, per-row skips, layout reference correctness, position
+compactness after skips, EntryID prefix invariants, YAML round-trip,
+v1 apply gate non-regression, and library save/load round-trip.
+
 ### feat(templates): add v2 items layout schema (Phase 8B)
 
 Schema-only foundation for the v2 items / inventory layout / storage
