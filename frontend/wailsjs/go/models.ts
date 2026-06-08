@@ -1359,6 +1359,12 @@ export namespace main {
 	    workspace?: editor.InventoryWorkspaceSnapshot;
 	    equipmentSlotsApplied: number;
 	    spellSlotsApplied: number;
+	    layoutInventoryEntriesApplied: number;
+	    layoutStorageEntriesApplied: number;
+	    layoutInventoryEntriesMissing: number;
+	    layoutStorageEntriesMissing: number;
+	    layoutInventoryExtrasPreserved: number;
+	    layoutStorageExtrasPreserved: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ApplyTemplateV2Result(source);
@@ -1377,6 +1383,12 @@ export namespace main {
 	        this.workspace = this.convertValues(source["workspace"], editor.InventoryWorkspaceSnapshot);
 	        this.equipmentSlotsApplied = source["equipmentSlotsApplied"];
 	        this.spellSlotsApplied = source["spellSlotsApplied"];
+	        this.layoutInventoryEntriesApplied = source["layoutInventoryEntriesApplied"];
+	        this.layoutStorageEntriesApplied = source["layoutStorageEntriesApplied"];
+	        this.layoutInventoryEntriesMissing = source["layoutInventoryEntriesMissing"];
+	        this.layoutStorageEntriesMissing = source["layoutStorageEntriesMissing"];
+	        this.layoutInventoryExtrasPreserved = source["layoutInventoryExtrasPreserved"];
+	        this.layoutStorageExtrasPreserved = source["layoutStorageExtrasPreserved"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

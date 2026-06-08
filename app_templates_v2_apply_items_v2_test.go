@@ -368,7 +368,12 @@ func TestApplyBuildTemplateV2_Items_AddMissing_UnsupportedCategory_Skipped(t *te
 
 // Template carries an inventoryLayout section + items section. Layout
 // is ignored with a warning; items still apply.
-func TestApplyBuildTemplateV2_Items_LayoutSection_IgnoredWithWarning(t *testing.T) {
+// Phase 8E.1 supersedes the previous "layout is ignored" warning. With
+// the reorderOnly default the combo items+inventoryLayout applies BOTH
+// — items addMissing runs first, then the layout reorders the workspace
+// (including the freshly added entry). No items_layout_ignored warning
+// is emitted.
+func TestApplyBuildTemplateV2_Items_LayoutSection_AppliedInReorderOnly(t *testing.T) {
 	app, sessionID := freshItemsFixture(t)
 	tpl := templateWithV2Items([]templates.TemplateItemEntryV2{
 		standardWeaponEntry("inv_0000", idStandardDagger, 0),
@@ -391,8 +396,14 @@ func TestApplyBuildTemplateV2_Items_LayoutSection_IgnoredWithWarning(t *testing.
 	if res.InventoryItemsApplied != 1 {
 		t.Errorf("InventoryItemsApplied=%d, want 1", res.InventoryItemsApplied)
 	}
-	if !hasIssue(res.Preview.Warnings, templates.IssueCodeItemsLayoutIgnored) {
-		t.Errorf("missing items_layout_ignored warning: %+v", res.Preview.Warnings)
+	if res.LayoutInventoryEntriesApplied != 1 {
+		t.Errorf("LayoutInventoryEntriesApplied=%d, want 1", res.LayoutInventoryEntriesApplied)
+	}
+	if hasIssue(res.Preview.Warnings, templates.IssueCodeItemsLayoutIgnored) {
+		t.Errorf("Phase 8E.1 should not emit items_layout_ignored when layout applies: %+v", res.Preview.Warnings)
+	}
+	if hasIssue(res.Preview.Warnings, templates.IssueCodeLayoutModeUnsupported) {
+		t.Errorf("Phase 8E.1 should not reject reorderOnly default: %+v", res.Preview.Warnings)
 	}
 }
 

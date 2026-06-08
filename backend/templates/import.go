@@ -195,6 +195,39 @@ const (
 	IssueCodeItemsLayoutIgnored           = "items_layout_ignored"
 	IssueCodeItemsTemplateOverrideIgnored = "items_template_override_ignored"
 	IssueCodeItemsV1V2Mix                 = "items_v1_v2_mix"
+
+	// Phase 8E.1 — v2 inventory/storage layout apply (reorderOnly).
+	//
+	// layout_mode_unsupported is an error: the apply layer only ships
+	// reorderOnly in Phase 8E.1. ignore is honoured as a silent no-op
+	// (the section is dropped without warning). append / replace and any
+	// other value fail-closed so the UI can render a "this layout mode
+	// is not implemented yet" affordance distinct from items_mode_unsupported.
+	//
+	// layout_entry_missing is a warning: a LayoutEntry referenced an
+	// items entry whose live identity tuple (baseItemID, currentUpgrade,
+	// infusionName, AoW) does not match any item in the target container.
+	// The layout entry is skipped; remaining entries continue.
+	//
+	// layout_entry_ambiguous is a warning: >1 live items match the
+	// LayoutEntry's identity tuple. The first match by current
+	// EditableItem.Position is chosen and the warning surfaces so the
+	// user can correct the template (or accept the deterministic pick).
+	//
+	// layout_sparse_normalized is an info: hand-authored YAML may carry
+	// non-contiguous LayoutEntry.Position values (e.g. [0, 10, 20]).
+	// They are sorted ASC and normalised to 0..N-1. One emission per
+	// affected layout section, not per entry.
+	//
+	// layout_extra_items_preserved is an info: live items not referenced
+	// by the layout are placed after template-ordered items in their
+	// existing relative order. One emission per affected layout section
+	// with the preserved count.
+	IssueCodeLayoutModeUnsupported     = "layout_mode_unsupported"
+	IssueCodeLayoutEntryMissing        = "layout_entry_missing"
+	IssueCodeLayoutEntryAmbiguous      = "layout_entry_ambiguous"
+	IssueCodeLayoutSparseNormalized    = "layout_sparse_normalized"
+	IssueCodeLayoutExtraItemsPreserved = "layout_extra_items_preserved"
 )
 
 // ashCategory is the DB tag for an Ash of War item. Used to detect

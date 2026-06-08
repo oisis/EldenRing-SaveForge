@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
@@ -76,6 +77,21 @@ type ApplyTemplateV2Result struct {
 	// downgraded to warnings (unknown spell ID, wrong prefix) are NOT
 	// counted; the counter reflects successful writer dispatch only.
 	SpellSlotsApplied int `json:"spellSlotsApplied"`
+
+	// Phase 8E.1 — v2 layout apply counters (reorderOnly mode). Each
+	// counter reflects the number of LayoutEntry rows that produced a
+	// live match in the corresponding container. Sparse, missing and
+	// ambiguous entries surface as warnings on Preview and do NOT inflate
+	// these counters. Extras (live items not referenced by the layout)
+	// are preserved + appended; their count lands in the
+	// *ExtrasPreserved fields. Zero in every field when no layout
+	// section was applied.
+	LayoutInventoryEntriesApplied  int `json:"layoutInventoryEntriesApplied"`
+	LayoutStorageEntriesApplied    int `json:"layoutStorageEntriesApplied"`
+	LayoutInventoryEntriesMissing  int `json:"layoutInventoryEntriesMissing"`
+	LayoutStorageEntriesMissing    int `json:"layoutStorageEntriesMissing"`
+	LayoutInventoryExtrasPreserved int `json:"layoutInventoryExtrasPreserved"`
+	LayoutStorageExtrasPreserved   int `json:"layoutStorageExtrasPreserved"`
 }
 
 // Canonical apply ordering. Defined once so the AppliedFields /
@@ -220,18 +236,18 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	hasItems := tpl.Selection != nil && tpl.Selection.Items.HasAny()
 	hasInvLayout := tpl.Selection != nil && tpl.Selection.InventoryLayout.HasAny()
 	hasStoLayout := tpl.Selection != nil && tpl.Selection.StorageLayout.HasAny()
-	if !hasProfile && !hasStats && !hasInventory && !hasEquipment && !hasSpells && !hasItems {
+	if !hasProfile && !hasStats && !hasInventory && !hasEquipment && !hasSpells && !hasItems && !hasInvLayout && !hasStoLayout {
 		// ValidateBuildTemplate already rejects an empty selection
 		// (HasAnySelected == false) — this branch defends against future
-		// validator drift. Layout-only selection is not a supported
-		// apply target in Phase 8D.1 (items must be selected for layout
-		// to be meaningful); the validator catches a layout-without-items
-		// selection at parse time so it cannot reach here.
+		// validator drift. Phase 8E.1 layout-only selection (inventoryLayout
+		// or storageLayout without items) is an accepted apply target —
+		// the layout reorders the existing workspace against entries
+		// declared in sections.items.
 		report.OK = false
 		report.Errors = append(report.Errors, templates.ImportPreviewIssue{
 			Severity: "error",
 			Code:     templates.IssueCodeStructureInvalid,
-			Message:  "schema v2 template selects no applyable section (profile / stats / inventory.workspace / equipment / spells / items)",
+			Message:  "schema v2 template selects no applyable section (profile / stats / inventory.workspace / equipment / spells / items / inventoryLayout / storageLayout)",
 		})
 		return ApplyTemplateV2Result{
 			CharIndex: charIdx,
@@ -324,7 +340,12 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	// Phase 8D.1 — hasItems shares the session-required path with
 	// hasInventory. Both write into sess.Workspace; both need the same
 	// "open the Sort Order workspace first" guard.
-	needsSession := hasInventory || hasItems
+	//
+	// Phase 8E.1 — hasInvLayout / hasStoLayout also write into
+	// sess.Workspace (EditableItem.Position only). They join the same
+	// session-required path so layout-only apply is gated by the Sort
+	// Order workspace just like items addMissing.
+	needsSession := hasInventory || hasItems || hasInvLayout || hasStoLayout
 	var sess *editor.InventoryEditSession
 	if needsSession {
 		if opts.SessionID == "" {
@@ -443,32 +464,61 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}
 	}
 
-	// Phase 8D.1 — informational warnings for the items apply path.
-	// Emitted BEFORE the items plan / preflight / mutation so the user
-	// sees them even when the apply later fails preflight.
-	//
-	//   - layout selection / sections: dropped silently (Phase 8D.1
-	//     does not apply layout), warning per affected container.
-	//   - tpl.ApplyOptions.WeaponLevelOverride: dropped silently
-	//     (Phase 8D.1 only honours the runtime override in
-	//     opts.WeaponLevelOverride); single warning.
-	if hasItems {
-		if hasInvLayout || tpl.Sections.InventoryLayout != nil {
+	// Phase 8E.1 — resolve layout apply mode per container BEFORE any
+	// mutation. The resolver maps tpl.ApplyOptions.{InventoryLayout,
+	// StorageLayout} into one of three outcomes:
+	//   - run (reorderOnly or nil/empty default): the layout will reorder
+	//     workspace items after the items addMissing step (if any).
+	//   - silent skip (ignore): no warning, layout dropped.
+	//   - reject (append / replace / unknown): surface
+	//     layout_mode_unsupported warning, layout dropped.
+	// The resolver runs even when items are being applied so the user
+	// always sees the unsupported-mode warning, regardless of whether
+	// items succeeded.
+	runInventoryLayout, runStorageLayout := false, false
+	if hasInvLayout {
+		var invOpts *templates.LayoutApplyOptions
+		if tpl.ApplyOptions != nil {
+			invOpts = tpl.ApplyOptions.InventoryLayout
+		}
+		outcome, resolvedMode := resolveV2LayoutMode(invOpts)
+		switch outcome {
+		case v2LayoutModeRun:
+			runInventoryLayout = true
+		case v2LayoutModeSkipReject:
 			report.Warnings = append(report.Warnings, templates.ImportPreviewIssue{
 				Severity:  "warning",
-				Code:      templates.IssueCodeItemsLayoutIgnored,
+				Code:      templates.IssueCodeLayoutModeUnsupported,
 				Container: templates.ContainerInventory,
-				Message:   "sections.inventoryLayout is present but layout apply is not supported in Phase 8D.1; items apply proceeds.",
+				Message: fmt.Sprintf("applyOptions.inventoryLayout.mode=%q is not supported in Phase 8E.1 (only reorderOnly); inventoryLayout skipped.",
+					resolvedMode),
 			})
 		}
-		if hasStoLayout || tpl.Sections.StorageLayout != nil {
+	}
+	if hasStoLayout {
+		var stoOpts *templates.LayoutApplyOptions
+		if tpl.ApplyOptions != nil {
+			stoOpts = tpl.ApplyOptions.StorageLayout
+		}
+		outcome, resolvedMode := resolveV2LayoutMode(stoOpts)
+		switch outcome {
+		case v2LayoutModeRun:
+			runStorageLayout = true
+		case v2LayoutModeSkipReject:
 			report.Warnings = append(report.Warnings, templates.ImportPreviewIssue{
 				Severity:  "warning",
-				Code:      templates.IssueCodeItemsLayoutIgnored,
+				Code:      templates.IssueCodeLayoutModeUnsupported,
 				Container: templates.ContainerStorage,
-				Message:   "sections.storageLayout is present but layout apply is not supported in Phase 8D.1; items apply proceeds.",
+				Message: fmt.Sprintf("applyOptions.storageLayout.mode=%q is not supported in Phase 8E.1 (only reorderOnly); storageLayout skipped.",
+					resolvedMode),
 			})
 		}
+	}
+
+	// Phase 8D.1 — informational warning for the runtime override clash.
+	// The template's applyOptions.weaponLevelOverride is dropped silently
+	// (Phase 8D.1 only honours opts.WeaponLevelOverride); single warning.
+	if hasItems {
 		if tpl.ApplyOptions != nil && tpl.ApplyOptions.WeaponLevelOverride != nil {
 			report.Warnings = append(report.Warnings, templates.ImportPreviewIssue{
 				Severity: "warning",
@@ -645,6 +695,25 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}
 	}
 
+	// Phase 8E.1 — v2 inventory/storage layout reorder. Runs AFTER items
+	// addMissing so newly added items can participate in the layout
+	// (matching uses the same identity tuple v2ItemsKeyForLive). Mutates
+	// only EditableItem.Position in sess.Workspace; never adds, removes,
+	// transfers, or re-attributes items. The reorder is best-effort:
+	// missing / ambiguous / sparse entries surface as warnings on the
+	// report but never block the apply.
+	var layoutRes v2LayoutApplyResult
+	if runInventoryLayout || runStorageLayout {
+		layoutRes = executeV2LayoutReorder(&sess.Workspace, tpl, runInventoryLayout, runStorageLayout)
+		report.Warnings = append(report.Warnings, layoutRes.warnings...)
+		if layoutRes.inventoryRun {
+			applied = append(applied, "inventoryLayout")
+		}
+		if layoutRes.storageRun {
+			applied = append(applied, "storageLayout")
+		}
+	}
+
 	if len(applied) == 0 {
 		// Selection nominated sections but none had anything to write.
 		// Workspace untouched (capacity preflight passed for empty
@@ -662,7 +731,8 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 
 	profileOrStatsApplied := false
 	for _, f := range applied {
-		if f == "inventory.workspace" || f == "equipment" || f == "spells" || f == "items" {
+		if f == "inventory.workspace" || f == "equipment" || f == "spells" || f == "items" ||
+			f == "inventoryLayout" || f == "storageLayout" {
 			continue
 		}
 		profileOrStatsApplied = true
@@ -755,7 +825,18 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	// Phase 7a — mark the workspace dirty + revalidate when items
 	// actually landed. Mirrors the v1 applyBuildTemplateToWorkspaceFromJSON
 	// success tail so the user still commits by clicking Save changes.
-	if hasInventory && (inventoryItemsApplied > 0 || storageItemsApplied > 0) {
+	//
+	// Phase 8D.1 — v2 items addMissing also counts; both v1 and v2 paths
+	// share the same dirty mark.
+	//
+	// Phase 8E.1 — layout reorder mutates EditableItem.Position values
+	// without adding items, so it also flips dirty whenever at least one
+	// LayoutEntry produced a live match. The same revalidate fires so
+	// the snapshot reflects the new ordering when the user saves.
+	itemsLanded := inventoryItemsApplied > 0 || storageItemsApplied > 0
+	layoutLanded := layoutRes.inventoryMatched > 0 || layoutRes.storageMatched > 0 ||
+		layoutRes.inventoryExtras > 0 || layoutRes.storageExtras > 0
+	if needsSession && (itemsLanded || layoutLanded) {
 		sess.Workspace.Dirty = true
 		sess.Workspace.Validation = editor.Validate(sess.Workspace)
 	}
@@ -767,18 +848,24 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	}
 
 	result := ApplyTemplateV2Result{
-		CharIndex:             charIdx,
-		Preview:               report,
-		Applied:               true,
-		AppliedFields:         applied,
-		SkippedFields:         skipped,
-		Character:             freshVM,
-		InventoryItemsApplied: inventoryItemsApplied,
-		SpellSlotsApplied:     spellSlotsApplied,
-		StorageItemsApplied:   storageItemsApplied,
-		EquipmentSlotsApplied: equipmentSlotsApplied,
+		CharIndex:                      charIdx,
+		Preview:                        report,
+		Applied:                        true,
+		AppliedFields:                  applied,
+		SkippedFields:                  skipped,
+		Character:                      freshVM,
+		InventoryItemsApplied:          inventoryItemsApplied,
+		SpellSlotsApplied:              spellSlotsApplied,
+		StorageItemsApplied:            storageItemsApplied,
+		EquipmentSlotsApplied:          equipmentSlotsApplied,
+		LayoutInventoryEntriesApplied:  layoutRes.inventoryMatched,
+		LayoutStorageEntriesApplied:    layoutRes.storageMatched,
+		LayoutInventoryEntriesMissing:  layoutRes.inventoryMissing,
+		LayoutStorageEntriesMissing:    layoutRes.storageMissing,
+		LayoutInventoryExtrasPreserved: layoutRes.inventoryExtras,
+		LayoutStorageExtrasPreserved:   layoutRes.storageExtras,
 	}
-	if hasInventory || hasItems {
+	if needsSession {
 		ws := sess.Workspace
 		result.Workspace = &ws
 	}
@@ -1318,6 +1405,294 @@ func executeV2ItemsPlans(snap *editor.InventoryWorkspaceSnapshot, plans []v2Item
 		}
 	}
 	return res, nil
+}
+
+// ─── Phase 8E.1 — v2 layout apply helpers (reorderOnly only) ────────────
+
+// v2LayoutModeOutcome encodes the resolved mode for a single layout
+// section after consulting tpl.ApplyOptions and applying the Phase 8E.1
+// default policy ("explicit reorderOnly OR nil → reorderOnly; ignore →
+// silent skip; anything else → fail-closed warning + skip").
+type v2LayoutModeOutcome int
+
+const (
+	v2LayoutModeRun        v2LayoutModeOutcome = iota // honour the section, reorder workspace
+	v2LayoutModeSkipSilent                            // mode=ignore — drop the section without surfacing a warning
+	v2LayoutModeSkipReject                            // mode=append/replace/unknown — surface layout_mode_unsupported, drop
+)
+
+// v2LayoutContainer pairs a workspace container kind with its templates-
+// package container tag (used in ImportPreviewIssue.Container).
+type v2LayoutContainer struct {
+	kind editor.ContainerKind
+	tag  string
+}
+
+// resolveV2LayoutMode applies the Phase 8E.1 default policy. nil opts is
+// treated as "reorderOnly" (the safe default for the only MVP behaviour;
+// matches items addMissing's default-when-nil contract). The empty
+// string defaults the same way. Explicit "ignore" is honoured as a
+// silent no-op so a template author can ship the layout section but
+// disable apply without flipping the selection bit.
+func resolveV2LayoutMode(opts *templates.LayoutApplyOptions) (v2LayoutModeOutcome, string) {
+	mode := templates.LayoutApplyModeReorderOnly
+	if opts != nil && opts.Mode != "" {
+		mode = opts.Mode
+	}
+	switch mode {
+	case templates.LayoutApplyModeReorderOnly:
+		return v2LayoutModeRun, mode
+	case templates.LayoutApplyModeIgnore:
+		return v2LayoutModeSkipSilent, mode
+	default:
+		return v2LayoutModeSkipReject, mode
+	}
+}
+
+// v2LayoutApplyResult aggregates per-container outcomes returned by
+// executeV2LayoutReorder. Counters are zero when the section was not
+// run (mode=ignore / mode=unsupported / no entries matched).
+type v2LayoutApplyResult struct {
+	inventoryMatched  int
+	storageMatched    int
+	inventoryMissing  int
+	storageMissing    int
+	inventoryExtras   int
+	storageExtras     int
+	inventoryRun      bool
+	storageRun        bool
+	warnings          []templates.ImportPreviewIssue
+}
+
+// reorderContainerInPlace mutates EditableItem.Position values for one
+// container so template-matched items take Position 0..M-1 (in template
+// order) and the remaining live items (extras) are appended at M..M+K-1
+// in their existing relative order. The slice itself is also re-sorted
+// stably by the new Position so subsequent reads / SaveInventoryWorkspaceChanges
+// observe the canonical order. Returns matched count, missing count,
+// extras count, plus warnings (entry missing / entry ambiguous / sparse
+// normalised / extras preserved).
+//
+// container       — workspace container being rewritten
+// containerTag    — templates-package container string (for warnings)
+// items           — pointer to the workspace slice (will be re-Position'd)
+// layoutEntries   — the LayoutEntry rows from the layout section
+// entryByID       — index over tpl.Sections.Items.Entries (entryID → entry)
+func reorderContainerInPlace(
+	container editor.ContainerKind,
+	containerTag string,
+	items *[]editor.EditableItem,
+	layoutEntries []templates.LayoutEntry,
+	entryByID map[string]templates.TemplateItemEntryV2,
+) (matched, missing, extras int, warnings []templates.ImportPreviewIssue) {
+	warnings = []templates.ImportPreviewIssue{}
+	if items == nil {
+		return 0, 0, 0, warnings
+	}
+
+	// Sort layout entries by Position ASC + EntryRef ASC tie-break.
+	// Tie-break should never trigger (schema rejects duplicate
+	// positions), but stays defensive against hand-authored YAML that
+	// bypassed validation somehow.
+	sortedLE := make([]templates.LayoutEntry, len(layoutEntries))
+	copy(sortedLE, layoutEntries)
+	sort.SliceStable(sortedLE, func(i, j int) bool {
+		if sortedLE[i].Position != sortedLE[j].Position {
+			return sortedLE[i].Position < sortedLE[j].Position
+		}
+		return sortedLE[i].EntryRef < sortedLE[j].EntryRef
+	})
+
+	// Detect sparse positions (post-sort). The validator only enforces
+	// uniqueness, not density; exporter emits dense 0..N-1.
+	sparse := false
+	if n := len(sortedLE); n > 0 {
+		if sortedLE[0].Position != 0 || sortedLE[n-1].Position != n-1 {
+			sparse = true
+		} else {
+			for i := 1; i < n; i++ {
+				if sortedLE[i].Position != sortedLE[i-1].Position+1 {
+					sparse = true
+					break
+				}
+			}
+		}
+	}
+	if sparse {
+		warnings = append(warnings, templates.ImportPreviewIssue{
+			Severity:  "info",
+			Code:      templates.IssueCodeLayoutSparseNormalized,
+			Container: containerTag,
+			Message: fmt.Sprintf("%s layout positions were non-contiguous (e.g. sparse or non-zero-based) and were normalised to 0..N-1 on apply.",
+				containerTag),
+		})
+	}
+
+	// Build a per-tuple bucket of live workspace items. Each bucket is a
+	// FIFO of indices sorted by current Position so the ambiguous-tuple
+	// path is deterministic (pick lowest current Position first).
+	type liveBucket struct{ indices []int }
+	live := map[v2ItemsMatchKey]*liveBucket{}
+	// Indices must respect current Position order so the bucket pops the
+	// "lowest current Position" first. EditableItem.Position is
+	// guaranteed dense 0..N-1 by BuildSnapshot (re-assigned at the end of
+	// each scan); we stable-sort defensively in case a mutator left a
+	// gap.
+	indices := make([]int, len(*items))
+	for i := range *items {
+		indices[i] = i
+	}
+	sort.SliceStable(indices, func(a, b int) bool {
+		return (*items)[indices[a]].Position < (*items)[indices[b]].Position
+	})
+	for _, idx := range indices {
+		key := v2ItemsKeyForLive((*items)[idx])
+		bucket, ok := live[key]
+		if !ok {
+			bucket = &liveBucket{}
+			live[key] = bucket
+		}
+		bucket.indices = append(bucket.indices, idx)
+	}
+
+	// Per-template-entry match → resolved (or skipped with warning).
+	matchedIndices := make([]int, 0, len(sortedLE))
+	consumedAt := make(map[int]bool, len(sortedLE))
+	for _, le := range sortedLE {
+		entry, ok := entryByID[le.EntryRef]
+		if !ok {
+			// validator should have caught this — defense-in-depth.
+			warnings = append(warnings, templates.ImportPreviewIssue{
+				Severity:  "warning",
+				Code:      templates.IssueCodeLayoutEntryMissing,
+				Container: containerTag,
+				Message: fmt.Sprintf("%s layout entryRef %q does not match any items.entries.entryID; skipped",
+					containerTag, le.EntryRef),
+			})
+			continue
+		}
+		key := v2ItemsKeyForEntry(entry)
+		bucket := live[key]
+		if bucket == nil || len(bucket.indices) == 0 {
+			warnings = append(warnings, templates.ImportPreviewIssue{
+				Severity:  "warning",
+				Code:      templates.IssueCodeLayoutEntryMissing,
+				Container: containerTag,
+				Message: fmt.Sprintf("%s layout entryRef %q (baseItemID=0x%08X, upgrade=%d, infusion=%q, aow=0x%08X) has no live match in %s; skipped",
+					containerTag, le.EntryRef, entry.ItemID, key.currentUpgrade, key.infusionName, key.aowItemID, containerTag),
+			})
+			missing++
+			continue
+		}
+		if len(bucket.indices) > 1 {
+			// More than one live candidate for the same identity tuple.
+			// Emit one warning per ambiguous template entry (not per
+			// candidate) so warning volume stays bounded.
+			warnings = append(warnings, templates.ImportPreviewIssue{
+				Severity:  "warning",
+				Code:      templates.IssueCodeLayoutEntryAmbiguous,
+				Container: containerTag,
+				Message: fmt.Sprintf("%s layout entryRef %q (baseItemID=0x%08X) has %d live candidates; picked the one with the lowest current Position",
+					containerTag, le.EntryRef, entry.ItemID, len(bucket.indices)),
+			})
+		}
+		// Pop the head — deterministic because the bucket is built in
+		// current Position order.
+		idx := bucket.indices[0]
+		bucket.indices = bucket.indices[1:]
+		matchedIndices = append(matchedIndices, idx)
+		consumedAt[idx] = true
+		matched++
+	}
+
+	// Re-position matched items at 0..M-1 in the resolved layout order.
+	for newPos, idx := range matchedIndices {
+		(*items)[idx].Position = newPos
+	}
+
+	// Extras = live items not consumed by any template entry. Preserve
+	// their existing relative order (use `indices`, which is sorted by
+	// the original Position) and append at M..M+K-1.
+	nextPos := matched
+	for _, idx := range indices {
+		if consumedAt[idx] {
+			continue
+		}
+		(*items)[idx].Position = nextPos
+		nextPos++
+		extras++
+	}
+
+	if extras > 0 {
+		warnings = append(warnings, templates.ImportPreviewIssue{
+			Severity:  "info",
+			Code:      templates.IssueCodeLayoutExtraItemsPreserved,
+			Container: containerTag,
+			Message: fmt.Sprintf("%d %s item(s) were not referenced by the template layout and were preserved after the template-ordered block in their existing relative order.",
+				extras, containerTag),
+		})
+	}
+
+	// Sort the slice in-place by the new Position so any later reader
+	// (snapshot serialisation, SaveInventoryWorkspaceChanges) sees the
+	// canonical order without relying on Position alone.
+	sort.SliceStable(*items, func(i, j int) bool {
+		return (*items)[i].Position < (*items)[j].Position
+	})
+
+	return matched, missing, extras, warnings
+}
+
+// executeV2LayoutReorder mutates the workspace snapshot in place,
+// applying inventoryLayout / storageLayout (each gated by the
+// pre-resolved mode outcome from resolveV2LayoutMode). Mutates only
+// EditableItem.Position values — never adds, removes, transfers, or
+// re-attributes items. Returns a structured result the caller folds
+// into the apply report; never errors (layout is best-effort).
+func executeV2LayoutReorder(
+	snap *editor.InventoryWorkspaceSnapshot,
+	tpl *templates.BuildTemplate,
+	runInventory bool,
+	runStorage bool,
+) v2LayoutApplyResult {
+	res := v2LayoutApplyResult{warnings: []templates.ImportPreviewIssue{}}
+	if snap == nil || tpl == nil || tpl.Sections.Items == nil {
+		return res
+	}
+	entryByID := make(map[string]templates.TemplateItemEntryV2, len(tpl.Sections.Items.Entries))
+	for _, e := range tpl.Sections.Items.Entries {
+		entryByID[e.EntryID] = e
+	}
+
+	if runInventory && tpl.Sections.InventoryLayout != nil {
+		m, miss, ex, w := reorderContainerInPlace(
+			editor.ContainerInventory,
+			templates.ContainerInventory,
+			&snap.InventoryItems,
+			tpl.Sections.InventoryLayout.Entries,
+			entryByID,
+		)
+		res.inventoryMatched = m
+		res.inventoryMissing = miss
+		res.inventoryExtras = ex
+		res.warnings = append(res.warnings, w...)
+		res.inventoryRun = true
+	}
+	if runStorage && tpl.Sections.StorageLayout != nil {
+		m, miss, ex, w := reorderContainerInPlace(
+			editor.ContainerStorage,
+			templates.ContainerStorage,
+			&snap.StorageItems,
+			tpl.Sections.StorageLayout.Entries,
+			entryByID,
+		)
+		res.storageMatched = m
+		res.storageMissing = miss
+		res.storageExtras = ex
+		res.warnings = append(res.warnings, w...)
+		res.storageRun = true
+	}
+	return res
 }
 
 // capacityPreflightV2Items mirrors capacityPreflight but takes
