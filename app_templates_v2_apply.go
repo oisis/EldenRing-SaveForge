@@ -216,15 +216,22 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	hasInventory := tpl.Selection != nil && tpl.Selection.InventoryWorkspace.HasAny()
 	hasEquipment := tpl.Selection != nil && tpl.Selection.Equipment.HasAny()
 	hasSpells := tpl.Selection != nil && tpl.Selection.Spells.HasAny()
-	if !hasProfile && !hasStats && !hasInventory && !hasEquipment && !hasSpells {
+	// Phase 8D.1 — v2 items / layout selection.
+	hasItems := tpl.Selection != nil && tpl.Selection.Items.HasAny()
+	hasInvLayout := tpl.Selection != nil && tpl.Selection.InventoryLayout.HasAny()
+	hasStoLayout := tpl.Selection != nil && tpl.Selection.StorageLayout.HasAny()
+	if !hasProfile && !hasStats && !hasInventory && !hasEquipment && !hasSpells && !hasItems {
 		// ValidateBuildTemplate already rejects an empty selection
 		// (HasAnySelected == false) — this branch defends against future
-		// validator drift.
+		// validator drift. Layout-only selection is not a supported
+		// apply target in Phase 8D.1 (items must be selected for layout
+		// to be meaningful); the validator catches a layout-without-items
+		// selection at parse time so it cannot reach here.
 		report.OK = false
 		report.Errors = append(report.Errors, templates.ImportPreviewIssue{
 			Severity: "error",
 			Code:     templates.IssueCodeStructureInvalid,
-			Message:  "schema v2 template selects neither profile, stats, inventory.workspace, nor equipment",
+			Message:  "schema v2 template selects no applyable section (profile / stats / inventory.workspace / equipment / spells / items)",
 		})
 		return ApplyTemplateV2Result{
 			CharIndex: charIdx,
@@ -253,6 +260,49 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}, nil
 	}
 
+	// Phase 8D.1 — v1 inventory.workspace + v2 items in the same
+	// template is fail-closed. The two address overlapping state
+	// (sess.Workspace) through different schemas; merging them in one
+	// pass would silently double-add or skip depending on order. The
+	// MVP applies only one of the two systems per call.
+	if hasItems && hasInventory {
+		report.OK = false
+		report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+			Severity: "error",
+			Code:     templates.IssueCodeItemsV1V2Mix,
+			Message:  "schema v2 sections.items cannot be applied together with v1 sections.inventory.workspace in the same template (Phase 8D.1 limitation).",
+		})
+		return ApplyTemplateV2Result{
+			CharIndex: charIdx,
+			Preview:   report,
+			Applied:   false,
+		}, nil
+	}
+
+	// Phase 8D.1 — items apply mode gate. Phase 8D.1 only ships
+	// addMissing; tpl.ApplyOptions.Items==nil defaults to addMissing
+	// when items selection is present. Any other mode (merge,
+	// updateExisting, replace) is rejected before mutation.
+	if hasItems {
+		mode := templates.ItemApplyModeAddMissing
+		if tpl.ApplyOptions != nil && tpl.ApplyOptions.Items != nil && tpl.ApplyOptions.Items.Mode != "" {
+			mode = tpl.ApplyOptions.Items.Mode
+		}
+		if mode != templates.ItemApplyModeAddMissing {
+			report.OK = false
+			report.Errors = append(report.Errors, templates.ImportPreviewIssue{
+				Severity: "error",
+				Code:     templates.IssueCodeItemsModeUnsupported,
+				Message:  fmt.Sprintf("schema v2 sections.items mode %q is not supported in Phase 8D.1 (only addMissing).", mode),
+			})
+			return ApplyTemplateV2Result{
+				CharIndex: charIdx,
+				Preview:   report,
+				Applied:   false,
+			}, nil
+		}
+	}
+
 	// Phase 7a — v2 inventory.workspace session gating.
 	//
 	// Mode A: hasInventory=false → preserve the Phase 5 behaviour. An
@@ -271,14 +321,18 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	// Lock order matches SaveInventoryWorkspaceChanges:
 	//   saveMu.RLock (already held) → editSessionsMu (short) →
 	//   sess.mu (long, via acquireSession) → slotMu[charIdx].
+	// Phase 8D.1 — hasItems shares the session-required path with
+	// hasInventory. Both write into sess.Workspace; both need the same
+	// "open the Sort Order workspace first" guard.
+	needsSession := hasInventory || hasItems
 	var sess *editor.InventoryEditSession
-	if hasInventory {
+	if needsSession {
 		if opts.SessionID == "" {
 			report.OK = false
 			report.Errors = append(report.Errors, templates.ImportPreviewIssue{
 				Severity: "error",
 				Code:     templates.IssueCodeInventorySessionRequired,
-				Message:  "Open the Sort Order workspace before applying inventory templates.",
+				Message:  "Open the Sort Order workspace before applying inventory / items templates.",
 			})
 			return ApplyTemplateV2Result{CharIndex: charIdx, Preview: report, Applied: false}, nil
 		}
@@ -350,18 +404,22 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 	// mixed-apply case. Only taken when the apply will touch the
 	// workspace; otherwise we keep the profile/stats-only fast path
 	// allocation-free. The session lock is already held above.
+	//
+	// Phase 8D.1 — hasItems also touches sess.Workspace, so the same
+	// backup gate covers both v1 inventory.workspace and v2 items
+	// apply paths.
 	var workspaceBackup editor.InventoryWorkspaceSnapshot
-	if hasInventory {
+	if needsSession {
 		workspaceBackup = deepCopySnapshot(sess.Workspace)
 	}
 
 	// rollbackBoth restores both slot bytes and (when held) the
 	// workspace snapshot. Used by every error exit below so a partial
 	// profile/stats write never leaves the workspace dirty, and a
-	// partial inventory write never leaves slot.Data modified.
+	// partial inventory / items write never leaves slot.Data modified.
 	rollbackBoth := func() {
 		core.RestoreSlot(slot, snapshot)
-		if hasInventory {
+		if needsSession {
 			sess.Workspace = workspaceBackup
 		}
 	}
@@ -382,6 +440,70 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 					Applied:   false,
 				}, nil
 			}
+		}
+	}
+
+	// Phase 8D.1 — informational warnings for the items apply path.
+	// Emitted BEFORE the items plan / preflight / mutation so the user
+	// sees them even when the apply later fails preflight.
+	//
+	//   - layout selection / sections: dropped silently (Phase 8D.1
+	//     does not apply layout), warning per affected container.
+	//   - tpl.ApplyOptions.WeaponLevelOverride: dropped silently
+	//     (Phase 8D.1 only honours the runtime override in
+	//     opts.WeaponLevelOverride); single warning.
+	if hasItems {
+		if hasInvLayout || tpl.Sections.InventoryLayout != nil {
+			report.Warnings = append(report.Warnings, templates.ImportPreviewIssue{
+				Severity:  "warning",
+				Code:      templates.IssueCodeItemsLayoutIgnored,
+				Container: templates.ContainerInventory,
+				Message:   "sections.inventoryLayout is present but layout apply is not supported in Phase 8D.1; items apply proceeds.",
+			})
+		}
+		if hasStoLayout || tpl.Sections.StorageLayout != nil {
+			report.Warnings = append(report.Warnings, templates.ImportPreviewIssue{
+				Severity:  "warning",
+				Code:      templates.IssueCodeItemsLayoutIgnored,
+				Container: templates.ContainerStorage,
+				Message:   "sections.storageLayout is present but layout apply is not supported in Phase 8D.1; items apply proceeds.",
+			})
+		}
+		if tpl.ApplyOptions != nil && tpl.ApplyOptions.WeaponLevelOverride != nil {
+			report.Warnings = append(report.Warnings, templates.ImportPreviewIssue{
+				Severity: "warning",
+				Code:     templates.IssueCodeItemsTemplateOverrideIgnored,
+				Message:  "applyOptions.weaponLevelOverride is present but Phase 8D.1 only honours the runtime weapon level override; template option ignored.",
+			})
+		}
+	}
+
+	// Phase 8D.1 — plan v2 items additions and preflight capacity
+	// BEFORE any mutation. Planning is the same data the apply step
+	// consumes; preflight runs against snap.{Inventory,Storage}Items
+	// plus planned counts plus pre-existing pass-through records so a
+	// "would not fit" diagnosis surfaces without touching the
+	// workspace.
+	var itemsPlans []v2ItemsPlannedAdd
+	var itemsPlanWarnings []templates.ImportPreviewIssue
+	if hasItems && tpl.Sections.Items != nil {
+		itemsPlans, itemsPlanWarnings = planV2ItemsAddMissing(sess.Workspace, tpl.Sections.Items.Entries)
+		invPlanned, stoPlanned := 0, 0
+		for _, p := range itemsPlans {
+			if p.Container == editor.ContainerStorage {
+				stoPlanned++
+			} else {
+				invPlanned++
+			}
+		}
+		if issues := capacityPreflightV2Items(sess.Workspace, invPlanned, stoPlanned); len(issues) > 0 {
+			report.Errors = append(report.Errors, issues...)
+			report.OK = false
+			return ApplyTemplateV2Result{
+				CharIndex: charIdx,
+				Preview:   report,
+				Applied:   false,
+			}, nil
 		}
 	}
 
@@ -497,6 +619,32 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		}
 	}
 
+	// Phase 8D.1 — v2 items addMissing apply. Plans were built and
+	// preflighted above; here we just execute them through the same
+	// editor.AddItem + editor.UpdateWeapon helpers the v1 path uses,
+	// then run the runtime weapon level override on every newly added
+	// weapon. Skip warnings produced during planning (already-present,
+	// unsupported category, "both" location, unknown location) are
+	// appended to the report.
+	if hasItems && tpl.Sections.Items != nil {
+		report.Warnings = append(report.Warnings, itemsPlanWarnings...)
+		applyRes, applyErr := executeV2ItemsPlans(&sess.Workspace, itemsPlans, opts.WeaponLevelOverride)
+		if applyErr != nil {
+			rollbackBoth()
+			return ApplyTemplateV2Result{
+				CharIndex: charIdx,
+				Preview:   buildApplyErrorReport(report, applyErr),
+				Applied:   false,
+			}, nil
+		}
+		report.Warnings = append(report.Warnings, applyRes.warnings...)
+		inventoryItemsApplied += applyRes.addedInventory
+		storageItemsApplied += applyRes.addedStorage
+		if applyRes.addedInventory+applyRes.addedStorage > 0 {
+			applied = append(applied, "items")
+		}
+	}
+
 	if len(applied) == 0 {
 		// Selection nominated sections but none had anything to write.
 		// Workspace untouched (capacity preflight passed for empty
@@ -514,7 +662,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 
 	profileOrStatsApplied := false
 	for _, f := range applied {
-		if f == "inventory.workspace" || f == "equipment" {
+		if f == "inventory.workspace" || f == "equipment" || f == "spells" || f == "items" {
 			continue
 		}
 		profileOrStatsApplied = true
@@ -630,7 +778,7 @@ func (a *App) ApplyBuildTemplateV2ToCharacterJSON(charIdx int, jsonText string, 
 		StorageItemsApplied:   storageItemsApplied,
 		EquipmentSlotsApplied: equipmentSlotsApplied,
 	}
-	if hasInventory {
+	if hasInventory || hasItems {
 		ws := sess.Workspace
 		result.Workspace = &ws
 	}
@@ -950,4 +1098,254 @@ func computeActiveTalismanSlots(slot *core.SaveSlot, tpl *templates.BuildTemplat
 		base = v
 	}
 	return 1 + base
+}
+
+// ─── Phase 8D.1 — v2 items addMissing apply helpers ─────────────────────
+
+// v2ItemsMatchKey is the live-identity tuple used by addMissing.
+// EntryID is intentionally NOT part of the tuple — it is a portable
+// layout reference, not a stable live identity. Two templates with
+// different EntryIDs that describe the same baseItemID+upgrade+infusion
+// +AoW must collide on the live side.
+type v2ItemsMatchKey struct {
+	baseItemID     uint32
+	currentUpgrade int
+	infusionName   string
+	aowItemID      uint32
+}
+
+// v2ItemsPlannedAdd is one (entry, target container) request produced
+// by planV2ItemsAddMissing. A single template entry can yield up to two
+// plans when Location="both".
+type v2ItemsPlannedAdd struct {
+	Entry     templates.TemplateItemEntryV2
+	Container editor.ContainerKind
+}
+
+// v2ItemsApplyResult collects the runtime counters and post-apply
+// warnings (weapon level override clamped / unupgradeable). Planning-
+// time skip warnings (already-present, unsupported category, unknown
+// location) are returned separately by planV2ItemsAddMissing so the
+// caller can emit them even when execution rolls back.
+type v2ItemsApplyResult struct {
+	addedInventory int
+	addedStorage   int
+	warnings       []templates.ImportPreviewIssue
+}
+
+// v2ItemsContainerTag maps an editor container into the templates
+// package's container string (used in ImportPreviewIssue.Container).
+func v2ItemsContainerTag(c editor.ContainerKind) string {
+	if c == editor.ContainerStorage {
+		return templates.ContainerStorage
+	}
+	return templates.ContainerInventory
+}
+
+// v2ItemsKeyForEntry derives the addMissing identity tuple from a
+// template entry. UpgradeLevel==nil means "kind=none / unupgradable" →
+// level 0. AshOfWarItemID==nil or *0 means "no custom AoW" → 0.
+func v2ItemsKeyForEntry(e templates.TemplateItemEntryV2) v2ItemsMatchKey {
+	k := v2ItemsMatchKey{
+		baseItemID:   e.ItemID,
+		infusionName: e.InfusionName,
+	}
+	if e.UpgradeLevel != nil {
+		k.currentUpgrade = int(*e.UpgradeLevel)
+	}
+	if e.AshOfWarItemID != nil {
+		k.aowItemID = *e.AshOfWarItemID
+	}
+	return k
+}
+
+// v2ItemsKeyForLive derives the addMissing identity tuple from a live
+// EditableItem. CurrentAoWItemID is only included when the live AoW
+// state is "custom" — "missing" and "shared" are abnormal states and
+// must not pretend to match a template entry's clean AoW selection.
+func v2ItemsKeyForLive(it editor.EditableItem) v2ItemsMatchKey {
+	k := v2ItemsMatchKey{
+		baseItemID:     it.BaseItemID,
+		currentUpgrade: it.CurrentUpgrade,
+		infusionName:   it.InfusionName,
+	}
+	if it.CurrentAoWStatus == editor.AoWStatusCustom {
+		k.aowItemID = it.CurrentAoWItemID
+	}
+	return k
+}
+
+// v2ItemsContainersForLocation maps the v2 location string into the
+// editor.ContainerKind list the entry will target. Returns nil for
+// any value not in the v2 schema allowlist; the validator should have
+// caught those earlier, so a nil here is a defense-in-depth path.
+func v2ItemsContainersForLocation(loc string) []editor.ContainerKind {
+	switch loc {
+	case templates.ItemLocationInventory:
+		return []editor.ContainerKind{editor.ContainerInventory}
+	case templates.ItemLocationStorage:
+		return []editor.ContainerKind{editor.ContainerStorage}
+	case templates.ItemLocationBoth:
+		return []editor.ContainerKind{editor.ContainerInventory, editor.ContainerStorage}
+	default:
+		return nil
+	}
+}
+
+// planV2ItemsAddMissing walks the template entries against a static
+// snapshot of the live workspace and produces:
+//
+//   - a list of (entry, container) plans for editor.AddItem;
+//   - a list of skip warnings (already-present, unsupported category,
+//     unknown location) ready to append to the preview report.
+//
+// Match set evolves as plans accumulate so two template entries that
+// resolve to the same identity tuple collide on the second one (the
+// first plan blocks the second from being added). Live snap is read-
+// only.
+func planV2ItemsAddMissing(snap editor.InventoryWorkspaceSnapshot, entries []templates.TemplateItemEntryV2) ([]v2ItemsPlannedAdd, []templates.ImportPreviewIssue) {
+	plans := make([]v2ItemsPlannedAdd, 0, len(entries))
+	warnings := make([]templates.ImportPreviewIssue, 0)
+
+	type containerKey struct {
+		c editor.ContainerKind
+		k v2ItemsMatchKey
+	}
+	live := map[containerKey]bool{}
+	for _, it := range snap.InventoryItems {
+		live[containerKey{editor.ContainerInventory, v2ItemsKeyForLive(it)}] = true
+	}
+	for _, it := range snap.StorageItems {
+		live[containerKey{editor.ContainerStorage, v2ItemsKeyForLive(it)}] = true
+	}
+
+	for _, e := range entries {
+		containers := v2ItemsContainersForLocation(e.Location)
+		if len(containers) == 0 {
+			warnings = append(warnings, templates.ImportPreviewIssue{
+				Severity: "warning",
+				Code:     templates.IssueCodeStructureInvalid,
+				Message:  fmt.Sprintf("v2 items entry %q: unknown location %q; skipped", e.EntryID, e.Location),
+			})
+			continue
+		}
+		key := v2ItemsKeyForEntry(e)
+		for _, c := range containers {
+			tag := v2ItemsContainerTag(c)
+			ck := containerKey{c, key}
+			if live[ck] {
+				warnings = append(warnings, templates.ImportPreviewIssue{
+					Severity:  "warning",
+					Code:      templates.IssueCodeItemsAlreadyPresent,
+					Container: tag,
+					Message: fmt.Sprintf("entry %q (baseItemID=0x%08X, upgrade=%d, infusion=%q, aow=0x%08X) already present; skipped (addMissing)",
+						e.EntryID, e.ItemID, key.currentUpgrade, key.infusionName, key.aowItemID),
+				})
+				continue
+			}
+			if !editor.SupportedCategories[e.Category] {
+				warnings = append(warnings, templates.ImportPreviewIssue{
+					Severity:  "warning",
+					Code:      templates.IssueCodeUnsupportedCategory,
+					Container: tag,
+					Message:   fmt.Sprintf("entry %q (category=%q) is not in the Phase 8D.1 editable category allow-list; skipped", e.EntryID, e.Category),
+				})
+				continue
+			}
+			plans = append(plans, v2ItemsPlannedAdd{Entry: e, Container: c})
+			live[ck] = true
+		}
+	}
+	return plans, warnings
+}
+
+// executeV2ItemsPlans runs each planned addition through editor.AddItem,
+// applies the per-entry weapon patch (upgrade / infusion / AoW), and
+// then runs the runtime weapon level override. Returns a hard error on
+// the first editor.* failure so the caller can roll back; soft-skip
+// conditions (unsupported category, already present) were already
+// resolved during planning.
+func executeV2ItemsPlans(snap *editor.InventoryWorkspaceSnapshot, plans []v2ItemsPlannedAdd, override *WeaponLevelOverride) (v2ItemsApplyResult, error) {
+	res := v2ItemsApplyResult{warnings: []templates.ImportPreviewIssue{}}
+	for _, p := range plans {
+		var targetPos int
+		if p.Container == editor.ContainerStorage {
+			targetPos = len(snap.StorageItems)
+		} else {
+			targetPos = len(snap.InventoryItems)
+		}
+		spec := editor.AddItemSpec{
+			BaseItemID: p.Entry.ItemID,
+			Quantity:   p.Entry.Quantity,
+		}
+		if err := editor.AddItem(snap, spec, p.Container, targetPos); err != nil {
+			return res, fmt.Errorf("AddItem v2 entry %q (baseItemID=0x%08X): %w", p.Entry.EntryID, p.Entry.ItemID, err)
+		}
+		var added *editor.EditableItem
+		if p.Container == editor.ContainerStorage {
+			added = &snap.StorageItems[targetPos]
+			res.addedStorage++
+		} else {
+			added = &snap.InventoryItems[targetPos]
+			res.addedInventory++
+		}
+		if added.IsWeapon {
+			patch := editor.WeaponPatch{}
+			if p.Entry.UpgradeLevel != nil && *p.Entry.UpgradeLevel > 0 {
+				patch.SetUpgrade = true
+				patch.Upgrade = int(*p.Entry.UpgradeLevel)
+			}
+			if p.Entry.InfusionName != "" {
+				patch.SetInfusionName = true
+				patch.InfusionName = p.Entry.InfusionName
+			}
+			if p.Entry.AshOfWarItemID != nil && *p.Entry.AshOfWarItemID != 0 {
+				patch.SetAoWItemID = true
+				patch.AoWItemID = *p.Entry.AshOfWarItemID
+			}
+			if patch.SetUpgrade || patch.SetInfusionName || patch.SetAoWItemID {
+				if err := editor.UpdateWeapon(snap, added.UID, patch); err != nil {
+					return res, fmt.Errorf("UpdateWeapon v2 entry %q (uid=%s): %w", p.Entry.EntryID, added.UID, err)
+				}
+			}
+			if override.HasAny() {
+				w, err := applyWeaponLevelOverride(snap, added, override, p.Container)
+				if err != nil {
+					return res, fmt.Errorf("WeaponLevelOverride v2 entry %q (uid=%s): %w", p.Entry.EntryID, added.UID, err)
+				}
+				res.warnings = append(res.warnings, w...)
+			}
+		}
+	}
+	return res, nil
+}
+
+// capacityPreflightV2Items mirrors capacityPreflight but takes
+// already-counted planned additions per container. v2 items planning
+// happens BEFORE mutation so we can run the preflight without any
+// half-built section struct; the counts come straight from
+// planV2ItemsAddMissing.
+func capacityPreflightV2Items(snap editor.InventoryWorkspaceSnapshot, invPlanned, stoPlanned int) []templates.ImportPreviewIssue {
+	var issues []templates.ImportPreviewIssue
+	invTotal := len(snap.InventoryItems) + invPlanned + len(snap.UnsupportedInventoryRecords)
+	if invTotal > core.CommonItemCount {
+		issues = append(issues, templates.ImportPreviewIssue{
+			Severity:  "error",
+			Code:      templates.IssueCodeCapacityExceeded,
+			Container: templates.ContainerInventory,
+			Message: fmt.Sprintf("inventory capacity exceeded: %d existing + %d unsupported + %d v2 items = %d, max %d",
+				len(snap.InventoryItems), len(snap.UnsupportedInventoryRecords), invPlanned, invTotal, core.CommonItemCount),
+		})
+	}
+	stoTotal := len(snap.StorageItems) + stoPlanned + len(snap.UnsupportedStorageRecords)
+	if stoTotal > core.StorageCommonCount {
+		issues = append(issues, templates.ImportPreviewIssue{
+			Severity:  "error",
+			Code:      templates.IssueCodeCapacityExceeded,
+			Container: templates.ContainerStorage,
+			Message: fmt.Sprintf("storage capacity exceeded: %d existing + %d unsupported + %d v2 items = %d, max %d",
+				len(snap.StorageItems), len(snap.UnsupportedStorageRecords), stoPlanned, stoTotal, core.StorageCommonCount),
+		})
+	}
+	return issues
 }

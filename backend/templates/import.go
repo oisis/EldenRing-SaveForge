@@ -163,6 +163,38 @@ const (
 	// evaluate pouch state AFTER profile apply, so a +3 pouch bump in the
 	// same template lifts the cap before talismans are resolved.
 	IssueCodeTalismanSlotPouchInsufficient = "talisman_slot_pouch_insufficient"
+
+	// Phase 8D.1 — v2 items apply issue codes.
+	//
+	// items_mode_unsupported is an error: the apply layer only ships
+	// addMissing in Phase 8D.1. Any other mode (merge, updateExisting,
+	// replace) is fail-closed so the UI can render a "this mode is not
+	// implemented yet" affordance distinct from the v1 unknown_mode
+	// warning.
+	//
+	// items_already_present is a warning: addMissing skipped an entry
+	// because a live workspace item already matches the entry's
+	// identity tuple (container, baseItemID, currentUpgrade,
+	// infusionName, AoW). The entry was not applied; other entries
+	// continue.
+	//
+	// items_layout_ignored is a warning: the template ships
+	// inventoryLayout or storageLayout (section or selection) but Phase
+	// 8D.1 does not apply layout. The items apply still proceeds.
+	//
+	// items_template_override_ignored is a warning: the template ships
+	// applyOptions.weaponLevelOverride but Phase 8D.1 only honours the
+	// runtime ApplyTemplateV2Options.WeaponLevelOverride. The template
+	// option is ignored.
+	//
+	// items_v1_v2_mix is an error: a single template selects both v1
+	// inventory.workspace and v2 items. The apply layer refuses to
+	// merge the two systems in one pass.
+	IssueCodeItemsModeUnsupported         = "items_mode_unsupported"
+	IssueCodeItemsAlreadyPresent          = "items_already_present"
+	IssueCodeItemsLayoutIgnored           = "items_layout_ignored"
+	IssueCodeItemsTemplateOverrideIgnored = "items_template_override_ignored"
+	IssueCodeItemsV1V2Mix                 = "items_v1_v2_mix"
 )
 
 // ashCategory is the DB tag for an Ash of War item. Used to detect
