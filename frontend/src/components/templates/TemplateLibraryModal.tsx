@@ -367,12 +367,25 @@ export function TemplateLibraryModal({
                                 // Phase 7d.4 — spells join as an apply-eligible section.
                                 // Spells-only templates do NOT require a session; WriteSpells
                                 // writes directly into slot.Data and recomputes hash[10].
+                                //
+                                // Phase 8D.2 — items joins as an apply-eligible section
+                                // (add-missing only). Layout sections (inventoryLayout /
+                                // storageLayout) stay export-only; an entry that nominates
+                                // ONLY layout has no apply path. When layout sits alongside
+                                // items, Apply stays enabled and the confirm row warns that
+                                // layout will be ignored.
                                 const v2HasApplyableSections =
                                     selectedSections.includes('profile') ||
                                     selectedSections.includes('stats') ||
                                     selectedSections.includes('inventory.workspace') ||
                                     selectedSections.includes('equipment') ||
-                                    selectedSections.includes('spells');
+                                    selectedSections.includes('spells') ||
+                                    selectedSections.includes('items');
+                                const hasLayoutSection =
+                                    selectedSections.includes('inventoryLayout') ||
+                                    selectedSections.includes('storageLayout');
+                                const hasItemsSection = selectedSections.includes('items');
+                                const layoutIgnoredOnApply = hasItemsSection && hasLayoutSection;
 
                                 // Per-entry Apply gating. v1 path is
                                 // preserved verbatim: requires sessionID,
@@ -394,7 +407,9 @@ export function TemplateLibraryModal({
                                     applyHandler = () => onApply(entry);
                                 } else if (!v2HasApplyableSections) {
                                     applyDisabled = true;
-                                    applyTitle = 'Inventory apply for schema v2 is not supported yet';
+                                    applyTitle = hasLayoutSection
+                                        ? 'Inventory layout / storage layout are export-only — no apply path in Phase 8D.2.'
+                                        : 'This schema v2 template has no apply-eligible sections.';
                                     applyAriaLabel = applyTitle;
                                     applyHandler = () => {};
                                 } else if (!onApplyV2) {
@@ -626,6 +641,22 @@ export function TemplateLibraryModal({
                                                 {selectedSections.includes('profile') && (
                                                     <div data-testid="library-apply-v2-class-skipped" className="text-muted-foreground italic">
                                                         Class changes are skipped in this phase.
+                                                    </div>
+                                                )}
+                                                {hasItemsSection && (
+                                                    <div
+                                                        data-testid="library-apply-v2-items-mode"
+                                                        className="text-muted-foreground"
+                                                    >
+                                                        Items mode: <span className="font-bold">Add missing only</span> — existing items are preserved.
+                                                    </div>
+                                                )}
+                                                {layoutIgnoredOnApply && (
+                                                    <div
+                                                        data-testid="library-apply-v2-layout-ignored"
+                                                        className="text-amber-200/90"
+                                                    >
+                                                        Inventory / storage layout will be ignored — layout apply is not supported in Phase 8D.2.
                                                     </div>
                                                 )}
                                                 <div className="text-muted-foreground">

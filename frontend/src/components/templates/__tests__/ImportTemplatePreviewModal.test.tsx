@@ -955,7 +955,7 @@ describe('ImportTemplatePreviewModal — Phase 7d.4 spells section', () => {
         expect(btn).toBeDisabled();
         expect(btn).toHaveAttribute(
             'title',
-            'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, and spells in this phase. Items / inventoryLayout / storageLayout are export-only.',
+            'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, spells, and items in this phase. Inventory layout / storage layout are export-only.',
         );
     });
 });
@@ -994,10 +994,17 @@ describe('ImportTemplatePreviewModal — Phase 8C.1 items / inventoryLayout / st
         expect(screen.getByTestId('import-preview-items-entries')).toHaveTextContent('12');
         expect(screen.getByTestId('import-preview-inventory-layout-count')).toHaveTextContent('8');
         expect(screen.getByTestId('import-preview-storage-layout-count')).toHaveTextContent('4');
-        expect(screen.getByTestId('import-preview-items-export-only')).toBeInTheDocument();
+        // Phase 8D.2 — when items + layout coexist, apply IS supported
+        // (the layout sections are dropped by the backend with a warning).
+        expect(
+            screen.getByTestId('import-preview-items-apply-supported'),
+        ).toBeInTheDocument();
+        expect(
+            screen.queryByTestId('import-preview-items-export-only'),
+        ).not.toBeInTheDocument();
     });
 
-    it('disables Apply when the template carries the items section', () => {
+    it('Phase 8D.2 — enables Apply for an items + layout template and shows layout-ignored copy', () => {
         const report = makeReport({ summary: itemsSummary() });
         render(
             <ImportTemplatePreviewModal
@@ -1009,8 +1016,68 @@ describe('ImportTemplatePreviewModal — Phase 8C.1 items / inventoryLayout / st
             />,
         );
         const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).not.toBeDisabled();
+        expect(
+            screen.getByTestId('import-preview-items-apply-supported').textContent,
+        ).toMatch(/layout.*ignored/i);
+    });
+
+    it('Phase 8D.2 — items-only template enables Apply and renders the supported copy without a layout-ignored note', () => {
+        const report = makeReport({
+            summary: itemsSummary({
+                selectedSections: ['items'],
+                profileFieldsPresent: [],
+                itemsEntries: 5,
+                inventoryLayoutCount: 0,
+                storageLayoutCount: 0,
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
+        expect(btn).not.toBeDisabled();
+        const copy = screen.getByTestId('import-preview-items-apply-supported');
+        expect(copy.textContent).toMatch(/Items: apply supported \(add missing only\)\./);
+        expect(copy.textContent).not.toMatch(/ignored/i);
+    });
+
+    it('Phase 8D.2 — layout-only template disables Apply with the layout-only reason', () => {
+        const report = makeReport({
+            summary: itemsSummary({
+                selectedSections: ['inventoryLayout'],
+                profileFieldsPresent: [],
+                itemsEntries: 0,
+                inventoryLayoutCount: 3,
+                storageLayoutCount: 0,
+            }),
+        });
+        render(
+            <ImportTemplatePreviewModal
+                report={report}
+                onClose={() => {}}
+                onApplyV2={() => {}}
+                charIndex={0}
+                saveLoaded
+            />,
+        );
+        const btn = screen.getByTestId('import-preview-apply-v2');
         expect(btn).toBeDisabled();
-        expect(btn.getAttribute('title')).toMatch(/Items \/ inventoryLayout \/ storageLayout are export-only/);
+        expect(btn.getAttribute('title')).toMatch(
+            /Inventory layout \/ storage layout are export-only/,
+        );
+        expect(
+            screen.getByTestId('import-preview-items-export-only'),
+        ).toBeInTheDocument();
+        expect(
+            screen.queryByTestId('import-preview-items-apply-supported'),
+        ).not.toBeInTheDocument();
     });
 
     it('hides the items block when no items/layout counts are reported', () => {

@@ -73,7 +73,23 @@ interface Props {
 // active session — WriteSpells operates directly on slot.Data and
 // recomputes hash[10] inline. Spells coexist freely with profile/
 // stats/equipment/inventory.workspace; no combo restrictions apply.
-const V2_APPLY_SUPPORTED_SECTIONS = ['profile', 'stats', 'inventory.workspace', 'equipment', 'spells'];
+//
+// Phase 8D.2 adds items. sections.items applies as add-missing only
+// and shares the active-session gate with inventory.workspace; the
+// shell performs the session lookup. sections.inventoryLayout and
+// sections.storageLayout remain export-only — when they appear
+// alongside items, the apply proceeds and the backend emits an
+// items_layout_ignored warning; when they appear without items, the
+// apply is disabled (LAYOUT_ONLY_SECTIONS lists the layout keys).
+const V2_APPLY_SUPPORTED_SECTIONS = [
+    'profile',
+    'stats',
+    'inventory.workspace',
+    'equipment',
+    'spells',
+    'items',
+];
+const LAYOUT_ONLY_SECTIONS = ['inventoryLayout', 'storageLayout'];
 
 export function ImportTemplatePreviewModal({
     report,
@@ -126,9 +142,27 @@ export function ImportTemplatePreviewModal({
     // Apply with overrides (Phase 6) buttons.
     const v2ApplyVisible = !!onApplyV2 && isV2;
     const v2OverridesVisible = !!onApplyV2WithOverrides && isV2;
+    const supportedSectionsPresent = selectedSections.filter(s =>
+        V2_APPLY_SUPPORTED_SECTIONS.includes(s),
+    );
+    const layoutOnlySectionsPresent = selectedSections.filter(s =>
+        LAYOUT_ONLY_SECTIONS.includes(s),
+    );
     const v2HasUnsupportedSection =
         selectedSections.length > 0 &&
-        selectedSections.some(s => !V2_APPLY_SUPPORTED_SECTIONS.includes(s));
+        selectedSections.some(
+            s =>
+                !V2_APPLY_SUPPORTED_SECTIONS.includes(s) &&
+                !LAYOUT_ONLY_SECTIONS.includes(s),
+        );
+    // Phase 8D.2 — layout sections (inventoryLayout / storageLayout)
+    // are export-only. A template that nominates ONLY layout sections
+    // has no applyable content; one that pairs layout with items keeps
+    // Apply enabled and the backend emits items_layout_ignored.
+    const v2OnlyLayoutSelected =
+        selectedSections.length > 0 &&
+        supportedSectionsPresent.length === 0 &&
+        layoutOnlySectionsPresent.length > 0;
     const v2DisabledReason: string = !isV2
         ? ''
         : !report.ok
@@ -139,9 +173,15 @@ export function ImportTemplatePreviewModal({
                     ? 'Select a character before applying.'
                     : selectedSections.length === 0
                         ? 'No sections selected.'
-                        : v2HasUnsupportedSection
-                            ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, and spells in this phase. Items / inventoryLayout / storageLayout are export-only.'
-                            : '';
+                        : v2OnlyLayoutSelected
+                            ? 'Inventory layout / storage layout are export-only — no apply path in Phase 8D.2.'
+                            : v2HasUnsupportedSection
+                                ? 'Unsupported v2 sections — apply is available only for profile, stats, inventory.workspace, equipment, spells, and items in this phase. Inventory layout / storage layout are export-only.'
+                                : '';
+    // Phase 8D.2 — `items` section apply visibility helpers.
+    const itemsSectionSelected = selectedSections.includes('items');
+    const hasLayoutAlongsideItems =
+        itemsSectionSelected && layoutOnlySectionsPresent.length > 0;
     const v2ApplyDisabledReason = v2ApplyVisible ? v2DisabledReason : '';
     const v2ApplyEnabled =
         v2ApplyVisible && !applyingV2 && v2ApplyDisabledReason === '';
@@ -234,13 +274,26 @@ export function ImportTemplatePreviewModal({
                                         Storage layout entries:{' '}
                                         <span className="font-bold">{storageLayoutCount}</span>
                                     </div>
-                                    <div
-                                        data-testid="import-preview-items-export-only"
-                                        className="text-[10px] text-amber-300/90"
-                                    >
-                                        Items, inventory layout, and storage layout are export-only — apply is not
-                                        supported yet.
-                                    </div>
+                                    {itemsSectionSelected && (
+                                        <div
+                                            data-testid="import-preview-items-apply-supported"
+                                            className="text-[10px] text-emerald-300/90"
+                                        >
+                                            Items: apply supported (add missing only).
+                                            {hasLayoutAlongsideItems
+                                                ? ' Inventory layout / storage layout are export-only and will be ignored on apply.'
+                                                : ''}
+                                        </div>
+                                    )}
+                                    {!itemsSectionSelected && layoutOnlySectionsPresent.length > 0 && (
+                                        <div
+                                            data-testid="import-preview-items-export-only"
+                                            className="text-[10px] text-amber-300/90"
+                                        >
+                                            Inventory layout / storage layout are export-only — apply is not
+                                            supported yet.
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </section>

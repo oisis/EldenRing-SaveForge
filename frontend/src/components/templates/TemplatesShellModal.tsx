@@ -79,6 +79,61 @@ type OverridesSource =
 // the backend schema. Kept as a constant so the two call sites that
 // peek into a template's selectedSections list agree on the spelling.
 const INVENTORY_WORKSPACE_SECTION = 'inventory.workspace';
+// ITEMS_SECTION — Phase 8D.2 canonical selection key. Items share the
+// active-session gate with inventory.workspace; both also surface the
+// runtime weapon level override in the overrides modal.
+const ITEMS_SECTION = 'items';
+const ITEM_APPLY_MODE_ADD_MISSING = 'addMissing';
+
+// canonicalJSONHasItems returns true when the canonical JSON's
+// selection nominates sections.items. Used to gate items-specific
+// rewrites (e.g. explicit addMissing injection) and the
+// items-apply session check on the JSON apply path.
+function canonicalJSONHasItems(canonical: string): boolean {
+    if (!canonical) return false;
+    try {
+        const parsed = JSON.parse(canonical) as {
+            selection?: { items?: unknown };
+        };
+        const sel = parsed?.selection?.[ITEMS_SECTION];
+        if (sel === undefined || sel === null) return false;
+        if (typeof sel === 'boolean') return sel;
+        if (typeof sel === 'object') {
+            const obj = sel as Record<string, unknown>;
+            if (obj.all === true) return true;
+            return Object.keys(obj).length > 0;
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
+
+// injectExplicitAddMissing rewrites the canonical JSON so its
+// applyOptions.items.mode is set to "addMissing" when sections.items
+// is selected. Phase 8D.1 backend already defaults to addMissing when
+// ApplyOptions.Items is nil, but Phase 8D.2 UI sends the mode
+// explicitly so the intent is testable from the JSON payload itself.
+// Pass-through on any parse error so the caller never blocks on a
+// rewrite failure — the backend will surface the underlying issue.
+function injectExplicitAddMissing(canonical: string): string {
+    if (!canonical) return canonical;
+    if (!canonicalJSONHasItems(canonical)) return canonical;
+    try {
+        const parsed = JSON.parse(canonical) as Record<string, unknown>;
+        const ao = (parsed.applyOptions as Record<string, unknown> | undefined) ?? {};
+        const items = (ao.items as Record<string, unknown> | undefined) ?? {};
+        if (items.mode === ITEM_APPLY_MODE_ADD_MISSING) {
+            return canonical;
+        }
+        items.mode = ITEM_APPLY_MODE_ADD_MISSING;
+        ao.items = items;
+        parsed.applyOptions = ao;
+        return JSON.stringify(parsed);
+    } catch {
+        return canonical;
+    }
+}
 
 // NO_SESSION_MESSAGE is the shared toast/inline copy surfaced when the
 // user tries to apply a v2 inventory.workspace template without an
@@ -152,6 +207,19 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
     // immediately while preserving the modal's existing state
     // (selection, edit mode, etc.).
     const [libraryReloadSignal, setLibraryReloadSignal] = useState(0);
+    // Phase 8D.2 — items apply result modal state. Opened after a v2
+    // apply touches sections.items so the user can see counts, the
+    // skipped-already-present list, layout-ignored / weapon-override
+    // warnings, and any other backend issue codes. Profile/stats-only
+    // applies skip the modal and keep the existing toast UX.
+    const [itemsApplyResult, setItemsApplyResult] = useState<
+        | {
+              sourceLabel: string;
+              charIndex: number;
+              result: main.ApplyTemplateV2Result;
+          }
+        | null
+    >(null);
 
     const refreshLibrary = useCallback(() => {
         setLibraryReloadSignal(s => s + 1);
@@ -266,7 +334,13 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             // happens to be open so the user can apply mixed templates
             // in the same pass later without re-opening the workspace.
             const selectedSections = entry.selectedSections ?? [];
-            const needsSession = selectedSections.includes(INVENTORY_WORKSPACE_SECTION);
+            // Phase 8D.2 — items joins inventory.workspace under the
+            // active-session gate. Library entries that nominate items
+            // (with or without layout) need a session for the same
+            // reason: both mutate sess.Workspace.
+            const hasItems = selectedSections.includes(ITEMS_SECTION);
+            const needsSession =
+                selectedSections.includes(INVENTORY_WORKSPACE_SECTION) || hasItems;
             const sessionID = await fetchActiveSessionID(charIndex);
             if (needsSession && !sessionID) {
                 toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
@@ -291,14 +365,16 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 toast.error(`Templates: ${firstErr}`);
                 throw new Error(firstErr);
             }
-            toast.success(
-                `Applied "${entry.name || entry.id}" to character slot ${charIndex + 1}.`,
-            );
+            const sourceLabel = entry.name || entry.id;
+            toast.success(`Applied "${sourceLabel}" to character slot ${charIndex + 1}.`);
             if ((result.skippedFields ?? []).includes('profile.class')) {
                 // toast() is the info channel in this codebase — see lib/toast.ts.
                 toast('Class was skipped in this phase.');
             }
             onCharacterTemplateApplied?.(charIndex);
+            if (hasItems) {
+                setItemsApplyResult({ sourceLabel, charIndex, result });
+            }
         },
         [saveLoaded, charIndex, onCharacterTemplateApplied],
     );
@@ -401,12 +477,21 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             // profile/stats. Inspect the mutated JSON itself (it is
             // the source of truth at confirm time) and gate on session
             // availability before invoking the apply binding.
-            const needsSession = canonicalJSONNeedsSession(mutatedJSON);
+            //
+            // Phase 8D.2 — sections.items rides the same gate: both
+            // inventory.workspace and items mutate sess.Workspace and
+            // need an active edit session.
+            const hasItems = canonicalJSONHasItems(mutatedJSON);
+            const needsSession = canonicalJSONNeedsSession(mutatedJSON) || hasItems;
             const sessionID = await fetchActiveSessionID(charIndex);
             if (needsSession && !sessionID) {
                 toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
                 return;
             }
+            // Phase 8D.2 — surface the explicit addMissing mode on the
+            // wire when sections.items is part of this apply. No-op
+            // otherwise.
+            const payloadJSON = hasItems ? injectExplicitAddMissing(mutatedJSON) : mutatedJSON;
             setApplyingV2WithOverrides(true);
             try {
                 // Phase 7a.2 — runtime weapon level override travels as
@@ -417,7 +502,7 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 // unchanged.
                 const result = await ApplyBuildTemplateV2ToCharacterJSON(
                     charIndex,
-                    mutatedJSON,
+                    payloadJSON,
                     main.ApplyTemplateV2Options.createFrom({
                         mode: 'append',
                         sessionID: sessionID ?? '',
@@ -439,7 +524,11 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                 if (overridesSource.kind === 'import') {
                     setImportedPreview(null);
                 }
+                const sourceLabel = overridesSource.sourceLabel;
                 setOverridesSource(null);
+                if (hasItems) {
+                    setItemsApplyResult({ sourceLabel, charIndex, result });
+                }
             } catch (err) {
                 toast.error(`Templates: ${String(err)}`);
             } finally {
@@ -468,18 +557,32 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
         // session. The preview summary lists the selected sections;
         // when it includes inventory.workspace and no session is open,
         // refuse before the apply binding is invoked.
+        //
+        // Phase 8D.2 — sections.items shares the same active-session
+        // gate. Both apply paths mutate sess.Workspace; both surface
+        // the same "open the Sort Order workspace first" guidance.
         const selectedSections = importedPreview.report.summary?.selectedSections ?? [];
-        const needsSession = selectedSections.includes(INVENTORY_WORKSPACE_SECTION);
+        const needsSession =
+            selectedSections.includes(INVENTORY_WORKSPACE_SECTION) ||
+            selectedSections.includes(ITEMS_SECTION);
         const sessionID = await fetchActiveSessionID(charIndex);
         if (needsSession && !sessionID) {
             toast.error(`Templates: ${NO_SESSION_MESSAGE}`);
             return;
         }
+        const hasItems = selectedSections.includes(ITEMS_SECTION);
+        // Phase 8D.2 — make the addMissing intent explicit on the
+        // wire when sections.items is present. injectExplicitAddMissing
+        // is a no-op when items is not selected or the mode is
+        // already addMissing.
+        const payloadJSON = hasItems
+            ? injectExplicitAddMissing(importedPreview.canonicalJSON)
+            : importedPreview.canonicalJSON;
         setApplyingV2FromImport(true);
         try {
             const result = await ApplyBuildTemplateV2ToCharacterJSON(
                 charIndex,
-                importedPreview.canonicalJSON,
+                payloadJSON,
                 main.ApplyTemplateV2Options.createFrom({
                     mode: 'append',
                     sessionID: sessionID ?? '',
@@ -499,6 +602,12 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
             }
             onCharacterTemplateApplied?.(charIndex);
             setImportedPreview(null);
+            // Phase 8D.2 — surface per-items detail when sections.items
+            // was part of this apply. Profile/stats-only applies keep
+            // the existing toast UX without an extra modal.
+            if (hasItems) {
+                setItemsApplyResult({ sourceLabel: label, charIndex, result });
+            }
         } catch (err) {
             toast.error(`Templates: ${String(err)}`);
         } finally {
@@ -601,6 +710,241 @@ export function TemplatesShellModal({ onClose, charIndex, saveLoaded, onCharacte
                     onError={onCreateV2Error}
                 />
             )}
+            {itemsApplyResult && (
+                <ApplyItemsResultModal
+                    sourceLabel={itemsApplyResult.sourceLabel}
+                    charIndex={itemsApplyResult.charIndex}
+                    result={itemsApplyResult.result}
+                    onClose={() => setItemsApplyResult(null)}
+                />
+            )}
         </>
+    );
+}
+
+// ApplyItemsResultModal — Phase 8D.2. Surfaces the per-items detail
+// of an ApplyTemplateV2Result after sections.items was part of the
+// apply: applied inventory / storage counts, the canonical
+// items_already_present skip list, layout-ignored warnings, weapon
+// override clamps, and any other backend issue codes that flowed
+// through report.warnings or report.skips. Profile/stats-only applies
+// never open this modal — those keep the existing toast UX.
+interface ApplyItemsResultModalProps {
+    sourceLabel: string;
+    charIndex: number;
+    result: main.ApplyTemplateV2Result;
+    onClose: () => void;
+}
+
+function ApplyItemsResultModal({
+    sourceLabel,
+    charIndex,
+    result,
+    onClose,
+}: ApplyItemsResultModalProps) {
+    const warnings = result.preview?.warnings ?? [];
+    const skippedFields = result.skippedFields ?? [];
+    const layoutIgnored = warnings.filter(
+        w => w.code === 'items_layout_ignored',
+    );
+    const alreadyPresent = warnings.filter(
+        w => w.code === 'items_already_present',
+    );
+    const unsupportedCategory = warnings.filter(
+        w => w.code === 'unsupported_category',
+    );
+    const weaponClamped = warnings.filter(
+        w => w.code === 'weapon_level_clamped' || w.code === 'weapon_unupgradeable',
+    );
+    const templateOverrideIgnored = warnings.filter(
+        w => w.code === 'items_template_override_ignored',
+    );
+    const otherWarnings = warnings.filter(
+        w =>
+            w.code !== 'items_layout_ignored' &&
+            w.code !== 'items_already_present' &&
+            w.code !== 'unsupported_category' &&
+            w.code !== 'weapon_level_clamped' &&
+            w.code !== 'weapon_unupgradeable' &&
+            w.code !== 'items_template_override_ignored',
+    );
+    return (
+        <div
+            data-testid="items-apply-result-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Items apply result"
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4"
+        >
+            <div className="w-full max-w-xl rounded-lg bg-card border border-border/60 shadow-xl flex flex-col max-h-[80vh]">
+                <div className="px-4 py-3 border-b border-border/60">
+                    <h2 className="text-sm font-black uppercase tracking-wider">
+                        Items apply result
+                    </h2>
+                    <p
+                        data-testid="items-apply-result-source"
+                        className="mt-1 text-[11px] text-muted-foreground break-all"
+                    >
+                        {sourceLabel} — character slot {charIndex + 1}
+                    </p>
+                </div>
+                <div className="px-4 py-3 space-y-3 overflow-y-auto text-[12px]">
+                    <section aria-label="Applied counts" className="space-y-0.5">
+                        <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                            Added
+                        </h3>
+                        <div data-testid="items-apply-result-inv-added">
+                            Inventory:{' '}
+                            <span className="font-bold">
+                                {result.inventoryItemsApplied}
+                            </span>
+                        </div>
+                        <div data-testid="items-apply-result-sto-added">
+                            Storage:{' '}
+                            <span className="font-bold">{result.storageItemsApplied}</span>
+                        </div>
+                    </section>
+                    {alreadyPresent.length > 0 && (
+                        <section
+                            data-testid="items-apply-result-already-present"
+                            aria-label="Skipped — already present"
+                            className="space-y-1"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                Skipped — already present ({alreadyPresent.length})
+                            </h3>
+                            <ul className="space-y-0.5 list-disc pl-5">
+                                {alreadyPresent.map((w, i) => (
+                                    <li key={i} className="text-muted-foreground">
+                                        {w.message}
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+                    {unsupportedCategory.length > 0 && (
+                        <section
+                            data-testid="items-apply-result-unsupported-category"
+                            aria-label="Skipped — unsupported category"
+                            className="space-y-1"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
+                                Skipped — unsupported category ({unsupportedCategory.length})
+                            </h3>
+                            <ul className="space-y-0.5 list-disc pl-5">
+                                {unsupportedCategory.map((w, i) => (
+                                    <li key={i} className="text-amber-100">
+                                        {w.message}
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+                    {layoutIgnored.length > 0 && (
+                        <section
+                            data-testid="items-apply-result-layout-ignored"
+                            aria-label="Layout ignored"
+                            className="space-y-1"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
+                                Layout ignored ({layoutIgnored.length})
+                            </h3>
+                            <ul className="space-y-0.5 list-disc pl-5">
+                                {layoutIgnored.map((w, i) => (
+                                    <li key={i} className="text-amber-100">
+                                        {w.message}
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+                    {weaponClamped.length > 0 && (
+                        <section
+                            data-testid="items-apply-result-weapon-warnings"
+                            aria-label="Weapon level override warnings"
+                            className="space-y-1"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
+                                Weapon level overrides ({weaponClamped.length})
+                            </h3>
+                            <ul className="space-y-0.5 list-disc pl-5">
+                                {weaponClamped.map((w, i) => (
+                                    <li key={i} className="text-amber-100">
+                                        {w.message}
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+                    {templateOverrideIgnored.length > 0 && (
+                        <section
+                            data-testid="items-apply-result-template-override-ignored"
+                            aria-label="Template weapon override ignored"
+                            className="space-y-1"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                Template weapon override ignored
+                            </h3>
+                            <ul className="space-y-0.5 list-disc pl-5">
+                                {templateOverrideIgnored.map((w, i) => (
+                                    <li key={i} className="text-muted-foreground">
+                                        {w.message}
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+                    {otherWarnings.length > 0 && (
+                        <section
+                            data-testid="items-apply-result-other-warnings"
+                            aria-label="Other warnings"
+                            className="space-y-1"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-200">
+                                Other warnings ({otherWarnings.length})
+                            </h3>
+                            <ul className="space-y-0.5 list-disc pl-5">
+                                {otherWarnings.map((w, i) => (
+                                    <li key={i} className="text-amber-100">
+                                        <span className="font-mono text-[10px] text-muted-foreground">
+                                            [{w.code}]
+                                        </span>{' '}
+                                        {w.message}
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+                    {skippedFields.length > 0 && (
+                        <section
+                            data-testid="items-apply-result-skipped-fields"
+                            aria-label="Skipped fields"
+                            className="space-y-1"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                Skipped fields ({skippedFields.length})
+                            </h3>
+                            <ul className="space-y-0.5 list-disc pl-5">
+                                {skippedFields.map((f, i) => (
+                                    <li key={i} className="text-muted-foreground font-mono text-[10px]">
+                                        {f}
+                                    </li>
+                                ))}
+                            </ul>
+                        </section>
+                    )}
+                </div>
+                <div className="px-4 py-3 border-t border-border/60 flex items-center justify-end gap-2">
+                    <button
+                        type="button"
+                        data-testid="items-apply-result-close"
+                        onClick={onClose}
+                        className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded border border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all"
+                    >
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
     );
 }

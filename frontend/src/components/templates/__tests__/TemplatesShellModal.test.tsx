@@ -2399,3 +2399,260 @@ describe('TemplatesShellModal — Phase 7b.1 v2 equipment apply', () => {
         expect(msgs.some(m => /equipment write rolled back/i.test(m))).toBe(true);
     });
 });
+
+describe('TemplatesShellModal — Phase 8D.2 items apply', () => {
+    // canonicalJSON for an items-only template; selection nominates the
+    // items section so the shell triggers the items-apply gate (session
+    // lookup + explicit addMissing injection + result modal).
+    function itemsCanonical(extra: Record<string, unknown> = {}) {
+        return JSON.stringify({
+            schema: 'saveforge.build-template',
+            version: 2,
+            selection: { items: { all: true } },
+            sections: {
+                items: [
+                    { entryID: 'i_1', itemID: 1, quantity: 1, location: 'inventory' },
+                ],
+            },
+            ...extra,
+        });
+    }
+
+    function itemsPreview(canonical: string, summaryOverrides: Record<string, unknown> = {}) {
+        return {
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0,
+                    storageItems: 0,
+                    weapons: 0,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections: ['items'],
+                    profileFieldsPresent: [],
+                    itemsEntries: 1,
+                    inventoryLayoutCount: 0,
+                    storageLayoutCount: 0,
+                    ...summaryOverrides,
+                },
+            },
+            json: canonical,
+            path: '/fake/items.yaml',
+        };
+    }
+
+    function itemsApplyResultOK(extra: Partial<Record<string, unknown>> = {}) {
+        return {
+            preview: { ok: true, errors: [], warnings: [], summary: {} },
+            applied: true,
+            charIndex: 0,
+            appliedFields: ['items.i_1'],
+            skippedFields: [],
+            inventoryItemsApplied: 1,
+            storageItemsApplied: 0,
+            ...extra,
+        };
+    }
+
+    it('items-only imported preview without an active session toasts the session error and skips apply', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(itemsPreview(itemsCanonical()));
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: false, sessionID: '' });
+        const { default: toast } = await import('../../../lib/toast');
+        const toastError = (toast as unknown as { error: ReturnType<typeof vi.fn> }).error;
+        toastError.mockClear();
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(toastError).toHaveBeenCalled();
+        });
+        expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).not.toHaveBeenCalled();
+    });
+
+    it('items-only imported preview with an active session injects applyOptions.items.mode=addMissing onto the wire', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(itemsPreview(itemsCanonical()));
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-1' });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(itemsApplyResultOK());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2ToCharacterJSON.mock.calls[0];
+        const payload = JSON.parse(call[1] as string);
+        expect(payload?.applyOptions?.items?.mode).toBe('addMissing');
+        expect((call[2] as { sessionID: string }).sessionID).toBe('ses-1');
+    });
+
+    it('items-only apply opens the result modal with the added counts after success', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(itemsPreview(itemsCanonical()));
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-1' });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(
+            itemsApplyResultOK({ inventoryItemsApplied: 4, storageItemsApplied: 2 }),
+        );
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        const modal = await screen.findByTestId('items-apply-result-modal');
+        expect(modal).toBeInTheDocument();
+        expect(screen.getByTestId('items-apply-result-inv-added')).toHaveTextContent('4');
+        expect(screen.getByTestId('items-apply-result-sto-added')).toHaveTextContent('2');
+    });
+
+    it('result modal renders backend warnings: already-present, unsupported category, layout-ignored, weapon override', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(itemsPreview(itemsCanonical()));
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-1' });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(
+            itemsApplyResultOK({
+                preview: {
+                    ok: true,
+                    errors: [],
+                    warnings: [
+                        { severity: 'warning', code: 'items_already_present', message: 'i_1 already present (uid=abc)' },
+                        { severity: 'warning', code: 'unsupported_category', message: 'i_99 category 0xff unsupported' },
+                        { severity: 'warning', code: 'items_layout_ignored', message: 'inventoryLayout dropped in Phase 8D.2' },
+                        { severity: 'warning', code: 'weapon_level_clamped', message: 'i_2 standard +30 clamped to +25' },
+                    ],
+                    summary: {},
+                },
+            }),
+        );
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await screen.findByTestId('items-apply-result-modal');
+        expect(screen.getByTestId('items-apply-result-already-present')).toHaveTextContent(/already present/i);
+        expect(screen.getByTestId('items-apply-result-unsupported-category')).toHaveTextContent(/unsupported/i);
+        expect(screen.getByTestId('items-apply-result-layout-ignored')).toHaveTextContent(/inventoryLayout/i);
+        expect(screen.getByTestId('items-apply-result-weapon-warnings')).toHaveTextContent(/clamped/i);
+    });
+
+    it('result modal close button dismisses the modal', async () => {
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue(itemsPreview(itemsCanonical()));
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-1' });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(itemsApplyResultOK());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await screen.findByTestId('items-apply-result-modal');
+        fireEvent.click(screen.getByTestId('items-apply-result-close'));
+        await waitFor(() => {
+            expect(screen.queryByTestId('items-apply-result-modal')).not.toBeInTheDocument();
+        });
+    });
+
+    it('profile/stats-only apply does NOT open the items result modal', async () => {
+        const profileOnlyCanonical = JSON.stringify({
+            schema: 'saveforge.build-template',
+            version: 2,
+            selection: { sections: { profile: { level: true } } },
+            sections: { profile: { level: 100 } },
+        });
+        mocks.PreviewBuildTemplateImportYAMLFromFile.mockResolvedValue({
+            report: {
+                ok: true,
+                errors: [],
+                warnings: [],
+                summary: {
+                    inventoryItems: 0,
+                    storageItems: 0,
+                    weapons: 0,
+                    armor: 0,
+                    talismans: 0,
+                    stackables: 0,
+                    aowAssignments: 0,
+                    version: 2,
+                    selectedSections: ['profile'],
+                    profileFieldsPresent: ['level'],
+                },
+            },
+            json: profileOnlyCanonical,
+            path: '/fake/profile.yaml',
+        });
+        mocks.ApplyBuildTemplateV2ToCharacterJSON.mockResolvedValue(itemsApplyResultOK());
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        await screen.findAllByTestId('library-entry');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('templates-shell-import-yaml'));
+        });
+        const btn = await screen.findByTestId('import-preview-apply-v2');
+        await act(async () => {
+            fireEvent.click(btn);
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2ToCharacterJSON).toHaveBeenCalledTimes(1);
+        });
+        expect(screen.queryByTestId('items-apply-result-modal')).not.toBeInTheDocument();
+    });
+
+    it('library items entry routes through the active-session gate and opens the result modal', async () => {
+        const v2ItemsLibraryEntry = {
+            id: 'tpl-v2-items',
+            name: 'V2 Items',
+            description: 'items-only',
+            tags: [],
+            filename: 'tpl-v2-items.json',
+            createdAt: '2026-06-08T12:00:00Z',
+            updatedAt: '2026-06-08T12:00:00Z',
+            inventoryItems: 0,
+            storageItems: 0,
+            warnings: 0,
+            version: 2,
+            selectedSections: ['items'],
+        };
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ItemsLibraryEntry]);
+        mocks.GetActiveInventoryEditSessionForCharacter.mockResolvedValue({ active: true, sessionID: 'ses-7' });
+        mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mockResolvedValue(
+            itemsApplyResultOK({ inventoryItemsApplied: 3 }),
+        );
+        render(<TemplatesShellModal onClose={vi.fn()} charIndex={0} saveLoaded />);
+        fireEvent.click(await screen.findByTestId('library-apply'));
+        await screen.findByTestId('library-apply-v2-confirm');
+        await act(async () => {
+            fireEvent.click(screen.getByTestId('library-apply-v2-confirm-button'));
+        });
+        await waitFor(() => {
+            expect(mocks.ApplyBuildTemplateV2FromLibraryToCharacter).toHaveBeenCalledTimes(1);
+        });
+        const call = mocks.ApplyBuildTemplateV2FromLibraryToCharacter.mock.calls[0];
+        expect((call[2] as { sessionID: string }).sessionID).toBe('ses-7');
+        await screen.findByTestId('items-apply-result-modal');
+        expect(screen.getByTestId('items-apply-result-inv-added')).toHaveTextContent('3');
+    });
+});

@@ -876,3 +876,85 @@ describe('TemplateLibraryModal — Phase 7d.4 spells entries', () => {
         expect(sections).toHaveTextContent(/spells/);
     });
 });
+
+describe('TemplateLibraryModal — Phase 8D.2 items entries', () => {
+    const v2ItemsEntry = {
+        id: 'tpl-v2-items',
+        name: 'V2 Items Pack',
+        description: 'schema v2 items-only',
+        tags: [],
+        filename: 'tpl-v2-items.json',
+        createdAt: '2026-06-08T12:00:00Z',
+        updatedAt: '2026-06-08T12:00:00Z',
+        inventoryItems: 0,
+        storageItems: 0,
+        warnings: 0,
+        version: 2,
+        selectedSections: ['items'],
+    };
+    const v2ItemsPlusLayoutEntry = {
+        ...v2ItemsEntry,
+        id: 'tpl-v2-items-layout',
+        name: 'V2 Items + Layout',
+        selectedSections: ['items', 'inventoryLayout', 'storageLayout'],
+    };
+    const v2LayoutOnlyEntry = {
+        ...v2ItemsEntry,
+        id: 'tpl-v2-layout-only',
+        name: 'V2 Layout Only',
+        selectedSections: ['inventoryLayout', 'storageLayout'],
+    };
+
+    it('Phase 8D.2 — items-only entry enables Apply and reveals the addMissing badge in the confirm row', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ItemsEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeEnabled();
+        fireEvent.click(applyBtn);
+        await screen.findByTestId('library-apply-v2-confirm');
+        expect(screen.getByTestId('library-apply-v2-items-mode')).toHaveTextContent(
+            /Add missing only/i,
+        );
+        expect(
+            screen.queryByTestId('library-apply-v2-layout-ignored'),
+        ).not.toBeInTheDocument();
+    });
+
+    it('Phase 8D.2 — items + layout entry enables Apply and shows the layout-ignored warning in the confirm row', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2ItemsPlusLayoutEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeEnabled();
+        fireEvent.click(applyBtn);
+        await screen.findByTestId('library-apply-v2-confirm');
+        expect(screen.getByTestId('library-apply-v2-items-mode')).toBeInTheDocument();
+        expect(screen.getByTestId('library-apply-v2-layout-ignored')).toHaveTextContent(
+            /layout will be ignored/i,
+        );
+    });
+
+    it('Phase 8D.2 — layout-only entry disables Apply with the layout-only reason', async () => {
+        mocks.ListBuildTemplateLibrary.mockResolvedValue([v2LayoutOnlyEntry]);
+        const onApplyV2 = vi.fn();
+        render(
+            <TemplateLibraryModal
+                {...defaultProps({ sessionID: '', saveLoaded: true, charIndex: 0, onApplyV2 })}
+            />,
+        );
+        const applyBtn = await screen.findByTestId('library-apply');
+        expect(applyBtn).toBeDisabled();
+        expect(applyBtn.getAttribute('title')).toMatch(
+            /Inventory layout \/ storage layout are export-only/,
+        );
+    });
+});

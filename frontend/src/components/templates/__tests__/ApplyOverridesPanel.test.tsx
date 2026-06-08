@@ -509,3 +509,95 @@ describe('ApplyOverridesModal — Phase 7a.2 weapon override', () => {
         expect(onConfirm.mock.calls[0][1]).toBeUndefined();
     });
 });
+
+// Phase 8D.2 — sections.items joins inventory.workspace as a trigger
+// for both the weapon override panel and a dedicated items-mode badge
+// (addMissing). When layout sections ride alongside items, an
+// amber-coloured layout-ignored note appears in the same section.
+function itemsOnlyCanonical() {
+    return JSON.stringify({
+        schema: 'saveforge.build-template',
+        version: 2,
+        selection: { items: { all: true } },
+        sections: {
+            items: [{ entryID: 'i_1', itemID: 1, quantity: 1, location: 'inventory' }],
+        },
+    });
+}
+
+function itemsPlusLayoutCanonical() {
+    return JSON.stringify({
+        schema: 'saveforge.build-template',
+        version: 2,
+        selection: {
+            items: { all: true },
+            inventoryLayout: true,
+            storageLayout: true,
+        },
+        sections: {
+            items: [{ entryID: 'i_1', itemID: 1, quantity: 1, location: 'inventory' }],
+            inventoryLayout: { order: [] },
+            storageLayout: { order: [] },
+        },
+    });
+}
+
+describe('ApplyOverridesModal — Phase 8D.2 items section', () => {
+    it('renders the weapon override panel when sections.items is selected', () => {
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Library — Items A"
+                canonicalJSON={itemsOnlyCanonical()}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />,
+        );
+        expect(screen.getByTestId('apply-overrides-weapon-panel')).toBeInTheDocument();
+    });
+
+    it('renders the Items mode badge with addMissing copy when items is selected', () => {
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Library — Items A"
+                canonicalJSON={itemsOnlyCanonical()}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />,
+        );
+        expect(screen.getByTestId('apply-overrides-items-mode')).toHaveTextContent(
+            /Add missing only/i,
+        );
+        expect(
+            screen.queryByTestId('apply-overrides-items-layout-ignored'),
+        ).not.toBeInTheDocument();
+    });
+
+    it('shows the layout-ignored hint when items rides alongside inventoryLayout / storageLayout', () => {
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Library — Items + Layout"
+                canonicalJSON={itemsPlusLayoutCanonical()}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />,
+        );
+        expect(screen.getByTestId('apply-overrides-items-mode')).toBeInTheDocument();
+        expect(
+            screen.getByTestId('apply-overrides-items-layout-ignored'),
+        ).toHaveTextContent(/layout sections will be ignored/i);
+    });
+
+    it('does NOT render the items mode badge for profile/stats-only templates', () => {
+        render(
+            <ApplyOverridesModal
+                sourceLabel="Profile only"
+                canonicalJSON={canonicalJSON()}
+                onCancel={() => {}}
+                onConfirm={() => {}}
+            />,
+        );
+        expect(
+            screen.queryByTestId('apply-overrides-items-mode'),
+        ).not.toBeInTheDocument();
+    });
+});

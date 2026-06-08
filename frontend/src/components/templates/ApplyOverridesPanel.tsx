@@ -571,17 +571,52 @@ export function ApplyOverridesModal({
     const [weaponOverride, setWeaponOverride] = useState<WeaponOverridePayload>(undefined);
     const [weaponInvalid, setWeaponInvalid] = useState(false);
 
+    // Phase 8D.2 — show the weapon override panel whenever the
+    // canonical JSON selection nominates inventory.workspace OR items.
+    // Both apply paths consume opts.WeaponLevelOverride at runtime; the
+    // user picks one panel for the whole template even if both sections
+    // ride the same apply call.
     const showWeaponOverride = useMemo(() => {
         const parsed = safeParse(canonicalJSON);
         const sel = parsed?.selection as Record<string, unknown> | undefined;
-        const inv = sel?.['inventory.workspace'];
-        if (inv === undefined || inv === null) return false;
-        if (typeof inv === 'boolean') return inv;
-        if (typeof inv === 'object' && !Array.isArray(inv)) {
-            const obj = inv as Record<string, unknown>;
+        if (!sel) return false;
+        const isTruthySelection = (raw: unknown): boolean => {
+            if (raw === undefined || raw === null) return false;
+            if (typeof raw === 'boolean') return raw;
+            if (typeof raw === 'object' && !Array.isArray(raw)) {
+                const obj = raw as Record<string, unknown>;
+                return obj.all === true || Object.keys(obj).length > 0;
+            }
+            return false;
+        };
+        return (
+            isTruthySelection(sel['inventory.workspace']) ||
+            isTruthySelection(sel['items'])
+        );
+    }, [canonicalJSON]);
+
+    // Phase 8D.2 — when sections.items rides this apply, surface the
+    // single-supported mode (addMissing) next to the weapon panel so
+    // the user understands existing items are preserved.
+    const hasItemsSelection = useMemo(() => {
+        const parsed = safeParse(canonicalJSON);
+        const sel = parsed?.selection as Record<string, unknown> | undefined;
+        if (!sel) return false;
+        const raw = sel['items'];
+        if (raw === undefined || raw === null) return false;
+        if (typeof raw === 'boolean') return raw;
+        if (typeof raw === 'object' && !Array.isArray(raw)) {
+            const obj = raw as Record<string, unknown>;
             return obj.all === true || Object.keys(obj).length > 0;
         }
         return false;
+    }, [canonicalJSON]);
+
+    const hasLayoutSelection = useMemo(() => {
+        const parsed = safeParse(canonicalJSON);
+        const sel = parsed?.selection as Record<string, unknown> | undefined;
+        if (!sel) return false;
+        return !!sel['inventoryLayout'] || !!sel['storageLayout'];
     }, [canonicalJSON]);
 
     useEffect(() => {
@@ -646,6 +681,31 @@ export function ApplyOverridesModal({
                         onMutatedChange={handleMutated}
                         disabled={applying}
                     />
+                    {hasItemsSelection && (
+                        <section
+                            data-testid="apply-overrides-items-mode"
+                            aria-label="Items apply mode"
+                            className="space-y-1 rounded border border-border/40 bg-background/30 px-3 py-2"
+                        >
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                                Items mode
+                            </h3>
+                            <div className="text-[11px]">
+                                <span className="font-bold">Add missing only</span>
+                                <span className="text-muted-foreground">
+                                    {' '}— inserts template items the character does not already own. Nothing is deleted or replaced.
+                                </span>
+                            </div>
+                            {hasLayoutSelection && (
+                                <div
+                                    data-testid="apply-overrides-items-layout-ignored"
+                                    className="text-[10px] text-amber-200/90"
+                                >
+                                    Inventory / storage layout sections will be ignored — layout apply is not supported in Phase 8D.2.
+                                </div>
+                            )}
+                        </section>
+                    )}
                     {showWeaponOverride && (
                         <WeaponLevelOverridePanel
                             onChange={handleWeaponChange}
