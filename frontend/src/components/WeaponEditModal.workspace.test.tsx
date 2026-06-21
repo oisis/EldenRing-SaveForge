@@ -143,6 +143,26 @@ describe('WeaponEditModal (workspace mode)', () => {
         expect(screen.getByText('Claymore')).toBeInTheDocument();
     });
 
+    it('shows default AoW name when no custom AoW is attached', async () => {
+        const workspace = { sessionID: 'ses-default-aow', updateWeapon: vi.fn() };
+        await renderModal({
+            charIndex: 0,
+            item: makeOrderItem(),
+            source: 'inventory',
+            onClose: () => {},
+            workspace,
+            workspaceItem: makeWorkspaceItem({
+                canMountAoW: true,
+                currentAoWItemID: 0,
+                defaultAoWID: 800,
+                defaultAoWName: 'Quickstep',
+            }),
+        });
+
+        expect(screen.getByText('Quickstep')).toBeInTheDocument();
+        expect(screen.queryByText('Built-in skill')).not.toBeInTheDocument();
+    });
+
     // Regression: workspace-mode WeaponEditModal must render compatible
     // Ashes of War without depending on GetCharacter. Previously the modal
     // fell back to GetCharacter for wepType/canMountAoW; for newly-added

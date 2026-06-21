@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // newItemUIDPrefix tags every UID minted by AddItem so future Save flows
@@ -85,6 +86,8 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 	}
 
 	level, infusion := decodeWeaponUpgradeInfusion(effectiveID, baseID)
+	sortKey := data.ItemSortKeys[baseID]
+	defaultAoWID, defaultAoWName := defaultAoWForBaseID(baseID)
 	item := EditableItem{
 		UID:              nextNewUID(snap),
 		Source:           ItemSourceAdded,
@@ -96,6 +99,9 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 		Category:         itemData.Category,
 		Quantity:         qty,
 		AcquisitionIndex: 0,
+		Weight:           data.ItemWeights[baseID],
+		SortID:           sortKey.SortId,
+		SortGroupID:      sortKey.SortGroupId,
 		CurrentUpgrade:   level,
 		MaxUpgrade:       int(itemData.MaxUpgrade),
 		InfusionName:     infusion,
@@ -104,6 +110,8 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 		IsWeapon:         isWeaponCategory(itemData.Category),
 		IsArmor:          isArmorCategory(itemData.Category),
 		IsTalisman:       itemData.Category == "talismans",
+		DefaultAoWID:     defaultAoWID,
+		DefaultAoWName:   defaultAoWName,
 	}
 	item.OriginalSlotIndex = -1 // added items have no original physical slot
 	if item.IsWeapon {

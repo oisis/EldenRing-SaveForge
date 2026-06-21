@@ -44,6 +44,7 @@ const FRAME_HEIGHT_PX = GRID_MIN_ROWS * CELL_PX + (GRID_MIN_ROWS - 1) * GAP_PX +
 const GRID_TEMPLATE_COLUMNS = `repeat(${GRID_COLS}, ${CELL_PX}px)`;
 
 type SortOrderTabKey = 'weapons' | 'talismans' | 'head' | 'chest' | 'arms' | 'legs';
+type SortMode = 'acquisition-asc' | 'acquisition-desc' | 'weight-asc' | 'weight-desc' | 'type-asc' | 'type-desc';
 
 // Tab → category set. Mirrors backend inventoryOrderTabs in app_inventory_order.go.
 const TAB_CATEGORIES: Record<SortOrderTabKey, ReadonlySet<string>> = {
@@ -339,6 +340,35 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         setStoSelectedUIDs(new Set());
     };
 
+    const sortContainer = async (container: ContainerKind, mode: SortMode) => {
+        if (saving || loading) return;
+        const fullList = container === 'inventory' ? inventoryItems : storageItems;
+        const view = container === 'inventory' ? inventoryView : storageView;
+        if (view.length < 2) return;
+
+        const sortedView = sortEditableItems(view, mode);
+        if (sortedView.every((it, idx) => it.uid === view[idx]?.uid)) return;
+
+        const desired = [...fullList];
+        const visiblePositions = view
+            .map((it) => fullList.findIndex(candidate => candidate.uid === it.uid))
+            .filter(idx => idx >= 0);
+        visiblePositions.forEach((pos, idx) => {
+            desired[pos] = sortedView[idx];
+        });
+
+        const working = [...fullList];
+        for (let targetIdx = 0; targetIdx < desired.length; targetIdx++) {
+            if (working[targetIdx]?.uid === desired[targetIdx]?.uid) continue;
+            const fromIdx = working.findIndex(it => it.uid === desired[targetIdx].uid);
+            if (fromIdx < 0) continue;
+            const [moved] = working.splice(fromIdx, 1);
+            working.splice(targetIdx, 0, moved);
+            await workspace.moveItem(moved.uid, container, targetIdx);
+        }
+        toast.success(`${container === 'inventory' ? 'Inventory' : 'Storage'} sorted.`);
+    };
+
     const inventoryGridCells: (editor.EditableItem | null)[] = [
         ...inventoryView,
         ...Array<null>(Math.max(0, GRID_MIN_CELLS - inventoryView.length)).fill(null),
@@ -443,7 +473,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         {dirty && (
                             <span
                                 title="You have unsaved inventory edits. Press Save changes to persist."
-                                className="text-[10px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-2 py-0.5 whitespace-nowrap"
+                                className="text-[10px] font-black uppercase tracking-wider text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 rounded px-2 py-0.5 whitespace-nowrap"
                             >
                                 Unsaved
                             </span>
@@ -454,7 +484,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                             </span>
                         )}
                         {warningCount > 0 && (
-                            <span className="text-[10px] font-black uppercase tracking-wider text-amber-200 bg-amber-400/10 border border-amber-400/30 rounded px-2 py-0.5 whitespace-nowrap">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded px-2 py-0.5 whitespace-nowrap">
                                 {warningCount} warn
                             </span>
                         )}
@@ -538,10 +568,15 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 label="Storage"
                                 count={storageView.length}
                                 selectedCount={stoSelectedHere.length}
-                                onAdd={() => { setAddContainer('storage'); setAddOpen(true); }}
-                                disabled={saving || loading}
-                            />
-                            <Frame
+                            onAdd={() => { setAddContainer('storage'); setAddOpen(true); }}
+                            disabled={saving || loading}
+                        />
+                        <SortControls
+                            container="storage"
+                            disabled={saving || loading || storageView.length < 2}
+                            onSort={sortContainer}
+                        />
+                        <Frame
                                 isCrossDropTarget={frameDropTarget === 'storage'}
                                 onDragOver={(e) => {
                                     if (dragSourceRef.current === 'inventory') {
@@ -595,10 +630,15 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 label="Inventory"
                                 count={inventoryView.length}
                                 selectedCount={invSelectedHere.length}
-                                onAdd={() => { setAddContainer('inventory'); setAddOpen(true); }}
-                                disabled={saving || loading}
-                            />
-                            <Frame
+                            onAdd={() => { setAddContainer('inventory'); setAddOpen(true); }}
+                            disabled={saving || loading}
+                        />
+                        <SortControls
+                            container="inventory"
+                            disabled={saving || loading || inventoryView.length < 2}
+                            onSort={sortContainer}
+                        />
+                        <Frame
                                 isCrossDropTarget={frameDropTarget === 'inventory'}
                                 onDragOver={(e) => {
                                     if (dragSourceRef.current === 'storage') {
@@ -672,7 +712,7 @@ function ColumnHeader({ label, count, selectedCount, onAdd, disabled }: ColumnHe
                     {count} item{count === 1 ? '' : 's'}
                 </span>
                 {selectedCount > 0 && (
-                    <span className="text-[9px] font-bold text-amber-400/80 uppercase tracking-widest whitespace-nowrap">
+                    <span className="text-[9px] font-bold text-cyan-300/80 uppercase tracking-widest whitespace-nowrap">
                         {selectedCount} selected
                     </span>
                 )}
@@ -690,6 +730,43 @@ function ColumnHeader({ label, count, selectedCount, onAdd, disabled }: ColumnHe
     );
 }
 
+interface SortControlsProps {
+    container: ContainerKind;
+    disabled: boolean;
+    onSort: (container: ContainerKind, mode: SortMode) => void | Promise<void>;
+}
+
+function SortControls({ container, disabled, onSort }: SortControlsProps) {
+    const buttons: { mode: SortMode; label: string; title: string }[] = [
+        { mode: 'acquisition-asc', label: 'Acq ↑', title: 'Sort by acquisition order ascending' },
+        { mode: 'acquisition-desc', label: 'Acq ↓', title: 'Sort by acquisition order descending' },
+        { mode: 'weight-asc', label: 'Weight ↑', title: 'Sort by weight ascending' },
+        { mode: 'weight-desc', label: 'Weight ↓', title: 'Sort by weight descending' },
+        { mode: 'type-asc', label: 'Type ↑', title: 'Sort by item type ascending' },
+        { mode: 'type-desc', label: 'Type ↓', title: 'Sort by item type descending' },
+    ];
+
+    return (
+        <div className="flex items-center gap-1 flex-wrap shrink-0">
+            <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/80 mr-1">
+                Sort
+            </span>
+            {buttons.map(({ mode, label, title }) => (
+                <button
+                    key={mode}
+                    type="button"
+                    disabled={disabled}
+                    title={title}
+                    onClick={() => { void onSort(container, mode); }}
+                    className="px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                    {label}
+                </button>
+            ))}
+        </div>
+    );
+}
+
 interface FrameProps {
     isCrossDropTarget: boolean;
     onDragOver: (e: React.DragEvent) => void;
@@ -702,7 +779,7 @@ function Frame({ isCrossDropTarget, onDragOver, onDragLeave, onDrop, children }:
     return (
         <div
             className={`relative shrink-0 mx-auto rounded-xl border bg-background/40 overflow-y-auto transition-colors ${
-                isCrossDropTarget ? 'border-amber-400/70 ring-2 ring-amber-400/40' : 'border-border/50'
+                isCrossDropTarget ? 'border-cyan-400/70 ring-2 ring-cyan-400/40' : 'border-border/50'
             }`}
             style={{ width: FRAME_WIDTH_PX, height: FRAME_HEIGHT_PX, padding: PAD_PX }}
             onDragOver={onDragOver}
@@ -758,8 +835,8 @@ function ItemTile({ item, isDragging, isDragOver, isSelected, onClick, onEditCli
                     ? 'opacity-40 border-border/20'
                     : isDragOver
                       ? 'border-primary ring-1 ring-primary/50 bg-primary/[0.06]'
-                      : isSelected
-                        ? 'border-amber-400/70 ring-2 ring-amber-400/50 bg-amber-400/[0.08]'
+                    : isSelected
+                        ? 'border-cyan-400/70 ring-2 ring-cyan-400/50 bg-cyan-400/[0.08]'
                         : 'border-border/50 hover:border-primary/40 hover:bg-primary/[0.03]'
             }`}
         >
@@ -780,7 +857,7 @@ function ItemTile({ item, isDragging, isDragOver, isSelected, onClick, onEditCli
             </div>
             {aowBadge}
             {pendingBadge && (
-                <div className="absolute bottom-0.5 right-0.5 px-0.5 rounded text-[7px] font-mono font-bold text-amber-300 leading-tight pointer-events-none" title="Pending unsaved weapon edit">
+                <div className="absolute bottom-0.5 right-0.5 px-0.5 rounded text-[7px] font-mono font-bold text-cyan-300 leading-tight pointer-events-none" title="Pending unsaved weapon edit">
                     {pendingBadge}
                 </div>
             )}
@@ -811,7 +888,7 @@ function renderAoWBadge(item: editor.EditableItem): React.ReactNode {
         return <div className="absolute top-0.5 right-0.5 px-1 rounded text-[7px] font-black text-red-300 bg-red-500/20 border border-red-400/40 leading-tight pointer-events-none" title="Pending: clear Ash of War">CLR</div>;
     }
     if (item.pendingAoWItemID && item.pendingAoWName) {
-        return <div className="absolute top-0.5 right-0.5 px-1 rounded text-[7px] font-black text-amber-300 bg-amber-500/20 border border-amber-400/40 leading-tight pointer-events-none truncate max-w-[60%]" title={`Pending: ${item.pendingAoWName}`}>{item.pendingAoWName.slice(0, 4)}…</div>;
+        return <div className="absolute top-0.5 right-0.5 px-1 rounded text-[7px] font-black text-blue-300 bg-blue-500/20 border border-blue-400/40 leading-tight pointer-events-none truncate max-w-[60%]" title={`Pending: ${item.pendingAoWName}`}>{item.pendingAoWName.slice(0, 4)}…</div>;
     }
     if (item.hasCurrentAoW && item.currentAoWName) {
         return <div className="absolute top-0.5 right-0.5 px-1 rounded text-[7px] font-bold text-blue-200/80 bg-blue-500/15 border border-blue-400/30 leading-tight pointer-events-none truncate max-w-[60%]" title={`Current AoW: ${item.currentAoWName}`}>{item.currentAoWName.slice(0, 4)}…</div>;
@@ -830,6 +907,66 @@ function EmptyCell() {
             }}
         />
     );
+}
+
+function sortEditableItems(items: editor.EditableItem[], mode: SortMode): editor.EditableItem[] {
+    const arr = [...items];
+    switch (mode) {
+        case 'acquisition-asc':
+            return arr.sort((a, b) => a.acquisitionIndex - b.acquisitionIndex || cmpName(a, b));
+        case 'acquisition-desc':
+            return arr.sort((a, b) => b.acquisitionIndex - a.acquisitionIndex || cmpName(a, b));
+        case 'weight-asc':
+            return arr.sort((a, b) => {
+                const wa = a.weight ?? 0;
+                const wb = b.weight ?? 0;
+                if (wa === 0 && wb === 0) return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+                if (wa === 0) return 1;
+                if (wb === 0) return -1;
+                return wa - wb || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+            });
+        case 'weight-desc':
+            return arr.sort((a, b) => {
+                const wa = a.weight ?? 0;
+                const wb = b.weight ?? 0;
+                if (wa === 0 && wb === 0) return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+                if (wa === 0) return 1;
+                if (wb === 0) return -1;
+                return wb - wa || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+            });
+        case 'type-asc':
+            return arr.sort((a, b) => {
+                const ga = a.sortGroupId ?? 0;
+                const gb = b.sortGroupId ?? 0;
+                const sa = a.sortId ?? 0;
+                const sb = b.sortId ?? 0;
+                if (ga === 0 && gb === 0 && sa === 0 && sb === 0) {
+                    return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+                }
+                if (ga === 0 && sa === 0) return 1;
+                if (gb === 0 && sb === 0) return -1;
+                return ga - gb || sa - sb || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+            });
+        case 'type-desc':
+            return arr.sort((a, b) => {
+                const ga = a.sortGroupId ?? 0;
+                const gb = b.sortGroupId ?? 0;
+                const sa = a.sortId ?? 0;
+                const sb = b.sortId ?? 0;
+                if (ga === 0 && gb === 0 && sa === 0 && sb === 0) {
+                    return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+                }
+                if (ga === 0 && sa === 0) return 1;
+                if (gb === 0 && sb === 0) return -1;
+                return gb - ga || sb - sa || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+            });
+        default:
+            return arr;
+    }
+}
+
+function cmpName(a: editor.EditableItem, b: editor.EditableItem): number {
+    return a.name.localeCompare(b.name);
 }
 
 // ── Confirm modal ─────────────────────────────────────────────────────────────
@@ -886,7 +1023,7 @@ function ValidationPanel({ validation }: { validation: editor.WorkspaceValidatio
             {open && (
                 <ul className="max-h-32 overflow-y-auto text-[10px] divide-y divide-border/40">
                     {issues.map((i, idx) => (
-                        <li key={`${i.code}-${idx}`} className={`px-3 py-1 ${i.severity === 'error' ? 'text-red-300' : 'text-amber-300/80'}`}>
+                            <li key={`${i.code}-${idx}`} className={`px-3 py-1 ${i.severity === 'error' ? 'text-red-300' : 'text-blue-300/80'}`}>
                             <span className="font-bold mr-1">[{i.code}]</span>
                             <span>{i.message}</span>
                         </li>
