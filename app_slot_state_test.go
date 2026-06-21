@@ -8,14 +8,7 @@ import (
 )
 
 func testCharacterName(s string) [16]uint16 {
-	var out [16]uint16
-	for i, r := range s {
-		if i >= len(out) {
-			break
-		}
-		out[i] = uint16(r)
-	}
-	return out
+	return encodeCharacterName16(s)
 }
 
 func newSlotStateTestApp() *App {
@@ -87,5 +80,79 @@ func TestCloneSlotRejectsResidualDestination(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "residual character data") {
 		t.Fatalf("CloneSlot error = %q, want residual cleanup hint", err.Error())
+	}
+}
+
+func TestCloneSlotAssignsUniqueCharacterName(t *testing.T) {
+	app := newSlotStateTestApp()
+	app.save.ActiveSlots[0] = true
+	app.save.Slots[0].Player.CharacterName = testCharacterName("Niziol")
+	app.save.ProfileSummaries[0].CharacterName = testCharacterName("Niziol")
+	app.save.ActiveSlots[2] = true
+	app.save.Slots[2].Player.CharacterName = testCharacterName("Niziol 2")
+
+	if err := app.CloneSlot(0, 1); err != nil {
+		t.Fatalf("CloneSlot: %v", err)
+	}
+	if got := core.UTF16ToString(app.save.Slots[1].Player.CharacterName[:]); got != "Niziol 3" {
+		t.Fatalf("cloned slot name = %q, want Niziol 3", got)
+	}
+	if got := core.UTF16ToString(app.save.ProfileSummaries[1].CharacterName[:]); got != "Niziol 3" {
+		t.Fatalf("cloned profile summary name = %q, want Niziol 3", got)
+	}
+}
+
+func TestCloneSlotConsidersResidualNamesWhenChoosingSuffix(t *testing.T) {
+	app := newSlotStateTestApp()
+	app.save.ActiveSlots[0] = true
+	app.save.Slots[0].Player.CharacterName = testCharacterName("Name")
+	app.save.ActiveSlots[2] = false
+	app.save.Slots[2].Player.CharacterName = testCharacterName("Name 2")
+
+	if err := app.CloneSlot(0, 1); err != nil {
+		t.Fatalf("CloneSlot: %v", err)
+	}
+	if got := core.UTF16ToString(app.save.Slots[1].Player.CharacterName[:]); got != "Name 3" {
+		t.Fatalf("cloned slot name = %q, want Name 3", got)
+	}
+}
+
+func TestCloneSlotTrimsNameToFitSuffixUTF16Limit(t *testing.T) {
+	app := newSlotStateTestApp()
+	sourceName := strings.Repeat("😀", 8)
+	want := strings.Repeat("😀", 7) + " 2"
+	app.save.ActiveSlots[0] = true
+	app.save.Slots[0].Player.CharacterName = encodeCharacterName16(sourceName)
+
+	if err := app.CloneSlot(0, 1); err != nil {
+		t.Fatalf("CloneSlot: %v", err)
+	}
+	got := core.UTF16ToString(app.save.Slots[1].Player.CharacterName[:])
+	if got != want {
+		t.Fatalf("cloned slot name = %q, want %q", got, want)
+	}
+	if utf16UnitLen(got) > 16 {
+		t.Fatalf("cloned slot name uses %d UTF-16 units, want <= 16", utf16UnitLen(got))
+	}
+}
+
+func TestRevertSlotRestoresCloneDestinationActivityAndSummary(t *testing.T) {
+	app := newSlotStateTestApp()
+	app.save.ActiveSlots[0] = true
+	app.save.Slots[0].Player.CharacterName = testCharacterName("Source")
+	app.save.ProfileSummaries[0].CharacterName = testCharacterName("Source")
+
+	if err := app.CloneSlot(0, 1); err != nil {
+		t.Fatalf("CloneSlot: %v", err)
+	}
+	if err := app.RevertSlot(1); err != nil {
+		t.Fatalf("RevertSlot: %v", err)
+	}
+	state := app.GetSlotStates()[1]
+	if !state.Empty || state.Active || state.Residual {
+		t.Fatalf("slot 1 after revert = %+v, want empty inactive slot", state)
+	}
+	if got := core.UTF16ToString(app.save.ProfileSummaries[1].CharacterName[:]); got != "" {
+		t.Fatalf("profile summary name after revert = %q, want empty", got)
 	}
 }

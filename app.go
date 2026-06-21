@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"unicode/utf16"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
@@ -31,6 +32,8 @@ const maxCharacters = 10
 
 // slotSnapshot holds a deep copy of a SaveSlot for undo purposes.
 type slotSnapshot struct {
+	Active             bool
+	ProfileSummary     core.ProfileSummary
 	Data               []byte
 	Version            uint32
 	Player             core.PlayerGameData
@@ -510,6 +513,50 @@ type SlotState struct {
 	Active   bool   `json:"active"`
 	Residual bool   `json:"residual"`
 	Empty    bool   `json:"empty"`
+}
+
+func utf16UnitLen(s string) int {
+	return len(utf16.Encode([]rune(s)))
+}
+
+func trimToUTF16Units(s string, maxUnits int) string {
+	if maxUnits <= 0 {
+		return ""
+	}
+	units := 0
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		need := 1
+		if r > 0xFFFF {
+			need = 2
+		}
+		if units+need > maxUnits {
+			break
+		}
+		out = append(out, r)
+		units += need
+	}
+	return string(out)
+}
+
+func encodeCharacterName16(name string) [16]uint16 {
+	var out [16]uint16
+	encoded := utf16.Encode([]rune(trimToUTF16Units(name, 16)))
+	copy(out[:], encoded)
+	return out
+}
+
+func uniqueClonedCharacterName(base string, used map[string]struct{}) string {
+	base = trimToUTF16Units(base, 16)
+	for suffixNum := 2; suffixNum < 10000; suffixNum++ {
+		suffix := fmt.Sprintf(" %d", suffixNum)
+		maxBaseUnits := 16 - utf16UnitLen(suffix)
+		candidate := trimToUTF16Units(base, maxBaseUnits) + suffix
+		if _, exists := used[candidate]; !exists {
+			return candidate
+		}
+	}
+	return trimToUTF16Units(base, 14) + " 2"
 }
 
 // weaponCategorySupportsInfusion returns true for categories whose weapons can
@@ -1097,10 +1144,10 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 	if srcIdx == destIdx {
 		return fmt.Errorf("source and destination must differ")
 	}
-	// Two distinct slots — take both slotMu locks in ascending order via
-	// the helper so multi-slot operations cannot deadlock with each other.
-	unlock := a.lockSlotPair(srcIdx, destIdx)
-	defer unlock()
+	// Clone reads every slot name to choose a unique destination name, so take
+	// the same multi-slot lock used by other all-slot readers.
+	a.lockAllSlots()
+	defer a.unlockAllSlots()
 
 	if !a.save.ActiveSlots[srcIdx] {
 		return fmt.Errorf("source slot %d is not active", srcIdx)
@@ -1115,6 +1162,18 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 	if a.save.SlotHasResidualData(destIdx) {
 		return fmt.Errorf("destination slot %d contains residual character data; clean it first", destIdx)
 	}
+
+	usedNames := make(map[string]struct{}, 10)
+	for i := 0; i < 10; i++ {
+		if !a.save.ActiveSlots[i] && !a.save.SlotHasResidualData(i) {
+			continue
+		}
+		name := a.slotDisplayNameLocked(i)
+		if name != "" {
+			usedNames[name] = struct{}{}
+		}
+	}
+	cloneName := uniqueClonedCharacterName(srcName, usedNames)
 
 	a.pushUndoLocked(destIdx)
 
@@ -1131,10 +1190,12 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 		newGaMap[k] = v
 	}
 	src.GaMap = newGaMap
+	src.Player.CharacterName = encodeCharacterName16(cloneName)
 
 	a.save.Slots[destIdx] = src
 	a.save.ActiveSlots[destIdx] = true
 	a.save.ProfileSummaries[destIdx] = a.save.ProfileSummaries[srcIdx]
+	a.save.ProfileSummaries[destIdx].CharacterName = src.Player.CharacterName
 
 	return nil
 }
@@ -1394,6 +1455,8 @@ func (a *App) pushUndoLocked(idx int) {
 	}
 
 	snap := slotSnapshot{
+		Active:             a.save.ActiveSlots[idx],
+		ProfileSummary:     a.save.ProfileSummaries[idx],
 		Data:               dataCopy,
 		Version:            slot.Version,
 		Player:             slot.Player,
@@ -1484,6 +1547,8 @@ func (a *App) RevertSlot(idx int) error {
 
 	snap := stack[len(stack)-1]
 	a.undoStacks[idx] = stack[:len(stack)-1]
+	a.save.ActiveSlots[idx] = snap.Active
+	a.save.ProfileSummaries[idx] = snap.ProfileSummary
 
 	slot := &a.save.Slots[idx]
 	slot.Data = snap.Data

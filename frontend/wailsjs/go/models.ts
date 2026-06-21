@@ -1862,11 +1862,11 @@ export namespace main {
 	    active: boolean;
 	    residual: boolean;
 	    empty: boolean;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new SlotState(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.index = source["index"];
