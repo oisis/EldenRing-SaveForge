@@ -28,24 +28,26 @@ interface Props {
     workspaceItem: editor.EditableItem;
 }
 
-// Mirrors backend data.WepTypeToCanMountBit.
-// Maps weapon wepType → bit position in AoWCompatBitmask.
-const WEP_TYPE_TO_BIT: Record<number, number> = {
-    1: 0, 3: 1, 5: 2, 7: 3, 9: 8, 11: 9, 13: 6, 14: 5, 15: 4, 16: 7, 17: 7,
-    19: 11, 21: 13, 23: 10, 24: 10, 25: 12, 28: 14, 29: 14, 31: 15, 32: 17,
-    33: 18, 35: 20, 37: 19, 39: 20, 41: 21, 43: 22, 50: 23, 51: 24, 52: 25,
-    53: 26, 54: 27, 55: 28, 57: 29, 61: 30, 65: 32, 66: 33, 67: 34, 69: 34, 68: 35,
-    87: 25, 88: 25, 89: 26, 90: 27, 91: 26, 92: 26, 93: 26, 94: 6, 95: 21,
+// Mirrors backend data.CanMountBitsForWepType.
+// Maps weapon wepType → bit positions in AoWCompatBitmask.
+const WEP_TYPE_TO_BITS: Record<number, number[]> = {
+    1: [0], 3: [1], 5: [2], 7: [3], 9: [8], 11: [9], 13: [6], 14: [5], 15: [4], 16: [7], 17: [7],
+    19: [11], 21: [13], 23: [10], 24: [10], 25: [12], 28: [14], 29: [14], 31: [15], 32: [17],
+    33: [18], 35: [20], 37: [19], 39: [20], 41: [21], 43: [22], 50: [23], 51: [24], 52: [25],
+    53: [26], 54: [27], 55: [28], 57: [29], 61: [30], 65: [32], 66: [33], 67: [34], 69: [34], 68: [35],
+    87: [25], 88: [36], 89: [38], 90: [43], 91: [37], 92: [40], 93: [42], 94: [6, 41], 95: [21, 39],
 };
 
 type AoWCompatStatus = 'compatible' | 'incompatible' | 'unknown';
 
 function getAoWCompatStatus(aowCompatBitmask: number, wepType: number): AoWCompatStatus {
     if (aowCompatBitmask === 0 || wepType === 0) return 'unknown';
-    const bitPos = WEP_TYPE_TO_BIT[wepType];
-    if (bitPos === undefined) return 'unknown';
-    const bit = (BigInt(aowCompatBitmask) >> BigInt(bitPos)) & BigInt(1);
-    return bit === BigInt(1) ? 'compatible' : 'incompatible';
+    const bitPositions = WEP_TYPE_TO_BITS[wepType];
+    if (!bitPositions || bitPositions.length === 0) return 'unknown';
+    const mask = BigInt(aowCompatBitmask);
+    return bitPositions.some(bitPos => ((mask >> BigInt(bitPos)) & BigInt(1)) === BigInt(1))
+        ? 'compatible'
+        : 'incompatible';
 }
 
 interface AshOfWarOption {

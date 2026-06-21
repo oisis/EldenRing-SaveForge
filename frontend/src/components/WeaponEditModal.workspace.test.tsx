@@ -250,4 +250,41 @@ describe('WeaponEditModal (workspace mode)', () => {
  expect.objectContaining({ aowItemID: 0x80003070 }),
  );
  });
-});
+
+ it('renders DLC AoWs that use synthetic compatibility bits', async () => {
+ mocks.GetAoWAvailability.mockResolvedValue([]);
+ mocks.GetItemList.mockImplementation(async (cat: string) => {
+ if (cat !== 'ashes_of_war') return [];
+ return [
+ {
+ id: 0x80064960,
+ name: 'Wing Stance',
+ iconPath: '',
+ aowCompatBitmask: 2 ** 42, // synthetic DLC light greatsword bit
+ },
+ ];
+ });
+
+ const workspace = { sessionID: 'ses-aow-dlc', updateWeapon: vi.fn() };
+ await renderModal({
+ charIndex: 0,
+ item: makeOrderItem({ name: 'Milady', itemId: 0x0405F7E0 }),
+ source: 'inventory',
+ onClose: () => {},
+ workspace,
+ workspaceItem: makeWorkspaceItem({
+ name: 'Milady',
+ itemID: 0x0405F7E0,
+ baseItemID: 0x0405F7E0,
+ wepType: 93,
+ canMountAoW: true,
+ }),
+ });
+
+ await waitFor(() => {
+ expect(screen.getByText('Wing Stance')).toBeInTheDocument();
+ });
+ expect(screen.queryByText(/No compatible Ashes of War available/i))
+ .not.toBeInTheDocument();
+ });
+ });

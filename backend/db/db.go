@@ -260,11 +260,16 @@ func IsAoWCompatibleWithWepType(aowItemID uint32, wepType uint16) (compatible bo
 	if aow.AoWCompatBitmask == 0 {
 		return false, false // AoW compatibility data missing
 	}
-	bitPos, ok := data.WepTypeToCanMountBit[wepType]
+	bitPositions, ok := data.CanMountBitsForWepType(wepType)
 	if !ok {
 		return false, false // weapon type not in bit map
 	}
-	return (aow.AoWCompatBitmask>>bitPos)&1 == 1, true
+	for _, bitPos := range bitPositions {
+		if (aow.AoWCompatBitmask>>bitPos)&1 == 1 {
+			return true, true
+		}
+	}
+	return false, true
 }
 
 // IsAshOfWarCompatibleWithWeapon checks whether a specific Ash of War can be mounted on a

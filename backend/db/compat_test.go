@@ -192,20 +192,7 @@ func TestIsAshOfWarCompatibleWithWeapon_DLCWepTypesMapped(t *testing.T) {
 }
 
 func TestAoWCompatMasks_UnresolvedDLCAoWsFailClosed(t *testing.T) {
-	expected := map[uint32]string{
-		0x80030D40: "Dryleaf Whirlwind",
-		0x80061E68: "Palm Blast",
-		0x80062250: "Piercing Throw",
-		0x80062638: "Scattershot Throw",
-		0x80062A20: "Wall of Sparks",
-		0x80062E08: "Rolling Sparks",
-		0x800631F0: "Raging Beast",
-		0x800635D8: "Savage Claws",
-		0x80063DA8: "Blind Spot",
-		0x80064190: "Swift Slash",
-		0x80064578: "Overhead Stance",
-		0x80064960: "Wing Stance",
-	}
+	expected := map[uint32]string{}
 
 	seen := make(map[uint32]string, len(expected))
 	for _, item := range GetItemsByCategory("ashes_of_war", "") {
@@ -237,5 +224,81 @@ func TestAoWCompatMasks_UnresolvedDLCAoWsFailClosed(t *testing.T) {
 		if _, ok := seen[id]; !ok {
 			t.Errorf("expected unresolved DLC AoW 0x%08X %q not found", id, name)
 		}
+	}
+}
+
+func TestIsAshOfWarCompatibleWithWeapon_SourceVerifiedDLCAoWs(t *testing.T) {
+	const (
+		dagger           = uint32(0x000F4240) // WepType: 1
+		dryleafArts      = uint32(0x039B2820) // WepType: 88, hand-to-hand
+		firesparkPerfume = uint32(0x03AA6A60) // WepType: 89, perfume bottles
+		smithscriptDag   = uint32(0x03C8EEE0) // WepType: 91, throwing blades
+		backhandBlade    = uint32(0x03D83120) // WepType: 92, backhand blades
+		milady           = uint32(0x0405F7E0) // WepType: 93, light greatswords
+		greatKatana      = uint32(0x03F6B5A0) // WepType: 94, great katanas
+		beastClaw        = uint32(0x04153A20) // WepType: 95, beast claws
+	)
+
+	cases := []struct {
+		name   string
+		aow    uint32
+		weapon uint32
+	}{
+		{"Dryleaf Whirlwind + Dryleaf Arts", 0x80030D40, dryleafArts},
+		{"Palm Blast + Dryleaf Arts", 0x80061E68, dryleafArts},
+		{"Piercing Throw + Smithscript Dagger", 0x80062250, smithscriptDag},
+		{"Scattershot Throw + Smithscript Dagger", 0x80062638, smithscriptDag},
+		{"Wall of Sparks + Firespark Perfume Bottle", 0x80062A20, firesparkPerfume},
+		{"Rolling Sparks + Firespark Perfume Bottle", 0x80062E08, firesparkPerfume},
+		{"Raging Beast + Beast Claw", 0x800631F0, beastClaw},
+		{"Savage Claws + Beast Claw", 0x800635D8, beastClaw},
+		{"Blind Spot + Backhand Blade", 0x80063DA8, backhandBlade},
+		{"Swift Slash + Backhand Blade", 0x80064190, backhandBlade},
+		{"Overhead Stance + Great Katana", 0x80064578, greatKatana},
+		{"Wing Stance + Milady", 0x80064960, milady},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			compatible, known := IsAshOfWarCompatibleWithWeapon(c.aow, c.weapon)
+			if !known {
+				t.Fatal("expected known=true")
+			}
+			if !compatible {
+				t.Fatal("expected compatible=true")
+			}
+
+			compatible, known = IsAshOfWarCompatibleWithWeapon(c.aow, dagger)
+			if !known {
+				t.Fatal("expected dagger comparison known=true")
+			}
+			if compatible {
+				t.Fatal("expected compatible=false on dagger")
+			}
+		})
+	}
+}
+
+func TestIsAoWCompatibleWithWepType_DLCSpecificAoWsDoNotLeakToBaseClasses(t *testing.T) {
+	cases := []struct {
+		name    string
+		aow     uint32
+		wepType uint16
+	}{
+		{"Overhead Stance does not match normal katana bit", 0x80064578, 13},
+		{"Raging Beast does not match normal claw bit", 0x800631F0, 41},
+		{"Wing Stance does not match greatsword bit", 0x80064960, 5},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			compatible, known := IsAoWCompatibleWithWepType(c.aow, c.wepType)
+			if !known {
+				t.Fatal("expected known=true")
+			}
+			if compatible {
+				t.Fatal("expected compatible=false")
+			}
+		})
 	}
 }
