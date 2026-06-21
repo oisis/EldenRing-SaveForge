@@ -243,17 +243,17 @@ var AoWCompatMasks = map[uint32]uint64{
 
 // WepTypeToCanMountBit maps weapon wepType integer → bit position in AoWCompatMasks.
 var WepTypeToCanMountBit = map[uint16]uint8{
-	1: 0, // canMountWep_Dagger
-	3: 1, // canMountWep_SwordNormal
-	5: 2, // canMountWep_SwordLarge
-	7: 3, // canMountWep_SwordGigantic
-	9: 8, // canMountWep_SwordPierce
-	11: 9, // canMountWep_RapierHeavy
-	13: 6, // canMountWep_katana
-	14: 5, // canMountWep_SaberLarge
-	15: 4, // canMountWep_SaberNormal
-	16: 7, // canMountWep_SwordDoubleEdge
-	17: 7, // canMountWep_SwordDoubleEdge
+	1:  0,  // canMountWep_Dagger
+	3:  1,  // canMountWep_SwordNormal
+	5:  2,  // canMountWep_SwordLarge
+	7:  3,  // canMountWep_SwordGigantic
+	9:  8,  // canMountWep_SwordPierce
+	11: 9,  // canMountWep_RapierHeavy
+	13: 6,  // canMountWep_katana
+	14: 5,  // canMountWep_SaberLarge
+	15: 4,  // canMountWep_SaberNormal
+	16: 7,  // canMountWep_SwordDoubleEdge
+	17: 7,  // canMountWep_SwordDoubleEdge
 	19: 11, // canMountWep_AxeLarge
 	21: 13, // canMountWep_HammerLarge
 	23: 10, // canMountWep_AxeNormal
@@ -280,6 +280,7 @@ var WepTypeToCanMountBit = map[uint16]uint8{
 	65: 32, // canMountWep_ShieldSmall
 	66: 33, // canMountWep_ShieldNormal
 	67: 34, // canMountWep_ShieldLarge
+	69: 34, // canMountWep_ShieldLarge (Greatshields / Towershields)
 	68: 35, // canMountWep_Torch
 	87: 25, // canMountWep_BowNormal
 	88: 25, // canMountWep_BowNormal
@@ -288,6 +289,8 @@ var WepTypeToCanMountBit = map[uint16]uint8{
 	91: 26, // canMountWep_BowLarge
 	92: 26, // canMountWep_BowLarge
 	93: 26, // canMountWep_BowLarge
+	94: 6,  // canMountWep_katana (Great Katanas)
+	95: 21, // canMountWep_Claw (Beast Claws)
 }
 
 // CanMountWepNames lists the canMountWep_* column names in bit order (bit 0 = index 0).

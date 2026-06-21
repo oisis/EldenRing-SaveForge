@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { editor, main } from '../../wailsjs/go/models';
 
@@ -196,7 +196,58 @@ describe('WeaponEditModal (workspace mode)', () => {
         await waitFor(() => {
             expect(screen.getByText('Sword Dance')).toBeInTheDocument();
         });
-        expect(screen.queryByText(/No compatible Ashes of War available/i))
-            .not.toBeInTheDocument();
-    });
+ expect(screen.queryByText(/No compatible Ashes of War available/i))
+ .not.toBeInTheDocument();
+ });
+
+ it('allows applying compatible AoW when no free copy exists in the save', async () => {
+ mocks.GetAoWAvailability.mockResolvedValue([]);
+ mocks.GetItemList.mockImplementation(async (cat: string) => {
+ if (cat !== 'ashes_of_war') return [];
+ return [
+ {
+ id: 0x80003070,
+ name: 'Sword Dance',
+ iconPath: '',
+ aowCompatBitmask: 1, // bit 0 set ⇒ compatible with wepType=1 (Dagger)
+ },
+ ];
+ });
+
+ const workspace = {
+ sessionID: 'ses-aow-missing',
+ updateWeapon: vi.fn().mockResolvedValue(makeWorkspaceItem({
+ pendingAoWItemID: 0x80003070,
+ pendingAoWName: 'Sword Dance',
+ })),
+ };
+ await renderModal({
+ charIndex: 0,
+ item: makeOrderItem(),
+ source: 'inventory',
+ onClose: () => {},
+ workspace,
+ workspaceItem: makeWorkspaceItem({
+ wepType: 1,
+ canMountAoW: true,
+ }),
+ });
+
+ await waitFor(() => {
+ expect(screen.getByText('Sword Dance')).toBeInTheDocument();
+ });
+ expect(screen.queryByText(/No compatible Ashes of War available/i))
+ .not.toBeInTheDocument();
+
+ fireEvent.click(screen.getByText('Sword Dance'));
+ fireEvent.click(screen.getByRole('button', { name: /Apply Ash of War/i }));
+
+ await waitFor(() => {
+ expect(workspace.updateWeapon).toHaveBeenCalledTimes(1);
+ });
+ expect(workspace.updateWeapon).toHaveBeenCalledWith(
+ 'hnd:0x80800001',
+ expect.objectContaining({ aowItemID: 0x80003070 }),
+ );
+ });
 });

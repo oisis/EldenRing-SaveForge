@@ -161,41 +161,81 @@ func TestIsAshOfWarCompatibleWithWeapon_StarFist_ShieldOnlyAoW_Incompatible(t *t
 	}
 }
 
-// Real DLC weapons whose wepType is NOT in WepTypeToCanMountBit must resolve to
-// known=false (data insufficient) rather than known=true/incompatible. The
-// caller (the active weapon-edit workspace flow) is responsible for the
-// passthrough "allow" decision because GemMountType==2 still gates mounting;
-// this DB lookup must only signal that it cannot decide, never a false reject.
+// Real DLC/base weapons whose wepType was missing from WepTypeToCanMountBit
+// must resolve to known compatibility instead of disappearing from the modal.
 //
 // wepType/GemMountType verified against backend/db/data/weapon_gem_mount.go:
-//   0x01E84800 Dragon Towershield → {WepType: 69, GemMountType: 2}
-//   0x03F6B5A0 Great Katana (DLC) → {WepType: 94, GemMountType: 2}
-// Neither 69 nor 94 has a WepTypeToCanMountBit entry. Sword Dance (0x80003070)
-// is a real AoW with a non-zero bitmask, so the unknown result comes solely
-// from the unmapped weapon type.
-func TestIsAshOfWarCompatibleWithWeapon_DLCUnmappedWepType_Unknown(t *testing.T) {
-	const swordDance = uint32(0x80003070)
+//   - 0x01E84800 Dragon Towershield → {WepType: 69, GemMountType: 2}
+//   - 0x03F6B5A0 Great Katana (DLC) → {WepType: 94, GemMountType: 2}
+//   - 0x04153A20 Beast Claw (DLC) → {WepType: 95, GemMountType: 2}
+func TestIsAshOfWarCompatibleWithWeapon_DLCWepTypesMapped(t *testing.T) {
 	cases := []struct {
-		name    string
-		weapon  uint32
-		wepType uint16
+		name   string
+		weapon uint32
+		aow    uint32
 	}{
-		{"Dragon Towershield", 0x01E84800, 69},
-		{"Great Katana", 0x03F6B5A0, 94},
+		{"Dragon Towershield + Shield Bash", 0x01E84800, 0x80007530},
+		{"Great Katana + Sword Dance", 0x03F6B5A0, 0x80003070},
+		{"Beast Claw + Cragblade", 0x04153A20, 0x8000ED1C},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			compatible, known := IsAshOfWarCompatibleWithWeapon(swordDance, c.weapon)
-			if known {
-				t.Errorf("%s (0x%08X, wepType=%d): expected known=false for unmapped DLC wepType",
-					c.name, c.weapon, c.wepType)
+			compatible, known := IsAshOfWarCompatibleWithWeapon(c.aow, c.weapon)
+			if !known {
+				t.Fatalf("%s: expected known=true", c.name)
 			}
-			// known=false is fail-closed: compatible is deliberately false so a
-			// caller that ignores `known` cannot read it as an affirmative match.
-			if compatible {
-				t.Errorf("%s (0x%08X): expected compatible=false (fail-closed) when known=false",
-					c.name, c.weapon)
+			if !compatible {
+				t.Errorf("%s: expected compatible=true", c.name)
 			}
 		})
+	}
+}
+
+func TestAoWCompatMasks_UnresolvedDLCAoWsFailClosed(t *testing.T) {
+	expected := map[uint32]string{
+		0x80030D40: "Dryleaf Whirlwind",
+		0x80061E68: "Palm Blast",
+		0x80062250: "Piercing Throw",
+		0x80062638: "Scattershot Throw",
+		0x80062A20: "Wall of Sparks",
+		0x80062E08: "Rolling Sparks",
+		0x800631F0: "Raging Beast",
+		0x800635D8: "Savage Claws",
+		0x80063DA8: "Blind Spot",
+		0x80064190: "Swift Slash",
+		0x80064578: "Overhead Stance",
+		0x80064960: "Wing Stance",
+	}
+
+	seen := make(map[uint32]string, len(expected))
+	for _, item := range GetItemsByCategory("ashes_of_war", "") {
+		isDLC := false
+		for _, flag := range item.Flags {
+			if flag == "dlc" {
+				isDLC = true
+				break
+			}
+		}
+		if !isDLC || item.AoWCompatBitmask != 0 {
+			continue
+		}
+
+		seen[item.ID] = item.Name
+		if expectedName, ok := expected[item.ID]; !ok {
+			t.Errorf("unexpected unresolved DLC AoW 0x%08X %q", item.ID, item.Name)
+		} else if item.Name != expectedName {
+			t.Errorf("unresolved DLC AoW 0x%08X name=%q, want %q", item.ID, item.Name, expectedName)
+		}
+
+		compatible, known := IsAoWCompatibleWithWepType(item.ID, 1)
+		if known || compatible {
+			t.Errorf("%s (0x%08X): expected known=false compatible=false for missing mask", item.Name, item.ID)
+		}
+	}
+
+	for id, name := range expected {
+		if _, ok := seen[id]; !ok {
+			t.Errorf("expected unresolved DLC AoW 0x%08X %q not found", id, name)
+		}
 	}
 }

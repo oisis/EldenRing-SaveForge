@@ -34,8 +34,8 @@ const WEP_TYPE_TO_BIT: Record<number, number> = {
     1: 0, 3: 1, 5: 2, 7: 3, 9: 8, 11: 9, 13: 6, 14: 5, 15: 4, 16: 7, 17: 7,
     19: 11, 21: 13, 23: 10, 24: 10, 25: 12, 28: 14, 29: 14, 31: 15, 32: 17,
     33: 18, 35: 20, 37: 19, 39: 20, 41: 21, 43: 22, 50: 23, 51: 24, 52: 25,
-    53: 26, 54: 27, 55: 28, 57: 29, 61: 30, 65: 32, 66: 33, 67: 34, 68: 35,
-    87: 25, 88: 25, 89: 26, 90: 27, 91: 26, 92: 26, 93: 26,
+    53: 26, 54: 27, 55: 28, 57: 29, 61: 30, 65: 32, 66: 33, 67: 34, 69: 34, 68: 35,
+    87: 25, 88: 25, 89: 26, 90: 27, 91: 26, 92: 26, 93: 26, 94: 6, 95: 21,
 };
 
 type AoWCompatStatus = 'compatible' | 'incompatible' | 'unknown';
@@ -190,13 +190,11 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
     const filteredAoW = useMemo(() => {
         const q = aowSearch.trim().toLowerCase();
         return ashesOfWar.filter(a => {
-            if (q && !a.name.toLowerCase().includes(q)) return false;
-            if (!showUnavailable) {
-                const status = getStatus(a.id);
-                if (status !== 'available' && status !== 'current') return false;
-                const compat = getAoWCompatStatus(a.aowCompatBitmask, wepType);
-                // Fail-closed default view: hide incompatible AND unknown.
-                if (compat !== 'compatible') return false;
+ if (q && !a.name.toLowerCase().includes(q)) return false;
+ if (!showUnavailable) {
+ const compat = getAoWCompatStatus(a.aowCompatBitmask, wepType);
+ // Fail-closed default view: hide incompatible AND unknown.
+ if (compat !== 'compatible') return false;
             }
             return true;
         });
@@ -218,13 +216,13 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
 
     const aowChanged = selectedAoW !== null && selectedAoW !== currentAoWId;
     // Remove (selectedAoW===0) is always allowed when there is a current AoW.
-    // Assign requires compat === 'compatible' AND a free copy. 'unknown' is
-    // blocked regardless of wepType mapping (fail-closed; see note above).
+ // Assign requires compat === 'compatible'. Missing/free-copy status is
+ // informational because the backend can allocate a fresh AoW GaItem.
     const canApplyAoW = canMountAoW
         && aowChanged
         && !applying
         && (selectedAoW === 0
-            || (selectedAoWStatus === 'available' && selectedAoWCompat === 'compatible'));
+ || selectedAoWCompat === 'compatible');
 
     const canRemoveAoW = canMountAoW && currentAoWId !== 0 && !applying;
 
@@ -645,7 +643,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                                             const status = getStatus(aow.id);
                                             const compat = getAoWCompatStatus(aow.aowCompatBitmask, wepType);
                                             const isSelected = selectedAoW === aow.id;
-                                            const selectable = status === 'available' || status === 'current';
+ const selectable = compat === 'compatible';
                                             return (
                                                 <button
                                                     key={aow.id}
@@ -692,7 +690,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                                 )}
                                 {selectedAoW !== null && selectedAoW !== 0 && selectedAoWStatus !== 'available' && selectedAoWStatus !== 'current' && (
                                     <p className="text-[9px] text-muted-foreground/80 italic leading-snug">
-                                        No free copy of this Ash of War is available in the save.
+ No free copy is available in the save; applying will create a fresh Ash of War record.
                                     </p>
                                 )}
 
@@ -708,9 +706,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                                                 ? selectedAoWCompat === 'unknown'
                                                     ? 'Unknown compatibility — blocked for safety'
                                                     : 'Incompatible Ash of War'
-                                                : selectedAoW !== 0 && selectedAoWStatus !== 'available'
-                                                  ? 'No free copy of this Ash of War'
-                                                  : applying
+ : applying
                                                     ? 'Applying…'
                                                     : 'Apply new Ash of War'
                                     }
