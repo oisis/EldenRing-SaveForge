@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { editor, main } from '../../wailsjs/go/models';
 
@@ -143,6 +143,26 @@ describe('WeaponEditModal (workspace mode)', () => {
         expect(screen.getByText('Claymore')).toBeInTheDocument();
     });
 
+    it('shows default AoW name when no custom AoW is attached', async () => {
+        const workspace = { sessionID: 'ses-default-aow', updateWeapon: vi.fn() };
+        await renderModal({
+            charIndex: 0,
+            item: makeOrderItem(),
+            source: 'inventory',
+            onClose: () => {},
+            workspace,
+            workspaceItem: makeWorkspaceItem({
+                canMountAoW: true,
+                currentAoWItemID: 0,
+                defaultAoWID: 800,
+                defaultAoWName: 'Quickstep',
+            }),
+        });
+
+        expect(screen.getByText('Quickstep')).toBeInTheDocument();
+        expect(screen.queryByText('Built-in skill')).not.toBeInTheDocument();
+    });
+
     // Regression: workspace-mode WeaponEditModal must render compatible
     // Ashes of War without depending on GetCharacter. Previously the modal
     // fell back to GetCharacter for wepType/canMountAoW; for newly-added
@@ -196,7 +216,95 @@ describe('WeaponEditModal (workspace mode)', () => {
         await waitFor(() => {
             expect(screen.getByText('Sword Dance')).toBeInTheDocument();
         });
-        expect(screen.queryByText(/No compatible Ashes of War available/i))
-            .not.toBeInTheDocument();
-    });
-});
+ expect(screen.queryByText(/No compatible Ashes of War available/i))
+ .not.toBeInTheDocument();
+ });
+
+ it('allows applying compatible AoW when no free copy exists in the save', async () => {
+ mocks.GetAoWAvailability.mockResolvedValue([]);
+ mocks.GetItemList.mockImplementation(async (cat: string) => {
+ if (cat !== 'ashes_of_war') return [];
+ return [
+ {
+ id: 0x80003070,
+ name: 'Sword Dance',
+ iconPath: '',
+ aowCompatBitmask: 1, // bit 0 set ⇒ compatible with wepType=1 (Dagger)
+ },
+ ];
+ });
+
+ const workspace = {
+ sessionID: 'ses-aow-missing',
+ updateWeapon: vi.fn().mockResolvedValue(makeWorkspaceItem({
+ pendingAoWItemID: 0x80003070,
+ pendingAoWName: 'Sword Dance',
+ })),
+ };
+ await renderModal({
+ charIndex: 0,
+ item: makeOrderItem(),
+ source: 'inventory',
+ onClose: () => {},
+ workspace,
+ workspaceItem: makeWorkspaceItem({
+ wepType: 1,
+ canMountAoW: true,
+ }),
+ });
+
+ await waitFor(() => {
+ expect(screen.getByText('Sword Dance')).toBeInTheDocument();
+ });
+ expect(screen.queryByText(/No compatible Ashes of War available/i))
+ .not.toBeInTheDocument();
+
+ fireEvent.click(screen.getByText('Sword Dance'));
+ fireEvent.click(screen.getByRole('button', { name: /Apply Ash of War/i }));
+
+ await waitFor(() => {
+ expect(workspace.updateWeapon).toHaveBeenCalledTimes(1);
+ });
+ expect(workspace.updateWeapon).toHaveBeenCalledWith(
+ 'hnd:0x80800001',
+ expect.objectContaining({ aowItemID: 0x80003070 }),
+ );
+ });
+
+ it('renders DLC AoWs that use synthetic compatibility bits', async () => {
+ mocks.GetAoWAvailability.mockResolvedValue([]);
+ mocks.GetItemList.mockImplementation(async (cat: string) => {
+ if (cat !== 'ashes_of_war') return [];
+ return [
+ {
+ id: 0x80064960,
+ name: 'Wing Stance',
+ iconPath: '',
+ aowCompatBitmask: 2 ** 42, // synthetic DLC light greatsword bit
+ },
+ ];
+ });
+
+ const workspace = { sessionID: 'ses-aow-dlc', updateWeapon: vi.fn() };
+ await renderModal({
+ charIndex: 0,
+ item: makeOrderItem({ name: 'Milady', itemId: 0x0405F7E0 }),
+ source: 'inventory',
+ onClose: () => {},
+ workspace,
+ workspaceItem: makeWorkspaceItem({
+ name: 'Milady',
+ itemID: 0x0405F7E0,
+ baseItemID: 0x0405F7E0,
+ wepType: 93,
+ canMountAoW: true,
+ }),
+ });
+
+ await waitFor(() => {
+ expect(screen.getByText('Wing Stance')).toBeInTheDocument();
+ });
+ expect(screen.queryByText(/No compatible Ashes of War available/i))
+ .not.toBeInTheDocument();
+ });
+ });

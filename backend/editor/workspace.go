@@ -15,6 +15,7 @@ import (
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // ContainerKind identifies which container an item lives in.
@@ -115,6 +116,9 @@ type EditableItem struct {
 	Category         string        `json:"category"`
 	Quantity         uint32        `json:"quantity"`
 	AcquisitionIndex uint32        `json:"acquisitionIndex"`
+	Weight           float64       `json:"weight,omitempty"`
+	SortID           uint32        `json:"sortId,omitempty"`
+	SortGroupID      uint8         `json:"sortGroupId,omitempty"`
 	CurrentUpgrade   int           `json:"currentUpgrade"`
 	MaxUpgrade       int           `json:"maxUpgrade"`
 	InfusionName     string        `json:"infusionName,omitempty"`
@@ -131,6 +135,8 @@ type EditableItem struct {
 	// when the handle has been re-allocated by a prior Save).
 	WepType               uint16 `json:"wepType,omitempty"`
 	CanMountAoW           bool   `json:"canMountAoW,omitempty"`
+	DefaultAoWID          int32  `json:"defaultAoWID,omitempty"`
+	DefaultAoWName        string `json:"defaultAoWName,omitempty"`
 	CurrentAoWHandle      uint32 `json:"currentAoWHandle,omitempty"`
 	CurrentAoWItemID      uint32 `json:"currentAoWItemID,omitempty"`
 	CurrentAoWName        string `json:"currentAoWName,omitempty"`
@@ -333,6 +339,8 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 	isWeapon := isWeaponCategory(itemData.Category)
 	isArmor := isArmorCategory(itemData.Category)
 	isTalisman := itemData.Category == "talismans"
+	sortKey := data.ItemSortKeys[baseID]
+	defaultAoWID, defaultAoWName := defaultAoWForBaseID(baseID)
 
 	uid := fmt.Sprintf("hnd:0x%08X", handle)
 
@@ -347,6 +355,9 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 		Category:         itemData.Category,
 		Quantity:         qty,
 		AcquisitionIndex: acq,
+		Weight:           data.ItemWeights[baseID],
+		SortID:           sortKey.SortId,
+		SortGroupID:      sortKey.SortGroupId,
 		CurrentUpgrade:   level,
 		MaxUpgrade:       int(itemData.MaxUpgrade),
 		InfusionName:     infusion,
@@ -355,6 +366,8 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 		IsWeapon:         isWeapon,
 		IsArmor:          isArmor,
 		IsTalisman:       isTalisman,
+		DefaultAoWID:     defaultAoWID,
+		DefaultAoWName:   defaultAoWName,
 	}
 	editable.OriginalSlotIndex = slotIdx
 	if isWeapon {
@@ -446,6 +459,17 @@ func populateCurrentAoW(slot *core.SaveSlot, item *EditableItem, weaponAoWRefs m
 		return
 	}
 	item.CurrentAoWStatus = AoWStatusCustom
+}
+
+func defaultAoWForBaseID(baseID uint32) (int32, string) {
+	v, ok := data.WeaponStatsV1ByID[baseID]
+	if !ok || v.DefaultAoWID == 0 {
+		return 0, ""
+	}
+	if name, ok := data.SwordArtsNames[v.DefaultAoWID]; ok {
+		return v.DefaultAoWID, name
+	}
+	return v.DefaultAoWID, fmt.Sprintf("Skill #%d", v.DefaultAoWID)
 }
 
 // decodeWeaponUpgradeInfusion mirrors the legacy helper in

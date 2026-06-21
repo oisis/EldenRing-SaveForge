@@ -926,6 +926,9 @@ export namespace editor {
 	    category: string;
 	    quantity: number;
 	    acquisitionIndex: number;
+	    weight?: number;
+	    sortId?: number;
+	    sortGroupId?: number;
 	    currentUpgrade: number;
 	    maxUpgrade: number;
 	    infusionName?: string;
@@ -936,6 +939,8 @@ export namespace editor {
 	    isTalisman: boolean;
 	    wepType?: number;
 	    canMountAoW?: boolean;
+	    defaultAoWID?: number;
+	    defaultAoWName?: string;
 	    currentAoWHandle?: number;
 	    currentAoWItemID?: number;
 	    currentAoWName?: string;
@@ -965,6 +970,9 @@ export namespace editor {
 	        this.category = source["category"];
 	        this.quantity = source["quantity"];
 	        this.acquisitionIndex = source["acquisitionIndex"];
+	        this.weight = source["weight"];
+	        this.sortId = source["sortId"];
+	        this.sortGroupId = source["sortGroupId"];
 	        this.currentUpgrade = source["currentUpgrade"];
 	        this.maxUpgrade = source["maxUpgrade"];
 	        this.infusionName = source["infusionName"];
@@ -975,6 +983,8 @@ export namespace editor {
 	        this.isTalisman = source["isTalisman"];
 	        this.wepType = source["wepType"];
 	        this.canMountAoW = source["canMountAoW"];
+	        this.defaultAoWID = source["defaultAoWID"];
+	        this.defaultAoWName = source["defaultAoWName"];
 	        this.currentAoWHandle = source["currentAoWHandle"];
 	        this.currentAoWItemID = source["currentAoWItemID"];
 	        this.currentAoWName = source["currentAoWName"];

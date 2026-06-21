@@ -28,24 +28,26 @@ interface Props {
     workspaceItem: editor.EditableItem;
 }
 
-// Mirrors backend data.WepTypeToCanMountBit.
-// Maps weapon wepType → bit position in AoWCompatBitmask.
-const WEP_TYPE_TO_BIT: Record<number, number> = {
-    1: 0, 3: 1, 5: 2, 7: 3, 9: 8, 11: 9, 13: 6, 14: 5, 15: 4, 16: 7, 17: 7,
-    19: 11, 21: 13, 23: 10, 24: 10, 25: 12, 28: 14, 29: 14, 31: 15, 32: 17,
-    33: 18, 35: 20, 37: 19, 39: 20, 41: 21, 43: 22, 50: 23, 51: 24, 52: 25,
-    53: 26, 54: 27, 55: 28, 57: 29, 61: 30, 65: 32, 66: 33, 67: 34, 68: 35,
-    87: 25, 88: 25, 89: 26, 90: 27, 91: 26, 92: 26, 93: 26,
+// Mirrors backend data.CanMountBitsForWepType.
+// Maps weapon wepType → bit positions in AoWCompatBitmask.
+const WEP_TYPE_TO_BITS: Record<number, number[]> = {
+    1: [0], 3: [1], 5: [2], 7: [3], 9: [8], 11: [9], 13: [6], 14: [5], 15: [4], 16: [7], 17: [7],
+    19: [11], 21: [13], 23: [10], 24: [10], 25: [12], 28: [14], 29: [14], 31: [15], 32: [17],
+    33: [18], 35: [20], 37: [19], 39: [20], 41: [21], 43: [22], 50: [23], 51: [24], 52: [25],
+    53: [26], 54: [27], 55: [28], 57: [29], 61: [30], 65: [32], 66: [33], 67: [34], 69: [34], 68: [35],
+    87: [25], 88: [36], 89: [38], 90: [43], 91: [37], 92: [40], 93: [42], 94: [6, 41], 95: [21, 39],
 };
 
 type AoWCompatStatus = 'compatible' | 'incompatible' | 'unknown';
 
 function getAoWCompatStatus(aowCompatBitmask: number, wepType: number): AoWCompatStatus {
     if (aowCompatBitmask === 0 || wepType === 0) return 'unknown';
-    const bitPos = WEP_TYPE_TO_BIT[wepType];
-    if (bitPos === undefined) return 'unknown';
-    const bit = (BigInt(aowCompatBitmask) >> BigInt(bitPos)) & BigInt(1);
-    return bit === BigInt(1) ? 'compatible' : 'incompatible';
+    const bitPositions = WEP_TYPE_TO_BITS[wepType];
+    if (!bitPositions || bitPositions.length === 0) return 'unknown';
+    const mask = BigInt(aowCompatBitmask);
+    return bitPositions.some(bitPos => ((mask >> BigInt(bitPos)) & BigInt(1)) === BigInt(1))
+        ? 'compatible'
+        : 'incompatible';
 }
 
 interface AshOfWarOption {
@@ -81,7 +83,6 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
 
     // Live working state — starts from props but tracks Apply results so the
     // modal can show the new level / itemId / infusion without being closed.
-    const [currentItemId, setCurrentItemId] = useState<number>(item.itemId);
     const [currentLevel, setCurrentLevel] = useState<number>(item.currentUpgrade ?? 0);
     const [currentInfusionName, setCurrentInfusionName] = useState<string>(item.infusionName ?? '');
     const maxUpgrade = item.maxUpgrade ?? 0;
@@ -190,13 +191,11 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
     const filteredAoW = useMemo(() => {
         const q = aowSearch.trim().toLowerCase();
         return ashesOfWar.filter(a => {
-            if (q && !a.name.toLowerCase().includes(q)) return false;
-            if (!showUnavailable) {
-                const status = getStatus(a.id);
-                if (status !== 'available' && status !== 'current') return false;
-                const compat = getAoWCompatStatus(a.aowCompatBitmask, wepType);
-                // Fail-closed default view: hide incompatible AND unknown.
-                if (compat !== 'compatible') return false;
+ if (q && !a.name.toLowerCase().includes(q)) return false;
+ if (!showUnavailable) {
+ const compat = getAoWCompatStatus(a.aowCompatBitmask, wepType);
+ // Fail-closed default view: hide incompatible AND unknown.
+ if (compat !== 'compatible') return false;
             }
             return true;
         });
@@ -207,6 +206,9 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
         if (currentAoWId === 0) return null;
         return ashesOfWar.find(a => a.id === currentAoWId)?.name ?? null;
     }, [ashesOfWar, currentAoWId]);
+    const currentAoWDisplay = currentAoWId === 0
+        ? workspaceItem.defaultAoWName || (workspaceItem.defaultAoWID ? `Skill #${workspaceItem.defaultAoWID}` : 'Built-in skill')
+        : currentAoWName ?? `Unknown (0x${currentAoWId.toString(16).toUpperCase()})`;
 
     const selectedAoWEntry = selectedAoW !== null && selectedAoW !== 0
         ? ashesOfWar.find(a => a.id === selectedAoW) ?? null
@@ -218,13 +220,13 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
 
     const aowChanged = selectedAoW !== null && selectedAoW !== currentAoWId;
     // Remove (selectedAoW===0) is always allowed when there is a current AoW.
-    // Assign requires compat === 'compatible' AND a free copy. 'unknown' is
-    // blocked regardless of wepType mapping (fail-closed; see note above).
+ // Assign requires compat === 'compatible'. Missing/free-copy status is
+ // informational because the backend can allocate a fresh AoW GaItem.
     const canApplyAoW = canMountAoW
         && aowChanged
         && !applying
         && (selectedAoW === 0
-            || (selectedAoWStatus === 'available' && selectedAoWCompat === 'compatible'));
+ || selectedAoWCompat === 'compatible');
 
     const canRemoveAoW = canMountAoW && currentAoWId !== 0 && !applying;
 
@@ -259,8 +261,6 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
     }, [maxUpgrade]);
 
     const showIcon = !!item.iconPath && !imgError;
-    const itemIdHex = `0x${currentItemId.toString(16).toUpperCase().padStart(8, '0')}`;
-    const handleHex = `0x${item.handle.toString(16).toUpperCase().padStart(8, '0')}`;
     const upgradeLabel =
         currentLevel > 0
             ? currentInfusionName
@@ -281,7 +281,6 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                     setError('Failed to update upgrade — see notification.');
                     return;
                 }
-                setCurrentItemId(updated.itemID);
                 setCurrentLevel(updated.currentUpgrade);
                 setCurrentInfusionName(updated.infusionName ?? '');
                 setSuccess(`Level updated to +${updated.currentUpgrade} (pending save)`);
@@ -303,7 +302,6 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                     setError('Failed to update infusion — see notification.');
                     return;
                 }
-                setCurrentItemId(updated.itemID);
                 setCurrentLevel(updated.currentUpgrade);
                 setCurrentInfusionName(updated.infusionName ?? '');
                 setSuccess(`Infusion updated to ${newName} (pending save)`);
@@ -348,15 +346,15 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
 
     const statusBadge = (status: AoWStatus) => {
         const map: Record<AoWStatus, { label: string; cls: string }> = {
-            current: { label: 'Current', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+            current: { label: 'Current', cls: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
             available: { label: 'Available', cls: 'bg-green-500/15 text-green-300 border-green-500/30' },
-            in_use: { label: 'In use', cls: 'bg-orange-500/15 text-orange-300 border-orange-500/30' },
+            in_use: { label: 'In use', cls: 'bg-slate-500/15 text-slate-300 border-slate-500/30' },
             missing: { label: 'Missing', cls: 'bg-muted/30 text-muted-foreground border-border/40' },
             conflict: { label: 'Conflict', cls: 'bg-red-500/15 text-red-400 border-red-500/30' },
         };
         const m = map[status];
         return (
-            <span className={`text-[7.5px] font-black uppercase tracking-wider border px-1 py-0.5 rounded ${m.cls}`}>
+            <span className={`text-[9px] font-black uppercase tracking-wider border px-1.5 py-0.5 rounded ${m.cls}`}>
                 {m.label}
             </span>
         );
@@ -370,7 +368,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
         };
         const m = map[compat];
         return (
-            <span className={`text-[7.5px] font-black uppercase tracking-wider border px-1 py-0.5 rounded ${m.cls}`}>
+            <span className={`text-[9px] font-black uppercase tracking-wider border px-1.5 py-0.5 rounded ${m.cls}`}>
                 {m.label}
             </span>
         );
@@ -382,7 +380,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
             onClick={onClose}
         >
             <div
-                className="w-full max-w-md bg-card border border-border/60 rounded-xl shadow-2xl max-h-[92vh] flex flex-col"
+                className="w-full max-w-3xl bg-card border border-border/60 rounded-xl shadow-2xl max-h-[92vh] flex flex-col"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
@@ -434,11 +432,11 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                 </div>
 
                 {/* Body */}
-                <div className="p-4 space-y-4 overflow-y-auto">
+                <div className="p-5 space-y-4 overflow-y-auto">
                     {/* Level edit section */}
-                    <section className="rounded-lg border border-border/50 bg-muted/10 p-3 space-y-2">
+                    <section className="rounded-lg border border-border/50 bg-muted/10 p-4 space-y-3">
                         <div className="flex items-center justify-between gap-2">
-                            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
+                            <span className="text-[11px] font-black uppercase tracking-[0.18em] text-muted-foreground">
                                 Upgrade Level
                             </span>
                             {canEditLevel ? (
@@ -558,22 +556,10 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                             <span className="text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
                                 Ash of War
                             </span>
-                            {canMountAoW && (
-                                <span
-                                    className="text-[9px] font-mono text-muted-foreground/70 truncate ml-2"
-                                    title={currentAoWId === 0
-                                        ? "No custom Ash of War — weapon uses its built-in skill"
-                                        : undefined}
-                                >
-                                    {currentAoWId === 0
-                                        ? 'Default skill'
-                                        : currentAoWName ?? `Unknown (0x${currentAoWId.toString(16).toUpperCase()})`}
-                                </span>
-                            )}
                         </div>
 
                         {(pendingAoWClear || pendingAoWItemID !== 0) && (
-                            <div className="text-[10px] px-2 py-1 rounded border bg-amber-500/10 border-amber-500/30 text-amber-200 leading-snug">
+                            <div className="text-[11px] px-3 py-2 rounded border bg-blue-500/10 border-blue-500/30 text-blue-300 leading-snug">
                                 {pendingAoWClear
                                     ? 'Pending save: built-in skill will be restored.'
                                     : `Pending save: ${pendingAoWName || `0x${pendingAoWItemID.toString(16).toUpperCase()}`}`}
@@ -581,35 +567,29 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                         )}
 
                         {!canMountAoW ? (
-                            <p className="text-[10px] text-muted-foreground/70 italic">
+                            <p className="text-[11px] text-muted-foreground/70 italic">
                                 This weapon does not support Ash of War changes.
                             </p>
                         ) : (
                             <>
-                                <div className="flex items-center gap-2">
-                                    <div className="relative flex-1">
-                                        <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                                        </svg>
-                                        <input
-                                            type="text"
-                                            placeholder="Search Ashes of War..."
-                                            value={aowSearch}
-                                            onChange={(e) => setAowSearch(e.target.value)}
-                                            disabled={applying}
-                                            className="w-full bg-background/60 border border-border/50 rounded-md pl-7 pr-2 py-1.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary disabled:opacity-50"
-                                        />
+                                <div className="flex items-center gap-3 rounded-lg border border-border/40 bg-background/45 px-3 py-2.5">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-[8px] font-black uppercase tracking-[0.18em] text-muted-foreground/70">
+                                            Current Ash of War
+                                        </div>
+                                        <div className="text-sm font-black text-foreground truncate" title={currentAoWDisplay}>
+                                            {currentAoWDisplay}
+                                        </div>
+                                        <div className="text-[10px] text-muted-foreground/70">
+                                            {currentAoWId === 0 ? 'Weapon is using its built-in skill.' : 'Custom Ash of War is attached.'}
+                                        </div>
                                     </div>
                                     <button
                                         onClick={onRemoveAoW}
                                         disabled={!canRemoveAoW}
-                                        title={canRemoveAoW
-                                            ? "Remove custom Ash of War — weapon will use its built-in skill"
-                                            : "No custom Ash of War attached"}
-                                        aria-label={canRemoveAoW
-                                            ? "Remove custom Ash of War — weapon will use its built-in skill"
-                                            : "No custom Ash of War attached"}
-                                        className={`px-2.5 py-1.5 text-[9px] font-black uppercase tracking-wider rounded border transition-all ${
+                                        title={canRemoveAoW ? "Remove custom Ash of War — weapon will use its built-in skill" : "No custom Ash of War attached"}
+                                        aria-label={canRemoveAoW ? "Remove custom Ash of War — weapon will use its built-in skill" : "No custom Ash of War attached"}
+                                        className={`px-3 py-2 text-[10px] font-black uppercase tracking-wider rounded border transition-all ${
                                             canRemoveAoW
                                                 ? 'text-red-300 bg-red-500/10 border-red-500/30 hover:bg-red-500/20'
                                                 : 'opacity-40 cursor-not-allowed text-muted-foreground bg-muted/20 border-border/30'
@@ -619,11 +599,23 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                                     </button>
                                 </div>
 
-                                <p className="text-[9px] text-muted-foreground/60 italic leading-tight">
-                                    Removing a custom Ash of War restores the weapon's built-in skill.
-                                </p>
+                                <div className="flex items-center gap-2">
+                                    <div className="relative flex-1">
+                                        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                        </svg>
+                                        <input
+                                            type="text"
+                                            placeholder="Search Ashes of War..."
+                                            value={aowSearch}
+                                            onChange={(e) => setAowSearch(e.target.value)}
+                                            disabled={applying}
+                                            className="w-full bg-background/60 border border-border/50 rounded-md pl-9 pr-3 py-2 text-[12px] focus:outline-none focus:ring-1 focus:ring-primary/30 focus:border-primary disabled:opacity-50"
+                                        />
+                                    </div>
+                                </div>
 
-                                <label className="flex items-center gap-1.5 text-[9px] text-muted-foreground/80 cursor-pointer select-none">
+                                <label className="flex items-center gap-2 text-[11px] text-muted-foreground/80 cursor-pointer select-none">
                                     <input
                                         type="checkbox"
                                         checked={showUnavailable}
@@ -633,7 +625,7 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                                     Show unavailable / incompatible
                                 </label>
 
-                                <div className="max-h-56 overflow-y-auto rounded border border-border/40 bg-background/30 divide-y divide-border/30">
+                                <div className="max-h-72 overflow-y-auto rounded border border-border/40 bg-background/30 divide-y divide-border/30">
                                     {ashesOfWar.length === 0 ? (
                                         <p className="text-[10px] text-muted-foreground/60 italic p-3 text-center">Loading…</p>
                                     ) : filteredAoW.length === 0 ? (
@@ -645,14 +637,14 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                                             const status = getStatus(aow.id);
                                             const compat = getAoWCompatStatus(aow.aowCompatBitmask, wepType);
                                             const isSelected = selectedAoW === aow.id;
-                                            const selectable = status === 'available' || status === 'current';
+ const selectable = compat === 'compatible';
                                             return (
                                                 <button
                                                     key={aow.id}
                                                     type="button"
                                                     disabled={applying}
                                                     onClick={() => setSelectedAoW(isSelected ? null : aow.id)}
-                                                    className={`w-full flex items-center gap-2 px-2 py-1.5 text-left transition-colors ${
+                                                    className={`w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
                                                         isSelected
                                                             ? 'bg-primary/15'
                                                             : selectable
@@ -660,14 +652,14 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                                                               : 'opacity-60 hover:bg-muted/20'
                                                     }`}
                                                 >
-                                                    <div className="w-6 h-6 rounded bg-muted/30 border border-border/40 shrink-0 flex items-center justify-center overflow-hidden">
+                                                    <div className="w-10 h-10 rounded bg-muted/30 border border-border/40 shrink-0 flex items-center justify-center overflow-hidden">
                                                         {aow.iconPath ? (
                                                             <img src={aow.iconPath} alt="" className="w-full h-full object-contain" />
                                                         ) : (
-                                                            <span className="text-[9px] text-muted-foreground/40">{aow.name.charAt(0)}</span>
+                                                            <span className="text-[12px] text-muted-foreground/40">{aow.name.charAt(0)}</span>
                                                         )}
                                                     </div>
-                                                    <span className="flex-1 min-w-0 text-[10px] font-bold text-foreground/85 truncate">
+                                                    <span className="flex-1 min-w-0 text-[13px] font-bold text-foreground/85 truncate">
                                                         {aow.name}
                                                     </span>
                                                     <div className="shrink-0 flex items-center gap-1">
@@ -692,36 +684,10 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                                 )}
                                 {selectedAoW !== null && selectedAoW !== 0 && selectedAoWStatus !== 'available' && selectedAoWStatus !== 'current' && (
                                     <p className="text-[9px] text-muted-foreground/80 italic leading-snug">
-                                        No free copy of this Ash of War is available in the save.
+ No free copy is available in the save; applying will create a fresh Ash of War record.
                                     </p>
                                 )}
 
-                                <button
-                                    onClick={onApplyAoW}
-                                    disabled={!canApplyAoW}
-                                    title={
-                                        !canMountAoW
-                                            ? 'Weapon does not support Ash of War'
-                                            : !aowChanged
-                                              ? 'No Ash of War change'
-                                              : selectedAoW !== 0 && selectedAoWCompat !== 'compatible'
-                                                ? selectedAoWCompat === 'unknown'
-                                                    ? 'Unknown compatibility — blocked for safety'
-                                                    : 'Incompatible Ash of War'
-                                                : selectedAoW !== 0 && selectedAoWStatus !== 'available'
-                                                  ? 'No free copy of this Ash of War'
-                                                  : applying
-                                                    ? 'Applying…'
-                                                    : 'Apply new Ash of War'
-                                    }
-                                    className={`w-full px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
-                                        canApplyAoW
-                                            ? 'bg-green-700/80 text-white hover:bg-green-700 shadow-sm'
-                                            : 'opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground'
-                                    }`}
-                                >
-                                    {applying ? 'Applying…' : 'Apply Ash of War'}
-                                </button>
                             </>
                         )}
                     </section>
@@ -737,26 +703,34 @@ export function WeaponEditModal({ charIndex, item, source, onClose, workspace, w
                         </p>
                     )}
 
-                    {/* Metadata */}
-                    <dl className="grid grid-cols-[110px_1fr] gap-y-1.5 gap-x-3 text-[10px]">
-                        <dt className="font-black uppercase tracking-wider text-muted-foreground">Character</dt>
-                        <dd className="font-mono text-foreground/80">Slot {charIndex}</dd>
-
-                        <dt className="font-black uppercase tracking-wider text-muted-foreground">Handle</dt>
-                        <dd className="font-mono text-foreground/80">{handleHex}</dd>
-
-                        <dt className="font-black uppercase tracking-wider text-muted-foreground">Item ID</dt>
-                        <dd className="font-mono text-foreground/80">{itemIdHex}</dd>
-
-                        <dt className="font-black uppercase tracking-wider text-muted-foreground">Infusion</dt>
-                        <dd className="font-mono text-foreground/80">
-                            {currentInfusionName || 'Standard'}
-                        </dd>
-                    </dl>
                 </div>
 
                 {/* Footer */}
                 <div className="flex items-center justify-end gap-2 p-3 border-t border-border/40 shrink-0">
+                    <button
+                        onClick={onApplyAoW}
+                        disabled={!canApplyAoW}
+                        title={
+                            !canMountAoW
+                                ? 'Weapon does not support Ash of War'
+                                : !aowChanged
+                                    ? 'No Ash of War change'
+                                    : selectedAoW !== 0 && selectedAoWCompat !== 'compatible'
+                                        ? selectedAoWCompat === 'unknown'
+                                            ? 'Unknown compatibility — blocked for safety'
+                                            : 'Incompatible Ash of War'
+                                        : applying
+                                            ? 'Applying…'
+                                            : 'Apply new Ash of War'
+                        }
+                        className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                            canApplyAoW
+                                ? 'bg-green-700/80 text-white hover:bg-green-700 shadow-sm'
+                                : 'opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground'
+                        }`}
+                    >
+                        {applying ? 'Applying…' : 'Apply Ash of War'}
+                    </button>
                     <button
                         onClick={onClose}
                         className="px-3 py-1.5 text-[10px] font-black uppercase tracking-wider rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all"

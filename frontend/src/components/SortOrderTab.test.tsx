@@ -111,6 +111,39 @@ describe('SortOrderTab (workspace mode)', () => {
         expect(screen.queryByRole('button', { name: /Apply Order/i })).not.toBeInTheDocument();
     });
 
+    it('sorts the visible inventory tab by weight descending', async () => {
+        const light = makeItem('hnd:0x80800001', 'inventory', 0, {
+            name: 'Light Sword',
+            weight: 1,
+        });
+        const heavy = makeItem('hnd:0x80800002', 'inventory', 1, {
+            name: 'Heavy Sword',
+            weight: 8,
+        });
+        const sortedSnap = makeSnapshot({ inventory: [heavy, light], dirty: true });
+        mocks.MoveInventoryWorkspaceItem.mockResolvedValue(sortedSnap);
+
+        await mount(makeSnapshot({ inventory: [light, heavy] }));
+
+        const sortButton = screen
+            .getAllByRole('button', { name: 'Weight ↓' })
+            .find(btn => !btn.hasAttribute('disabled'));
+        expect(sortButton).toBeTruthy();
+
+        await act(async () => {
+            fireEvent.click(sortButton!);
+        });
+
+        await waitFor(() => {
+            expect(mocks.MoveInventoryWorkspaceItem).toHaveBeenCalledWith(
+                'ses-tab',
+                'hnd:0x80800002',
+                'inventory',
+                0,
+            );
+        });
+    });
+
     it('renders Save changes button disabled when not dirty', async () => {
         await mount(makeSnapshot({ inventory: [makeItem('hnd:0x80800001', 'inventory', 0)], dirty: false }));
         const save = screen.getByRole('button', { name: /Save changes/i });

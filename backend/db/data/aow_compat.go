@@ -4,6 +4,17 @@
 
 package data
 
+const (
+	CanMountBitDLCHandToHandArts  uint8 = 36
+	CanMountBitDLCThrowingBlades  uint8 = 37
+	CanMountBitDLCPerfumeBottles  uint8 = 38
+	CanMountBitDLCBeastClaws      uint8 = 39
+	CanMountBitDLCBackhandBlades  uint8 = 40
+	CanMountBitDLCGreatKatanas    uint8 = 41
+	CanMountBitDLCLightGreatsword uint8 = 42
+	CanMountBitDLCThrustingShield uint8 = 43
+)
+
 // AoWCompatMask maps AoW item ID → 36-bit canMountWep bitmask.
 // Bit N is set iff canMountWep_<col> is 1 in EquipParamGem,
 // where col ordering matches CANMOUNT_NAMES (bit 0 = Dagger, bit 35 = Torch).
@@ -226,8 +237,20 @@ var AoWCompatMasks = map[uint32]uint64{
 	0x800138E4: 0x0000000000FEFFFF, // row 80100
 	0x80013948: 0x0000000000FEFFFF, // row 80200
 	0x80014C08: 0x0000000000FEFFFF, // row 85000
+	0x80030D40: 0x0000001000000000, // Dryleaf Whirlwind, row 200000
 	0x80030DA4: 0x00000000000683FF, // row 200100
 	0x80061A80: 0x000000000000022C, // row 400000
+	0x80061E68: 0x0000001000000000, // Palm Blast, row 401000
+	0x80062250: 0x0000002000000000, // Piercing Throw, row 402000
+	0x80062638: 0x0000002000000000, // Scattershot Throw, row 403000
+	0x80062A20: 0x0000004000000000, // Wall of Sparks, row 404000
+	0x80062E08: 0x0000004000000000, // Rolling Sparks, row 405000
+	0x800631F0: 0x0000008000000000, // Raging Beast, row 406000
+	0x800635D8: 0x0000008000000000, // Savage Claws, row 407000
+	0x80063DA8: 0x0000010000000000, // Blind Spot, row 409000
+	0x80064190: 0x0000010000000000, // Swift Slash, row 410000
+	0x80064578: 0x0000020000000000, // Overhead Stance, row 411000
+	0x80064960: 0x0000040000000000, // Wing Stance, row 412000
 	0x80064D48: 0x0000000000FEFFFF, // row 413000
 	0x80065130: 0x00000000000683CE, // row 414000
 	0x80065518: 0x0000000000807CFE, // row 415000
@@ -243,17 +266,17 @@ var AoWCompatMasks = map[uint32]uint64{
 
 // WepTypeToCanMountBit maps weapon wepType integer → bit position in AoWCompatMasks.
 var WepTypeToCanMountBit = map[uint16]uint8{
-	1: 0, // canMountWep_Dagger
-	3: 1, // canMountWep_SwordNormal
-	5: 2, // canMountWep_SwordLarge
-	7: 3, // canMountWep_SwordGigantic
-	9: 8, // canMountWep_SwordPierce
-	11: 9, // canMountWep_RapierHeavy
-	13: 6, // canMountWep_katana
-	14: 5, // canMountWep_SaberLarge
-	15: 4, // canMountWep_SaberNormal
-	16: 7, // canMountWep_SwordDoubleEdge
-	17: 7, // canMountWep_SwordDoubleEdge
+	1:  0,  // canMountWep_Dagger
+	3:  1,  // canMountWep_SwordNormal
+	5:  2,  // canMountWep_SwordLarge
+	7:  3,  // canMountWep_SwordGigantic
+	9:  8,  // canMountWep_SwordPierce
+	11: 9,  // canMountWep_RapierHeavy
+	13: 6,  // canMountWep_katana
+	14: 5,  // canMountWep_SaberLarge
+	15: 4,  // canMountWep_SaberNormal
+	16: 7,  // canMountWep_SwordDoubleEdge
+	17: 7,  // canMountWep_SwordDoubleEdge
 	19: 11, // canMountWep_AxeLarge
 	21: 13, // canMountWep_HammerLarge
 	23: 10, // canMountWep_AxeNormal
@@ -280,14 +303,39 @@ var WepTypeToCanMountBit = map[uint16]uint8{
 	65: 32, // canMountWep_ShieldSmall
 	66: 33, // canMountWep_ShieldNormal
 	67: 34, // canMountWep_ShieldLarge
+	69: 34, // canMountWep_ShieldLarge (Greatshields / Towershields)
 	68: 35, // canMountWep_Torch
 	87: 25, // canMountWep_BowNormal
-	88: 25, // canMountWep_BowNormal
-	89: 26, // canMountWep_BowLarge
-	90: 27, // canMountWep_ClossBow
-	91: 26, // canMountWep_BowLarge
-	92: 26, // canMountWep_BowLarge
-	93: 26, // canMountWep_BowLarge
+	88: CanMountBitDLCHandToHandArts,
+	89: CanMountBitDLCPerfumeBottles,
+	90: CanMountBitDLCThrustingShield,
+	91: CanMountBitDLCThrowingBlades,
+	92: CanMountBitDLCBackhandBlades,
+	93: CanMountBitDLCLightGreatsword,
+	94: 6,  // canMountWep_katana (Great Katanas)
+	95: 21, // canMountWep_Claw (Beast Claws)
+}
+
+var WepTypeToCanMountBits = map[uint16][]uint8{
+	88: {CanMountBitDLCHandToHandArts},
+	89: {CanMountBitDLCPerfumeBottles},
+	90: {CanMountBitDLCThrustingShield},
+	91: {CanMountBitDLCThrowingBlades},
+	92: {CanMountBitDLCBackhandBlades},
+	93: {CanMountBitDLCLightGreatsword},
+	94: {6, CanMountBitDLCGreatKatanas},
+	95: {21, CanMountBitDLCBeastClaws},
+}
+
+func CanMountBitsForWepType(wepType uint16) ([]uint8, bool) {
+	if bits, ok := WepTypeToCanMountBits[wepType]; ok {
+		return bits, true
+	}
+	bit, ok := WepTypeToCanMountBit[wepType]
+	if !ok {
+		return nil, false
+	}
+	return []uint8{bit}, true
 }
 
 // CanMountWepNames lists the canMountWep_* column names in bit order (bit 0 = index 0).
@@ -328,4 +376,12 @@ var CanMountWepNames = []string{
 	"ShieldNormal",
 	"ShieldLarge",
 	"Torch",
+	"DLCHandToHandArts",
+	"DLCThrowingBlades",
+	"DLCPerfumeBottles",
+	"DLCBeastClaws",
+	"DLCBackhandBlades",
+	"DLCGreatKatanas",
+	"DLCLightGreatsword",
+	"DLCThrustingShield",
 }
