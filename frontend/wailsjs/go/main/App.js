@@ -70,6 +70,10 @@ export function BulkSetUnlockedRegions(arg1, arg2) {
   return window['go']['main']['App']['BulkSetUnlockedRegions'](arg1, arg2);
 }
 
+export function CleanResidualSlot(arg1) {
+  return window['go']['main']['App']['CleanResidualSlot'](arg1);
+}
+
 export function CleanResidualSlots() {
   return window['go']['main']['App']['CleanResidualSlots']();
 }
@@ -252,6 +256,10 @@ export function GetSlotCapacity(arg1) {
 
 export function GetSlotDiff(arg1) {
   return window['go']['main']['App']['GetSlotDiff'](arg1);
+}
+
+export function GetSlotStates() {
+  return window['go']['main']['App']['GetSlotStates']();
 }
 
 export function GetSourceActiveSlots() {

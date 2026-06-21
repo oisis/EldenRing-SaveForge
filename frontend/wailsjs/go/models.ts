@@ -1856,6 +1856,26 @@ export namespace main {
 	    }
 	}
 	
+	export class SlotState {
+	    index: number;
+	    name: string;
+	    active: boolean;
+	    residual: boolean;
+	    empty: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SlotState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.index = source["index"];
+	        this.name = source["name"];
+	        this.active = source["active"];
+	        this.residual = source["residual"];
+	        this.empty = source["empty"];
+	    }
+	}
 
 }
 

@@ -42,6 +42,8 @@ export function BulkSetGesturesUnlocked(arg1:number,arg2:Array<number>,arg3:bool
 
 export function BulkSetUnlockedRegions(arg1:number,arg2:Array<number>):Promise<void>;
 
+export function CleanResidualSlot(arg1:number):Promise<void>;
+
 export function CleanResidualSlots():Promise<number>;
 
 export function CloneSlot(arg1:number,arg2:number):Promise<void>;
@@ -133,6 +135,8 @@ export function GetSaveInventoryIntegrityReport():Promise<main.SaveInventoryInte
 export function GetSlotCapacity(arg1:number):Promise<main.SlotCapacity>;
 
 export function GetSlotDiff(arg1:number):Promise<Array<main.DiffEntry>>;
+
+export function GetSlotStates():Promise<Array<main.SlotState>>;
 
 export function GetSourceActiveSlots():Promise<Array<boolean>>;
 

@@ -28,6 +28,16 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.SaveInventoryWorkspaceChanges).toBe('function');
         expect(typeof App.DiscardInventoryEditSession).toBe('function');
     });
+    it('exposes residual slot state and cleanup endpoints', () => {
+        expect(typeof App.GetSlotStates).toBe('function');
+        expect(typeof App.CleanResidualSlot).toBe('function');
+        const sample = main.SlotState.createFrom({});
+        expect('index' in sample).toBe(true);
+        expect('name' in sample).toBe(true);
+        expect('active' in sample).toBe(true);
+        expect('residual' in sample).toBe(true);
+        expect('empty' in sample).toBe(true);
+    });
 
     it('exposes Phase E local build template library endpoints', () => {
         // Phase 8A removed the public JSON template exchange. Library

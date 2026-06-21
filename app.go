@@ -501,6 +501,17 @@ type AddResult struct {
 	NeededStore int          `json:"neededStore"`
 }
 
+// SlotState is the frontend's single source of truth for character-slot
+// occupancy. Residual means the game has cleared the active flag, but stale
+// character data still occupies the raw slot/profile-summary region.
+type SlotState struct {
+	Index    int    `json:"index"`
+	Name     string `json:"name"`
+	Active   bool   `json:"active"`
+	Residual bool   `json:"residual"`
+	Empty    bool   `json:"empty"`
+}
+
 // weaponCategorySupportsInfusion returns true for categories whose weapons can
 // receive affinities. Ranged weapons (bows, crossbows, greatbows) and catalysts
 // (staves, seals) cannot be infused in Elden Ring — applying an infuse offset to
@@ -1091,13 +1102,18 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 	unlock := a.lockSlotPair(srcIdx, destIdx)
 	defer unlock()
 
+	if !a.save.ActiveSlots[srcIdx] {
+		return fmt.Errorf("source slot %d is not active", srcIdx)
+	}
 	srcName := core.UTF16ToString(a.save.Slots[srcIdx].Player.CharacterName[:])
 	if srcName == "" {
 		return fmt.Errorf("source slot %d is empty", srcIdx)
 	}
-	destName := core.UTF16ToString(a.save.Slots[destIdx].Player.CharacterName[:])
-	if destName != "" {
+	if a.save.ActiveSlots[destIdx] {
 		return fmt.Errorf("destination slot %d is not empty", destIdx)
+	}
+	if a.save.SlotHasResidualData(destIdx) {
+		return fmt.Errorf("destination slot %d contains residual character data; clean it first", destIdx)
 	}
 
 	a.pushUndoLocked(destIdx)
@@ -1170,6 +1186,31 @@ func (a *App) CleanResidualSlots() (int, error) {
 	return a.save.CleanResidualSlots(), nil
 }
 
+// CleanResidualSlot explicitly zeroes one inactive slot that still carries
+// stale character data. Active slots and already-empty slots are rejected so the
+// UI can safely expose this as a targeted cleanup action.
+func (a *App) CleanResidualSlot(idx int) error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	if idx < 0 || idx >= 10 {
+		return fmt.Errorf("invalid slot index")
+	}
+	a.slotMu[idx].Lock()
+	defer a.slotMu[idx].Unlock()
+	if a.save.ActiveSlots[idx] {
+		return fmt.Errorf("slot %d is active", idx)
+	}
+	if !a.save.SlotHasResidualData(idx) {
+		return fmt.Errorf("slot %d has no residual data", idx)
+	}
+	a.pushUndoLocked(idx)
+	a.save.ClearSlot(idx)
+	return nil
+}
+
 // GetActiveSlots returns the activity status of all 10 slots. Source of truth is
 // the per-slot active flag (0x1954) — exactly what the game's character-select
 // reads. A slot with residual data but a cleared flag (phantom) reports inactive,
@@ -1190,6 +1231,47 @@ func (a *App) GetActiveSlots() []bool {
 	defer a.unlockAllSlots()
 	copy(active, a.save.ActiveSlots[:])
 	return active
+}
+
+func (a *App) slotDisplayNameLocked(idx int) string {
+	name := core.UTF16ToString(a.save.Slots[idx].Player.CharacterName[:])
+	if name == "" {
+		name = core.UTF16ToString(a.save.ProfileSummaries[idx].CharacterName[:])
+	}
+	return name
+}
+
+// GetSlotStates returns active, residual and empty state for all character
+// slots. Prefer this over combining GetActiveSlots and GetCharacterNames in the
+// frontend: inactive residual slots need a distinct UX from truly empty slots.
+func (a *App) GetSlotStates() []SlotState {
+	states := make([]SlotState, 10)
+	for i := range states {
+		states[i] = SlotState{Index: i, Name: "Empty Slot", Empty: true}
+	}
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return states
+	}
+	a.lockAllSlots()
+	defer a.unlockAllSlots()
+	for i := 0; i < 10; i++ {
+		active := a.save.ActiveSlots[i]
+		residual := a.save.SlotHasResidualData(i)
+		name := a.slotDisplayNameLocked(i)
+		if name == "" {
+			name = "Empty Slot"
+		}
+		states[i] = SlotState{
+			Index:    i,
+			Name:     name,
+			Active:   active,
+			Residual: residual,
+			Empty:    !active && !residual,
+		}
+	}
+	return states
 }
 
 // GetCharacterNames returns the names of all 10 characters. Inactive slots

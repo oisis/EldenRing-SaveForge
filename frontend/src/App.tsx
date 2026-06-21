@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetActiveSlots, SetSlotActivity, GetCharacterNames, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetSlotDiff, GetSaveDiffSummary, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetSlotDiff, GetSaveDiffSummary, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -52,6 +52,7 @@ function App() {
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
     const [charNames, setCharacterNames] = useState<string[]>([]);
+    const [slotStates, setSlotStates] = useState<main.SlotState[]>([]);
     const [selectedChar, setSelectedChar] = useState<number>(0);
     const [activeTab, setActiveTab] = useState('character');
     const [inventoryVersion, setInventoryVersion] = useState(0);
@@ -61,6 +62,7 @@ function App() {
     });
     const [cloneModal, setCloneModal] = useState<{srcIdx: number} | null>(null);
     const [deleteModal, setDeleteModal] = useState<{idx: number} | null>(null);
+    const [cleaningSlot, setCleaningSlot] = useState<number | null>(null);
     const [charAddSettings, setCharAddSettings] = useState<Record<number, AddSettings>>(() => {
         try {
             const saved = localStorage.getItem('setting:charAddSettings');
@@ -321,10 +323,10 @@ function App() {
     };
 
     const refreshSlots = async () => {
-        const slots = await GetActiveSlots();
-        const names = await GetCharacterNames();
-        setActiveSlots(slots);
-        setCharacterNames(names);
+        const states = await GetSlotStates();
+        setSlotStates(states || []);
+        setActiveSlots((states || []).map(s => s.active));
+        setCharacterNames((states || []).map(s => s.name || 'Empty Slot'));
         refreshUndoDepth();
     };
 
@@ -340,6 +342,20 @@ function App() {
             setCloneModal(null);
         } catch (err) {
             toast.error(String(err));
+        }
+    };
+
+    const handleCleanResidualSlot = async (idx: number) => {
+        if (cleaningSlot === idx) return;
+        setCleaningSlot(idx);
+        try {
+            await CleanResidualSlot(idx);
+            await refreshSlots();
+            toast.success(`Slot ${idx + 1} cleaned`);
+        } catch (err) {
+            toast.error(String(err));
+        } finally {
+            setCleaningSlot(null);
         }
     };
 
@@ -390,8 +406,8 @@ function App() {
             // Clear-in-place: slot indices are stable (no shift). Only reselect if
             // the deleted slot was the selected one — pick the first active slot.
             if (selectedChar === idx) {
-                const slots = await GetActiveSlots();
-                const next = slots.findIndex(Boolean);
+                const slots = await GetSlotStates();
+                const next = slots.findIndex(s => s.active);
                 setSelectedChar(next >= 0 ? next : 0);
             }
         } catch (err) {
@@ -464,35 +480,42 @@ function App() {
                             </div>
 
                             {/* Empty slots toggle */}
-                            {activeSlots.filter(s => !s).length > 0 && (
+                    {slotStates.filter(s => !s.active).length > 0 && (
                                 <>
                                     <button onClick={() => setShowEmptySlots(v => !v)}
                                         className="flex items-center gap-1.5 px-1 py-1 text-[9px] font-bold text-muted-foreground hover:text-foreground transition-colors w-full">
                                         <svg className={`w-2.5 h-2.5 transition-transform duration-200 ${showEmptySlots ? 'rotate-90' : ''}`}
                                             fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                        <span className="uppercase tracking-widest">Empty Slots</span>
-                                        <span className="text-[8px] bg-muted/30 px-1.5 py-0.5 rounded-full">{activeSlots.filter(s => !s).length}</span>
+                            <span className="uppercase tracking-widest">Inactive Slots</span>
+                            <span className="text-[8px] bg-muted/30 px-1.5 py-0.5 rounded-full">{slotStates.filter(s => !s.active).length}</span>
                                     </button>
                                     {showEmptySlots && (
                                         <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-200">
-                                            {charNames.map((name, idx) => {
-                                                if (activeSlots[idx]) return null;
-                                                return (
-                                                    <div key={idx} onClick={() => setSelectedChar(idx)}
-                                                        className={`group relative p-2.5 rounded-lg border transition-all cursor-pointer ${selectedChar === idx ? 'bg-muted/30 border-primary/40 ring-1 ring-primary/10 shadow-lg' : 'bg-transparent border-border/30 hover:border-border hover:bg-muted/10'}`}>
-                                                        <div className="flex items-center justify-between relative z-10">
-                                                            <div className="flex items-center space-x-2.5 min-w-0">
-                                                                <div className="w-1.5 h-1.5 flex-shrink-0 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.3)]" />
-                                                                <span className="text-[9px] text-muted-foreground/50 mr-1">{idx + 1}</span>
-                                                                <span className={`text-[10px] font-bold uppercase tracking-tight truncate text-muted-foreground/60 italic ${selectedChar === idx ? 'text-foreground' : 'group-hover:text-foreground'}`}>{name}</span>
-                                                            </div>
-                                                            <button onClick={(e) => { e.stopPropagation(); toggleSlot(idx); }}
-                                                                className="p-1 rounded-md transition-all text-red-500 hover:bg-red-500/10">
-                                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"></path></svg>
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                );
+                                {charNames.map((name, idx) => {
+                                    if (activeSlots[idx]) return null;
+                                    const state = slotStates[idx];
+                                    const residual = !!state?.residual;
+                                    return (
+                                        <div key={idx}
+                                            className={`group relative p-2.5 rounded-lg border transition-all ${residual ? 'border-amber-500/30 bg-amber-500/5' : 'bg-transparent border-border/30'}`}>
+                                            <div className="flex items-center justify-between relative z-10">
+                                                <div className="flex items-center space-x-2.5 min-w-0">
+                                                    <div className={`w-1.5 h-1.5 flex-shrink-0 rounded-full ${residual ? 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.35)]' : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.3)]'}`} />
+                                                    <span className="text-[9px] text-muted-foreground/50 mr-1">{idx + 1}</span>
+                                                    <span className={`text-[10px] font-bold uppercase tracking-tight truncate ${residual ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/60 italic'}`}>{name}</span>
+                                                </div>
+                                                {residual ? (
+                                                    <button onClick={(e) => { e.stopPropagation(); handleCleanResidualSlot(idx); }}
+                                                        disabled={cleaningSlot === idx}
+                                                        className="px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all text-[8px] font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed">
+                                                        {cleaningSlot === idx ? 'Cleaning' : 'Clean'}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/50">Empty</span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
                                             })}
                                         </div>
                                     )}
@@ -824,8 +847,25 @@ function App() {
                         Cloning: <span className="text-foreground font-bold">{charNames[cloneModal.srcIdx]}</span>
                     </p>
                     <div className="space-y-1">
-                        {charNames.map((_, idx) => {
-                            if (activeSlots[idx]) return null;
+                        {slotStates.map((slot, idx) => {
+                            if (slot.active) return null;
+                            if (slot.residual) {
+                                return (
+                                    <div key={idx} className="flex items-center justify-between gap-2 px-3 py-2.5 rounded-lg border border-amber-500/30 bg-amber-500/5">
+                                        <div className="min-w-0">
+                                            <p className="text-[10px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 truncate">Slot {idx + 1} — {slot.name}</p>
+                                            <p className="text-[8px] font-bold uppercase tracking-widest text-muted-foreground">Residual data</p>
+                                        </div>
+                                        <button
+                                            onClick={() => handleCleanResidualSlot(idx)}
+                                            disabled={cleaningSlot === idx}
+                                            className="px-2 py-1 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all text-[8px] font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                                        >
+                                            {cleaningSlot === idx ? 'Cleaning' : 'Clean'}
+                                        </button>
+                                    </div>
+                                );
+                            }
                             return (
                                 <button
                                     key={idx}
@@ -836,7 +876,7 @@ function App() {
                                 </button>
                             );
                         })}
-                        {charNames.every((_, idx) => activeSlots[idx]) && (
+                        {slotStates.every(slot => slot.active) && (
                             <p className="text-[10px] text-muted-foreground text-center py-4">No empty slots available</p>
                         )}
                     </div>
