@@ -167,7 +167,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
         : `s-${item.id}`;
 
     // Build item list for display.
-    // Non-stackable (maxInventory <= 1): separate row for each instance in inventory and storage.
+    // Non-stackable (maxInventory <= 1 and maxStorage <= 1): separate row for each instance in inventory and storage.
     //   Each copy can have different upgrade/infuse/AoW, so merging by handle is wrong.
     // Stackable (maxInventory > 1): merged by item ID — one row with both inv and storage qty.
     const mergedOwnedItems = useMemo(() => {
@@ -175,7 +175,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
         const stackableMap = new Map<number, MergedItem>();
 
         charInventory.forEach(item => {
-            if (item.maxInventory <= 1) {
+            if (item.maxInventory <= 1 && item.maxStorage <= 1) {
                 nonStackableList.push({
                     id: item.id, baseId: item.baseId || item.id, name: item.name,
                     category: item.category, subCategory: item.subCategory, subGroup: item.subGroup ?? '',
@@ -203,7 +203,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
         });
 
         charStorage.forEach(item => {
-            if (item.maxInventory <= 1) {
+            if (item.maxInventory <= 1 && item.maxStorage <= 1) {
                 nonStackableList.push({
                     id: item.id, baseId: item.baseId || item.id, name: item.name,
                     category: item.category, subCategory: item.subCategory, subGroup: item.subGroup ?? '',

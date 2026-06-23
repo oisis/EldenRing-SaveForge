@@ -51,7 +51,7 @@ interface DatabaseTabProps {
 
 // Determine if ALL selected items are non-stackable (max qty == 1)
 function allNonStackable(items: db.ItemEntry[]): boolean {
-    return items.every(i => i.maxInventory <= 1);
+    return items.every(i => i.maxInventory <= 1 && i.maxStorage <= 1);
 }
 
 // Effective cap honors: chaos mode override, scales_with_ng flag (cap × (NG+1)).
@@ -149,11 +149,11 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             m.set(baseId, cur);
         };
         charInventory.forEach(it => {
-            const qty = it.maxInventory <= 1 ? 1 : it.quantity;
+            const qty = it.maxInventory <= 1 && it.maxStorage <= 1 ? 1 : it.quantity;
             bump(it.baseId || it.id, 'inv', qty);
         });
         charStorage.forEach(it => {
-            const qty = it.maxInventory <= 1 ? 1 : it.quantity;
+            const qty = it.maxInventory <= 1 && it.maxStorage <= 1 ? 1 : it.quantity;
             bump(it.baseId || it.id, 'storage', qty);
         });
         return m;

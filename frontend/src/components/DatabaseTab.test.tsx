@@ -71,6 +71,20 @@ function makeBanRiskItem(): db.ItemEntry {
     });
 }
 
+function makeBlessingOfMarika(): db.ItemEntry {
+    return db.ItemEntry.createFrom({
+        id: 0x401E8804,
+        name: 'Blessing of Marika',
+        category: 'tools',
+        subCategory: 'Consumables',
+        maxInventory: 1,
+        maxStorage: 600,
+        maxUpgrade: 0,
+        iconPath: 'items/tools/blessing_of_marika.png',
+        flags: ['dlc'],
+    });
+}
+
 const DEFAULT_ADD_SETTINGS: AddSettings = {
     upgrade25: 0, upgrade10: 0, infuseOffset: 0, upgradeAsh: 0,
     talismansHighestOnly: false, includeAshenCapital: false,
@@ -117,6 +131,43 @@ describe('DatabaseTab', () => {
         // deterministically present in jsdom.
         fireEvent.click(screen.getByTitle('Grid view'));
         expect(await screen.findByText('Forbidden Trinket')).toBeInTheDocument();
+    });
+
+    it('counts hybrid inventory and storage stack quantities', async () => {
+        const blessing = makeBlessingOfMarika();
+        mocks.GetItemList.mockResolvedValue([blessing]);
+        mocks.GetCharacter.mockResolvedValue({
+            inventory: [{
+                id: blessing.id,
+                baseId: blessing.id,
+                name: blessing.name,
+                category: 'Item',
+                subCategory: 'tools',
+                quantity: 1,
+                maxInventory: 1,
+                maxStorage: 600,
+                flags: ['dlc'],
+            }],
+            storage: [{
+                id: blessing.id,
+                baseId: blessing.id,
+                name: blessing.name,
+                category: 'Item',
+                subCategory: 'tools',
+                quantity: 600,
+                maxInventory: 1,
+                maxStorage: 600,
+                flags: ['dlc'],
+            }],
+            clearCount: 0,
+        });
+
+        renderTab({ category: 'tools' });
+        fireEvent.click(screen.getByTitle('Grid view'));
+
+        expect(await screen.findByText('Blessing of Marika')).toBeInTheDocument();
+        expect(screen.getByText('I:1')).toBeInTheDocument();
+        expect(screen.getByText('S:600')).toBeInTheDocument();
     });
 
     // ban-risk warning: cancel must not mutate the save.
