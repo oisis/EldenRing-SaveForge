@@ -1,11 +1,9 @@
 import { useState } from 'react';
 import type { main } from '../../../wailsjs/go/models';
 
-// Presentational blocking modal for the load-time inventory integrity gate.
-// All decisions (calling the backend repair/close endpoints, gating other
-// tabs, re-running the scan after repair) stay in App.tsx; this component
-// only renders the report and reports the user's intent via onRepair /
-// onCloseSave callbacks. It NEVER calls Wails directly.
+// Presentational blocking modal for load-time inventory integrity gate.
+// All decisions stay in App.tsx; this component only renders the report
+// and reports the user's intent via callbacks.
 interface InventoryIntegrityModalProps {
     report: main.SaveInventoryIntegrityReport;
     busy: boolean;
@@ -14,6 +12,8 @@ interface InventoryIntegrityModalProps {
     onRepair: () => void;
     onCloseSave: () => void;
 }
+
+type IntegrityConflictWithKind = main.InventoryIntegrityConflict & { kind?: string };
 
 function formatHex(value: number): string {
     return '0x' + value.toString(16).toUpperCase().padStart(8, '0');
@@ -33,12 +33,32 @@ function itemLabel(item: main.InventoryIntegrityConflictItem): string {
     if (item.unknown || !item.name) {
         return `Unknown item · ItemID ${formatHex(item.itemId)} · Handle ${formatHex(item.handle)}`;
     }
+
     const parts = [item.name];
     if (item.category) parts.push(item.category);
     if (item.currentUpgrade && item.currentUpgrade > 0) parts[0] = `${item.name} +${item.currentUpgrade}`;
     if (item.infusionName) parts.push(`Infusion: ${item.infusionName}`);
     if (item.quantity && item.quantity > 1) parts.push(`x${item.quantity}`);
     return parts.join(' · ');
+}
+
+function conflictLabel(conflict: main.InventoryIntegrityConflict): string {
+    const kind = (conflict as IntegrityConflictWithKind).kind;
+    if (kind === 'duplicate_physick') {
+        return 'Duplicate Flask of Wondrous Physick';
+    }
+    return `Acquisition index ${conflict.index}`;
+}
+
+function duplicateSummary(slot: main.SlotInventoryIntegrityReport): string {
+    if (slot.conflictingIndexCount > 0) {
+        const entryWord = slot.duplicateEntryCount === 1 ? 'entry' : 'entries';
+        const indexWord = slot.conflictingIndexCount === 1 ? 'index' : 'indices';
+        return `${slot.duplicateEntryCount} duplicate ${entryWord} across ${slot.conflictingIndexCount} conflicting ${indexWord}`;
+    }
+
+    const entryWord = slot.duplicateEntryCount === 1 ? 'entry' : 'entries';
+    return `${slot.duplicateEntryCount} duplicate ${entryWord} requiring repair`;
 }
 
 export function InventoryIntegrityModal({
@@ -50,7 +70,7 @@ export function InventoryIntegrityModal({
     onCloseSave,
 }: InventoryIntegrityModalProps) {
     const [showAffected, setShowAffected] = useState(false);
-    const hasResidual = report.slots.some(s => !s.active);
+    const hasResidual = report.slots.some(slot => !slot.active);
 
     return (
         <div
@@ -72,10 +92,10 @@ export function InventoryIntegrityModal({
                 </div>
 
                 <div className="space-y-2 text-[11px] text-foreground leading-relaxed">
-                    <p>This save contains duplicated inventory acquisition indices in one or more character slots.</p>
+                    <p>This save contains duplicated inventory acquisition indices or duplicate unique tools in one or more character slots.</p>
                     <p>This issue may have been created by an older version of SaveForge.</p>
-                    <p>It may cause incorrect in-game inventory ordering and should be repaired before editing or saving this file.</p>
-                    <p>Repair rebuilds inventory acquisition indices only. It does not remove items or change quantities, weapon upgrades, infusions, Ashes of War, storage contents, or character progression.</p>
+                    <p>It may cause incorrect in-game inventory ordering or duplicate unique tools and should be repaired before editing this file.</p>
+                    <p>Repair rebuilds duplicate acquisition indices and removes surplus Flask of Wondrous Physick records. It does not change quantities, weapon upgrades, infusions, Ashes of War, storage contents, or character progression.</p>
                     <p className="text-amber-400">Keep a backup of the original save before saving repaired changes.</p>
                 </div>
 
@@ -83,9 +103,7 @@ export function InventoryIntegrityModal({
                     {report.slots.map(slot => (
                         <div key={slot.slotIndex} className="p-3 text-[11px] space-y-1">
                             <div className="font-bold">{slotHeading(slot)}</div>
-                            <div className="text-muted-foreground">
-                                {slot.duplicateEntryCount} duplicate {slot.duplicateEntryCount === 1 ? 'entry' : 'entries'} across {slot.conflictingIndexCount} conflicting {slot.conflictingIndexCount === 1 ? 'index' : 'indices'}
-                            </div>
+                            <div className="text-muted-foreground">{duplicateSummary(slot)}</div>
                         </div>
                     ))}
                 </div>
@@ -104,6 +122,7 @@ export function InventoryIntegrityModal({
                     >
                         {showAffected ? 'Hide' : 'Show'} affected items
                     </button>
+
                     {showAffected && (
                         <div className="mt-2 max-h-64 overflow-y-auto custom-scrollbar border border-border/50 rounded-md p-3 space-y-3">
                             {report.slots.map(slot => (
@@ -111,9 +130,9 @@ export function InventoryIntegrityModal({
                                     <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
                                         {slotHeading(slot)}
                                     </div>
-                                    {slot.conflicts.map(conflict => (
-                                        <div key={conflict.index} className="ml-2 text-[11px]">
-                                            <div className="font-bold text-amber-400">Acquisition index {conflict.index}</div>
+                                    {slot.conflicts.map((conflict, conflictIdx) => (
+                                        <div key={`${conflictLabel(conflict)}-${conflict.index}-${conflictIdx}`} className="ml-2 text-[11px]">
+                                            <div className="font-bold text-amber-400">{conflictLabel(conflict)}</div>
                                             <ul className="ml-3 list-disc space-y-0.5 text-foreground/80">
                                                 {conflict.items.map((item, idx) => (
                                                     <li key={`${item.scope}-${item.row}-${idx}`}>
@@ -131,9 +150,7 @@ export function InventoryIntegrityModal({
 
                 {(statusMessage || errorMessage) && (
                     <div className="text-[11px] leading-relaxed">
-                        {errorMessage
-                            ? <p className="text-red-400">{errorMessage}</p>
-                            : <p className="text-muted-foreground">{statusMessage}</p>}
+                        {errorMessage ? <p className="text-red-400">{errorMessage}</p> : <p className="text-muted-foreground">{statusMessage}</p>}
                     </div>
                 )}
 
@@ -144,7 +161,7 @@ export function InventoryIntegrityModal({
                         disabled={busy}
                         className="w-full px-4 py-2.5 bg-amber-500 text-white rounded-md text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        {busy ? 'Repairing…' : 'Repair duplicates'}
+                        {busy ? 'Repairing...' : 'Repair duplicates'}
                     </button>
                     <button
                         type="button"

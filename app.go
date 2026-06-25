@@ -602,6 +602,11 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			"inventory integrity issue: slot %d contains %d duplicate acquisition entries; repair is required before adding items",
 			charIdx, len(dups))
 	}
+	if physickDupes := core.ScanDuplicateWondrousPhysick(slot); len(physickDupes) > 0 {
+		return result, fmt.Errorf(
+			"inventory integrity issue: slot %d contains %d Flask of Wondrous Physick records; repair is required before adding items",
+			charIdx, len(physickDupes))
+	}
 
 	// Build maps from current inventory/storage state:
 	// - existingItemQty: per-item stack qty in inventory (used to compute SET delta)
@@ -609,11 +614,18 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	// - existingStorageQty: per-item stack qty in storage
 	existingItemQty := make(map[uint32]int)
 	existingByContainer := make(map[uint32]int)
+	hasPhysick := false
 	for _, item := range slot.Inventory.CommonItems {
 		if item.GaItemHandle == 0 || item.GaItemHandle == 0xFFFFFFFF {
 			continue
 		}
-		invID := db.HandleToItemID(item.GaItemHandle)
+		invID, mapped := slot.GaMap[item.GaItemHandle]
+		if !mapped || invID == 0 {
+			invID = db.HandleToItemID(item.GaItemHandle)
+		}
+		if db.IsWondrousPhysick(invID) {
+			hasPhysick = true
+		}
 		_, baseID := db.GetItemDataFuzzy(invID)
 		qty := int(item.Quantity & 0x7FFFFFFF)
 		existingItemQty[baseID] += qty
@@ -682,6 +694,10 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	var trimmed []SkippedAdd
 
 	for _, id := range sortedIDs {
+		isPhysick := db.IsWondrousPhysick(id)
+		if isPhysick {
+			id = db.ItemFlaskWondrousPhysickEmpty
+		}
 		itemData, _ := db.GetItemDataFuzzy(id)
 		finalID := id
 		// Clamp the requested upgrade to the item's real MaxUpgrade so an add can
@@ -704,6 +720,14 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 		actualInv := resolveQty(invQty, int(itemData.MaxInventory))
 		actualStorage := resolveQty(storageQty, int(itemData.MaxStorage))
+		if isPhysick {
+			actualStorage = 0
+			if hasPhysick {
+				actualInv = 0
+			} else if actualInv > 0 {
+				hasPhysick = true
+			}
+		}
 
 		// Skip stackable items already at max qty.
 		handlePrefix := db.ItemIDToHandlePrefix(finalID)
@@ -1814,7 +1838,9 @@ func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexR
 	defer a.slotMu[charIdx].Unlock()
 	slot := &a.save.Slots[charIdx]
 
-	if pre := core.ScanDuplicateInventoryIndices(slot); len(pre) == 0 {
+	pre := core.ScanDuplicateInventoryIndices(slot)
+	prePhysick := core.ScanDuplicateWondrousPhysick(slot)
+	if len(pre) == 0 && len(prePhysick) == 0 {
 		return empty, nil
 	}
 
@@ -1823,8 +1849,14 @@ func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexR
 	if err != nil {
 		return empty, err
 	}
+	if _, err := core.RepairDuplicateWondrousPhysick(slot); err != nil {
+		return empty, err
+	}
 	if post := core.ScanDuplicateInventoryIndices(slot); len(post) > 0 {
 		return report, fmt.Errorf("RepairDuplicateInventoryIndices: %d duplicate(s) remain after repair", len(post))
+	}
+	if post := core.ScanDuplicateWondrousPhysick(slot); len(post) > 0 {
+		return report, fmt.Errorf("RepairDuplicateInventoryIndices: %d Flask of Wondrous Physick record(s) remain after repair", len(post))
 	}
 	return report, nil
 }

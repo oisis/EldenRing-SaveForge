@@ -1588,6 +1588,7 @@ export namespace main {
 	    }
 	}
 	export class InventoryIntegrityConflict {
+	    kind?: string;
 	    index: number;
 	    items: InventoryIntegrityConflictItem[];
 	
@@ -1597,6 +1598,7 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.kind = source["kind"];
 	        this.index = source["index"];
 	        this.items = this.convertValues(source["items"], InventoryIntegrityConflictItem);
 	    }
@@ -2420,4 +2422,3 @@ export namespace vm {
 	
 
 }
-
