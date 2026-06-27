@@ -63,19 +63,19 @@ describe('clampNetworkDraft', () => {
 });
 
 // Preset sources mirror backend NetworkParamFaster* (Defaults + group changes).
-const fasterReds = (): Record<string, number> => ({...vanilla(), maxBreakInTargetListCount: 8, breakInRequestIntervalTimeSec: 12, breakInRequestTimeOutSec: 15});
+const fasterReds = (): Record<string, number> => ({...vanilla(), maxBreakInTargetListCount: 8, breakInRequestAreaCount: 8, breakInRequestIntervalTimeSec: 12, breakInRequestTimeOutSec: 8});
 const fasterSummons = (): Record<string, number> => ({...vanilla(), reloadSignIntervalTime2: 20, reloadSignTotalCount: 40, reloadSignCellCount: 20, updateSignIntervalTime: 15, singGetMax: 64, signDownloadSpan: 15, signUpdateSpan: 20});
 const fasterBlue = (): Record<string, number> => ({...vanilla(), reloadVisitListCoolTime: 8, reloadSearchCoopBlueMin: 10, reloadSearchCoopBlueMax: 40, maxVisitListCount: 10, allAreaSearchRateCoopBlue: 60});
 
 // Aggressive preset sources mirror backend NetworkParamAggressive* (Defaults + group changes).
-const aggressiveReds = (): Record<string, number> => ({...vanilla(), maxBreakInTargetListCount: 12, breakInRequestIntervalTimeSec: 8, breakInRequestTimeOutSec: 12});
+const aggressiveReds = (): Record<string, number> => ({...vanilla(), maxBreakInTargetListCount: 12, breakInRequestAreaCount: 12, breakInRequestIntervalTimeSec: 10, breakInRequestTimeOutSec: 7});
 const aggressiveSummons = (): Record<string, number> => ({...vanilla(), reloadSignIntervalTime2: 10, reloadSignTotalCount: 64, reloadSignCellCount: 32, updateSignIntervalTime: 10, singGetMax: 96, signDownloadSpan: 10, signUpdateSpan: 10});
 const aggressiveBlue = (): Record<string, number> => ({...vanilla(), reloadVisitListCoolTime: 5, reloadSearchCoopBlueMin: 5, reloadSearchCoopBlueMax: 20, maxVisitListCount: 15, allAreaSearchRateCoopBlue: 100});
 
-describe('NETWORK_GROUP_KEYS — group scope excludes Experimental', () => {
-    it('invader does not include the unknown 0x7C field', () => {
-        expect(NETWORK_GROUP_KEYS.invader).not.toContain('breakInRequestAreaCount');
-        expect(NETWORK_GROUP_KEYS.invader).toHaveLength(3);
+describe('NETWORK_GROUP_KEYS — group scope excludes fields outside each role', () => {
+    it('invader includes breakInRequestAreaCount', () => {
+        expect(NETWORK_GROUP_KEYS.invader).toContain('breakInRequestAreaCount');
+        expect(NETWORK_GROUP_KEYS.invader).toHaveLength(4);
     });
     it('blue does not include Blue extras', () => {
         expect(NETWORK_GROUP_KEYS.blue).not.toContain('maxCoopBlueSummonCount');
@@ -100,8 +100,9 @@ describe('preset composition (modular merge)', () => {
 
         // Reds
         expect(s.maxBreakInTargetListCount).toBe(8);
+        expect(s.breakInRequestAreaCount).toBe(8);
         expect(s.breakInRequestIntervalTimeSec).toBe(12);
-        expect(s.breakInRequestTimeOutSec).toBe(15);
+        expect(s.breakInRequestTimeOutSec).toBe(8);
         // Summons
         expect(s.reloadSignIntervalTime2).toBe(20);
         expect(s.reloadSignTotalCount).toBe(40);
@@ -110,27 +111,26 @@ describe('preset composition (modular merge)', () => {
         expect(s.reloadVisitListCoolTime).toBe(8);
         expect(s.allAreaSearchRateCoopBlue).toBe(60);
         // Untouched
-        expect(s.breakInRequestAreaCount).toBe(5);
         expect(s.maxCoopBlueSummonCount).toBe(2);
         expect(s.allAreaSearchRateVsBlue).toBe(30);
         expect(s.visitorListMax).toBe(10);
         expect(s.visitorTimeOutTime).toBe(60);
     });
 
-    // TC-02 — Reds does not reset manually-tuned Summons / Visitor / 0x7C.
-    it('TC-02: Faster Reds changes only the 3 Reds fields', () => {
+ // TC-02 — Reds does not reset manually-tuned Summons / Visitor.
+    it('TC-02: Faster Reds changes only the 4 Reds fields', () => {
         const start = {
             ...vanilla(),
             reloadSignIntervalTime2: 45, reloadSignTotalCount: 30, reloadSignCellCount: 15, singGetMax: 50, // custom Summons (valid)
             visitorListMax: 42,                                                                              // custom Visitor
-            breakInRequestAreaCount: 8,                                                                      // custom Experimental 0x7C
+            breakInRequestAreaCount: 9,                                                                      // custom Reds area count
         };
         const s = applyGroupPreset(start, NETWORK_GROUP_KEYS.invader, fasterReds());
 
         expect(s.maxBreakInTargetListCount).toBe(8);
         expect(s.breakInRequestIntervalTimeSec).toBe(12);
-        expect(s.breakInRequestTimeOutSec).toBe(15);
-        // preserved
+        expect(s.breakInRequestTimeOutSec).toBe(8);
+        // preserved non-Reds fields
         expect(s.reloadSignIntervalTime2).toBe(45);
         expect(s.reloadSignTotalCount).toBe(30);
         expect(s.reloadSignCellCount).toBe(15);
@@ -205,7 +205,7 @@ describe('preset composition (modular merge)', () => {
         // everything else preserved
         expect(reds.reloadSignTotalCount).toBe(50);
         expect(reds.reloadVisitListCoolTime).toBe(6);
-        expect(reds.breakInRequestAreaCount).toBe(7);
+        expect(reds.breakInRequestAreaCount).toBe(5);
         expect(reds.maxCoopBlueSummonCount).toBe(4);
         expect(reds.visitorListMax).toBe(30);
 
@@ -221,8 +221,8 @@ describe('preset composition (modular merge)', () => {
 });
 
 describe('Aggressive preset composition (modular merge)', () => {
-    // TC-A1 — three Aggressive presets compose; Experimental + Visitor untouched.
-    it('TC-A1: Aggressive Reds → Summons → Blue keeps all three groups, 0x7C/extras/visitor vanilla', () => {
+    // TC-A1 — three Aggressive presets compose; Blue extras + Visitor untouched.
+    it('TC-A1: Aggressive Reds → Summons → Blue keeps all three groups, extras/visitor vanilla', () => {
         let s = vanilla();
         s = applyGroupPreset(s, NETWORK_GROUP_KEYS.invader, aggressiveReds());
         s = applyGroupPreset(s, NETWORK_GROUP_KEYS.cooperator, aggressiveSummons());
@@ -230,8 +230,9 @@ describe('Aggressive preset composition (modular merge)', () => {
 
         // Reds
         expect(s.maxBreakInTargetListCount).toBe(12);
-        expect(s.breakInRequestIntervalTimeSec).toBe(8);
-        expect(s.breakInRequestTimeOutSec).toBe(12);
+        expect(s.breakInRequestAreaCount).toBe(12);
+        expect(s.breakInRequestIntervalTimeSec).toBe(10);
+        expect(s.breakInRequestTimeOutSec).toBe(7);
         // Summons (invariant cell<=total<=getMax holds: 32<=64<=96)
         expect(s.reloadSignIntervalTime2).toBe(10);
         expect(s.reloadSignTotalCount).toBe(64);
@@ -245,8 +246,7 @@ describe('Aggressive preset composition (modular merge)', () => {
         expect(s.reloadSearchCoopBlueMax).toBe(20);
         expect(s.maxVisitListCount).toBe(15);
         expect(s.allAreaSearchRateCoopBlue).toBe(100);
-        // Untouched — Experimental + Visitor
-        expect(s.breakInRequestAreaCount).toBe(5);
+        // Untouched — Blue extras + Visitor
         expect(s.maxCoopBlueSummonCount).toBe(2);
         expect(s.allAreaSearchRateVsBlue).toBe(30);
         expect(s.visitorListMax).toBe(10);
@@ -254,21 +254,21 @@ describe('Aggressive preset composition (modular merge)', () => {
         expect(s.visitorDownloadSpan).toBe(60);
     });
 
-    // TC-A2 — Aggressive Reds keeps Experimental 0x7C and other groups.
-    it('TC-A2: Aggressive Reds changes only the 3 Reds fields', () => {
+    // TC-A2 — Aggressive Reds keeps other groups.
+    it('TC-A2: Aggressive Reds changes only the 4 Reds fields', () => {
         const start = {
             ...vanilla(),
-            breakInRequestAreaCount: 9,                                   // manual Experimental 0x7C
+            breakInRequestAreaCount: 9,                                   // manual Reds area count
             reloadSignTotalCount: 50, reloadSignCellCount: 25, singGetMax: 80, // manual Summons
             reloadVisitListCoolTime: 7, allAreaSearchRateCoopBlue: 55,    // manual Blue
         };
         const s = applyGroupPreset(start, NETWORK_GROUP_KEYS.invader, aggressiveReds());
 
         expect(s.maxBreakInTargetListCount).toBe(12);
-        expect(s.breakInRequestIntervalTimeSec).toBe(8);
-        expect(s.breakInRequestTimeOutSec).toBe(12);
+        expect(s.breakInRequestAreaCount).toBe(12);
+        expect(s.breakInRequestIntervalTimeSec).toBe(10);
+        expect(s.breakInRequestTimeOutSec).toBe(7);
         // preserved
-        expect(s.breakInRequestAreaCount).toBe(9);
         expect(s.reloadSignTotalCount).toBe(50);
         expect(s.reloadSignCellCount).toBe(25);
         expect(s.singGetMax).toBe(80);
@@ -322,20 +322,20 @@ describe('Aggressive preset composition (modular merge)', () => {
         expect(s.reloadSignTotalCount).toBe(30);
     });
 
-    // TC-A5 — group Vanilla after Aggressive resets only stable fields, keeps Experimental.
-    it('TC-A5: group Vanilla resets only stable group fields, leaves Experimental untouched', () => {
+    // TC-A5 — group Vanilla after Aggressive resets only stable fields, keeps Blue extras.
+    it('TC-A5: group Vanilla resets only stable group fields, leaves Blue extras untouched', () => {
         let s = vanilla();
-        // Aggressive everything + manual Experimental values.
+        // Aggressive everything + manual extra values.
         s = applyGroupPreset(s, NETWORK_GROUP_KEYS.invader, aggressiveReds());
         s = applyGroupPreset(s, NETWORK_GROUP_KEYS.blue, aggressiveBlue());
         s = {...s, breakInRequestAreaCount: 8, maxCoopBlueSummonCount: 5, allAreaSearchRateVsBlue: 70};
 
-        // Vanilla Reds: resets 3 Reds fields, keeps 0x7C.
+        // Vanilla Reds: resets 4 Reds fields.
         const vReds = applyGroupPreset(s, NETWORK_GROUP_KEYS.invader, vanilla());
         expect(vReds.maxBreakInTargetListCount).toBe(5);
         expect(vReds.breakInRequestIntervalTimeSec).toBe(30);
         expect(vReds.breakInRequestTimeOutSec).toBe(20);
-        expect(vReds.breakInRequestAreaCount).toBe(8); // Experimental untouched
+        expect(vReds.breakInRequestAreaCount).toBe(5);
         // Blue still aggressive (other group untouched by Reds vanilla)
         expect(vReds.allAreaSearchRateCoopBlue).toBe(100);
 

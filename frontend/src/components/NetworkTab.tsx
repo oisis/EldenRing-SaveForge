@@ -28,6 +28,7 @@ interface SliderDef {
 
 const INVADER_SLIDERS: SliderDef[] = [
     {key: 'maxBreakInTargetListCount',     label: 'Max Targets',      desc: 'How many invasion target candidates are polled per matchmaking search. Higher = more potential targets found at once.', min: 1,  max: 20, step: 1, unit: '',  defaultVal: 5},
+    {key: 'breakInRequestAreaCount',       label: 'Search Areas',     desc: 'How many break-in matchmaking areas are queried per invasion search cycle. Tune with Max Targets so search breadth and candidate list size stay aligned.', min: 1, max: 20, step: 1, unit: '', defaultVal: 5},
     {key: 'breakInRequestIntervalTimeSec', label: 'Request Interval', desc: 'Delay in seconds between matchmaking retries when no target is found. Lower = faster retry loop. Below ~8s the search message flickers almost continuously.', min: 2,  max: 30, step: 1, unit: 's', defaultVal: 30},
     {key: 'breakInRequestTimeOutSec',      label: 'Request Timeout',  desc: 'Seconds before a single matchmaking request is abandoned. Too low (e.g. 3s) cancels near-and-far requests before they can complete.', min: 3,  max: 20, step: 1, unit: 's', defaultVal: 20},
 ];
@@ -51,10 +52,6 @@ const BLUE_SLIDERS: SliderDef[] = [
 ];
 
 // --- Experimental sliders (shown inside their functional group, never touched by presets) ---
-
-const EXPERIMENTAL_BREAKIN: SliderDef[] = [
-    {key: 'breakInRequestAreaCount', label: 'Unknown break-in field at 0x7C', desc: 'Unknown break-in field at 0x7C. Its gameplay meaning is unconfirmed. Vanilla value is 5. Active presets never modify this field.', min: 1, max: 10, step: 1, unit: '', defaultVal: 5},
-];
 
 const EXPERIMENTAL_BLUE: SliderDef[] = [
     {key: 'maxCoopBlueSummonCount', label: 'Blue Search Parallelism', desc: 'Client-side blue search parallelism (maxCoopBlueSummonCount). The server caps the actual number of active blues, so raising this rarely helps. Experimental — active Blue presets never change it. Vanilla 2.', min: 1, max: 10, step: 1, unit: '', defaultVal: 2},
@@ -88,7 +85,6 @@ const GROUP_META: Record<GroupId, GroupMeta> = {
         sliders: INVADER_SLIDERS,
         fasterKey: 'faster-reds', fasterLabel: 'Faster',
         aggressiveKey: 'aggressive-reds', aggressiveLabel: 'Aggressive',
-        experimental: EXPERIMENTAL_BREAKIN,
     },
     cooperator: {
         label: 'Summon Signs', icon: '☀', desc: 'Summon sign refresh & upload. Summoning Pool activation is configured separately in World / Exploration.',
