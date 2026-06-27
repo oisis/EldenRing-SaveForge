@@ -351,11 +351,12 @@ export function NetworkTab({platform}: NetworkTabProps) {
 
                 {/* How-to / disclaimer */}
                 <div className="space-y-2 pt-1">
-                    <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-3 space-y-1">
-                        <p className="text-sm font-black uppercase tracking-[0.15em] text-red-500">⚠ Warning — Read before use</p>
-                        <p className="text-sm text-red-500/90 leading-relaxed">
-                            These changes may result in a ban. This feature is in testing. Use with caution — preferably not on your main account.
-                            Any manual modification to a save file carries a ban risk. I take no responsibility for any account banned as a result of using these settings.
+                    <div className="rounded-lg border border-amber-700/55 bg-amber-50 p-3 space-y-1 dark:border-amber-500/60 dark:bg-stone-950">
+                        <p className="text-sm font-black uppercase tracking-[0.15em] text-stone-950 dark:text-amber-200">Network tuning notice</p>
+                        <p className="text-sm text-stone-800 dark:text-stone-100 leading-relaxed">
+                            These Network tab settings were tested for 4 weeks without a ban, so the ban risk appears low.
+                            This notice applies only to settings on this tab; other save edits may still carry a ban risk.
+                            I take no responsibility for any account banned as a result of using these settings.
                         </p>
                     </div>
 
