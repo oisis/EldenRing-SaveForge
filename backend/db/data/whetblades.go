@@ -55,10 +55,15 @@ const StormStompDupFlag uint32 = 65841
 // whetbladeItemIDs is a set of all whetblade inventory item IDs for filtering.
 var whetbladeItemIDs map[uint32]bool
 
+// WhetbladeItemToFlagID is the reverse of WhetbladeFlagToItemID.
+var WhetbladeItemToFlagID map[uint32]uint32
+
 func init() {
 	whetbladeItemIDs = make(map[uint32]bool, len(WhetbladeFlagToItemID))
-	for _, itemID := range WhetbladeFlagToItemID {
+	WhetbladeItemToFlagID = make(map[uint32]uint32, len(WhetbladeFlagToItemID))
+	for flagID, itemID := range WhetbladeFlagToItemID {
 		whetbladeItemIDs[itemID] = true
+		WhetbladeItemToFlagID[itemID] = flagID
 	}
 }
 

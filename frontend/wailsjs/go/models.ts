@@ -652,6 +652,8 @@ export namespace db {
 	    aowCompatBitmask?: number;
 	    text?: data.ItemTextData;
 	    stats?: data.ItemStatsData;
+	    flagId?: number;
+	    unlockCategory?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ItemEntry(source);
@@ -677,6 +679,8 @@ export namespace db {
 	        this.aowCompatBitmask = source["aowCompatBitmask"];
 	        this.text = this.convertValues(source["text"], data.ItemTextData);
 	        this.stats = this.convertValues(source["stats"], data.ItemStatsData);
+	        this.flagId = source["flagId"];
+	        this.unlockCategory = source["unlockCategory"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1864,11 +1868,11 @@ export namespace main {
 	    active: boolean;
 	    residual: boolean;
 	    empty: boolean;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new SlotState(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.index = source["index"];
@@ -2422,3 +2426,4 @@ export namespace vm {
 	
 
 }
+

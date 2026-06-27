@@ -1,7 +1,9 @@
 import {useEffect, useState, useMemo, useRef, useDeferredValue} from 'react';
 import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, GetCharacter} from '../../wailsjs/go/main/App';
+import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, GetCharacter,
+        SetCookbookUnlocked, SetWhetbladeUnlocked, SetBellBearingUnlocked, GetBellBearings,
+        SetMapRegionFlags} from '../../wailsjs/go/main/App';
 import {db, vm} from '../../wailsjs/go/models';
 import type {AddSettings} from '../App';
 import {CategorySelect, CATEGORY_VALUES} from './CategorySelect';
@@ -116,6 +118,9 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const [fullChaosMode, setFullChaosMode] = useState<boolean>(() =>
         localStorage.getItem('setting:fullChaosMode') === 'true');
 
+    // Unlocked bell bearing flag IDs — used to show state in DB tab for flag-only items.
+    const [unlockedFlagIds, setUnlockedFlagIds] = useState<Set<number>>(new Set());
+
     useEffect(() => {
         const handler = (e: Event) => setFullChaosMode((e as CustomEvent<boolean>).detail);
         window.addEventListener('fullChaosModeChanged', handler);
@@ -137,6 +142,21 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             setClearCount(0);
         });
     }, [charIndex, inventoryVersion]);
+
+    useEffect(() => {
+        GetBellBearings(charIndex).then(res => {
+            setUnlockedFlagIds(new Set((res ?? []).filter(bb => bb.unlocked).map(bb => bb.id)));
+        }).catch(() => {});
+    }, [charIndex, inventoryVersion]);
+
+    // Bell bearing item IDs whose shop flag is set — drives owned display for flag-only items.
+    const bellBearingOwnedIds = useMemo(() =>
+        new Set(
+            dbItems
+                .filter(i => i.unlockCategory === 'bell_bearing' && i.flagId != null && unlockedFlagIds.has(i.flagId))
+                .map(i => i.id)
+        ),
+    [dbItems, unlockedFlagIds]);
 
     // Map BaseID → {inv, storage} owned counts.
     // Stackable items contribute their stack quantity; non-stackable contribute one per copy.
@@ -384,13 +404,16 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     };
 
     const openModal = (items: db.ItemEntry[]) => {
-        // Gate: if any selected item is ban_risk-flagged AND user hasn't opted out, show warning first.
-        // The warning modal's "Add Anyway" calls openConfirmModal directly to bypass this check.
-        if (!ignoreBanRisk && items.some(i => i.flags?.includes('ban_risk'))) {
-            setBanRiskWarning(items);
-            return;
+        const unlockItems = items.filter(i => i.unlockCategory);
+        const normalItems = items.filter(i => !i.unlockCategory);
+        if (unlockItems.length > 0) handleUnlockItems(unlockItems);
+        if (normalItems.length > 0) {
+            if (!ignoreBanRisk && normalItems.some(i => i.flags?.includes('ban_risk'))) {
+                setBanRiskWarning(normalItems);
+            } else {
+                openConfirmModal(normalItems);
+            }
         }
-        openConfirmModal(items);
     };
 
     const openConfirmModal = (items: db.ItemEntry[]) => {
@@ -410,6 +433,23 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const handleIgnoreBanRiskChange = (checked: boolean) => {
         setIgnoreBanRisk(checked);
         localStorage.setItem('setting:ignoreBanRiskWarning', String(checked));
+    };
+
+    const handleUnlockItems = async (items: db.ItemEntry[]) => {
+        try {
+            await Promise.all(items.map(item => {
+                if (item.unlockCategory === 'cookbook') return SetCookbookUnlocked(charIndex, item.flagId!, true);
+                if (item.unlockCategory === 'whetblade') return SetWhetbladeUnlocked(charIndex, item.flagId!, true);
+                if (item.unlockCategory === 'bell_bearing') return SetBellBearingUnlocked(charIndex, item.flagId!, true);
+                if (item.unlockCategory === 'map') return SetMapRegionFlags(charIndex, item.flagId!, true);
+                return Promise.resolve();
+            }));
+            toast.success(`Unlocked ${items.length} item(s).`);
+            setSelectedDbItems(new Set());
+            onItemsAdded?.();
+        } catch (err) {
+            setErrorModal({title: 'Unlock Failed', message: String(err)});
+        }
     };
 
     const handleImageError = (iconPath: string) => {
@@ -714,7 +754,9 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         ) : (
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                                 {filteredItems.map(item => {
-                                    const owned = ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
+                                    const owned = item.unlockCategory === 'bell_bearing'
+                                        ? {inv: bellBearingOwnedIds.has(item.id) ? 1 : 0, storage: 0}
+                                        : ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
                                     const hasOwned = owned.inv > 0 || owned.storage > 0;
                                     return (
                                         <div key={item.id}
@@ -894,7 +936,9 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                             </td>
                                         )}
                                         {(() => {
-                                            const owned = ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
+                                            const owned = item.unlockCategory === 'bell_bearing'
+                                                ? {inv: bellBearingOwnedIds.has(item.id) ? 1 : 0, storage: 0}
+                                                : ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
                                             const cellClass = (have: number, max: number): string => {
                                                 if (have === 0) return 'text-muted-foreground/50 bg-muted/20 border-border/30';
                                                 if (max > 0 && have >= max) return 'text-amber-500 bg-amber-500/10 border-amber-500/30';

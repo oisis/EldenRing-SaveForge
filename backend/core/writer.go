@@ -711,18 +711,23 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 }
 
 // RemoveItemByBaseID removes an item from inventory by its base item ID (e.g. 0x40002198).
-// For stackable items (tools, key items), GaItemHandle == item ID directly.
+// Editor-added goods use computed handle (e.g. 0xB0XXXXXX for 0x40XXXXXX items).
+// Game-placed key items in the KeyItems section use the raw item ID as handle.
 func RemoveItemByBaseID(slot *SaveSlot, itemID uint32) {
-	// Find the handle in inventory (for stackable items, handle == itemID)
+	handlePrefix := db.ItemIDToHandlePrefix(itemID)
+	computedHandle := (itemID & 0x0FFFFFFF) | handlePrefix
+
+	// CommonItems: editor-added goods use computed handle (0xB0XXXXXX for cookbooks)
 	for _, item := range slot.Inventory.CommonItems {
-		if item.GaItemHandle == itemID && item.Quantity > 0 {
-			_ = RemoveItemFromSlot(slot, itemID, true, false)
+		if item.GaItemHandle == computedHandle && item.Quantity > 0 {
+			_ = RemoveItemFromSlot(slot, computedHandle, true, false)
 			return
 		}
 	}
+	// KeyItems: game-placed key items use raw item ID as handle (no GaItem record)
 	for _, item := range slot.Inventory.KeyItems {
-		if item.GaItemHandle == itemID && item.Quantity > 0 {
-			_ = RemoveItemFromSlot(slot, itemID, true, false)
+		if (item.GaItemHandle == itemID || item.GaItemHandle == computedHandle) && item.Quantity > 0 {
+			_ = RemoveItemFromSlot(slot, item.GaItemHandle, true, false)
 			return
 		}
 	}
