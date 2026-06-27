@@ -469,6 +469,70 @@ func TestGetSaveInventoryIntegrityReport_EmptyHandlesIgnored(t *testing.T) {
 	}
 }
 
+func TestGetSaveInventoryIntegrityReport_DuplicatePhysick(t *testing.T) {
+	app := integrityFixture()
+	slot := &app.save.Slots[0]
+	slot.Inventory.CommonItems = []core.InventoryItem{
+		{GaItemHandle: 0xB00000FA, Quantity: 1, Index: 100},
+		{GaItemHandle: 0xB00000FB, Quantity: 1, Index: 101},
+	}
+
+	report, err := app.GetSaveInventoryIntegrityReport()
+	if err != nil {
+		t.Fatalf("GetSaveInventoryIntegrityReport: %v", err)
+	}
+	if report.Clean {
+		t.Fatalf("duplicate Physick should mark report dirty")
+	}
+	if len(report.Slots) != 1 {
+		t.Fatalf("affected slots = %d, want 1", len(report.Slots))
+	}
+	slotReport := report.Slots[0]
+	if slotReport.DuplicateEntryCount != 1 {
+		t.Fatalf("DuplicateEntryCount = %d, want 1", slotReport.DuplicateEntryCount)
+	}
+	if len(slotReport.Conflicts) != 1 {
+		t.Fatalf("Conflicts = %d, want 1", len(slotReport.Conflicts))
+	}
+	conflict := slotReport.Conflicts[0]
+	if conflict.Kind != "duplicate_physick" {
+		t.Fatalf("conflict.Kind = %q, want duplicate_physick", conflict.Kind)
+	}
+	if len(conflict.Items) != 2 {
+		t.Fatalf("conflict.Items = %d, want 2", len(conflict.Items))
+	}
+	for _, item := range conflict.Items {
+		if item.Name != "Flask of Wondrous Physick" {
+			t.Fatalf("item.Name = %q, want Flask of Wondrous Physick", item.Name)
+		}
+	}
+}
+
+func TestGetSaveInventoryIntegrityReport_RepairDuplicatePhysickThenClean(t *testing.T) {
+	app := repairFixture([]core.InventoryItem{
+		{GaItemHandle: 0xB00000FA, Quantity: 1, Index: 100},
+		{GaItemHandle: 0xB00000FA, Quantity: 1, Index: 101},
+	}, nil)
+
+	pre, err := app.GetSaveInventoryIntegrityReport()
+	if err != nil {
+		t.Fatalf("pre scan: %v", err)
+	}
+	if pre.Clean {
+		t.Fatalf("pre scan should be dirty")
+	}
+	if _, err := app.RepairDuplicateInventoryIndices(0); err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	post, err := app.GetSaveInventoryIntegrityReport()
+	if err != nil {
+		t.Fatalf("post scan: %v", err)
+	}
+	if !post.Clean {
+		t.Fatalf("post scan should be clean, got %+v", post)
+	}
+}
+
 // TestGetSaveInventoryIntegrityReport_InactiveResidualSlot_IsReportedAndMarkedInactive
 // confirms that a phantom slot (Version != 0 but ActiveSlots[i] == false) is
 // included in the integrity report (its bytes round-trip through WriteSave)

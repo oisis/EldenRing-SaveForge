@@ -180,6 +180,7 @@ func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 
 func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHandle map[uint32]core.GaItemFull) []ItemViewModel {
 	items := []ItemViewModel{}
+	seenPhysick := false
 
 	processItem := func(item core.InventoryItem) {
 		if item.GaItemHandle == 0 || item.GaItemHandle == 0xFFFFFFFF {
@@ -218,7 +219,14 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHa
 				return
 			}
 
-			itemData, baseID := db.GetItemDataFuzzy(itemID)
+			displayID := db.WondrousPhysickDisplayID(itemID)
+			if db.IsWondrousPhysick(itemID) {
+				if seenPhysick {
+					return
+				}
+				seenPhysick = true
+			}
+			itemData, baseID := db.GetItemDataFuzzy(displayID)
 			name := itemData.Name
 
 			// Strict filtering: skip items that are not in our database (Unknown)
@@ -260,11 +268,11 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHa
 
 			items = append(items, ItemViewModel{
 				Handle:           item.GaItemHandle,
-				ID:               itemID,
+				ID:               displayID,
 				BaseID:           baseID,
 				Name:             name,
 				Category:         category,
-				SubCategory:      db.GetItemSubCategory(itemID, itemData, category),
+				SubCategory:      db.GetItemSubCategory(displayID, itemData, category),
 				SubGroup:         itemData.SubCategory,
 				Quantity:         displayQuantity,
 				MaxInventory:     itemData.MaxInventory,

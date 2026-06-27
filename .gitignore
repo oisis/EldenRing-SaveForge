@@ -176,3 +176,8 @@ build/bin/
 EldenRing-SaveEditor
 EldenRing-SaveForge
 main
+
+# Ignore AI files
+.claude/
+.geminiignore
+gemini/
