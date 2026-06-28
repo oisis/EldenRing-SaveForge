@@ -124,17 +124,11 @@ export function GetQuestNPCs():Promise<Array<string>>;
 
 export function GetQuestProgress(arg1:number,arg2:string):Promise<db.QuestNPC>;
 
-export function GetSaveDiffSummary():Promise<Array<main.SlotDiffSummary>>;
-
 export function GetSaveInventoryIntegrityReport():Promise<main.SaveInventoryIntegrityReport>;
 
 export function GetSlotCapacity(arg1:number):Promise<main.SlotCapacity>;
 
-export function GetSlotDiff(arg1:number):Promise<Array<main.DiffEntry>>;
-
 export function GetSlotStates():Promise<Array<main.SlotState>>;
-
-export function GetSourceActiveSlots():Promise<Array<boolean>>;
 
 export function GetStartingClasses():Promise<Array<db.ClassStats>>;
 
@@ -151,8 +145,6 @@ export function GetUnlockedRegions(arg1:number):Promise<Array<db.RegionEntry>>;
 export function GetWeaponInventoryOrder(arg1:number):Promise<Array<main.InventoryOrderItem>>;
 
 export function GetWhetblades(arg1:number):Promise<Array<db.WhetbladeEntry>>;
-
-export function ImportCharacter(arg1:number,arg2:number):Promise<void>;
 
 export function LaunchRemoteGame(arg1:string):Promise<string>;
 
@@ -215,8 +207,6 @@ export function SaveImportedBuildTemplateJSONToLibrary(arg1:string):Promise<temp
 export function SaveInventoryWorkspaceChanges(arg1:string):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function SelectAndOpenSave():Promise<string>;
-
-export function SelectAndOpenSourceSave():Promise<string>;
 
 export function SetBellBearingUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 

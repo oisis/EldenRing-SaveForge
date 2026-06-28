@@ -1,6 +1,5 @@
 import {useState} from 'react';
 import toast from '../lib/toast';
-import {CharacterImporter} from './CharacterImporter';
 import {FavoritesManager} from './FavoritesManager';
 import {WriteSave} from '../../wailsjs/go/main/App';
 import {useFavorites} from '../state/favorites';
@@ -12,7 +11,7 @@ interface ToolsTabProps {
     onMutate?: () => void;
 }
 
-type ToolView = 'overview' | 'importer' | 'favorites';
+type ToolView = 'overview' | 'favorites';
 
 export function ToolsTab({charIndex, platform, onComplete, onMutate}: ToolsTabProps) {
     const [view, setView] = useState<ToolView>('overview');
@@ -32,21 +31,6 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate}: ToolsTabPr
             setConverting(false);
         }
     };
-
-    if (view === 'importer') {
-        return (
-            <div className="space-y-3 animate-in fade-in duration-300">
-                <button onClick={() => setView('overview')}
-                    className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" />
-                    </svg>
-                    Back to Tools
-                </button>
-                <CharacterImporter destSlot={charIndex} onComplete={onComplete} />
-            </div>
-        );
-    }
 
     if (view === 'favorites') {
         return (
@@ -78,22 +62,6 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate}: ToolsTabPr
                         <div>
                             <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Favorite Items</h4>
                             <p className="text-[9px] text-muted-foreground mt-1">Browse and manage your favorite items{favCount > 0 ? ` (${favCount})` : ''}</p>
-                        </div>
-                    </div>
-                </button>
-
-                {/* Character Importer */}
-                <button onClick={() => setView('importer')}
-                    className="card p-5 text-left hover:border-primary/40 hover:bg-muted/10 transition-all group">
-                    <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/20 transition-colors">
-                            <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                            </svg>
-                        </div>
-                        <div>
-                            <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Character Importer</h4>
-                            <p className="text-[9px] text-muted-foreground mt-1">Import character from another save file into the selected slot</p>
                         </div>
                     </div>
                 </button>

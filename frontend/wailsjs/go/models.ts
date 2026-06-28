@@ -1527,26 +1527,6 @@ export namespace main {
 	        this.className = source["className"];
 	    }
 	}
-	export class DiffEntry {
-	    category: string;
-	    action: string;
-	    field: string;
-	    oldValue: string;
-	    newValue: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new DiffEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.category = source["category"];
-	        this.action = source["action"];
-	        this.field = source["field"];
-	        this.oldValue = source["oldValue"];
-	        this.newValue = source["newValue"];
-	    }
-	}
 	export class FavoriteSlotInfo {
 	    index: number;
 	    active: boolean;
@@ -1847,22 +1827,6 @@ export namespace main {
 	        this.inventoryMax = source["inventoryMax"];
 	        this.storageUsed = source["storageUsed"];
 	        this.storageMax = source["storageMax"];
-	    }
-	}
-	export class SlotDiffSummary {
-	    slotIndex: number;
-	    charName: string;
-	    changeCount: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new SlotDiffSummary(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.slotIndex = source["slotIndex"];
-	        this.charName = source["charName"];
-	        this.changeCount = source["changeCount"];
 	    }
 	}
 	

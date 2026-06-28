@@ -62,7 +62,6 @@ type slotSnapshot struct {
 type App struct {
 	ctx          context.Context
 	save         *core.SaveFile
-	sourceSave   *core.SaveFile
 	undoStacks   [10][]slotSnapshot
 	lastSavePath string
 	deployStore  *deploy.TargetStore
@@ -114,8 +113,7 @@ type App struct {
 	// concurrency holes that the previous inventory-session fix left open
 	// (whole-save replacement vs in-flight slot operations, GaMap
 	// concurrent-map-writes between session Save and non-session mutators,
-	// favSlotNames concurrent-map-writes between favorites endpoints,
-	// sourceSave use-after-replace).
+	// favSlotNames concurrent-map-writes between favorites endpoints).
 	//
 	// Lock order — taken in increasing order, released in reverse — is:
 	//   1. saveMu                 (whole-save lifecycle + metadata)
@@ -123,8 +121,7 @@ type App struct {
 	//   3. editSessionsMu         (session registry, short — existing)
 	//   4. sess.mu                (per-session workspace state — existing)
 	//   5. favMu                  (UserData10 + favSlotNames)
-	//   6. sourceSaveMu           (a.sourceSave pointer + content)
-	//   7. slotMu[i]              (per-slot data, ascending i)
+	//   6. slotMu[i]              (per-slot data, ascending i)
 	// Multi-slot operations take slotMu in strictly ascending index order
 	// and release in descending order (see lockAllSlots / lockSlotPair).
 	// sync.RWMutex is NOT treated as reentrant: never call RLock while
@@ -149,12 +146,6 @@ type App struct {
 	// when both apply (see ApplyMirrorFavoriteToCharacter,
 	// WriteSelectedToFavorites).
 	favMu sync.RWMutex
-	// sourceSaveMu protects the a.sourceSave pointer (installed by
-	// SelectAndOpenSourceSave) and every dereference of its slots from the
-	// diff / source-active-slots endpoints. Independent of saveMu because
-	// the source save is loaded only for diff/import preview — it is never
-	// mutated by user actions on the active save.
-	sourceSaveMu sync.RWMutex
 }
 
 // NewApp creates a new App struct
@@ -247,47 +238,6 @@ func (a *App) installLoadedSave(candidate *core.SaveFile, path string) {
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	a.clearAllEditSessions()
-}
-
-// SelectAndOpenSourceSave opens a native file dialog and loads the selected source save for import
-func (a *App) SelectAndOpenSourceSave() (string, error) {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select SOURCE Elden Ring Save File",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Elden Ring Save (*.sl2;*.dat;*.txt)", Pattern: "*.sl2;*.dat;*.txt"},
-			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	if path == "" {
-		return "", fmt.Errorf("no file selected")
-	}
-
-	save, err := core.LoadSave(path)
-	if err != nil {
-		return "", err
-	}
-	// Commit phase: sourceSaveMu.Lock blocks every reader of the old
-	// a.sourceSave (GetSourceActiveSlots, GetSlotDiff, GetSaveDiffSummary)
-	// while the pointer is swapped. We do NOT take saveMu.RLock here
-	// because the endpoint touches only a.sourceSave; the active save is
-	// untouched.
-	a.sourceSaveMu.Lock()
-	a.installSourceSave(save)
-	a.sourceSaveMu.Unlock()
-	return string(save.Platform), nil
-}
-
-// installSourceSave swaps the source save pointer to candidate.
-//
-// Contract: caller MUST run dialog / file I/O / decrypt / parse OUTSIDE
-// this helper — pass a fully-prepared *core.SaveFile and only invoke the
-// helper for the atomic commit phase. Caller MUST hold a.sourceSaveMu.Lock
-// for the entire call; the helper itself does not acquire it.
-func (a *App) installSourceSave(candidate *core.SaveFile) {
-	a.sourceSave = candidate
 }
 
 // GetCharacter returns the ViewModel for a specific slot
@@ -1170,11 +1120,6 @@ func (a *App) GetStartingClasses() []db.ClassStats {
 	return db.GetAllClassStats()
 }
 
-// ImportCharacter copies a slot from the source save file to the destination save file
-func (a *App) ImportCharacter(srcIdx, destIdx int) error {
-	return fmt.Errorf("ImportCharacter is temporarily disabled during architecture refactor")
-}
-
 // CloneSlot copies an existing character slot to an empty destination slot within the same save.
 func (a *App) CloneSlot(srcIdx, destIdx int) error {
 	a.saveMu.RLock()
@@ -1411,21 +1356,6 @@ func (a *App) GetCharacterNames() []string {
 		}
 	}
 	return names
-}
-
-// GetSourceActiveSlots returns the activity status of all 10 slots in the source file
-func (a *App) GetSourceActiveSlots() []bool {
-	active := make([]bool, 10)
-	a.sourceSaveMu.RLock()
-	defer a.sourceSaveMu.RUnlock()
-	if a.sourceSave == nil {
-		return active
-	}
-	for i := 0; i < 10; i++ {
-		name := core.UTF16ToString(a.sourceSave.Slots[i].Player.CharacterName[:])
-		active[i] = name != ""
-	}
-	return active
 }
 
 // SetSlotActivity toggles a slot's active status
@@ -1895,6 +1825,6 @@ func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexR
 }
 
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, core.InventoryIndexRepairReport, core.InventoryIndexRepairChange, SaveInventoryIntegrityReport, SlotInventoryIntegrityReport, InventoryIntegrityConflict, InventoryIntegrityConflictItem) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, core.InventoryIndexRepairReport{}, core.InventoryIndexRepairChange{}, SaveInventoryIntegrityReport{}, SlotInventoryIntegrityReport{}, InventoryIntegrityConflict{}, InventoryIntegrityConflictItem{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, core.InventoryIndexRepairReport, core.InventoryIndexRepairChange, SaveInventoryIntegrityReport, SlotInventoryIntegrityReport, InventoryIntegrityConflict, InventoryIntegrityConflictItem) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, core.InventoryIndexRepairReport{}, core.InventoryIndexRepairChange{}, SaveInventoryIntegrityReport{}, SlotInventoryIntegrityReport{}, InventoryIntegrityConflict{}, InventoryIntegrityConflictItem{}
 }

@@ -83,20 +83,3 @@ func TestCloseSave_ClearsFavSlotNames(t *testing.T) {
 		t.Errorf("favSlotNames should be reset after CloseSave, got %+v", app.favSlotNames)
 	}
 }
-
-// TestCloseSave_DoesNotTouchSourceSave guards the explicit scope decision:
-// the source save loaded for Character Importer is independent of the
-// active editable save and must survive a CloseSave on the main file.
-func TestCloseSave_DoesNotTouchSourceSave(t *testing.T) {
-	app := NewApp()
-	app.save = &core.SaveFile{}
-	source := &core.SaveFile{}
-	app.sourceSave = source
-
-	if err := app.CloseSave(); err != nil {
-		t.Fatalf("CloseSave: %v", err)
-	}
-	if app.sourceSave != source {
-		t.Errorf("CloseSave must not touch a.sourceSave, got %v want %v", app.sourceSave, source)
-	}
-}

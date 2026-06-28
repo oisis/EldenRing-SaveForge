@@ -234,10 +234,6 @@ export function GetQuestProgress(arg1, arg2) {
   return window['go']['main']['App']['GetQuestProgress'](arg1, arg2);
 }
 
-export function GetSaveDiffSummary() {
-  return window['go']['main']['App']['GetSaveDiffSummary']();
-}
-
 export function GetSaveInventoryIntegrityReport() {
   return window['go']['main']['App']['GetSaveInventoryIntegrityReport']();
 }
@@ -246,16 +242,8 @@ export function GetSlotCapacity(arg1) {
   return window['go']['main']['App']['GetSlotCapacity'](arg1);
 }
 
-export function GetSlotDiff(arg1) {
-  return window['go']['main']['App']['GetSlotDiff'](arg1);
-}
-
 export function GetSlotStates() {
   return window['go']['main']['App']['GetSlotStates']();
-}
-
-export function GetSourceActiveSlots() {
-  return window['go']['main']['App']['GetSourceActiveSlots']();
 }
 
 export function GetStartingClasses() {
@@ -288,10 +276,6 @@ export function GetWeaponInventoryOrder(arg1) {
 
 export function GetWhetblades(arg1) {
   return window['go']['main']['App']['GetWhetblades'](arg1);
-}
-
-export function ImportCharacter(arg1, arg2) {
-  return window['go']['main']['App']['ImportCharacter'](arg1, arg2);
 }
 
 export function LaunchRemoteGame(arg1) {
@@ -416,10 +400,6 @@ export function SaveInventoryWorkspaceChanges(arg1) {
 
 export function SelectAndOpenSave() {
   return window['go']['main']['App']['SelectAndOpenSave']();
-}
-
-export function SelectAndOpenSourceSave() {
-  return window['go']['main']['App']['SelectAndOpenSourceSave']();
 }
 
 export function SetBellBearingUnlocked(arg1, arg2, arg3) {
