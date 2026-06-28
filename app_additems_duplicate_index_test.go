@@ -25,6 +25,36 @@ func dupIndexFixture() *App {
 	return app
 }
 
+func TestAddItemsToCharacter_ReportsExistingKeyItemSkip(t *testing.T) {
+	app := NewApp()
+	app.save = &core.SaveFile{}
+	slot := &app.save.Slots[0]
+	slot.Version = 1
+	slot.GaMap = map[uint32]uint32{}
+	slot.Inventory.KeyItems = []core.InventoryItem{{
+		GaItemHandle: 0xB0002299, // Godskin Prayerbook
+		Quantity:     1,
+		Index:        4029,
+	}}
+
+	result, err := app.AddItemsToCharacter(0, []uint32{0x40002299}, 0, 0, 0, 0, 1, 0)
+	if err != nil {
+		t.Fatalf("AddItemsToCharacter: %v", err)
+	}
+	if result.Added != 0 {
+		t.Fatalf("Added = %d, want 0", result.Added)
+	}
+	if result.Requested != 1 {
+		t.Fatalf("Requested = %d, want 1", result.Requested)
+	}
+	if len(result.SkippedExisting) != 1 || result.SkippedExisting[0].ItemID != 0x40002299 {
+		t.Fatalf("SkippedExisting = %+v, want Godskin Prayerbook", result.SkippedExisting)
+	}
+	if len(slot.Inventory.CommonItems) != 0 {
+		t.Fatalf("CommonItems len = %d, want 0", len(slot.Inventory.CommonItems))
+	}
+}
+
 // TestAddItemsToCharacter_RejectsPreExistingDuplicateIndex pins the new
 // fail-closed behaviour: when the target slot already contains duplicate
 // acquisition indices, AddItemsToCharacter must refuse to mutate and surface

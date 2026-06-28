@@ -1207,6 +1207,7 @@ export namespace main {
 	    added: number;
 	    requested: number;
 	    trimmed: SkippedAdd[];
+	    skippedExisting: SkippedAdd[];
 	    capHit: string;
 	    freeInv: number;
 	    freeStore: number;
@@ -1222,6 +1223,7 @@ export namespace main {
 	        this.added = source["added"];
 	        this.requested = source["requested"];
 	        this.trimmed = this.convertValues(source["trimmed"], SkippedAdd);
+	        this.skippedExisting = this.convertValues(source["skippedExisting"], SkippedAdd);
 	        this.capHit = source["capHit"];
 	        this.freeInv = source["freeInv"];
 	        this.freeStore = source["freeStore"];

@@ -494,14 +494,15 @@ type SkippedAdd struct {
 
 // AddResult reports the outcome of an AddItemsToCharacter operation.
 type AddResult struct {
-	Added       int          `json:"added"`
-	Requested   int          `json:"requested"`
-	Trimmed     []SkippedAdd `json:"trimmed"`
-	CapHit      string       `json:"capHit"`
-	FreeInv     int          `json:"freeInv"`
-	FreeStore   int          `json:"freeStore"`
-	NeededInv   int          `json:"neededInv"`
-	NeededStore int          `json:"neededStore"`
+	Added           int          `json:"added"`
+	Requested       int          `json:"requested"`
+	Trimmed         []SkippedAdd `json:"trimmed"`
+	SkippedExisting []SkippedAdd `json:"skippedExisting"`
+	CapHit          string       `json:"capHit"`
+	FreeInv         int          `json:"freeInv"`
+	FreeStore       int          `json:"freeStore"`
+	NeededInv       int          `json:"neededInv"`
+	NeededStore     int          `json:"neededStore"`
 }
 
 // SlotState is the frontend's single source of truth for character-slot
@@ -695,6 +696,7 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	}
 	var prepared []preparedItem
 	var trimmed []SkippedAdd
+	var skippedExisting []SkippedAdd
 
 	for _, id := range sortedIDs {
 		isPhysick := db.IsWondrousPhysick(id)
@@ -736,6 +738,12 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		handlePrefix := db.ItemIDToHandlePrefix(finalID)
 		isStackable := handlePrefix == core.ItemTypeItem || handlePrefix == core.ItemTypeAccessory || db.IsArrowID(finalID)
 		if isStackable {
+			if (actualInv > 0 || actualStorage > 0) && existingKeyItemQty[id] > 0 {
+				a.logInfo("already in Key Items — skipping %s (0x%08X)", itemData.Name, id)
+				skippedExisting = append(skippedExisting, SkippedAdd{ItemID: id})
+				actualInv = 0
+				actualStorage = 0
+			}
 			if actualInv > 0 && existingItemQty[id] >= int(itemData.MaxInventory) {
 				a.logInfo("already max inv qty %d/%d — skipping %s (0x%08X)", existingItemQty[id], itemData.MaxInventory, itemData.Name, id)
 				actualInv = 0
@@ -785,6 +793,14 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			ForceStackable: p.forceStackable,
 			IsStackable:    p.isStackable,
 		})
+	}
+	if len(capacityItems) == 0 {
+		finalUsage := core.CountSlotUsage(slot)
+		result.Trimmed = trimmed
+		result.SkippedExisting = skippedExisting
+		result.FreeInv = finalUsage.InventoryMax - finalUsage.InventoryUsed
+		result.FreeStore = finalUsage.StorageMax - finalUsage.StorageUsed
+		return result, nil
 	}
 
 	capReport := core.CheckAddCapacity(slot, capacityItems)
@@ -927,6 +943,7 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	}
 	result.Added = added
 	result.Trimmed = trimmed
+	result.SkippedExisting = skippedExisting
 	result.FreeInv = finalUsage.InventoryMax - finalUsage.InventoryUsed
 	result.FreeStore = finalUsage.StorageMax - finalUsage.StorageUsed
 	return result, nil

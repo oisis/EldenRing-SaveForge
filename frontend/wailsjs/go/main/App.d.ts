@@ -256,7 +256,7 @@ export function SetSteamIDFromString(arg1:string):Promise<void>;
 
 export function SetSummoningPoolActivated(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
-export function SetWhetbladeUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
+export function SetWhetbladeUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<boolean>;
 
 export function StartInventoryEditSession(arg1:number):Promise<editor.InventoryWorkspaceSnapshot>;
 

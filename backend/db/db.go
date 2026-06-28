@@ -811,6 +811,11 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 				entry.UnlockCategory = "map"
 				entry.MaxInventory = 1
 				entry.MaxStorage = 0
+			} else if flagID, ok := data.WhetbladeItemToFlagID[id]; ok && !slices.Contains(item.Flags, "no_database") {
+				entry.FlagID = flagID
+				entry.UnlockCategory = "whetblade"
+				entry.MaxInventory = 1
+				entry.MaxStorage = 0
 			} else if slices.Contains(item.Flags, "no_database") {
 				continue
 			}
