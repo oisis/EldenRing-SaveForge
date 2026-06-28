@@ -159,19 +159,17 @@ func NetworkParamLightInvasions() NetworkParamValues {
 //
 // These three presets are the single source of truth for the active Network UI
 // (frontend fetches them via GetNetworkPreset). Each preset touches only its own
-// role group; the unconfirmed 0x7C field (BreakInRequestAreaCount) is always kept
-// at vanilla 5. They replace the removed global "Aggressive" profile.
+// role group. They replace the removed global "Aggressive" profile.
 
 // NetworkParamFasterReds returns the "Faster Reds" preset (Invader role).
-// Faster red invasion search without the regressions of the removed Aggressive
-// preset: the request timeout stays generous (15s) so near-and-far matchmaking
-// can complete, and the unconfirmed 0x7C field stays at vanilla 5.
+// Faster red invasion search: wider 8/8 area/target scan, 12s retry interval,
+// and 8s timeout. This keeps a small processing gap before the next cycle.
 func NetworkParamFasterReds() NetworkParamValues {
 	d := NetworkParamDefaults()
 	d.MaxBreakInTargetListCount = 8
+	d.BreakInRequestAreaCount = 8
 	d.BreakInRequestIntervalTimeSec = 12.0
-	d.BreakInRequestTimeOutSec = 15.0
-	// BreakInRequestAreaCount (0x7C) intentionally left at vanilla 5 — semantics unconfirmed.
+	d.BreakInRequestTimeOutSec = 8.0
 	return d
 }
 
@@ -207,22 +205,21 @@ func NetworkParamFasterBlue() NetworkParamValues {
 
 // --- Aggressive functional presets (v0.10) ---
 //
-// Stronger, clearly observable per-group profiles for PS5 PvP testing. Like the
-// Faster presets they are strictly modular: each touches only its own role group,
-// never the unconfirmed 0x7C field (BreakInRequestAreaCount), never Visitor
-// fields, never another group. They do NOT restore the removed global "Aggressive"
-// profile — there is no cross-group Aggressive and no aggressive-host.
+// Stronger, clearly observable per-group profiles for PS5 PvP testing. Like
+// Faster presets, they are strictly modular: each touches only its own role group,
+// never Visitor fields, and never another group. They do NOT restore the removed
+// global "Aggressive" profile — no cross-group Aggressive and no aggressive-host.
 
 // NetworkParamAggressiveReds returns the "Aggressive Reds" preset (Invader role).
-// Maximal red invasion target throughput for Bloody/Recusant Finger testing while
-// keeping a safe timeout (12s, not the old broken 3s) and leaving 0x7C at vanilla 5.
-// Target-candidate proxy: (60/8)*12 = 90/min vs Faster 40/min vs Vanilla 10/min.
+// Aggressive red invasion search: broad 12/12 area/target scan, 10s retry interval,
+// and 7s timeout. TODO: add a separate Very Aggressive preset only after validating
+// that tighter overlapping cycles do not starve matchmaking requests.
 func NetworkParamAggressiveReds() NetworkParamValues {
 	d := NetworkParamDefaults()
 	d.MaxBreakInTargetListCount = 12
-	d.BreakInRequestIntervalTimeSec = 8.0
-	d.BreakInRequestTimeOutSec = 12.0
-	// BreakInRequestAreaCount (0x7C) intentionally left at vanilla 5 — semantics unconfirmed.
+	d.BreakInRequestAreaCount = 12
+	d.BreakInRequestIntervalTimeSec = 10.0
+	d.BreakInRequestTimeOutSec = 7.0
 	return d
 }
 

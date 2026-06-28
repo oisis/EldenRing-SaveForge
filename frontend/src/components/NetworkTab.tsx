@@ -28,6 +28,7 @@ interface SliderDef {
 
 const INVADER_SLIDERS: SliderDef[] = [
     {key: 'maxBreakInTargetListCount',     label: 'Max Targets',      desc: 'How many invasion target candidates are polled per matchmaking search. Higher = more potential targets found at once.', min: 1,  max: 20, step: 1, unit: '',  defaultVal: 5},
+    {key: 'breakInRequestAreaCount',       label: 'Search Areas',     desc: 'How many break-in matchmaking areas are queried per invasion search cycle. Tune with Max Targets so search breadth and candidate list size stay aligned.', min: 1, max: 20, step: 1, unit: '', defaultVal: 5},
     {key: 'breakInRequestIntervalTimeSec', label: 'Request Interval', desc: 'Delay in seconds between matchmaking retries when no target is found. Lower = faster retry loop. Below ~8s the search message flickers almost continuously.', min: 2,  max: 30, step: 1, unit: 's', defaultVal: 30},
     {key: 'breakInRequestTimeOutSec',      label: 'Request Timeout',  desc: 'Seconds before a single matchmaking request is abandoned. Too low (e.g. 3s) cancels near-and-far requests before they can complete.', min: 3,  max: 20, step: 1, unit: 's', defaultVal: 20},
 ];
@@ -51,10 +52,6 @@ const BLUE_SLIDERS: SliderDef[] = [
 ];
 
 // --- Experimental sliders (shown inside their functional group, never touched by presets) ---
-
-const EXPERIMENTAL_BREAKIN: SliderDef[] = [
-    {key: 'breakInRequestAreaCount', label: 'Unknown break-in field at 0x7C', desc: 'Unknown break-in field at 0x7C. Its gameplay meaning is unconfirmed. Vanilla value is 5. Active presets never modify this field.', min: 1, max: 10, step: 1, unit: '', defaultVal: 5},
-];
 
 const EXPERIMENTAL_BLUE: SliderDef[] = [
     {key: 'maxCoopBlueSummonCount', label: 'Blue Search Parallelism', desc: 'Client-side blue search parallelism (maxCoopBlueSummonCount). The server caps the actual number of active blues, so raising this rarely helps. Experimental — active Blue presets never change it. Vanilla 2.', min: 1, max: 10, step: 1, unit: '', defaultVal: 2},
@@ -88,7 +85,6 @@ const GROUP_META: Record<GroupId, GroupMeta> = {
         sliders: INVADER_SLIDERS,
         fasterKey: 'faster-reds', fasterLabel: 'Faster',
         aggressiveKey: 'aggressive-reds', aggressiveLabel: 'Aggressive',
-        experimental: EXPERIMENTAL_BREAKIN,
     },
     cooperator: {
         label: 'Summon Signs', icon: '☀', desc: 'Summon sign refresh & upload. Summoning Pool activation is configured separately in World / Exploration.',
@@ -355,11 +351,12 @@ export function NetworkTab({platform}: NetworkTabProps) {
 
                 {/* How-to / disclaimer */}
                 <div className="space-y-2 pt-1">
-                    <div className="rounded-lg border border-red-500/40 bg-red-500/5 p-3 space-y-1">
-                        <p className="text-sm font-black uppercase tracking-[0.15em] text-red-500">⚠ Warning — Read before use</p>
-                        <p className="text-sm text-red-500/90 leading-relaxed">
-                            These changes may result in a ban. This feature is in testing. Use with caution — preferably not on your main account.
-                            Any manual modification to a save file carries a ban risk. I take no responsibility for any account banned as a result of using these settings.
+                    <div className="rounded-lg border border-amber-700/55 bg-amber-50 p-3 space-y-1 dark:border-amber-500/60 dark:bg-stone-950">
+                        <p className="text-sm font-black uppercase tracking-[0.15em] text-stone-950 dark:text-amber-200">Network tuning notice</p>
+                        <p className="text-sm text-stone-800 dark:text-stone-100 leading-relaxed">
+                            These Network tab settings were tested for 4 weeks without a ban, so the ban risk appears low.
+                            This notice applies only to settings on this tab; other save edits may still carry a ban risk.
+                            I take no responsibility for any account banned as a result of using these settings.
                         </p>
                     </div>
 

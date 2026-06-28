@@ -723,15 +723,32 @@ func (a *App) GetCookbooks(slotIndex int) ([]db.CookbookEntry, error) {
 	slot := &a.save.Slots[slotIndex]
 	cookbooks := db.GetAllCookbooks()
 
-	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-		flags := slot.Data[slot.EventFlagsOffset:]
-		for i := range cookbooks {
-			unlocked, err := db.GetEventFlag(flags, cookbooks[i].ID)
-			if err != nil {
-				continue
-			}
-			cookbooks[i].Unlocked = unlocked
+	// Build set of cookbook item IDs present in inventory (flag may be unset even when item exists)
+	ownedCookbooks := make(map[uint32]bool)
+	checkItem := func(handle, qty uint32) {
+		if handle == 0 || handle == 0xFFFFFFFF || qty == 0 {
+			return
 		}
+		itemID := db.HandleToItemID(handle)
+		if _, ok := data.CookbookItemToFlagID[itemID]; ok {
+			ownedCookbooks[itemID] = true
+		}
+	}
+	for _, it := range slot.Inventory.CommonItems {
+		checkItem(it.GaItemHandle, it.Quantity)
+	}
+	for _, it := range slot.Inventory.KeyItems {
+		checkItem(it.GaItemHandle, it.Quantity)
+	}
+
+	var flags []byte
+	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+		flags = slot.Data[slot.EventFlagsOffset:]
+	}
+	for i, cb := range cookbooks {
+		flagOn, _ := db.GetEventFlag(flags, cb.ID)
+		itemID := data.CookbookFlagToItemID[cb.ID]
+		cookbooks[i].Unlocked = flagOn || ownedCookbooks[itemID]
 	}
 
 	return cookbooks, nil
@@ -792,20 +809,13 @@ func (a *App) bulkSetCookbooksUnlockedLocked(slotIndex int, cookbookIDs []uint32
 	var itemsToAdd []uint32
 
 	for _, cookbookID := range cookbookIDs {
-		if err := db.SetEventFlag(flags, cookbookID, unlocked); err != nil {
-			continue
-		}
+		_ = db.SetEventFlag(flags, cookbookID, unlocked) // best-effort; inventory op is independent
 
 		if itemID, ok := data.CookbookFlagToItemID[cookbookID]; ok {
 			if unlocked {
 				itemsToAdd = append(itemsToAdd, itemID)
 			} else {
-				for handle, gID := range slot.GaMap {
-					if gID == itemID {
-						_ = core.RemoveItemFromSlot(slot, handle, true, false)
-						break
-					}
-				}
+				core.RemoveItemByBaseID(slot, itemID)
 			}
 		}
 	}
@@ -892,11 +902,11 @@ func syncBellBearingItem(slot *core.SaveSlot, flagID uint32, unlocked bool) {
 	if !unlocked {
 		return
 	}
-	for handle, gID := range slot.GaMap {
-		if gID == itemID {
-			_ = core.RemoveItemFromSlot(slot, handle, true, true)
-		}
-	}
+	handlePrefix := db.ItemIDToHandlePrefix(itemID)
+	computedHandle := (itemID & 0x0FFFFFFF) | handlePrefix
+	// Try both computed handle (editor-added) and raw itemID (game-placed key items)
+	_ = core.RemoveItemFromSlot(slot, computedHandle, true, true)
+	_ = core.RemoveItemFromSlot(slot, itemID, true, true)
 }
 
 // GetWhetblades returns all whetblades with unlock state from the specified character slot
@@ -913,15 +923,32 @@ func (a *App) GetWhetblades(slotIndex int) ([]db.WhetbladeEntry, error) {
 	defer a.slotMu[slotIndex].Unlock()
 	slot := &a.save.Slots[slotIndex]
 	entries := db.GetAllWhetblades()
-	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-		flags := slot.Data[slot.EventFlagsOffset:]
-		for i := range entries {
-			unlocked, err := db.GetEventFlag(flags, entries[i].ID)
-			if err != nil {
-				continue
-			}
-			entries[i].Unlocked = unlocked
+
+	ownedWhetblades := make(map[uint32]bool)
+	checkItem := func(handle, qty uint32) {
+		if handle == 0 || handle == 0xFFFFFFFF || qty == 0 {
+			return
 		}
+		itemID := db.HandleToItemID(handle)
+		if _, ok := data.WhetbladeItemToFlagID[itemID]; ok {
+			ownedWhetblades[itemID] = true
+		}
+	}
+	for _, it := range slot.Inventory.CommonItems {
+		checkItem(it.GaItemHandle, it.Quantity)
+	}
+	for _, it := range slot.Inventory.KeyItems {
+		checkItem(it.GaItemHandle, it.Quantity)
+	}
+
+	var flags []byte
+	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+		flags = slot.Data[slot.EventFlagsOffset:]
+	}
+	for i, e := range entries {
+		flagOn, _ := db.GetEventFlag(flags, e.ID)
+		itemID := data.WhetbladeFlagToItemID[e.ID]
+		entries[i].Unlocked = flagOn || ownedWhetblades[itemID]
 	}
 	return entries, nil
 }
@@ -966,12 +993,7 @@ func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) 
 		if unlocked {
 			_ = core.AddItemsToSlot(slot, []uint32{itemID}, 1, 0, false)
 		} else {
-			for handle, gID := range slot.GaMap {
-				if gID == itemID {
-					_ = core.RemoveItemFromSlot(slot, handle, true, false)
-					break
-				}
-			}
+			core.RemoveItemByBaseID(slot, itemID)
 		}
 	}
 
@@ -981,12 +1003,7 @@ func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) 
 			_ = core.AddItemsToSlot(slot, []uint32{data.StormStompItemID}, 1, 0, false)
 			_ = db.SetEventFlag(flags, data.StormStompDupFlag, true)
 		} else {
-			for handle, gID := range slot.GaMap {
-				if gID == data.StormStompItemID {
-					_ = core.RemoveItemFromSlot(slot, handle, true, false)
-					break
-				}
-			}
+			core.RemoveItemByBaseID(slot, data.StormStompItemID)
 			_ = db.SetEventFlag(flags, data.StormStompDupFlag, false)
 		}
 	}

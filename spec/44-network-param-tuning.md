@@ -57,7 +57,7 @@ Controls invasion matchmaking. **Already implemented in v0.8.0.**
 | `maxBreakInTargetListCount` | u32 | 0x70 | 5 | Invasion target candidates per search |
 | `breakInRequestIntervalTimeSec` | f32 | 0x74 | 30.0 | Delay between matchmaking retry requests |
 | `breakInRequestTimeOutSec` | f32 | 0x78 | 20.0 | Timeout per matchmaking request |
-| `breakInRequestAreaCount` (unconfirmed) | u32 (code) / u8 (defs) | 0x7C | 5 | **Semantics UNCONFIRMED.** Labelled `dummy8 pad[4]` ("予約"/Reserved) in the local PARAMDEF and `u8 unknown_0x7c` in the community TGA def — no external source names it `breakInRequestAreaCount`; that name exists only in SaveForge. Vanilla binary value is `5` (verified). SaveForge presets always keep it at `5`; it is exposed only as an Experimental field in the UI. Do not treat it as a confirmed "area search" knob. |
+| `breakInRequestAreaCount` | u32 (code) / u8 (defs) | 0x7C | 5 | Break-in matchmaking search breadth. Vanilla binary value `5` (verified). Treated as a normal Reds field after local testing and tuned together with `maxBreakInTargetListCount`. |
 
 > **Source of truth note**: vanilla values above come from the binary `NetworkParam.param` (Row 0). The exported `csv/NetworkParam.csv` shows `reloadSignTotalCount=32` / `reloadSignCellCount=8` for the sign group, which is **wrong** — the binary (and `NetworkParamDefaults()`) holds `20` / `10`. The binary is authoritative. Note also that invasions have **no** `allAreaSearchRate_*` field (those exist only for CoopBlue/VsBlue/BellGuard), so there is no confirmed local-vs-worldwide knob for break-in search.
 
@@ -165,12 +165,13 @@ retry loop and wrote 0x7C). There is no cross-group Aggressive and no `aggressiv
 | Field | Vanilla | Faster | Aggressive |
 |---|---:|---:|---:|
 | `maxBreakInTargetListCount` | 5 | 8 | 12 |
-| `breakInRequestIntervalTimeSec` | 30 | 12 | 8 |
-| `breakInRequestTimeOutSec` | 20 | 15 | 12 |
+| `breakInRequestAreaCount` | 5 | 8 | 12 |
+| `breakInRequestIntervalTimeSec` | 30 | 12 | 10 |
+| `breakInRequestTimeOutSec` | 20 | 8 | 7 |
 
 Target-candidate proxy per minute: Vanilla `(60/30)×5 = 10`, Faster `(60/12)×8 = 40`,
-Aggressive `(60/8)×12 = 90`. Aggressive keeps a safe 12s timeout (not the old 3s) and never
-touches `breakInRequestAreaCount` (0x7C) — see Experimental fields below.
+Aggressive `(60/10)×12 = 72`. Faster keeps an 8s timeout and Aggressive uses a tighter
+7s timeout while keeping a small processing gap before the next retry cycle.
 
 ### Summon Signs — `NetworkParam{Faster,Aggressive}Summons()`
 
@@ -210,12 +211,10 @@ group — they are Experimental (see below).
 
 ### Experimental fields (per group, never changed by presets)
 
-The former single "Experimental" UI section is removed; the fields now live inside their
-functional group, each flagged `Experimental`, and **no active preset (Vanilla / Faster /
-Aggressive) ever writes them**:
+The former single "Experimental" UI section is removed; remaining unverified fields now live
+inside their functional group, each flagged `Experimental`, and **no active preset (Vanilla /
+Faster / Aggressive) ever writes them**:
 
-- **Reds:** `breakInRequestAreaCount` (0x7C) — unknown break-in field at 0x7C. Gameplay
-  meaning unconfirmed; vanilla value is 5; active presets never modify it.
 - **Blue:** `maxCoopBlueSummonCount` ("Blue Search Parallelism") and `allAreaSearchRateVsBlue`
   ("Retribution Global %"). Both are Experimental/unverified in Elden Ring; active Blue
   presets never change them.

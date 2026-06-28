@@ -14,24 +14,23 @@ export type NetDraft = Record<string, number>;
 
 // Canonical field lists for the three functional preset groups. These are the
 // ONLY fields a group's Faster / Vanilla button is allowed to touch. They
-// deliberately exclude every Experimental field:
-//   - invader excludes breakInRequestAreaCount (the unconfirmed 0x7C field)
-//   - blue excludes maxCoopBlueSummonCount and allAreaSearchRateVsBlue (Blue extras)
-//   - none include Visitor / legacy ring-search fields
-// This keeps the presets modular: applying one group never overwrites another
-// group's manual values or any Experimental value.
+// deliberately exclude fields that are still treated as Experimental:
+// - blue excludes maxCoopBlueSummonCount and allAreaSearchRateVsBlue (Blue extras)
+// - none include Visitor / legacy ring-search fields
+// This keeps presets modular: applying one group never overwrites another
+// group's manual values or any field outside that group.
 export const NETWORK_GROUP_KEYS = {
-    invader: ['maxBreakInTargetListCount', 'breakInRequestIntervalTimeSec', 'breakInRequestTimeOutSec'],
+    invader: ['maxBreakInTargetListCount', 'breakInRequestAreaCount', 'breakInRequestIntervalTimeSec', 'breakInRequestTimeOutSec'],
     cooperator: ['reloadSignIntervalTime2', 'reloadSignTotalCount', 'reloadSignCellCount', 'updateSignIntervalTime', 'singGetMax', 'signDownloadSpan', 'signUpdateSpan'],
     blue: ['reloadVisitListCoolTime', 'reloadSearchCoopBlueMin', 'reloadSearchCoopBlueMax', 'maxVisitListCount', 'allAreaSearchRateCoopBlue'],
 } as const;
 
 export type NetworkGroupId = keyof typeof NETWORK_GROUP_KEYS;
 
-// Merge ONLY the listed group keys from `source` into `current`, then clamp.
-// Every other field (other groups, Experimental 0x7C, Blue extras, Visitor /
-// legacy) is preserved exactly. Used by both the Faster and per-group Vanilla
-// buttons so they stay modular and composable.
+// Merge ONLY listed group keys from `source` into `current`, then clamp.
+// Every other field (other groups, Blue extras, Visitor / legacy) is preserved
+// exactly. Used by both Faster per-group and Vanilla buttons so presets stay
+// modular and composable.
 export function applyGroupPreset(current: NetDraft, groupKeys: readonly string[], source: NetDraft): NetDraft {
     const next = {...current};
     for (const k of groupKeys) {

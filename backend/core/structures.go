@@ -783,6 +783,13 @@ func (s *SaveSlot) mapInventory() error {
 				maxIdx = item.Index
 			}
 		}
+		// ponytail: also scan KeyItems — game-placed key items may have Index >= NextAcquisitionSortId
+		// causing new CommonItems additions to collide with their indices (Bug #2).
+		for _, item := range s.Inventory.KeyItems {
+			if item.GaItemHandle != GaHandleEmpty && item.GaItemHandle != GaHandleInvalid && item.Index > maxIdx {
+				maxIdx = item.Index
+			}
+		}
 		if s.Inventory.NextAcquisitionSortId <= maxIdx {
 			s.Inventory.NextAcquisitionSortId = maxIdx + 1
 		}

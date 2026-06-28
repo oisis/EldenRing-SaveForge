@@ -47,6 +47,14 @@ type ItemEntry struct {
 	// populated independently so existing UI bindings keep working
 	// unchanged — Phase 3C.3 only adds a new payload field.
 	Stats *data.ItemStatsData `json:"stats,omitempty"`
+	// FlagID is the event flag ID used by World-tab unlock endpoints
+	// (SetCookbookUnlocked, SetWhetbladeUnlocked, SetBellBearingUnlocked).
+	// Zero for items managed via standard AddItemsToCharacter.
+	FlagID uint32 `json:"flagId,omitempty"`
+	// UnlockCategory identifies items whose add/remove must go through
+	// the World-tab unlock endpoints instead of AddItemsToCharacter.
+	// Values: "cookbook" | "whetblade" | "bell_bearing" | "" (standard).
+	UnlockCategory string `json:"unlockCategory,omitempty"`
 }
 
 // weightedCategory lists item categories that have physical weight from regulation.bin weapon/armor params.
@@ -746,14 +754,14 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 		processMap(data.ArrowsAndBolts, "arrows_and_bolts")
 	case "tools":
 		for id, item := range data.Tools {
-			if item.Name == "" || data.IsWhetbladeItemID(id) {
+			if item.Name == "" {
 				continue
 			}
 			// Filter upgraded Flask variants — only keep base versions (no " +N" suffix)
 			if strings.Contains(item.Name, "Flask of") && strings.Contains(item.Name, " +") {
 				continue
 			}
-			items = append(items, ItemEntry{
+			entry := ItemEntry{
 				ID:           id,
 				Name:         item.Name,
 				Category:     "tools",
@@ -763,19 +771,21 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 				MaxUpgrade:   item.MaxUpgrade,
 				IconPath:     item.IconPath,
 				Flags:        item.Flags,
-			})
+			}
+			if flagID, ok := data.WhetbladeItemToFlagID[id]; ok {
+				entry.FlagID = flagID
+				entry.UnlockCategory = "whetblade"
+				entry.MaxInventory = 1
+				entry.MaxStorage = 0
+			}
+			items = append(items, entry)
 		}
 	case "key_items":
-		// Bell Bearings: managed via dedicated Bell Bearings UI.
-		// Cookbooks: managed via World → Unlocks. Surfacing them here too
-		// would give two ways to add the same items, which is confusing and
-		// risks double-tracking. Owned cookbooks remain visible in Inventory
-		// as read-only entries (see vm.MapParsedSlotToVM).
 		for id, item := range data.KeyItems {
-			if item.Name == "" || data.IsBellBearingItemID(id) || data.IsCookbookItemID(id) || slices.Contains(item.Flags, "no_database") {
+			if item.Name == "" {
 				continue
 			}
-			items = append(items, ItemEntry{
+			entry := ItemEntry{
 				ID:           id,
 				Name:         item.Name,
 				Category:     "key_items",
@@ -785,7 +795,26 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 				MaxUpgrade:   item.MaxUpgrade,
 				IconPath:     item.IconPath,
 				Flags:        item.Flags,
-			})
+			}
+			if flagID, ok := data.CookbookItemToFlagID[id]; ok {
+				entry.FlagID = flagID
+				entry.UnlockCategory = "cookbook"
+				entry.MaxInventory = 1
+				entry.MaxStorage = 0
+			} else if flagID, ok := data.BellBearingItemToFlagID[id]; ok {
+				entry.FlagID = flagID
+				entry.UnlockCategory = "bell_bearing"
+				entry.MaxInventory = 1
+				entry.MaxStorage = 0
+			} else if flagID, ok := data.MapFragmentItemToFlagID[id]; ok {
+				entry.FlagID = flagID
+				entry.UnlockCategory = "map"
+				entry.MaxInventory = 1
+				entry.MaxStorage = 0
+			} else if slices.Contains(item.Flags, "no_database") {
+				continue
+			}
+			items = append(items, entry)
 		}
 	case "info":
 		for id, item := range data.Information {

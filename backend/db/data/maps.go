@@ -374,6 +374,16 @@ var MapAcquired = map[uint32]MapRegionData{
 	63084: {Name: "Abyss", Area: "DLC"},
 }
 
+// MapFragmentItemToFlagID is the reverse of MapFragmentItems (item ID → visible flag ID).
+var MapFragmentItemToFlagID map[uint32]uint32
+
+func init() {
+	MapFragmentItemToFlagID = make(map[uint32]uint32, len(MapFragmentItems))
+	for flagID, itemID := range MapFragmentItems {
+		MapFragmentItemToFlagID[itemID] = flagID
+	}
+}
+
 // IsDLCMapFlag returns true if the visible flag ID belongs to a DLC (Shadow of the Erdtree) map region.
 func IsDLCMapFlag(flagID uint32) bool {
 	return (flagID >= 62080 && flagID <= 62084) ||

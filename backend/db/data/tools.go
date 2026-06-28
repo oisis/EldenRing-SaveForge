@@ -364,4 +364,5 @@ var Tools = map[uint32]ItemData{
 	0x401E9007: {Name: "Broken Rune", Category: "tools", SubCategory: SubcatToolsGoldenRunes, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/broken_rune.png", Flags: []string{"dlc", "stackable"}},
 	0x401E9006: {Name: "Leda's Rune", Category: "tools", SubCategory: SubcatToolsGoldenRunes, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/ledas_rune.png", Flags: []string{"dlc", "stackable"}},
 	0x400000BE: {Name: "Rune Arc", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/rune_arc.png", Flags: []string{"stackable"}},
+	0x400000A6: {Name: "Vision of Grace", Category: "tools", SubCategory: SubcatToolsMisc, MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/vision_of_grace.png"},
 }

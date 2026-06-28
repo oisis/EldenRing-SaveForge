@@ -323,3 +323,25 @@ func TestRepairDuplicateInventoryIndices_IgnoresEmptyHandles(t *testing.T) {
 		t.Errorf("empty rows must keep their original Index")
 	}
 }
+
+// TestMapInventoryReconcilesKeyItemIndex reproduces Bug #2: NextAcquisitionSortId was
+// reconciled against CommonItems only, so a KeyItem with a higher Index was invisible
+// to the reconcile. The next addToInventory would then assign an Index that collides
+// with the KeyItem, producing a duplicate acquisition entry.
+func TestMapInventoryReconcilesKeyItemIndex(t *testing.T) {
+	common := []InventoryItem{{GaItemHandle: 0xB0000001, Quantity: 1, Index: 500}}
+	key := []InventoryItem{{GaItemHandle: 0xC0000001, Quantity: 1, Index: 700}}
+	slot := buildRepairFixture(t, common, key)
+
+	// Simulate the stale value: only CommonItems max (500) was counted → 501.
+	stale := uint32(501)
+	slot.Inventory.NextAcquisitionSortId = stale
+	binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], stale)
+
+	if err := slot.mapInventory(); err != nil {
+		t.Fatalf("mapInventory: %v", err)
+	}
+	if slot.Inventory.NextAcquisitionSortId <= 700 {
+		t.Errorf("NextAcquisitionSortId not reconciled past KeyItem Index 700: got %d", slot.Inventory.NextAcquisitionSortId)
+	}
+}

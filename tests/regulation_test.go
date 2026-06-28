@@ -286,12 +286,11 @@ func TestNetworkParamFasterReds(t *testing.T) {
 	if !floatEq(p.BreakInRequestIntervalTimeSec, 12.0) {
 		t.Errorf("breakInRequestIntervalTimeSec = %f, want 12", p.BreakInRequestIntervalTimeSec)
 	}
-	if !floatEq(p.BreakInRequestTimeOutSec, 15.0) {
-		t.Errorf("breakInRequestTimeOutSec = %f, want 15", p.BreakInRequestTimeOutSec)
+	if !floatEq(p.BreakInRequestTimeOutSec, 8.0) {
+		t.Errorf("breakInRequestTimeOutSec = %f, want 8", p.BreakInRequestTimeOutSec)
 	}
-	// 0x7C must stay vanilla 5.
-	if p.BreakInRequestAreaCount != 5 {
-		t.Errorf("breakInRequestAreaCount = %d, want 5 (must never be raised by a preset)", p.BreakInRequestAreaCount)
+	if p.BreakInRequestAreaCount != 8 {
+		t.Errorf("breakInRequestAreaCount = %d, want 8", p.BreakInRequestAreaCount)
 	}
 	// Other groups untouched.
 	if p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 || p.SingGetMax != d.SingGetMax {
@@ -369,15 +368,14 @@ func TestNetworkParamAggressiveReds(t *testing.T) {
 	if p.MaxBreakInTargetListCount != 12 {
 		t.Errorf("maxBreakInTargetListCount = %d, want 12", p.MaxBreakInTargetListCount)
 	}
-	if !floatEq(p.BreakInRequestIntervalTimeSec, 8.0) {
-		t.Errorf("breakInRequestIntervalTimeSec = %f, want 8", p.BreakInRequestIntervalTimeSec)
+	if p.BreakInRequestAreaCount != 12 {
+		t.Errorf("breakInRequestAreaCount = %d, want 12", p.BreakInRequestAreaCount)
 	}
-	if !floatEq(p.BreakInRequestTimeOutSec, 12.0) {
-		t.Errorf("breakInRequestTimeOutSec = %f, want 12", p.BreakInRequestTimeOutSec)
+	if !floatEq(p.BreakInRequestIntervalTimeSec, 10.0) {
+		t.Errorf("breakInRequestIntervalTimeSec = %f, want 10", p.BreakInRequestIntervalTimeSec)
 	}
-	// 0x7C must stay vanilla 5 in the returned profile.
-	if p.BreakInRequestAreaCount != 5 {
-		t.Errorf("breakInRequestAreaCount = %d, want 5 (Aggressive must never raise 0x7C)", p.BreakInRequestAreaCount)
+	if !floatEq(p.BreakInRequestTimeOutSec, 7.0) {
+		t.Errorf("breakInRequestTimeOutSec = %f, want 7", p.BreakInRequestTimeOutSec)
 	}
 	// Other groups untouched.
 	if p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 || p.SingGetMax != d.SingGetMax {

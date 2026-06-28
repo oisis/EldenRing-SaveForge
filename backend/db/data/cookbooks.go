@@ -315,10 +315,15 @@ var CookbookFlagToItemID = map[uint32]uint32{
 // cookbookItemIDs is a set of all cookbook inventory item IDs for filtering.
 var cookbookItemIDs map[uint32]bool
 
+// CookbookItemToFlagID is the reverse of CookbookFlagToItemID.
+var CookbookItemToFlagID map[uint32]uint32
+
 func init() {
 	cookbookItemIDs = make(map[uint32]bool, len(CookbookFlagToItemID))
-	for _, itemID := range CookbookFlagToItemID {
+	CookbookItemToFlagID = make(map[uint32]uint32, len(CookbookFlagToItemID))
+	for flagID, itemID := range CookbookFlagToItemID {
 		cookbookItemIDs[itemID] = true
+		CookbookItemToFlagID[itemID] = flagID
 	}
 }
 
