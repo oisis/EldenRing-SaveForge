@@ -11,6 +11,7 @@ import {deploy} from '../../wailsjs/go/models';
 import {useSafetyMode} from '../state/safetyMode';
 import {FavoritesManager} from './FavoritesManager';
 import {useFavorites} from '../state/favorites';
+import {DiagnosticsModal} from './DiagnosticsModal';
 
 interface SettingsTabProps {
     theme: 'light' | 'dark' | 'golden';
@@ -47,7 +48,7 @@ const EMPTY_LOCAL_TARGET: deploy.Target = new deploy.Target({
 export function SettingsTab({
     theme, setTheme, columnVisibility, setColumnVisibility,
     showFlaggedItems, setShowFlaggedItems, debugMode, setDebugMode,
-    platform,
+    platform, charIndex,
     selectedDeployTarget: selectedTarget, setSelectedDeployTarget: setSelectedTarget,
     onAfterLoad,
     onComplete, onMutate,
@@ -68,6 +69,8 @@ export function SettingsTab({
         localStorage.setItem('setting:fullChaosMode', String(checked));
         window.dispatchEvent(new CustomEvent('fullChaosModeChanged', { detail: checked }));
     };
+
+    const [showDiagnostics, setShowDiagnostics] = useState(false);
 
     // Conversion flow
     const [convStep, setConvStep] = useState<'idle' | 'selecting' | 'steamid' | 'converting'>('idle');
@@ -245,6 +248,7 @@ export function SettingsTab({
     }
 
     return (
+        <>
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             {/* SteamID modal for PS4 → PC conversion */}
             {convStep === 'steamid' && (
@@ -465,17 +469,20 @@ export function SettingsTab({
                             }
                             Convert Format
                         </button>
+                        <button
+                            onClick={() => setShowDiagnostics(true)}
+                            className="flex items-center gap-2 px-3 py-2 rounded bg-primary text-primary-foreground hover:brightness-110 transition-all text-[9px] font-black uppercase tracking-widest shadow-sm active:scale-95"
+                        >
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                            Diagnostics
+                        </button>
                         <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                             </svg>
                             Save Comparison <span className="ml-1 text-[8px] opacity-60">(soon)</span>
-                        </div>
-                        <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                            </svg>
-                            Diagnostics <span className="ml-1 text-[8px] opacity-60">(soon)</span>
                         </div>
                         <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -487,5 +494,14 @@ export function SettingsTab({
                 </div>
             </section>
         </div>
+
+        {showDiagnostics && (
+            <DiagnosticsModal
+                charIndex={charIndex}
+                platform={platform}
+                onClose={() => setShowDiagnostics(false)}
+            />
+        )}
+        </>
     );
 }

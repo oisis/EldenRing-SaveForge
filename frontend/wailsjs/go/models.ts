@@ -1,5 +1,21 @@
 export namespace core {
 	
+	export class DiagnosticIssue {
+	    severity: string;
+	    category: string;
+	    description: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiagnosticIssue(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.severity = source["severity"];
+	        this.category = source["category"];
+	        this.description = source["description"];
+	    }
+	}
 	export class InventoryIndexRepairChange {
 	    scope: string;
 	    row: number;
@@ -1541,6 +1557,74 @@ export namespace main {
 	        this.platform = source["platform"];
 	    }
 	}
+	export class SlotDiagResult {
+	    slotIndex: number;
+	    charName: string;
+	    issues: core.DiagnosticIssue[];
+	
+	    static createFrom(source: any = {}) {
+	        return new SlotDiagResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slotIndex = source["slotIndex"];
+	        this.charName = source["charName"];
+	        this.issues = this.convertValues(source["issues"], core.DiagnosticIssue);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DiagnosticsReport {
+	    source: string;
+	    slots: SlotDiagResult[];
+	    canRepair: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new DiagnosticsReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.source = source["source"];
+	        this.slots = this.convertValues(source["slots"], SlotDiagResult);
+	        this.canRepair = source["canRepair"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class FavoriteSlotInfo {
 	    index: number;
 	    active: boolean;
@@ -1730,6 +1814,20 @@ export namespace main {
 	        this.sitesOfGrace = source["sitesOfGrace"];
 	    }
 	}
+	export class RepairReport {
+	    fixed: string[];
+	    skipped: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.fixed = source["fixed"];
+	        this.skipped = source["skipped"];
+	    }
+	}
 	export class SlotInventoryIntegrityReport {
 	    slotIndex: number;
 	    characterName: string;
@@ -1843,6 +1941,7 @@ export namespace main {
 	        this.storageMax = source["storageMax"];
 	    }
 	}
+	
 	
 	export class SlotState {
 	    index: number;

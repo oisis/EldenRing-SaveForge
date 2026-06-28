@@ -160,6 +160,8 @@ export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,a
 
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
 
+export function PickDiagnosticsFile():Promise<string>;
+
 export function PrepareConversion():Promise<main.ConversionInfo>;
 
 export function PreviewBuildTemplateFromLibrary(arg1:string):Promise<main.LoadedTemplatePreview>;
@@ -190,6 +192,10 @@ export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<v
 
 export function RepairDuplicateInventoryIndices(arg1:number):Promise<core.InventoryIndexRepairReport>;
 
+export function RepairExternal():Promise<main.RepairReport>;
+
+export function RepairLoadedSave(arg1:number):Promise<main.RepairReport>;
+
 export function ResetMapExploration(arg1:number):Promise<void>;
 
 export function ResetNetworkParams():Promise<void>;
@@ -197,6 +203,10 @@ export function ResetNetworkParams():Promise<void>;
 export function RevealAllMap(arg1:number):Promise<void>;
 
 export function RevertSlot(arg1:number):Promise<void>;
+
+export function RunDiagnosticsExternal(arg1:string):Promise<main.DiagnosticsReport>;
+
+export function RunDiagnosticsLoaded(arg1:number):Promise<main.DiagnosticsReport>;
 
 export function SaveBuildTemplateToLibrary(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<templates.LibraryTemplateEntry>;
 
@@ -209,6 +219,8 @@ export function SaveDeployTarget(arg1:deploy.Target):Promise<void>;
 export function SaveImportedBuildTemplateJSONToLibrary(arg1:string):Promise<templates.LibraryTemplateEntry>;
 
 export function SaveInventoryWorkspaceChanges(arg1:string):Promise<editor.InventoryWorkspaceSnapshot>;
+
+export function SaveRepairedExternal(arg1:string):Promise<string>;
 
 export function SelectAndOpenSave():Promise<string>;
 

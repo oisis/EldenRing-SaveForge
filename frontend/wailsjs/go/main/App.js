@@ -306,6 +306,10 @@ export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
   return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
 }
 
+export function PickDiagnosticsFile() {
+  return window['go']['main']['App']['PickDiagnosticsFile']();
+}
+
 export function PrepareConversion() {
   return window['go']['main']['App']['PrepareConversion']();
 }
@@ -366,6 +370,14 @@ export function RepairDuplicateInventoryIndices(arg1) {
   return window['go']['main']['App']['RepairDuplicateInventoryIndices'](arg1);
 }
 
+export function RepairExternal() {
+  return window['go']['main']['App']['RepairExternal']();
+}
+
+export function RepairLoadedSave(arg1) {
+  return window['go']['main']['App']['RepairLoadedSave'](arg1);
+}
+
 export function ResetMapExploration(arg1) {
   return window['go']['main']['App']['ResetMapExploration'](arg1);
 }
@@ -380,6 +392,14 @@ export function RevealAllMap(arg1) {
 
 export function RevertSlot(arg1) {
   return window['go']['main']['App']['RevertSlot'](arg1);
+}
+
+export function RunDiagnosticsExternal(arg1) {
+  return window['go']['main']['App']['RunDiagnosticsExternal'](arg1);
+}
+
+export function RunDiagnosticsLoaded(arg1) {
+  return window['go']['main']['App']['RunDiagnosticsLoaded'](arg1);
 }
 
 export function SaveBuildTemplateToLibrary(arg1, arg2) {
@@ -404,6 +424,10 @@ export function SaveImportedBuildTemplateJSONToLibrary(arg1) {
 
 export function SaveInventoryWorkspaceChanges(arg1) {
   return window['go']['main']['App']['SaveInventoryWorkspaceChanges'](arg1);
+}
+
+export function SaveRepairedExternal(arg1) {
+  return window['go']['main']['App']['SaveRepairedExternal'](arg1);
 }
 
 export function SelectAndOpenSave() {
