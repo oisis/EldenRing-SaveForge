@@ -1,25 +1,20 @@
 import {useState} from 'react';
 import toast from '../lib/toast';
 import {CharacterImporter} from './CharacterImporter';
-import {PresetImporter} from './PresetImporter';
 import {FavoritesManager} from './FavoritesManager';
-import {ExportCharacterPresetToFile, WriteSave} from '../../wailsjs/go/main/App';
+import {WriteSave} from '../../wailsjs/go/main/App';
 import {useFavorites} from '../state/favorites';
-import type {AddSettings} from '../App';
-import {vm} from '../../wailsjs/go/models';
 
 interface ToolsTabProps {
     charIndex: number;
     platform: string;
     onComplete: () => void;
     onMutate?: () => void;
-    addSettings: AddSettings;
-    onAddSettingsApplied?: (s: AddSettings) => void;
 }
 
-type ToolView = 'overview' | 'importer' | 'preset-import' | 'favorites';
+type ToolView = 'overview' | 'importer' | 'favorites';
 
-export function ToolsTab({charIndex, platform, onComplete, onMutate, addSettings, onAddSettingsApplied}: ToolsTabProps) {
+export function ToolsTab({charIndex, platform, onComplete, onMutate}: ToolsTabProps) {
     const [view, setView] = useState<ToolView>('overview');
     const [converting, setConverting] = useState(false);
     const {count: favCount} = useFavorites();
@@ -38,24 +33,6 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate, addSettings
         }
     };
 
-    const handleExportPreset = async () => {
-        try {
-            const s = new vm.PresetAddSettings({
-                upgrade25: addSettings.upgrade25,
-                upgrade10: addSettings.upgrade10,
-                infuseOffset: addSettings.infuseOffset,
-                upgradeAsh: addSettings.upgradeAsh,
-                talismansHighestOnly: addSettings.talismansHighestOnly,
-            });
-            const path = await ExportCharacterPresetToFile(charIndex, s);
-            if (path) {
-                toast.success('Preset exported to: ' + path);
-            }
-        } catch (e) {
-            toast.error('Export failed: ' + e);
-        }
-    };
-
     if (view === 'importer') {
         return (
             <div className="space-y-3 animate-in fade-in duration-300">
@@ -67,21 +44,6 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate, addSettings
                     Back to Tools
                 </button>
                 <CharacterImporter destSlot={charIndex} onComplete={onComplete} />
-            </div>
-        );
-    }
-
-    if (view === 'preset-import') {
-        return (
-            <div className="space-y-3 animate-in fade-in duration-300">
-                <button onClick={() => setView('overview')}
-                    className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" />
-                    </svg>
-                    Back to Tools
-                </button>
-                <PresetImporter charIndex={charIndex} onComplete={onComplete} onMutate={onMutate} onAddSettingsApplied={onAddSettingsApplied} />
             </div>
         );
     }
@@ -104,38 +66,6 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate, addSettings
     return (
         <div className="space-y-6 animate-in fade-in duration-500 max-w-4xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Export Preset */}
-                <button onClick={handleExportPreset}
-                    className="card p-5 text-left hover:border-green-500/40 hover:bg-green-500/5 transition-all group">
-                    <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-green-500/20 transition-colors">
-                            <svg className="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                            </svg>
-                        </div>
-                        <div>
-                            <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Export Preset</h4>
-                            <p className="text-[9px] text-muted-foreground mt-1">Save character stats, inventory and storage to a .preset.json file</p>
-                        </div>
-                    </div>
-                </button>
-
-                {/* Import Preset */}
-                <button onClick={() => setView('preset-import')}
-                    className="card p-5 text-left hover:border-blue-500/40 hover:bg-blue-500/5 transition-all group">
-                    <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-500/20 transition-colors">
-                            <svg className="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                        </div>
-                        <div>
-                            <h4 className="text-[11px] font-black uppercase tracking-wider text-foreground">Import Preset</h4>
-                            <p className="text-[9px] text-muted-foreground mt-1">Load a .preset.json file and apply to the current character</p>
-                        </div>
-                    </div>
-                </button>
-
                 {/* Favorite Items */}
                 <button onClick={() => setView('favorites')}
                     className="card p-5 text-left hover:border-amber-500/40 hover:bg-amber-500/5 transition-all group">

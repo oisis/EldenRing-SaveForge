@@ -2077,28 +2077,6 @@ export namespace vm {
 	        this.hasSharedHandleConflict = source["hasSharedHandleConflict"];
 	    }
 	}
-	export class ApplyOptions {
-	    replaceStats: boolean;
-	    replaceInventory: boolean;
-	    replaceStorage: boolean;
-	    replaceWorld: boolean;
-	    keepName: boolean;
-	    keepClass: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new ApplyOptions(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.replaceStats = source["replaceStats"];
-	        this.replaceInventory = source["replaceInventory"];
-	        this.replaceStorage = source["replaceStorage"];
-	        this.replaceWorld = source["replaceWorld"];
-	        this.keepName = source["keepName"];
-	        this.keepClass = source["keepClass"];
-	    }
-	}
 	export class WorldPresetData {
 	    graces?: number[];
 	    bosses?: number[];

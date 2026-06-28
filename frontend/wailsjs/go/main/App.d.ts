@@ -24,8 +24,6 @@ export function ApplyBuiltinCharacterPresetInventory(arg1:number,arg2:string):Pr
 
 export function ApplyBuiltinCharacterPresetStats(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
 
-export function ApplyCharacterPreset(arg1:number,arg2:vm.CharacterPreset,arg3:vm.ApplyOptions):Promise<vm.PresetApplyResult>;
-
 export function ApplyMirrorFavoriteToCharacter(arg1:number,arg2:number):Promise<void>;
 
 export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
@@ -71,8 +69,6 @@ export function DownloadRemoteSave(arg1:string):Promise<string>;
 export function ExportBuildTemplateV2JSONFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
 
 export function ExportBuildTemplateV2YAMLFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
-
-export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSettings):Promise<string>;
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
 
@@ -165,10 +161,6 @@ export function ListAppearancePresets():Promise<Array<main.PresetInfo>>;
 export function ListBuildTemplateLibrary():Promise<Array<templates.LibraryTemplateEntry>>;
 
 export function ListBuiltinCharacterPresets():Promise<Array<main.BuiltinCharacterPresetInfo>>;
-
-export function LoadCharacterPresetFromFile():Promise<vm.CharacterPreset>;
-
-export function LoadCharacterPresetFromURL(arg1:string):Promise<vm.CharacterPreset>;
 
 export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,arg4:number):Promise<editor.InventoryWorkspaceSnapshot>;
 
@@ -267,8 +259,6 @@ export function TransferInventoryWorkspaceItem(arg1:string,arg2:string,arg3:stri
 export function UpdateInventoryWorkspaceWeapon(arg1:string,arg2:string,arg3:editor.WeaponPatch):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function ValidateBuiltinCharacterPreset(arg1:number,arg2:string):Promise<Array<string>>;
-
-export function ValidateCharacterPreset(arg1:vm.CharacterPreset):Promise<Array<string>>;
 
 export function ValidateInventoryWorkspace(arg1:string):Promise<editor.WorkspaceValidationReport>;
 

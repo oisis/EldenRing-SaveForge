@@ -34,10 +34,6 @@ export function ApplyBuiltinCharacterPresetStats(arg1, arg2) {
   return window['go']['main']['App']['ApplyBuiltinCharacterPresetStats'](arg1, arg2);
 }
 
-export function ApplyCharacterPreset(arg1, arg2, arg3) {
-  return window['go']['main']['App']['ApplyCharacterPreset'](arg1, arg2, arg3);
-}
-
 export function ApplyMirrorFavoriteToCharacter(arg1, arg2) {
   return window['go']['main']['App']['ApplyMirrorFavoriteToCharacter'](arg1, arg2);
 }
@@ -128,10 +124,6 @@ export function ExportBuildTemplateV2JSONFromCharacter(arg1, arg2, arg3) {
 
 export function ExportBuildTemplateV2YAMLFromCharacter(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportBuildTemplateV2YAMLFromCharacter'](arg1, arg2, arg3);
-}
-
-export function ExportCharacterPresetToFile(arg1, arg2) {
-  return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1, arg2);
 }
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1) {
@@ -316,14 +308,6 @@ export function ListBuildTemplateLibrary() {
 
 export function ListBuiltinCharacterPresets() {
   return window['go']['main']['App']['ListBuiltinCharacterPresets']();
-}
-
-export function LoadCharacterPresetFromFile() {
-  return window['go']['main']['App']['LoadCharacterPresetFromFile']();
-}
-
-export function LoadCharacterPresetFromURL(arg1) {
-  return window['go']['main']['App']['LoadCharacterPresetFromURL'](arg1);
 }
 
 export function MoveInventoryWorkspaceItem(arg1, arg2, arg3, arg4) {
@@ -520,10 +504,6 @@ export function UpdateInventoryWorkspaceWeapon(arg1, arg2, arg3) {
 
 export function ValidateBuiltinCharacterPreset(arg1, arg2) {
   return window['go']['main']['App']['ValidateBuiltinCharacterPreset'](arg1, arg2);
-}
-
-export function ValidateCharacterPreset(arg1) {
-  return window['go']['main']['App']['ValidateCharacterPreset'](arg1);
 }
 
 export function ValidateInventoryWorkspace(arg1) {

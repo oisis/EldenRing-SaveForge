@@ -746,7 +746,7 @@ function App() {
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={() => { refreshUndoDepth(); setInventoryVersion(v => v + 1); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
                                 {activeTab === 'advanced' && <PvPTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
-                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} platform={platform ?? ''} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
+                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} platform={platform ?? ''} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} />}
                                 </div>
                             </div>
                         )}
