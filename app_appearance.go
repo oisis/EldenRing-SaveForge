@@ -2,19 +2,13 @@ package main
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"os"
 	"sort"
-	"time"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // appVersion is the SaveForge version stamped into exported artifacts
@@ -243,162 +237,6 @@ func (a *App) applyMemoryStonesToSlot(slot *core.SaveSlot, desired uint32) error
 		}
 	}
 	return nil
-}
-
-func (a *App) ExportCharacterPresetToFile(charIdx int, addSettings vm.PresetAddSettings) (string, error) {
-	// Phase 1: read the slot and build the preset entirely under
-	// saveMu.RLock + slotMu[charIdx]. The dialog and WriteFile run AFTER
-	// the locks are released so blocking UX never holds them.
-	a.saveMu.RLock()
-	if a.save == nil {
-		a.saveMu.RUnlock()
-		return "", fmt.Errorf("no save loaded")
-	}
-	if charIdx < 0 || charIdx >= 10 {
-		a.saveMu.RUnlock()
-		return "", fmt.Errorf("invalid character index")
-	}
-	a.slotMu[charIdx].Lock()
-	slot := &a.save.Slots[charIdx]
-	name := core.UTF16ToString(slot.Player.CharacterName[:])
-	if name == "" {
-		a.slotMu[charIdx].Unlock()
-		a.saveMu.RUnlock()
-		return "", fmt.Errorf("slot %d is empty", charIdx)
-	}
-
-	charVM, err := vm.MapParsedSlotToVM(slot)
-	if err != nil {
-		a.slotMu[charIdx].Unlock()
-		a.saveMu.RUnlock()
-		return "", fmt.Errorf("failed to map slot to VM: %w", err)
-	}
-
-	preset := vm.VMToPreset(charVM, appVersion)
-	preset.AddSettings = &addSettings
-
-	worldData, err := vm.ExportWorldState(slot)
-	if err == nil {
-		preset.World = worldData
-	}
-	a.slotMu[charIdx].Unlock()
-	a.saveMu.RUnlock()
-
-	// Phase 2: marshal + dialog + write — all on the local `preset`,
-	// no shared state touched.
-	jsonData, err := json.MarshalIndent(preset, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal preset: %w", err)
-	}
-
-	defaultName := fmt.Sprintf("%s_%d_%s.preset.json", preset.Character.Name, preset.Character.Level, preset.Character.ClassName)
-
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Export Character Preset",
-		DefaultFilename: defaultName,
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Character Preset (*.json)", Pattern: "*.json"},
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	if path == "" {
-		return "", fmt.Errorf("no file selected")
-	}
-
-	if err := os.WriteFile(path, jsonData, 0644); err != nil {
-		return "", fmt.Errorf("failed to write preset: %w", err)
-	}
-
-	return path, nil
-}
-
-func (a *App) LoadCharacterPresetFromFile() (*vm.CharacterPreset, error) {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Import Character Preset",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Character Preset (*.json)", Pattern: "*.json"},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	if path == "" {
-		return nil, fmt.Errorf("no file selected")
-	}
-
-	fileData, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read preset file: %w", err)
-	}
-
-	var preset vm.CharacterPreset
-	if err := json.Unmarshal(fileData, &preset); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	if preset.FormatVersion != vm.PresetFormatVersion {
-		return nil, fmt.Errorf("unsupported preset format version %d (expected %d)", preset.FormatVersion, vm.PresetFormatVersion)
-	}
-
-	return &preset, nil
-}
-
-func (a *App) LoadCharacterPresetFromURL(url string) (*vm.CharacterPreset, error) {
-	if url == "" {
-		return nil, fmt.Errorf("empty URL")
-	}
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch URL: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("HTTP %d: %s", resp.StatusCode, resp.Status)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 10*1024*1024))
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var preset vm.CharacterPreset
-	if err := json.Unmarshal(body, &preset); err != nil {
-		return nil, fmt.Errorf("invalid JSON: %w", err)
-	}
-
-	if preset.FormatVersion != vm.PresetFormatVersion {
-		return nil, fmt.Errorf("unsupported preset format version %d (expected %d)", preset.FormatVersion, vm.PresetFormatVersion)
-	}
-
-	return &preset, nil
-}
-
-func (a *App) ValidateCharacterPreset(preset vm.CharacterPreset) []string {
-	return vm.ValidatePreset(&preset)
-}
-
-// ApplyCharacterPreset is the public Wails entry point. It performs preflight
-// validation and takes saveMu.RLock + slotMu[charIdx], then delegates the
-// actual mutation to applyCharacterPresetLocked. Internal callers
-// (ApplyBuiltinCharacterPresetStats / Inventory) take the same locks
-// themselves and call the worker directly to avoid double-acquire.
-func (a *App) ApplyCharacterPreset(charIdx int, preset vm.CharacterPreset, opts vm.ApplyOptions) (*vm.PresetApplyResult, error) {
-	a.saveMu.RLock()
-	defer a.saveMu.RUnlock()
-	if a.save == nil {
-		return nil, fmt.Errorf("no save loaded")
-	}
-	if charIdx < 0 || charIdx >= 10 {
-		return nil, fmt.Errorf("invalid character index")
-	}
-	a.slotMu[charIdx].Lock()
-	defer a.slotMu[charIdx].Unlock()
-	return a.applyCharacterPresetLocked(charIdx, preset, opts)
 }
 
 // applyCharacterPresetLocked is the internal worker for ApplyCharacterPreset.

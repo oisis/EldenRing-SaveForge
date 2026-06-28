@@ -50,8 +50,9 @@ func DiagnoseSaveCorruption(slot *SaveSlot, slotIndex int) SlotDiagnostics {
 	// 5. Stat bounds
 	diag.checkStats(slot)
 
-	// 6. DLC section
-	diag.checkDLCSection(slot)
+	// DLC section check intentionally omitted — the CSDlc format is not fully
+	// understood; bytes [3-49] contain DLC progress data for SotE-active characters
+	// and must not be zeroed.
 
 	// 7. GaItemData count
 	diag.checkGaItemData(slot)
@@ -156,7 +157,7 @@ func (d *SlotDiagnostics) checkInventoryIndices(slot *SaveSlot) {
 				continue
 			}
 			if item.Index <= InvEquipReservedMax {
-				d.addWarning("inventory", "%s item handle 0x%08X has reserved Index=%d (<=432)", label, item.GaItemHandle, item.Index)
+				d.addWarning("inventory_reserved", "%s item handle 0x%08X has reserved Index=%d (<=432)", label, item.GaItemHandle, item.Index)
 			}
 			indexMap[item.Index]++
 			if indexMap[item.Index] == 2 {
@@ -215,7 +216,8 @@ func (d *SlotDiagnostics) checkStats(slot *SaveSlot) {
 		slot.Player.Faith + slot.Player.Arcane
 	expectedLevel := attrSum - 79
 	if slot.Player.Level != expectedLevel {
-		d.addWarning("stats", "Level %d != expected %d (sum(attrs)=%d - 79)", slot.Player.Level, expectedLevel, attrSum)
+		// Category "stats_formula" — not automatically repairable (would change character level)
+		d.addWarning("stats_formula", "Level %d != expected %d (sum(attrs)=%d - 79)", slot.Player.Level, expectedLevel, attrSum)
 	}
 }
 
@@ -474,4 +476,144 @@ func ValidatePostMutation(slot *SaveSlot) []IntegrityError {
 	}
 
 	return errs
+}
+
+// RepairStats clamps player level and attributes to valid game ranges.
+// Calls SyncPlayerToData on any change. Returns list of applied fixes.
+func RepairStats(slot *SaveSlot) []string {
+	var fixed []string
+	changed := false
+
+	if slot.Player.Level == 0 || slot.Player.Level > 713 {
+		clamped := slot.Player.Level
+		if clamped == 0 {
+			clamped = 1
+		} else {
+			clamped = 713
+		}
+		fixed = append(fixed, fmt.Sprintf("Level %d → %d", slot.Player.Level, clamped))
+		slot.Player.Level = clamped
+		changed = true
+	}
+
+	type statDef struct {
+		name string
+		ptr  *uint32
+	}
+	attrs := []statDef{
+		{"Vigor", &slot.Player.Vigor},
+		{"Mind", &slot.Player.Mind},
+		{"Endurance", &slot.Player.Endurance},
+		{"Strength", &slot.Player.Strength},
+		{"Dexterity", &slot.Player.Dexterity},
+		{"Intelligence", &slot.Player.Intelligence},
+		{"Faith", &slot.Player.Faith},
+		{"Arcane", &slot.Player.Arcane},
+	}
+	for _, s := range attrs {
+		v := *s.ptr
+		if v < 1 || v > 99 {
+			c := v
+			if c < 1 {
+				c = 1
+			} else {
+				c = 99
+			}
+			fixed = append(fixed, fmt.Sprintf("%s %d → %d", s.name, v, c))
+			*s.ptr = c
+			changed = true
+		}
+	}
+	if changed {
+		slot.SyncPlayerToData()
+	}
+	return fixed
+}
+
+// RepairStorageCountHeader recalculates the storage box item count header.
+// Returns true if the header was corrected.
+func RepairStorageCountHeader(slot *SaveSlot) bool {
+	if slot.StorageBoxOffset <= 0 || slot.StorageBoxOffset+4 > len(slot.Data) {
+		return false
+	}
+	headerCount := binary.LittleEndian.Uint32(slot.Data[slot.StorageBoxOffset:])
+	actualCount := uint32(0)
+	storageStart := slot.StorageBoxOffset + StorageHeaderSkip
+	for i := 0; i < StorageCommonCount; i++ {
+		off := storageStart + i*InvRecordLen
+		if off+InvRecordLen > len(slot.Data) {
+			break
+		}
+		h := binary.LittleEndian.Uint32(slot.Data[off:])
+		if h != GaHandleEmpty && h != GaHandleInvalid {
+			actualCount++
+		}
+	}
+	if headerCount == actualCount {
+		return false
+	}
+	binary.LittleEndian.PutUint32(slot.Data[slot.StorageBoxOffset:], actualCount)
+	return true
+}
+
+// RepairGaItemDataCount caps the GaItemData count header to the allowed maximum.
+// Returns true if the value was changed.
+func RepairGaItemDataCount(slot *SaveSlot) bool {
+	if slot.GaItemDataOffset <= 0 || slot.GaItemDataOffset+4 > len(slot.Data) {
+		return false
+	}
+	count := binary.LittleEndian.Uint32(slot.Data[slot.GaItemDataOffset:])
+	if count <= GaItemDataMaxCount {
+		return false
+	}
+	binary.LittleEndian.PutUint32(slot.Data[slot.GaItemDataOffset:], uint32(GaItemDataMaxCount))
+	return true
+}
+
+// RepairDLCSection zeros the reserved trailing bytes (indices 3–49) of the DLC section.
+// Returns true if any byte was changed.
+func RepairDLCSection(slot *SaveSlot) bool {
+	if DlcSectionOffset+DlcSectionSize > len(slot.Data) {
+		return false
+	}
+	dlc := slot.Data[DlcSectionOffset : DlcSectionOffset+DlcSectionSize]
+	changed := false
+	for i := 3; i < DlcSectionSize; i++ {
+		if dlc[i] != 0 {
+			dlc[i] = 0
+			changed = true
+		}
+	}
+	return changed
+}
+
+// RepairSlot applies all available automated repairs to the slot.
+// Returns lists of what was fixed and what was skipped (unrepairable).
+func RepairSlot(slot *SaveSlot) (fixed, skipped []string) {
+	fixed = []string{}
+	skipped = []string{}
+	fixed = append(fixed, RepairStats(slot)...)
+
+	if RepairStorageCountHeader(slot) {
+		fixed = append(fixed, "storage count header recalculated")
+	}
+	if RepairGaItemDataCount(slot) {
+		fixed = append(fixed, "GaItemData count capped to maximum")
+	}
+	// RepairDLCSection intentionally removed — see checkDLCSection comment
+
+	dupes := ScanDuplicateInventoryIndices(slot)
+	physick := ScanDuplicateWondrousPhysick(slot)
+	if len(dupes) > 0 || len(physick) > 0 {
+		r, err := RepairDuplicateInventoryIndices(slot)
+		if err != nil {
+			skipped = append(skipped, fmt.Sprintf("duplicate inventory indices: %v", err))
+		} else if r.Changed > 0 {
+			fixed = append(fixed, fmt.Sprintf("fixed %d duplicate inventory index(es)", r.Changed))
+		}
+		if _, err := RepairDuplicateWondrousPhysick(slot); err != nil {
+			skipped = append(skipped, fmt.Sprintf("Wondrous Physick duplicates: %v", err))
+		}
+	}
+	return
 }

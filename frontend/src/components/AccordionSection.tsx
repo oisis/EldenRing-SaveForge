@@ -2,7 +2,7 @@ import {useState, ReactNode, useEffect, useRef} from 'react';
 
 interface AccordionSectionProps {
     id?: string;
-    title: string;
+    title: ReactNode;
     defaultOpen?: boolean;
     badge?: string | number;
     progress?: { current: number; total: number };

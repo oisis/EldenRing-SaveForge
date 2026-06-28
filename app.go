@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -62,7 +61,6 @@ type slotSnapshot struct {
 type App struct {
 	ctx          context.Context
 	save         *core.SaveFile
-	sourceSave   *core.SaveFile
 	undoStacks   [10][]slotSnapshot
 	lastSavePath string
 	deployStore  *deploy.TargetStore
@@ -114,8 +112,7 @@ type App struct {
 	// concurrency holes that the previous inventory-session fix left open
 	// (whole-save replacement vs in-flight slot operations, GaMap
 	// concurrent-map-writes between session Save and non-session mutators,
-	// favSlotNames concurrent-map-writes between favorites endpoints,
-	// sourceSave use-after-replace).
+	// favSlotNames concurrent-map-writes between favorites endpoints).
 	//
 	// Lock order — taken in increasing order, released in reverse — is:
 	//   1. saveMu                 (whole-save lifecycle + metadata)
@@ -123,8 +120,7 @@ type App struct {
 	//   3. editSessionsMu         (session registry, short — existing)
 	//   4. sess.mu                (per-session workspace state — existing)
 	//   5. favMu                  (UserData10 + favSlotNames)
-	//   6. sourceSaveMu           (a.sourceSave pointer + content)
-	//   7. slotMu[i]              (per-slot data, ascending i)
+	//   6. slotMu[i]              (per-slot data, ascending i)
 	// Multi-slot operations take slotMu in strictly ascending index order
 	// and release in descending order (see lockAllSlots / lockSlotPair).
 	// sync.RWMutex is NOT treated as reentrant: never call RLock while
@@ -149,12 +145,6 @@ type App struct {
 	// when both apply (see ApplyMirrorFavoriteToCharacter,
 	// WriteSelectedToFavorites).
 	favMu sync.RWMutex
-	// sourceSaveMu protects the a.sourceSave pointer (installed by
-	// SelectAndOpenSourceSave) and every dereference of its slots from the
-	// diff / source-active-slots endpoints. Independent of saveMu because
-	// the source save is loaded only for diff/import preview — it is never
-	// mutated by user actions on the active save.
-	sourceSaveMu sync.RWMutex
 }
 
 // NewApp creates a new App struct
@@ -249,47 +239,6 @@ func (a *App) installLoadedSave(candidate *core.SaveFile, path string) {
 	a.clearAllEditSessions()
 }
 
-// SelectAndOpenSourceSave opens a native file dialog and loads the selected source save for import
-func (a *App) SelectAndOpenSourceSave() (string, error) {
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
-		Title: "Select SOURCE Elden Ring Save File",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Elden Ring Save (*.sl2;*.dat;*.txt)", Pattern: "*.sl2;*.dat;*.txt"},
-			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
-		},
-	})
-	if err != nil {
-		return "", err
-	}
-	if path == "" {
-		return "", fmt.Errorf("no file selected")
-	}
-
-	save, err := core.LoadSave(path)
-	if err != nil {
-		return "", err
-	}
-	// Commit phase: sourceSaveMu.Lock blocks every reader of the old
-	// a.sourceSave (GetSourceActiveSlots, GetSlotDiff, GetSaveDiffSummary)
-	// while the pointer is swapped. We do NOT take saveMu.RLock here
-	// because the endpoint touches only a.sourceSave; the active save is
-	// untouched.
-	a.sourceSaveMu.Lock()
-	a.installSourceSave(save)
-	a.sourceSaveMu.Unlock()
-	return string(save.Platform), nil
-}
-
-// installSourceSave swaps the source save pointer to candidate.
-//
-// Contract: caller MUST run dialog / file I/O / decrypt / parse OUTSIDE
-// this helper — pass a fully-prepared *core.SaveFile and only invoke the
-// helper for the atomic commit phase. Caller MUST hold a.sourceSaveMu.Lock
-// for the entire call; the helper itself does not acquire it.
-func (a *App) installSourceSave(candidate *core.SaveFile) {
-	a.sourceSave = candidate
-}
-
 // GetCharacter returns the ViewModel for a specific slot
 func (a *App) GetCharacter(index int) (*vm.CharacterViewModel, error) {
 	a.saveMu.RLock()
@@ -365,7 +314,7 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 // was choosing the destination path, writeSaveCore aborts with a clear
 // error WITHOUT touching the file or mutating any metadata — i.e. it
 // refuses to silently serialise save B under a path picked for save A.
-func (a *App) WriteSave(platform string) error {
+func (a *App) WriteSave() error {
 	a.saveMu.RLock()
 	if a.save == nil {
 		a.saveMu.RUnlock()
@@ -398,21 +347,22 @@ func (a *App) WriteSave(platform string) error {
 		}
 	}
 
-	return a.writeSaveCore(path, platform, expected)
+	return a.writeSaveCore(path, expected)
 }
 
-// writeSaveCore performs the in-memory mutation of a.save (Platform / IV /
-// Encrypted), serializes it to disk and resets undo state + lastSavePath.
+// writeSaveCore serializes a.save to disk in its current platform and resets
+// undo state + lastSavePath. Cross-platform conversion is handled separately
+// by ExecuteConversion (app_convert.go), which operates on a local copy and
+// never touches a.save.
 //
 // Acquires a.saveMu.Lock() for the entire critical section. Caller MUST
 // have performed dialog / backup work BEFORE invoking this helper, and
 // MUST pass `expected` — the *core.SaveFile snapshot taken before the
 // dialog. When a concurrent SelectAndOpenSave / DownloadRemoteSave
 // replaced a.save during the dialog wait, the identity check fails fast:
-// no metadata is mutated, no file is written, the helper returns a
-// user-facing error instead of silently writing save B to a path picked
-// for save A.
-func (a *App) writeSaveCore(path string, platform string, expected *core.SaveFile) error {
+// no file is written, the helper returns a user-facing error instead of
+// silently writing save B to a path picked for save A.
+func (a *App) writeSaveCore(path string, expected *core.SaveFile) error {
 	a.saveMu.Lock()
 	defer a.saveMu.Unlock()
 
@@ -421,22 +371,6 @@ func (a *App) writeSaveCore(path string, platform string, expected *core.SaveFil
 	}
 	if a.save != expected {
 		return fmt.Errorf("active save changed while the save dialog was open; write to %q aborted to avoid overwriting it with the wrong save", path)
-	}
-
-	// Apply target platform — enables cross-platform conversion.
-	origPlatform := a.save.Platform
-	a.save.Platform = core.Platform(platform)
-	if platform == "PC" && origPlatform == core.PlatformPS {
-		// PS4 → PC: enable AES encryption with a fresh random IV.
-		iv := make([]byte, 16)
-		if _, err := rand.Read(iv); err != nil {
-			return fmt.Errorf("failed to generate IV for encryption: %w", err)
-		}
-		a.save.IV = iv
-		a.save.Encrypted = true
-	}
-	if platform == "PS4" {
-		a.save.Encrypted = false
 	}
 
 	if err := a.save.SaveFile(path); err != nil {
@@ -494,14 +428,15 @@ type SkippedAdd struct {
 
 // AddResult reports the outcome of an AddItemsToCharacter operation.
 type AddResult struct {
-	Added       int          `json:"added"`
-	Requested   int          `json:"requested"`
-	Trimmed     []SkippedAdd `json:"trimmed"`
-	CapHit      string       `json:"capHit"`
-	FreeInv     int          `json:"freeInv"`
-	FreeStore   int          `json:"freeStore"`
-	NeededInv   int          `json:"neededInv"`
-	NeededStore int          `json:"neededStore"`
+	Added           int          `json:"added"`
+	Requested       int          `json:"requested"`
+	Trimmed         []SkippedAdd `json:"trimmed"`
+	SkippedExisting []SkippedAdd `json:"skippedExisting"`
+	CapHit          string       `json:"capHit"`
+	FreeInv         int          `json:"freeInv"`
+	FreeStore       int          `json:"freeStore"`
+	NeededInv       int          `json:"neededInv"`
+	NeededStore     int          `json:"neededStore"`
 }
 
 // SlotState is the frontend's single source of truth for character-slot
@@ -695,6 +630,7 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	}
 	var prepared []preparedItem
 	var trimmed []SkippedAdd
+	var skippedExisting []SkippedAdd
 
 	for _, id := range sortedIDs {
 		isPhysick := db.IsWondrousPhysick(id)
@@ -736,6 +672,12 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		handlePrefix := db.ItemIDToHandlePrefix(finalID)
 		isStackable := handlePrefix == core.ItemTypeItem || handlePrefix == core.ItemTypeAccessory || db.IsArrowID(finalID)
 		if isStackable {
+			if (actualInv > 0 || actualStorage > 0) && existingKeyItemQty[id] > 0 {
+				a.logInfo("already in Key Items — skipping %s (0x%08X)", itemData.Name, id)
+				skippedExisting = append(skippedExisting, SkippedAdd{ItemID: id})
+				actualInv = 0
+				actualStorage = 0
+			}
 			if actualInv > 0 && existingItemQty[id] >= int(itemData.MaxInventory) {
 				a.logInfo("already max inv qty %d/%d — skipping %s (0x%08X)", existingItemQty[id], itemData.MaxInventory, itemData.Name, id)
 				actualInv = 0
@@ -785,6 +727,14 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			ForceStackable: p.forceStackable,
 			IsStackable:    p.isStackable,
 		})
+	}
+	if len(capacityItems) == 0 {
+		finalUsage := core.CountSlotUsage(slot)
+		result.Trimmed = trimmed
+		result.SkippedExisting = skippedExisting
+		result.FreeInv = finalUsage.InventoryMax - finalUsage.InventoryUsed
+		result.FreeStore = finalUsage.StorageMax - finalUsage.StorageUsed
+		return result, nil
 	}
 
 	capReport := core.CheckAddCapacity(slot, capacityItems)
@@ -927,6 +877,7 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	}
 	result.Added = added
 	result.Trimmed = trimmed
+	result.SkippedExisting = skippedExisting
 	result.FreeInv = finalUsage.InventoryMax - finalUsage.InventoryUsed
 	result.FreeStore = finalUsage.StorageMax - finalUsage.StorageUsed
 	return result, nil
@@ -1151,11 +1102,6 @@ func (a *App) GetInfuseTypes() []db.InfuseType {
 
 func (a *App) GetStartingClasses() []db.ClassStats {
 	return db.GetAllClassStats()
-}
-
-// ImportCharacter copies a slot from the source save file to the destination save file
-func (a *App) ImportCharacter(srcIdx, destIdx int) error {
-	return fmt.Errorf("ImportCharacter is temporarily disabled during architecture refactor")
 }
 
 // CloneSlot copies an existing character slot to an empty destination slot within the same save.
@@ -1394,21 +1340,6 @@ func (a *App) GetCharacterNames() []string {
 		}
 	}
 	return names
-}
-
-// GetSourceActiveSlots returns the activity status of all 10 slots in the source file
-func (a *App) GetSourceActiveSlots() []bool {
-	active := make([]bool, 10)
-	a.sourceSaveMu.RLock()
-	defer a.sourceSaveMu.RUnlock()
-	if a.sourceSave == nil {
-		return active
-	}
-	for i := 0; i < 10; i++ {
-		name := core.UTF16ToString(a.sourceSave.Slots[i].Player.CharacterName[:])
-		active[i] = name != ""
-	}
-	return active
 }
 
 // SetSlotActivity toggles a slot's active status
@@ -1743,6 +1674,19 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 		p = core.NetworkParamAggressiveBlue()
 	case "vanilla":
 		p = core.NetworkParamDefaults()
+	// Summon sections presets (v1.0-beta5+).
+	case "faster-summon-host":
+		p = core.NetworkParamFasterSummonHost()
+	case "aggressive-summon-host":
+		p = core.NetworkParamAggressiveSummonHost()
+	case "faster-summon-guest":
+		p = core.NetworkParamFasterSummonGuest()
+	case "aggressive-summon-guest":
+		p = core.NetworkParamAggressiveSummonGuest()
+	case "faster-hunter":
+		p = core.NetworkParamFasterHunter()
+	case "aggressive-hunter":
+		p = core.NetworkParamAggressiveHunter()
 	// Legacy preset keys (consumed only by the orphaned NetworkSpeedPanel).
 	case "fast-invasions":
 		p = core.NetworkParamFastInvasions()
@@ -1865,6 +1809,6 @@ func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexR
 }
 
 // Dummy method to force Wails to export types
-func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, DiffEntry, SlotDiffSummary, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, core.InventoryIndexRepairReport, core.InventoryIndexRepairChange, SaveInventoryIntegrityReport, SlotInventoryIntegrityReport, InventoryIntegrityConflict, InventoryIntegrityConflictItem) {
-	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, DiffEntry{}, SlotDiffSummary{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, core.InventoryIndexRepairReport{}, core.InventoryIndexRepairChange{}, SaveInventoryIntegrityReport{}, SlotInventoryIntegrityReport{}, InventoryIntegrityConflict{}, InventoryIntegrityConflictItem{}
+func (a *App) _forceExportTypes() (db.GraceEntry, db.BossEntry, db.ItemEntry, db.MapEntry, db.CookbookEntry, db.GestureEntry, db.QuestNPC, db.QuestStep, db.QuestFlagState, core.SlotDiagnostics, core.DiagnosticIssue, SlotCapacity, deploy.Target, PresetInfo, FavoriteSlotInfo, db.BellBearingEntry, db.WhetbladeEntry, core.NetworkParamValues, vm.CharacterPreset, vm.PresetItem, vm.ApplyOptions, vm.PresetApplyResult, vm.WorldPresetData, PvPPreparationOptions, vm.AoWAvailabilityEntry, BuiltinCharacterPresetInfo, InventoryOrderItem, core.TransferResult, core.TransferSkip, core.InventoryIndexRepairReport, core.InventoryIndexRepairChange, SaveInventoryIntegrityReport, SlotInventoryIntegrityReport, InventoryIntegrityConflict, InventoryIntegrityConflictItem) {
+	return db.GraceEntry{}, db.BossEntry{}, db.ItemEntry{}, db.MapEntry{}, db.CookbookEntry{}, db.GestureEntry{}, db.QuestNPC{}, db.QuestStep{}, db.QuestFlagState{}, core.SlotDiagnostics{}, core.DiagnosticIssue{}, SlotCapacity{}, deploy.Target{}, PresetInfo{}, FavoriteSlotInfo{}, db.BellBearingEntry{}, db.WhetbladeEntry{}, core.NetworkParamValues{}, vm.CharacterPreset{}, vm.PresetItem{}, vm.ApplyOptions{}, vm.PresetApplyResult{}, vm.WorldPresetData{}, PvPPreparationOptions{}, vm.AoWAvailabilityEntry{}, BuiltinCharacterPresetInfo{}, InventoryOrderItem{}, core.TransferResult{}, core.TransferSkip{}, core.InventoryIndexRepairReport{}, core.InventoryIndexRepairChange{}, SaveInventoryIntegrityReport{}, SlotInventoryIntegrityReport{}, InventoryIntegrityConflict{}, InventoryIntegrityConflictItem{}
 }

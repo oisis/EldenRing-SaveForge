@@ -24,8 +24,6 @@ export function ApplyBuiltinCharacterPresetInventory(arg1:number,arg2:string):Pr
 
 export function ApplyBuiltinCharacterPresetStats(arg1:number,arg2:string):Promise<vm.PresetApplyResult>;
 
-export function ApplyCharacterPreset(arg1:number,arg2:vm.CharacterPreset,arg3:vm.ApplyOptions):Promise<vm.PresetApplyResult>;
-
 export function ApplyMirrorFavoriteToCharacter(arg1:number,arg2:number):Promise<void>;
 
 export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
@@ -68,11 +66,11 @@ export function DiscardInventoryEditSession(arg1:string):Promise<void>;
 
 export function DownloadRemoteSave(arg1:string):Promise<string>;
 
+export function ExecuteConversion(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function ExportBuildTemplateV2JSONFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
 
 export function ExportBuildTemplateV2YAMLFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
-
-export function ExportCharacterPresetToFile(arg1:number,arg2:vm.PresetAddSettings):Promise<string>;
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
 
@@ -128,17 +126,11 @@ export function GetQuestNPCs():Promise<Array<string>>;
 
 export function GetQuestProgress(arg1:number,arg2:string):Promise<db.QuestNPC>;
 
-export function GetSaveDiffSummary():Promise<Array<main.SlotDiffSummary>>;
-
 export function GetSaveInventoryIntegrityReport():Promise<main.SaveInventoryIntegrityReport>;
 
 export function GetSlotCapacity(arg1:number):Promise<main.SlotCapacity>;
 
-export function GetSlotDiff(arg1:number):Promise<Array<main.DiffEntry>>;
-
 export function GetSlotStates():Promise<Array<main.SlotState>>;
-
-export function GetSourceActiveSlots():Promise<Array<boolean>>;
 
 export function GetStartingClasses():Promise<Array<db.ClassStats>>;
 
@@ -156,8 +148,6 @@ export function GetWeaponInventoryOrder(arg1:number):Promise<Array<main.Inventor
 
 export function GetWhetblades(arg1:number):Promise<Array<db.WhetbladeEntry>>;
 
-export function ImportCharacter(arg1:number,arg2:number):Promise<void>;
-
 export function LaunchRemoteGame(arg1:string):Promise<string>;
 
 export function ListAppearancePresets():Promise<Array<main.PresetInfo>>;
@@ -166,13 +156,13 @@ export function ListBuildTemplateLibrary():Promise<Array<templates.LibraryTempla
 
 export function ListBuiltinCharacterPresets():Promise<Array<main.BuiltinCharacterPresetInfo>>;
 
-export function LoadCharacterPresetFromFile():Promise<vm.CharacterPreset>;
-
-export function LoadCharacterPresetFromURL(arg1:string):Promise<vm.CharacterPreset>;
-
 export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,arg4:number):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
+
+export function PickDiagnosticsFile():Promise<string>;
+
+export function PrepareConversion():Promise<main.ConversionInfo>;
 
 export function PreviewBuildTemplateFromLibrary(arg1:string):Promise<main.LoadedTemplatePreview>;
 
@@ -200,7 +190,13 @@ export function ReorderStorage(arg1:number,arg2:string,arg3:Array<number>):Promi
 
 export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<void>;
 
+export function RepairAllLoadedSlots():Promise<main.RepairReport>;
+
 export function RepairDuplicateInventoryIndices(arg1:number):Promise<core.InventoryIndexRepairReport>;
+
+export function RepairExternal():Promise<main.RepairReport>;
+
+export function RepairLoadedSave(arg1:number):Promise<main.RepairReport>;
 
 export function ResetMapExploration(arg1:number):Promise<void>;
 
@@ -209,6 +205,12 @@ export function ResetNetworkParams():Promise<void>;
 export function RevealAllMap(arg1:number):Promise<void>;
 
 export function RevertSlot(arg1:number):Promise<void>;
+
+export function RunDiagnosticsAllLoaded():Promise<main.DiagnosticsReport>;
+
+export function RunDiagnosticsExternal(arg1:string):Promise<main.DiagnosticsReport>;
+
+export function RunDiagnosticsLoaded(arg1:number):Promise<main.DiagnosticsReport>;
 
 export function SaveBuildTemplateToLibrary(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<templates.LibraryTemplateEntry>;
 
@@ -222,9 +224,9 @@ export function SaveImportedBuildTemplateJSONToLibrary(arg1:string):Promise<temp
 
 export function SaveInventoryWorkspaceChanges(arg1:string):Promise<editor.InventoryWorkspaceSnapshot>;
 
-export function SelectAndOpenSave():Promise<string>;
+export function SaveRepairedExternal(arg1:string):Promise<string>;
 
-export function SelectAndOpenSourceSave():Promise<string>;
+export function SelectAndOpenSave():Promise<string>;
 
 export function SetBellBearingUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
@@ -256,7 +258,7 @@ export function SetSteamIDFromString(arg1:string):Promise<void>;
 
 export function SetSummoningPoolActivated(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
-export function SetWhetbladeUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
+export function SetWhetbladeUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<boolean>;
 
 export function StartInventoryEditSession(arg1:number):Promise<editor.InventoryWorkspaceSnapshot>;
 
@@ -268,10 +270,8 @@ export function UpdateInventoryWorkspaceWeapon(arg1:string,arg2:string,arg3:edit
 
 export function ValidateBuiltinCharacterPreset(arg1:number,arg2:string):Promise<Array<string>>;
 
-export function ValidateCharacterPreset(arg1:vm.CharacterPreset):Promise<Array<string>>;
-
 export function ValidateInventoryWorkspace(arg1:string):Promise<editor.WorkspaceValidationReport>;
 
-export function WriteSave(arg1:string):Promise<void>;
+export function WriteSave():Promise<void>;
 
 export function WriteSelectedToFavorites(arg1:number,arg2:Array<string>):Promise<number>;

@@ -1,13 +1,13 @@
 import {useState, useEffect, useCallback} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetSlotDiff, GetSaveDiffSummary, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
-import {ToolsTab} from './components/ToolsTab';
 import {SettingsTab} from './components/SettingsTab';
+import {DiagnosticsModal} from './components/DiagnosticsModal';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {PvPTab} from './components/PvPTab';
@@ -51,6 +51,7 @@ const DEFAULT_PVP_OPTIONS: PvPOptions = {
 function App() {
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
+    const [postLoadDiagReport, setPostLoadDiagReport] = useState<main.DiagnosticsReport | null>(null);
     const [charNames, setCharacterNames] = useState<string[]>([]);
     const [slotStates, setSlotStates] = useState<main.SlotState[]>([]);
     const [selectedChar, setSelectedChar] = useState<number>(0);
@@ -84,10 +85,6 @@ function App() {
         return localStorage.getItem('setting:debugMode') === 'true';
     });
     const [undoDepth, setUndoDepth] = useState(0);
-    const [diffModal, setDiffModal] = useState(false);
-    const [diffSummary, setDiffSummary] = useState<main.SlotDiffSummary[]>([]);
-    const [diffDetails, setDiffDetails] = useState<Record<number, main.DiffEntry[]>>({});
-    const [diffExpanded, setDiffExpanded] = useState<Record<number, boolean>>({});
     const [selectedDeployTarget, setSelectedDeployTarget] = useState<string>(() => localStorage.getItem('selectedDeployTarget') || '');
     const [showEmptySlots, setShowEmptySlots] = useState(false);
     const [showOnlyFavorites, setShowOnlyFavorites] = useState(false);
@@ -129,8 +126,8 @@ function App() {
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
 
     const tabs = platform
-        ? ['character', 'inventory', 'world', 'advanced', 'tools', 'settings']
-        : ['character', 'inventory', 'settings'];
+        ? ['character', 'inventory', 'world', 'advanced', 'tools']
+        : ['character', 'inventory', 'tools'];
 
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
     useEffect(() => { GetInfuseTypes().then(res => setInfuseTypes(res || [])); }, []);
@@ -219,6 +216,10 @@ function App() {
             setPlatform(plat);
             setSaveLoadKey(k => k + 1);
             refreshSlots();
+            // Non-blocking corruption scan — show modal only if there is something to repair
+            RunDiagnosticsAllLoaded()
+                .then(diagReport => { if (diagReport.canRepair) setPostLoadDiagReport(diagReport); })
+                .catch(() => {});
             return;
         }
         // Dirty: keep platform null so tabs/Save remain hidden; let the modal drive next step.
@@ -302,7 +303,7 @@ function App() {
     const doWriteSave = async () => {
         if (!platform) return;
         setSaving(true);
-        try { await WriteSave(platform); toast.success('File saved'); }
+        try { await WriteSave(); toast.success('File saved'); }
         catch (err) { toast.error(String(err)); }
         finally { setSaving(false); }
     };
@@ -365,32 +366,6 @@ function App() {
             refreshUndoDepth();
             setInventoryVersion(v => v + 1);
             toast.success('Reverted to previous state');
-        } catch (err) {
-            toast.error(String(err));
-        }
-    };
-
-    const handleReviewChanges = async () => {
-        try {
-            const summary = await GetSaveDiffSummary();
-            setDiffSummary(summary || []);
-            setDiffDetails({});
-            setDiffExpanded({});
-            setDiffModal(true);
-        } catch (err) {
-            toast.error(String(err));
-        }
-    };
-
-    const loadSlotDiff = async (slotIdx: number) => {
-        if (diffDetails[slotIdx]) {
-            setDiffExpanded(prev => ({...prev, [slotIdx]: !prev[slotIdx]}));
-            return;
-        }
-        try {
-            const diffs = await GetSlotDiff(slotIdx);
-            setDiffDetails(prev => ({...prev, [slotIdx]: diffs || []}));
-            setDiffExpanded(prev => ({...prev, [slotIdx]: true}));
         } catch (err) {
             toast.error(String(err));
         }
@@ -567,16 +542,6 @@ function App() {
                         ))}
                     </nav>
                     <div className="flex items-center space-x-4">
-                        {platform && (
-                            <button
-                                onClick={handleReviewChanges}
-                                title="Review all pending changes before saving"
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/20 transition-all text-[9px] font-black uppercase tracking-widest"
-                            >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" /></svg>
-                                <span>Review</span>
-                            </button>
-                        )}
                         {undoDepth > 0 && (
                             <button
                                 onClick={handleRevert}
@@ -592,7 +557,7 @@ function App() {
 
                 <div className="flex-1 flex flex-col min-h-0 relative">
                     <div className="w-full h-full px-6 pb-6 pt-3 flex flex-col min-h-0">
-                        {activeTab === 'settings' ? (
+                        {activeTab === 'tools' ? (
                             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 overflow-y-auto custom-scrollbar pr-2">
                                 <SettingsTab
                                     theme={theme}
@@ -607,6 +572,9 @@ function App() {
                                     selectedDeployTarget={selectedDeployTarget}
                                     setSelectedDeployTarget={setSelectedDeployTarget}
                                     onAfterLoad={finalizeLoadedSaveWithIntegrityCheck}
+                                    charIndex={selectedChar}
+                                    onComplete={refreshSlots}
+                                    onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
                                 />
                             </div>
                         ) : !platform ? (
@@ -746,96 +714,12 @@ function App() {
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={() => { refreshUndoDepth(); setInventoryVersion(v => v + 1); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
                                 {activeTab === 'advanced' && <PvPTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
-                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} platform={platform ?? ''} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} onAddSettingsApplied={(s) => setCharAddSettings(prev => ({...prev, [selectedChar]: s}))} />}
                                 </div>
                             </div>
                         )}
                     </div>
                 </div>
             </main>
-        {diffModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setDiffModal(false)}>
-                <div className="bg-background border border-border rounded-xl p-6 w-[560px] max-h-[80vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="flex items-center space-x-2">
-                            <div className="w-1 h-4 bg-cyan-500 rounded-full" />
-                            <h3 className="text-[10px] font-black uppercase tracking-widest">Review Changes</h3>
-                        </div>
-                        <button onClick={() => setDiffModal(false)} className="text-muted-foreground hover:text-foreground transition-colors">
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2">
-                        {diffSummary.length === 0 || diffSummary.every(s => s.changeCount === 0) ? (
-                            <div className="py-12 text-center">
-                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">No changes detected</p>
-                                <p className="text-[9px] text-muted-foreground mt-1">Save file matches the original</p>
-                            </div>
-                        ) : (
-                            diffSummary.filter(s => s.changeCount > 0).map(slot => (
-                                <div key={slot.slotIndex} className="border border-border rounded-lg overflow-hidden">
-                                    <button
-                                        onClick={() => loadSlotDiff(slot.slotIndex)}
-                                        className="w-full px-4 py-3 flex items-center justify-between hover:bg-muted/20 transition-all"
-                                    >
-                                        <div className="flex items-center space-x-3">
-                                            <div className={`transition-transform duration-300 ${diffExpanded[slot.slotIndex] ? 'rotate-90 text-cyan-500' : 'text-muted-foreground'}`}>
-                                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
-                                            </div>
-                                            <span className="text-[10px] font-black uppercase tracking-widest">{slot.charName || `Slot ${slot.slotIndex + 1}`}</span>
-                                        </div>
-                                        <span className="text-[9px] font-black text-cyan-500 bg-cyan-500/10 border border-cyan-500/30 px-2 py-0.5 rounded">
-                                            {slot.changeCount} {slot.changeCount === 1 ? 'change' : 'changes'}
-                                        </span>
-                                    </button>
-
-                                    {diffExpanded[slot.slotIndex] && diffDetails[slot.slotIndex] && (
-                                        <div className="border-t border-border px-4 py-3 space-y-1 bg-muted/5">
-                                            {(['stat', 'item', 'storage', 'grace'] as const).map(cat => {
-                                                const entries = diffDetails[slot.slotIndex].filter(d => d.category === cat);
-                                                if (entries.length === 0) return null;
-                                                const catLabel = {stat: 'Stats', item: 'Inventory', storage: 'Storage', grace: 'Graces'}[cat];
-                                                return (
-                                                    <div key={cat} className="mb-2">
-                                                        <p className="text-[8px] font-black text-muted-foreground uppercase tracking-[0.3em] mb-1">{catLabel}</p>
-                                                        {entries.map((d, i) => (
-                                                            <div key={i} className="flex items-center justify-between py-1 px-2 rounded hover:bg-muted/20">
-                                                                <div className="flex items-center space-x-2">
-                                                                    <span className={`w-1.5 h-1.5 rounded-full ${d.action === 'added' ? 'bg-green-500' : d.action === 'removed' ? 'bg-red-500' : 'bg-yellow-500'}`} />
-                                                                    <span className="text-[10px] font-semibold">{d.field}</span>
-                                                                </div>
-                                                                <div className="text-[9px] font-mono">
-                                                                    {d.action === 'changed' && (
-                                                                        <span><span className="text-red-400 line-through">{d.oldValue}</span> <span className="text-muted-foreground mx-1">&rarr;</span> <span className="text-green-400">{d.newValue}</span></span>
-                                                                    )}
-                                                                    {d.action === 'added' && <span className="text-green-400">+ {d.newValue}</span>}
-                                                                    {d.action === 'removed' && <span className="text-red-400">- {d.oldValue}</span>}
-                                                                </div>
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    )}
-                                </div>
-                            ))
-                        )}
-                    </div>
-
-                    <div className="mt-4 pt-3 border-t border-border">
-                        <button
-                            onClick={() => setDiffModal(false)}
-                            className="w-full py-2 text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                            Close
-                        </button>
-                    </div>
-                </div>
-            </div>
-        )}
-
         {cloneModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setCloneModal(null)}>
                 <div className="bg-background border border-border rounded-xl p-6 w-72 space-y-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -981,6 +865,14 @@ function App() {
                     refreshSlots();
                     refreshUndoDepth();
                 }}
+            />
+        )}
+        {postLoadDiagReport && (
+            <DiagnosticsModal
+                charIndex={selectedChar}
+                platform={platform}
+                initialReport={postLoadDiagReport}
+                onClose={() => setPostLoadDiagReport(null)}
             />
         )}
         <ToastBar sidebarWidth={256} />

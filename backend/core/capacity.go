@@ -131,6 +131,9 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 		isStackable := item.IsStackable || item.ForceStackable
 
 		if isStackable {
+			if stackableItemExistsInKeyItems(slot, item.ItemID) {
+				continue
+			}
 			hasExistingHandle := false
 			for _, id := range []uint32{item.ItemID} {
 				testHandle := (id & 0x0FFFFFFF) | handlePrefixForStackable(id)

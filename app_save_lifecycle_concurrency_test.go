@@ -137,7 +137,7 @@ func TestWriteSave_AbortsWhenActiveSaveChanged(t *testing.T) {
 		t.Fatalf("precondition: target path %q already exists", targetPath)
 	}
 
-	err := app.writeSaveCore(targetPath, string(saveB.Platform), expected)
+	err := app.writeSaveCore(targetPath, expected)
 	if err == nil {
 		t.Fatal("writeSaveCore returned nil after a.save was swapped; expected identity-guard error")
 	}

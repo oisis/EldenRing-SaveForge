@@ -96,6 +96,15 @@ func (w *Writer) WriteBytes(v []byte) error {
 	return err
 }
 
+func stackableItemExistsInKeyItems(slot *SaveSlot, itemID uint32) bool {
+	for _, ki := range slot.Inventory.KeyItems {
+		if ki.Quantity > 0 && db.HandleToItemID(ki.GaItemHandle) == itemID {
+			return true
+		}
+	}
+	return false
+}
+
 // AddItemsToSlot adds multiple items to a specific save slot.
 // invQty and storageQty control quantities: 0 = skip, -1 = use provided max from caller, >0 = exact qty.
 // forceStackable treats items as stackable (reuse existing GaMap handle) regardless of type.
@@ -152,12 +161,8 @@ func AddItemsToSlot(slot *SaveSlot, itemIDs []uint32, invQty, storageQty int, fo
 				}
 			}
 			if handle == 0 {
-				// ponytail: O(n) scan; KeyItems is small (~32 slots), cost is negligible
-				for _, ki := range slot.Inventory.KeyItems {
-					if ki.Quantity > 0 && db.HandleToItemID(ki.GaItemHandle) == id {
-						handle = GaHandleInvalid // sentinel: exists in KeyItems, block CommonItems add
-						break
-					}
+				if stackableItemExistsInKeyItems(slot, id) {
+					handle = GaHandleInvalid // sentinel: exists in KeyItems, block CommonItems add
 				}
 			}
 			if handle == GaHandleInvalid {
@@ -319,6 +324,9 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 					handle = h
 					break
 				}
+			}
+			if handle == 0 && stackableItemExistsInKeyItems(slot, item.ItemID) {
+				continue // item already in KeyItems — skip to avoid duplicate
 			}
 			if handle == 0 {
 				if isStackable {

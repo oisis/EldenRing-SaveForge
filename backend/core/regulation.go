@@ -39,6 +39,9 @@ const (
 	// Byte offsets within NETWORK_PARAM_ST (Row 0 data).
 	// Calculated sequentially from NetworkParam.xml PARAMDEF.
 
+	// Summon timeout (shared — used by Summon Host preset).
+	offsetSummonTimeoutTime = 0x08
+
 	// Group: Summon Signs (Cooperator role)
 	offsetReloadSignIntervalTime2 = 0x1C
 	offsetReloadSignTotalCount    = 0x20
@@ -81,6 +84,9 @@ type NetworkParamValues struct {
 	BreakInRequestTimeOutSec      float32 `json:"breakInRequestTimeOutSec"`
 	BreakInRequestAreaCount       int32   `json:"breakInRequestAreaCount"`
 
+	// --- Summon Host (host waiting for phantom) ---
+	SummonTimeoutTime float32 `json:"summonTimeoutTime"`
+
 	// --- Cooperator role (summon signs) ---
 	ReloadSignIntervalTime2 float32 `json:"reloadSignIntervalTime2"`
 	ReloadSignTotalCount    int32   `json:"reloadSignTotalCount"`
@@ -113,6 +119,8 @@ func NetworkParamDefaults() NetworkParamValues {
 		BreakInRequestIntervalTimeSec: 30.0,
 		BreakInRequestTimeOutSec:      20.0,
 		BreakInRequestAreaCount:       5,
+		// Summon Host
+		SummonTimeoutTime: 45.0,
 		// Cooperator
 		ReloadSignIntervalTime2: 60.0,
 		ReloadSignTotalCount:    20,
@@ -294,6 +302,64 @@ func NetworkParamFast() NetworkParamValues {
 	return NetworkParamFastInvasions()
 }
 
+// --- Summon Host presets (Section 1 — "You summon others") ---
+
+func NetworkParamFasterSummonHost() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.SummonTimeoutTime = 10.0
+	d.ReloadSignIntervalTime2 = 20.0
+	d.ReloadSignTotalCount = 24
+	d.SingGetMax = 40
+	d.SignDownloadSpan = 15.0
+	return d
+}
+
+func NetworkParamAggressiveSummonHost() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.SummonTimeoutTime = 7.0
+	d.ReloadSignIntervalTime2 = 12.0
+	d.ReloadSignTotalCount = 20
+	d.SingGetMax = 48
+	d.SignDownloadSpan = 10.0
+	return d
+}
+
+// --- Summon Guest presets (Section 2 — "Others summon you") ---
+
+func NetworkParamFasterSummonGuest() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.UpdateSignIntervalTime = 15.0
+	d.SignUpdateSpan = 20.0
+	return d
+}
+
+func NetworkParamAggressiveSummonGuest() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.UpdateSignIntervalTime = 10.0
+	d.SignUpdateSpan = 12.0
+	return d
+}
+
+// --- Hunter presets (Section 3 — Blue Cipher Ring) ---
+
+func NetworkParamFasterHunter() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.ReloadVisitListCoolTime = 10.0
+	d.MaxVisitListCount = 8
+	d.ReloadSearchCoopBlueMin = 12.0
+	d.ReloadSearchCoopBlueMax = 72.0
+	return d
+}
+
+func NetworkParamAggressiveHunter() NetworkParamValues {
+	d := NetworkParamDefaults()
+	d.ReloadVisitListCoolTime = 6.0
+	d.MaxVisitListCount = 12
+	d.ReloadSearchCoopBlueMin = 8.0
+	d.ReloadSearchCoopBlueMax = 48.0
+	return d
+}
+
 // ReadNetworkParams extracts current NetworkParam values from UserData11.
 func ReadNetworkParams(ud11 []byte) (*NetworkParamValues, error) {
 	paramData, _, _, err := locateNetworkParam(ud11)
@@ -308,6 +374,9 @@ func ReadNetworkParams(ud11 []byte) (*NetworkParamValues, error) {
 	vals.BreakInRequestIntervalTimeSec = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetBreakInInterval:]))
 	vals.BreakInRequestTimeOutSec = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetBreakInTimeout:]))
 	vals.BreakInRequestAreaCount = int32(binary.LittleEndian.Uint32(paramData[offsetBreakInAreaCount:]))
+
+	// Summon Host
+	vals.SummonTimeoutTime = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetSummonTimeoutTime:]))
 
 	// Cooperator
 	vals.ReloadSignIntervalTime2 = math.Float32frombits(binary.LittleEndian.Uint32(paramData[offsetReloadSignIntervalTime2:]))
@@ -349,6 +418,10 @@ func ValidateNetworkParams(p NetworkParamValues) error {
 	}
 	if p.BreakInRequestAreaCount < 1 || p.BreakInRequestAreaCount > 50 {
 		return fmt.Errorf("breakInRequestAreaCount must be 1-50, got %d", p.BreakInRequestAreaCount)
+	}
+	// Summon Host
+	if p.SummonTimeoutTime < 1.0 || p.SummonTimeoutTime > 999.0 {
+		return fmt.Errorf("summonTimeoutTime must be 1-999, got %.0f", p.SummonTimeoutTime)
 	}
 	// Cooperator
 	if p.ReloadSignIntervalTime2 < 1.0 || p.ReloadSignIntervalTime2 > 1000.0 {
@@ -447,6 +520,9 @@ func PatchNetworkParams(ud11 []byte, patch NetworkParamValues) ([]byte, error) {
 	binary.LittleEndian.PutUint32(d[offsetBreakInTimeout:], math.Float32bits(patch.BreakInRequestTimeOutSec))
 	binary.LittleEndian.PutUint32(d[offsetBreakInAreaCount:], uint32(patch.BreakInRequestAreaCount))
 
+	// Summon Host
+	binary.LittleEndian.PutUint32(d[offsetSummonTimeoutTime:], math.Float32bits(patch.SummonTimeoutTime))
+
 	// Cooperator
 	binary.LittleEndian.PutUint32(d[offsetReloadSignIntervalTime2:], math.Float32bits(patch.ReloadSignIntervalTime2))
 	binary.LittleEndian.PutUint32(d[offsetReloadSignTotalCount:], uint32(patch.ReloadSignTotalCount))
@@ -482,7 +558,7 @@ func PatchNetworkParams(ud11 []byte, patch NetworkParamValues) ([]byte, error) {
 	// PC saves carry a 16-byte MD5 prefix covering the entire regulation blob; we
 	// recalculate the MD5 below, so any valid recompression is accepted on PC.
 	if dcxFormat == dcxFormatZSTD && regStart == ud11UnkSize {
-		firstBND4 := paramOffset + rowDataOffset + offsetReloadSignIntervalTime2
+		firstBND4 := paramOffset + rowDataOffset + offsetSummonTimeoutTime
 		lastBND4 := paramOffset + rowDataOffset + offsetVisitorDownloadSpan + 3
 		newRegBlob, err = patchZSTDStreamRawBlock(regBlob, bnd4Data, firstBND4, lastBND4)
 		if err != nil {

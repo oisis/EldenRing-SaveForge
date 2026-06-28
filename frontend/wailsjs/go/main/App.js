@@ -34,10 +34,6 @@ export function ApplyBuiltinCharacterPresetStats(arg1, arg2) {
   return window['go']['main']['App']['ApplyBuiltinCharacterPresetStats'](arg1, arg2);
 }
 
-export function ApplyCharacterPreset(arg1, arg2, arg3) {
-  return window['go']['main']['App']['ApplyCharacterPreset'](arg1, arg2, arg3);
-}
-
 export function ApplyMirrorFavoriteToCharacter(arg1, arg2) {
   return window['go']['main']['App']['ApplyMirrorFavoriteToCharacter'](arg1, arg2);
 }
@@ -122,16 +118,16 @@ export function DownloadRemoteSave(arg1) {
   return window['go']['main']['App']['DownloadRemoteSave'](arg1);
 }
 
+export function ExecuteConversion(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExecuteConversion'](arg1, arg2, arg3);
+}
+
 export function ExportBuildTemplateV2JSONFromCharacter(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportBuildTemplateV2JSONFromCharacter'](arg1, arg2, arg3);
 }
 
 export function ExportBuildTemplateV2YAMLFromCharacter(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportBuildTemplateV2YAMLFromCharacter'](arg1, arg2, arg3);
-}
-
-export function ExportCharacterPresetToFile(arg1, arg2) {
-  return window['go']['main']['App']['ExportCharacterPresetToFile'](arg1, arg2);
 }
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1) {
@@ -242,10 +238,6 @@ export function GetQuestProgress(arg1, arg2) {
   return window['go']['main']['App']['GetQuestProgress'](arg1, arg2);
 }
 
-export function GetSaveDiffSummary() {
-  return window['go']['main']['App']['GetSaveDiffSummary']();
-}
-
 export function GetSaveInventoryIntegrityReport() {
   return window['go']['main']['App']['GetSaveInventoryIntegrityReport']();
 }
@@ -254,16 +246,8 @@ export function GetSlotCapacity(arg1) {
   return window['go']['main']['App']['GetSlotCapacity'](arg1);
 }
 
-export function GetSlotDiff(arg1) {
-  return window['go']['main']['App']['GetSlotDiff'](arg1);
-}
-
 export function GetSlotStates() {
   return window['go']['main']['App']['GetSlotStates']();
-}
-
-export function GetSourceActiveSlots() {
-  return window['go']['main']['App']['GetSourceActiveSlots']();
 }
 
 export function GetStartingClasses() {
@@ -298,10 +282,6 @@ export function GetWhetblades(arg1) {
   return window['go']['main']['App']['GetWhetblades'](arg1);
 }
 
-export function ImportCharacter(arg1, arg2) {
-  return window['go']['main']['App']['ImportCharacter'](arg1, arg2);
-}
-
 export function LaunchRemoteGame(arg1) {
   return window['go']['main']['App']['LaunchRemoteGame'](arg1);
 }
@@ -318,20 +298,20 @@ export function ListBuiltinCharacterPresets() {
   return window['go']['main']['App']['ListBuiltinCharacterPresets']();
 }
 
-export function LoadCharacterPresetFromFile() {
-  return window['go']['main']['App']['LoadCharacterPresetFromFile']();
-}
-
-export function LoadCharacterPresetFromURL(arg1) {
-  return window['go']['main']['App']['LoadCharacterPresetFromURL'](arg1);
-}
-
 export function MoveInventoryWorkspaceItem(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['MoveInventoryWorkspaceItem'](arg1, arg2, arg3, arg4);
 }
 
 export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
   return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
+}
+
+export function PickDiagnosticsFile() {
+  return window['go']['main']['App']['PickDiagnosticsFile']();
+}
+
+export function PrepareConversion() {
+  return window['go']['main']['App']['PrepareConversion']();
 }
 
 export function PreviewBuildTemplateFromLibrary(arg1) {
@@ -386,8 +366,20 @@ export function ReorderWeaponInventory(arg1, arg2) {
   return window['go']['main']['App']['ReorderWeaponInventory'](arg1, arg2);
 }
 
+export function RepairAllLoadedSlots() {
+  return window['go']['main']['App']['RepairAllLoadedSlots']();
+}
+
 export function RepairDuplicateInventoryIndices(arg1) {
   return window['go']['main']['App']['RepairDuplicateInventoryIndices'](arg1);
+}
+
+export function RepairExternal() {
+  return window['go']['main']['App']['RepairExternal']();
+}
+
+export function RepairLoadedSave(arg1) {
+  return window['go']['main']['App']['RepairLoadedSave'](arg1);
 }
 
 export function ResetMapExploration(arg1) {
@@ -404,6 +396,18 @@ export function RevealAllMap(arg1) {
 
 export function RevertSlot(arg1) {
   return window['go']['main']['App']['RevertSlot'](arg1);
+}
+
+export function RunDiagnosticsAllLoaded() {
+  return window['go']['main']['App']['RunDiagnosticsAllLoaded']();
+}
+
+export function RunDiagnosticsExternal(arg1) {
+  return window['go']['main']['App']['RunDiagnosticsExternal'](arg1);
+}
+
+export function RunDiagnosticsLoaded(arg1) {
+  return window['go']['main']['App']['RunDiagnosticsLoaded'](arg1);
 }
 
 export function SaveBuildTemplateToLibrary(arg1, arg2) {
@@ -430,12 +434,12 @@ export function SaveInventoryWorkspaceChanges(arg1) {
   return window['go']['main']['App']['SaveInventoryWorkspaceChanges'](arg1);
 }
 
-export function SelectAndOpenSave() {
-  return window['go']['main']['App']['SelectAndOpenSave']();
+export function SaveRepairedExternal(arg1) {
+  return window['go']['main']['App']['SaveRepairedExternal'](arg1);
 }
 
-export function SelectAndOpenSourceSave() {
-  return window['go']['main']['App']['SelectAndOpenSourceSave']();
+export function SelectAndOpenSave() {
+  return window['go']['main']['App']['SelectAndOpenSave']();
 }
 
 export function SetBellBearingUnlocked(arg1, arg2, arg3) {
@@ -522,16 +526,12 @@ export function ValidateBuiltinCharacterPreset(arg1, arg2) {
   return window['go']['main']['App']['ValidateBuiltinCharacterPreset'](arg1, arg2);
 }
 
-export function ValidateCharacterPreset(arg1) {
-  return window['go']['main']['App']['ValidateCharacterPreset'](arg1);
-}
-
 export function ValidateInventoryWorkspace(arg1) {
   return window['go']['main']['App']['ValidateInventoryWorkspace'](arg1);
 }
 
-export function WriteSave(arg1) {
-  return window['go']['main']['App']['WriteSave'](arg1);
+export function WriteSave() {
+  return window['go']['main']['App']['WriteSave']();
 }
 
 export function WriteSelectedToFavorites(arg1, arg2) {

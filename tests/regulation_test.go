@@ -50,7 +50,10 @@ func assertVanillaNetworkParams(t *testing.T, vals *core.NetworkParamValues) {
 	if !floatEq(vals.BreakInRequestTimeOutSec, 20.0) {
 		t.Errorf("breakInRequestTimeOutSec = %f, want 20.0", vals.BreakInRequestTimeOutSec)
 	}
-	// Cooperator
+	// Summon Host
+	if !floatEq(vals.SummonTimeoutTime, 45.0) {
+		t.Errorf("summonTimeoutTime = %f, want 45.0", vals.SummonTimeoutTime)
+	}
 	if !floatEq(vals.ReloadSignIntervalTime2, 60.0) {
 		t.Errorf("reloadSignIntervalTime2 = %f, want 60.0", vals.ReloadSignIntervalTime2)
 	}
@@ -304,60 +307,79 @@ func TestNetworkParamFasterReds(t *testing.T) {
 	}
 }
 
-func TestNetworkParamFasterSummons(t *testing.T) {
+func TestNetworkParamFasterSummonHost(t *testing.T) {
 	d := core.NetworkParamDefaults()
-	p := core.NetworkParamFasterSummons()
+	p := core.NetworkParamFasterSummonHost()
 
-	if !floatEq(p.ReloadSignIntervalTime2, 20.0) || p.ReloadSignTotalCount != 40 ||
-		p.ReloadSignCellCount != 20 || !floatEq(p.UpdateSignIntervalTime, 15.0) ||
-		p.SingGetMax != 64 || !floatEq(p.SignDownloadSpan, 15.0) || !floatEq(p.SignUpdateSpan, 20.0) {
-		t.Errorf("Faster Summons values mismatch: %+v", p)
+	if !floatEq(p.SummonTimeoutTime, 10.0) || !floatEq(p.ReloadSignIntervalTime2, 20.0) ||
+		p.ReloadSignTotalCount != 24 || p.SingGetMax != 40 || !floatEq(p.SignDownloadSpan, 15.0) {
+		t.Errorf("Faster SummonHost values mismatch: %+v", p)
 	}
-	// Invariant cell <= total <= getMax.
-	if !(p.ReloadSignCellCount <= p.ReloadSignTotalCount && p.ReloadSignTotalCount <= p.SingGetMax) {
-		t.Errorf("Faster Summons violates cell<=total<=getMax: %d/%d/%d",
-			p.ReloadSignCellCount, p.ReloadSignTotalCount, p.SingGetMax)
+	// Invariant total <= getMax.
+	if p.ReloadSignTotalCount > p.SingGetMax {
+		t.Errorf("Faster SummonHost violates total<=getMax: %d/%d", p.ReloadSignTotalCount, p.SingGetMax)
 	}
-	// Invasion + blue groups untouched.
-	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount || p.BreakInRequestAreaCount != d.BreakInRequestAreaCount {
-		t.Errorf("Faster Summons modified invasion fields")
+	// Other groups untouched.
+	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount {
+		t.Errorf("Faster SummonHost modified invasion fields")
+	}
+	if p.UpdateSignIntervalTime != d.UpdateSignIntervalTime {
+		t.Errorf("Faster SummonHost modified summonGuest fields")
 	}
 	if p.ReloadVisitListCoolTime != d.ReloadVisitListCoolTime {
-		t.Errorf("Faster Summons modified blue fields")
+		t.Errorf("Faster SummonHost modified hunter fields")
 	}
 	if err := core.ValidateNetworkParams(p); err != nil {
-		t.Errorf("Faster Summons failed validation: %v", err)
+		t.Errorf("Faster SummonHost failed validation: %v", err)
 	}
 }
 
-func TestNetworkParamFasterBlue(t *testing.T) {
+func TestNetworkParamFasterSummonGuest(t *testing.T) {
 	d := core.NetworkParamDefaults()
-	p := core.NetworkParamFasterBlue()
+	p := core.NetworkParamFasterSummonGuest()
 
-	if !floatEq(p.ReloadVisitListCoolTime, 8.0) || !floatEq(p.ReloadSearchCoopBlueMin, 10.0) ||
-		!floatEq(p.ReloadSearchCoopBlueMax, 40.0) || p.MaxVisitListCount != 10 ||
-		p.AllAreaSearchRateCoopBlue != 60 {
-		t.Errorf("Faster Blue values mismatch: %+v", p)
+	if !floatEq(p.UpdateSignIntervalTime, 15.0) || !floatEq(p.SignUpdateSpan, 20.0) {
+		t.Errorf("Faster SummonGuest values mismatch: %+v", p)
 	}
-	// Must NOT inflate active-blue cap or retribution rate.
+	// Other groups untouched.
+	if p.SummonTimeoutTime != d.SummonTimeoutTime || p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 {
+		t.Errorf("Faster SummonGuest modified summonHost fields")
+	}
+	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount {
+		t.Errorf("Faster SummonGuest modified invasion fields")
+	}
+	if err := core.ValidateNetworkParams(p); err != nil {
+		t.Errorf("Faster SummonGuest failed validation: %v", err)
+	}
+}
+
+func TestNetworkParamFasterHunter(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	p := core.NetworkParamFasterHunter()
+
+	if !floatEq(p.ReloadVisitListCoolTime, 10.0) || p.MaxVisitListCount != 8 ||
+		!floatEq(p.ReloadSearchCoopBlueMin, 12.0) || !floatEq(p.ReloadSearchCoopBlueMax, 72.0) {
+		t.Errorf("Faster Hunter values mismatch: %+v", p)
+	}
+	// Experimental extras must stay vanilla.
 	if p.MaxCoopBlueSummonCount != 2 {
 		t.Errorf("maxCoopBlueSummonCount = %d, want 2 (must stay vanilla)", p.MaxCoopBlueSummonCount)
 	}
 	if p.AllAreaSearchRateVsBlue != 30 {
 		t.Errorf("allAreaSearchRateVsBlue = %d, want 30 (must stay vanilla)", p.AllAreaSearchRateVsBlue)
 	}
-	// Invasion + signs groups untouched.
+	// Other groups untouched.
 	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount {
-		t.Errorf("Faster Blue modified invasion fields")
+		t.Errorf("Faster Hunter modified invasion fields")
 	}
-	if p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 || p.SingGetMax != d.SingGetMax {
-		t.Errorf("Faster Blue modified signs fields")
+	if p.SummonTimeoutTime != d.SummonTimeoutTime || p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 {
+		t.Errorf("Faster Hunter modified summonHost fields")
 	}
 	if p.ReloadSearchCoopBlueMin > p.ReloadSearchCoopBlueMax {
-		t.Errorf("Faster Blue violates min<=max")
+		t.Errorf("Faster Hunter violates min<=max")
 	}
 	if err := core.ValidateNetworkParams(p); err != nil {
-		t.Errorf("Faster Blue failed validation: %v", err)
+		t.Errorf("Faster Hunter failed validation: %v", err)
 	}
 }
 
@@ -392,64 +414,80 @@ func TestNetworkParamAggressiveReds(t *testing.T) {
 	}
 }
 
-func TestNetworkParamAggressiveSummons(t *testing.T) {
+func TestNetworkParamAggressiveSummonHost(t *testing.T) {
 	d := core.NetworkParamDefaults()
-	p := core.NetworkParamAggressiveSummons()
+	p := core.NetworkParamAggressiveSummonHost()
 
-	if !floatEq(p.ReloadSignIntervalTime2, 10.0) || p.ReloadSignTotalCount != 64 ||
-		p.ReloadSignCellCount != 32 || !floatEq(p.UpdateSignIntervalTime, 10.0) ||
-		p.SingGetMax != 96 || !floatEq(p.SignDownloadSpan, 10.0) || !floatEq(p.SignUpdateSpan, 10.0) {
-		t.Errorf("Aggressive Summons values mismatch: %+v", p)
+	if !floatEq(p.SummonTimeoutTime, 7.0) || !floatEq(p.ReloadSignIntervalTime2, 12.0) ||
+		p.ReloadSignTotalCount != 20 || p.SingGetMax != 48 || !floatEq(p.SignDownloadSpan, 10.0) {
+		t.Errorf("Aggressive SummonHost values mismatch: %+v", p)
 	}
-	// Invariant cell <= total <= getMax (32 <= 64 <= 96).
-	if !(p.ReloadSignCellCount <= p.ReloadSignTotalCount && p.ReloadSignTotalCount <= p.SingGetMax) {
-		t.Errorf("Aggressive Summons violates cell<=total<=getMax: %d/%d/%d",
-			p.ReloadSignCellCount, p.ReloadSignTotalCount, p.SingGetMax)
+	// Invariant total <= getMax.
+	if p.ReloadSignTotalCount > p.SingGetMax {
+		t.Errorf("Aggressive SummonHost violates total<=getMax: %d/%d", p.ReloadSignTotalCount, p.SingGetMax)
 	}
-	// Invasion + blue groups untouched.
-	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount || p.BreakInRequestAreaCount != d.BreakInRequestAreaCount {
-		t.Errorf("Aggressive Summons modified invasion fields")
+	// Other groups untouched.
+	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount {
+		t.Errorf("Aggressive SummonHost modified invasion fields")
+	}
+	if p.UpdateSignIntervalTime != d.UpdateSignIntervalTime {
+		t.Errorf("Aggressive SummonHost modified summonGuest fields")
 	}
 	if p.ReloadVisitListCoolTime != d.ReloadVisitListCoolTime {
-		t.Errorf("Aggressive Summons modified blue fields")
+		t.Errorf("Aggressive SummonHost modified hunter fields")
 	}
 	if err := core.ValidateNetworkParams(p); err != nil {
-		t.Errorf("Aggressive Summons failed validation: %v", err)
+		t.Errorf("Aggressive SummonHost failed validation: %v", err)
 	}
 }
 
-func TestNetworkParamAggressiveBlue(t *testing.T) {
+func TestNetworkParamAggressiveSummonGuest(t *testing.T) {
 	d := core.NetworkParamDefaults()
-	p := core.NetworkParamAggressiveBlue()
+	p := core.NetworkParamAggressiveSummonGuest()
 
-	if !floatEq(p.ReloadVisitListCoolTime, 5.0) || !floatEq(p.ReloadSearchCoopBlueMin, 5.0) ||
-		!floatEq(p.ReloadSearchCoopBlueMax, 20.0) || p.MaxVisitListCount != 15 ||
-		p.AllAreaSearchRateCoopBlue != 100 {
-		t.Errorf("Aggressive Blue values mismatch: %+v", p)
+	if !floatEq(p.UpdateSignIntervalTime, 10.0) || !floatEq(p.SignUpdateSpan, 12.0) {
+		t.Errorf("Aggressive SummonGuest values mismatch: %+v", p)
 	}
-	// Must NOT inflate active-blue cap (Blue Search Parallelism) or retribution rate.
+	// Other groups untouched.
+	if p.SummonTimeoutTime != d.SummonTimeoutTime || p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 {
+		t.Errorf("Aggressive SummonGuest modified summonHost fields")
+	}
+	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount {
+		t.Errorf("Aggressive SummonGuest modified invasion fields")
+	}
+	if err := core.ValidateNetworkParams(p); err != nil {
+		t.Errorf("Aggressive SummonGuest failed validation: %v", err)
+	}
+}
+
+func TestNetworkParamAggressiveHunter(t *testing.T) {
+	d := core.NetworkParamDefaults()
+	p := core.NetworkParamAggressiveHunter()
+
+	if !floatEq(p.ReloadVisitListCoolTime, 6.0) || p.MaxVisitListCount != 12 ||
+		!floatEq(p.ReloadSearchCoopBlueMin, 8.0) || !floatEq(p.ReloadSearchCoopBlueMax, 48.0) {
+		t.Errorf("Aggressive Hunter values mismatch: %+v", p)
+	}
+	// Experimental extras must stay vanilla.
 	if p.MaxCoopBlueSummonCount != 2 {
 		t.Errorf("maxCoopBlueSummonCount = %d, want 2 (Experimental, must stay vanilla)", p.MaxCoopBlueSummonCount)
 	}
 	if p.AllAreaSearchRateVsBlue != 30 {
 		t.Errorf("allAreaSearchRateVsBlue = %d, want 30 (Experimental, must stay vanilla)", p.AllAreaSearchRateVsBlue)
 	}
-	// Invasion + signs groups untouched.
+	// Other groups untouched.
 	if p.MaxBreakInTargetListCount != d.MaxBreakInTargetListCount {
-		t.Errorf("Aggressive Blue modified invasion fields")
+		t.Errorf("Aggressive Hunter modified invasion fields")
 	}
-	if p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 || p.SingGetMax != d.SingGetMax {
-		t.Errorf("Aggressive Blue modified signs fields")
+	if p.SummonTimeoutTime != d.SummonTimeoutTime || p.ReloadSignIntervalTime2 != d.ReloadSignIntervalTime2 {
+		t.Errorf("Aggressive Hunter modified summonHost fields")
 	}
-	// Invariants: min<=max, rate in 0-100.
+	// Invariants: min<=max.
 	if p.ReloadSearchCoopBlueMin > p.ReloadSearchCoopBlueMax {
-		t.Errorf("Aggressive Blue violates min<=max")
-	}
-	if p.AllAreaSearchRateCoopBlue < 0 || p.AllAreaSearchRateCoopBlue > 100 {
-		t.Errorf("allAreaSearchRateCoopBlue out of 0-100: %d", p.AllAreaSearchRateCoopBlue)
+		t.Errorf("Aggressive Hunter violates min<=max")
 	}
 	if err := core.ValidateNetworkParams(p); err != nil {
-		t.Errorf("Aggressive Blue failed validation: %v", err)
+		t.Errorf("Aggressive Hunter failed validation: %v", err)
 	}
 }
 

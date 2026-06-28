@@ -953,16 +953,38 @@ func (a *App) GetWhetblades(slotIndex int) ([]db.WhetbladeEntry, error) {
 	return entries, nil
 }
 
+// whetbladeAlreadyOwned reports true if the whetblade is already considered
+// unlocked: event flag is set OR the item is present in any inventory section.
+func whetbladeAlreadyOwned(slot *core.SaveSlot, flagID uint32, flags []byte) bool {
+	if flagOn, err := db.GetEventFlag(flags, flagID); err == nil && flagOn {
+		return true
+	}
+	itemID, ok := data.WhetbladeFlagToItemID[flagID]
+	if !ok {
+		return false
+	}
+	check := func(items []core.InventoryItem) bool {
+		for _, it := range items {
+			if it.Quantity > 0 && db.HandleToItemID(it.GaItemHandle) == itemID {
+				return true
+			}
+		}
+		return false
+	}
+	return check(slot.Inventory.CommonItems) || check(slot.Inventory.KeyItems)
+}
+
 // SetWhetbladeUnlocked sets or clears the unlock flag for a whetblade,
 // manages the inventory item, related affinity flags, and the AoW menu flag.
-func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) error {
+// Returns true if the whetblade was already unlocked/owned before this call.
+func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) (bool, error) {
 	a.saveMu.RLock()
 	defer a.saveMu.RUnlock()
 	if a.save == nil {
-		return fmt.Errorf("no save loaded")
+		return false, fmt.Errorf("no save loaded")
 	}
 	if slotIndex < 0 || slotIndex >= 10 {
-		return fmt.Errorf("invalid slot index")
+		return false, fmt.Errorf("invalid slot index")
 	}
 	a.slotMu[slotIndex].Lock()
 	defer a.slotMu[slotIndex].Unlock()
@@ -971,14 +993,16 @@ func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) 
 
 	slot := &a.save.Slots[slotIndex]
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
-		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
+		return false, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
 	flags := slot.Data[slot.EventFlagsOffset:]
 
+	alreadyOwned := whetbladeAlreadyOwned(slot, flagID, flags)
+
 	// 1. Set the whetblade event flag.
 	if err := db.SetEventFlag(flags, flagID, unlocked); err != nil {
-		return err
+		return false, err
 	}
 
 	// 2. Set related affinity flags (e.g., Keen, Quality for Iron Whetblade).
@@ -1029,7 +1053,7 @@ func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) 
 		}
 	}
 
-	return nil
+	return alreadyOwned, nil
 }
 
 // BulkSetBellBearings sets multiple bell bearing flags at once (single undo)

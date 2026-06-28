@@ -308,11 +308,12 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         setIsSaving(true);
         try {
             const baseIds = confirmModal.map(i => i.id);
-            type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number };
+            type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number };
             let lastResult: AddRes | null = null;
             let totalAdded = 0;
             let totalRequested = 0;
             const allTrimmed: { itemID: number; cutQty: number }[] = [];
+            const allSkippedExisting: { itemID: number; cutQty: number }[] = [];
 
             if (modalNonStackable) {
                 const bothActive = addToInv && invQtyVal > 0 && addToStorage && storageQtyVal > 0;
@@ -322,6 +323,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                     totalAdded += res?.added ?? 0;
                     totalRequested += res?.requested ?? 0;
                     if (res?.trimmed) allTrimmed.push(...res.trimmed);
+                    if (res?.skippedExisting) allSkippedExisting.push(...res.skippedExisting);
                 } else {
                     if (addToInv && invQtyVal > 0) {
                         const ids = invQtyVal > 1
@@ -332,6 +334,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         totalAdded += res?.added ?? 0;
                         totalRequested += res?.requested ?? 0;
                         if (res?.trimmed) allTrimmed.push(...res.trimmed);
+                        if (res?.skippedExisting) allSkippedExisting.push(...res.skippedExisting);
                     }
                     if (!lastResult?.capHit && addToStorage && storageQtyVal > 0) {
                         const ids = storageQtyVal > 1
@@ -342,6 +345,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         totalAdded += res?.added ?? 0;
                         totalRequested += res?.requested ?? 0;
                         if (res?.trimmed) allTrimmed.push(...res.trimmed);
+                        if (res?.skippedExisting) allSkippedExisting.push(...res.skippedExisting);
                     }
                 }
             } else {
@@ -352,6 +356,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 totalAdded += res?.added ?? 0;
                 totalRequested += res?.requested ?? 0;
                 if (res?.trimmed) allTrimmed.push(...res.trimmed);
+                if (res?.skippedExisting) allSkippedExisting.push(...res.skippedExisting);
             }
 
             if (lastResult?.capHit) {
@@ -388,10 +393,15 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 const distinctItems = new Set(allTrimmed.map(s => s.itemID)).size;
                 msg += ` ${distinctItems} pot/perfume type(s) trimmed by container cap (−${totalCut} units).`;
             }
-            toast.success(msg);
+            if (allSkippedExisting.length > 0) {
+                const distinctItems = new Set(allSkippedExisting.map(s => s.itemID)).size;
+                msg += ` ${distinctItems} item(s) skipped because already present in Key Items.`;
+            }
+            if (totalAdded === 0 && allSkippedExisting.length > 0) toast(msg);
+            else toast.success(msg);
             setConfirmModal(null);
             setSelectedDbItems(new Set());
-            onItemsAdded?.();
+            if (totalAdded > 0) onItemsAdded?.();
         } catch (err) {
             setConfirmModal(null);
             setErrorModal({
@@ -437,16 +447,23 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
 
     const handleUnlockItems = async (items: db.ItemEntry[]) => {
         try {
-            await Promise.all(items.map(item => {
+            const results = await Promise.all(items.map(item => {
                 if (item.unlockCategory === 'cookbook') return SetCookbookUnlocked(charIndex, item.flagId!, true);
                 if (item.unlockCategory === 'whetblade') return SetWhetbladeUnlocked(charIndex, item.flagId!, true);
                 if (item.unlockCategory === 'bell_bearing') return SetBellBearingUnlocked(charIndex, item.flagId!, true);
                 if (item.unlockCategory === 'map') return SetMapRegionFlags(charIndex, item.flagId!, true);
                 return Promise.resolve();
             }));
-            toast.success(`Unlocked ${items.length} item(s).`);
+            // SetWhetbladeUnlocked returns bool: true = was already unlocked/owned before this call
+            const skipped = results.filter(r => r === true).length;
+            const newlyUnlocked = items.length - skipped;
+            if (newlyUnlocked > 0) {
+                toast.success(`Unlocked ${newlyUnlocked} item(s).`);
+            } else {
+                toast(`${skipped} item(s) already unlocked — skipped.`);
+            }
             setSelectedDbItems(new Set());
-            onItemsAdded?.();
+            if (newlyUnlocked > 0) onItemsAdded?.();
         } catch (err) {
             setErrorModal({title: 'Unlock Failed', message: String(err)});
         }
