@@ -347,7 +347,7 @@ func NetworkParamFasterHunter() NetworkParamValues {
 	d.ReloadVisitListCoolTime = 10.0
 	d.MaxVisitListCount = 8
 	d.ReloadSearchCoopBlueMin = 12.0
-	d.ReloadSearchCoopBlueMax = 45.0
+	d.ReloadSearchCoopBlueMax = 72.0
 	return d
 }
 
@@ -356,7 +356,7 @@ func NetworkParamAggressiveHunter() NetworkParamValues {
 	d.ReloadVisitListCoolTime = 6.0
 	d.MaxVisitListCount = 12
 	d.ReloadSearchCoopBlueMin = 8.0
-	d.ReloadSearchCoopBlueMax = 25.0
+	d.ReloadSearchCoopBlueMax = 48.0
 	return d
 }
 

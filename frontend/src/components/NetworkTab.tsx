@@ -34,15 +34,11 @@ const INVADER_SLIDERS: SliderDef[] = [
 ];
 
 const SUMMON_HOST_SLIDERS: SliderDef[] = [
-    {key: 'summonTimeoutTime',       label: 'Summon Timeout',  desc: 'Seconds before a pending summon request times out. Lower = faster retry loop for the guest waiting to be pulled.',   min: 1, max: 120, step: 1, unit: 's', defaultVal: 45},
-    {key: 'reloadSignIntervalTime2', label: 'Sign Refresh',    desc: 'How often (seconds) the game fetches the summon sign list. Lower = signs from other players appear faster.',        min: 1, max: 120, step: 1, unit: 's', defaultVal: 60},
-    {key: 'reloadSignTotalCount',    label: 'Signs Retrieved', desc: 'Maximum number of summon signs downloaded per refresh cycle. Must be ≤ Sign Get Max.',                             min: 1, max: 128, step: 1, unit: '',  defaultVal: 20},
-    {key: 'singGetMax',              label: 'Sign Get Max',    desc: 'Hard cap on the total number of signs retrievable. Acts as the ceiling for Signs Retrieved.',                       min: 1, max: 128, step: 1, unit: '',  defaultVal: 32},
-    {key: 'signDownloadSpan',        label: 'Download Span',   desc: 'Interval between full sign list download cycles.',                                                                  min: 1, max: 120, step: 1, unit: 's', defaultVal: 30},
-];
-
-const EXPERIMENTAL_SUMMON_HOST: SliderDef[] = [
-    {key: 'reloadSignCellCount', label: 'Signs Per Cell', desc: 'Max signs visible within a single map cell. Must be ≤ Signs Retrieved. Excluded from presets — increasing can cause sign clutter / overlap. Vanilla 10.', min: 1, max: 99, step: 1, unit: '', defaultVal: 10},
+    {key: 'summonTimeoutTime',       label: 'Summon Timeout',  desc: 'Seconds before a pending summon request times out. Lower = faster retry loop for the guest waiting to be pulled.',                        min: 1, max: 120, step: 1, unit: 's', defaultVal: 45},
+    {key: 'reloadSignIntervalTime2', label: 'Sign Refresh',    desc: 'How often (seconds) the game fetches the summon sign list. Lower = signs from other players appear faster.',                            min: 1, max: 120, step: 1, unit: 's', defaultVal: 60},
+    {key: 'reloadSignTotalCount',    label: 'Signs Retrieved', desc: 'Maximum number of summon signs downloaded per refresh cycle. Must be ≤ Sign Get Max.',                                                 min: 1, max: 128, step: 1, unit: '',  defaultVal: 20},
+    {key: 'singGetMax',              label: 'Sign Get Max',    desc: 'Hard cap on the total number of signs retrievable. Acts as the ceiling for Signs Retrieved.',                                           min: 1, max: 128, step: 1, unit: '',  defaultVal: 32},
+    {key: 'signDownloadSpan',        label: 'Download Span',   desc: 'Interval between full sign list download cycles.',                                                                                      min: 1, max: 120, step: 1, unit: 's', defaultVal: 30},
 ];
 
 const SUMMON_GUEST_SLIDERS: SliderDef[] = [
@@ -51,18 +47,10 @@ const SUMMON_GUEST_SLIDERS: SliderDef[] = [
 ];
 
 const HUNTER_SLIDERS: SliderDef[] = [
-    {key: 'reloadVisitListCoolTime',  label: 'Search Cooldown', desc: 'Cooldown in seconds between Blue Cipher Ring search cycles. Lower = searches for invaded hosts more frequently.', min: 1, max: 120, step: 1, unit: 's', defaultVal: 20},
-    {key: 'maxVisitListCount',        label: 'Visit List Size',  desc: 'Number of potential invaded-host targets fetched per search cycle. Higher = more options evaluated.',            min: 1, max: 50,  step: 1, unit: '',  defaultVal: 5},
-    {key: 'reloadSearchCoopBlueMin',  label: 'Reload Min',       desc: 'Minimum delay (seconds) between co-op blue reload searches. Must be ≤ Reload Max.',                             min: 1, max: 180, step: 1, unit: 's', defaultVal: 30},
-    {key: 'reloadSearchCoopBlueMax',  label: 'Reload Max',       desc: 'Maximum delay (seconds) for the reload interval. Actual delay is randomised between Min and Max each cycle.',   min: 1, max: 300, step: 1, unit: 's', defaultVal: 180},
-];
-
-// --- Experimental sliders (shown inside their functional group, never touched by presets) ---
-
-const EXPERIMENTAL_HUNTER: SliderDef[] = [
-    {key: 'maxCoopBlueSummonCount',    label: 'Blue Search Parallelism', desc: 'Client-side blue search parallelism. Server caps actual joins, so raising this rarely helps. Experimental — never changed by presets. Vanilla 2.',      min: 1, max: 10,  step: 1, unit: '',  defaultVal: 2},
-    {key: 'allAreaSearchRateCoopBlue', label: 'Global Search %',         desc: 'Chance the blue search covers ALL map areas instead of only the local area. Experimental — never changed by presets. Vanilla 30.',                      min: 0, max: 100, step: 5, unit: '%', defaultVal: 30},
-    {key: 'allAreaSearchRateVsBlue',   label: 'Retribution Global %',    desc: 'Global-search rate for the retribution blue role. Effect in Elden Ring unverified. Experimental — never changed by presets. Vanilla 30.',              min: 0, max: 100, step: 5, unit: '%', defaultVal: 30},
+    {key: 'reloadVisitListCoolTime',  label: 'Search Cooldown',         desc: 'Cooldown in seconds between Blue Cipher Ring search cycles. Lower = searches for invaded hosts more frequently.',                            min: 1, max: 120, step: 1, unit: 's', defaultVal: 20},
+    {key: 'maxVisitListCount',        label: 'Visit List Size',          desc: 'Number of potential invaded-host targets fetched per search cycle. Higher = more options evaluated.',                                        min: 1, max: 50,  step: 1, unit: '',  defaultVal: 5},
+    {key: 'reloadSearchCoopBlueMin',  label: 'Reload Min',               desc: 'Minimum delay (seconds) between co-op blue reload searches. Must be ≤ Reload Max.',                                                         min: 1, max: 180, step: 1, unit: 's', defaultVal: 30},
+    {key: 'reloadSearchCoopBlueMax',  label: 'Reload Max',               desc: 'Maximum delay (seconds) for the reload interval. Actual delay is randomised between Min and Max each cycle.',                               min: 1, max: 300, step: 1, unit: 's', defaultVal: 180},
 ];
 
 // Visitor / legacy ring-search fields. Hidden from the active UI until a confirmed
@@ -82,7 +70,7 @@ interface GroupMeta {
     fasterLabel: string;
     aggressiveKey: string;
     aggressiveLabel: string;
-    experimental?: SliderDef[];
+    note?: string;
 }
 
 const GROUP_META: Record<GroupId, GroupMeta> = {
@@ -99,7 +87,6 @@ const GROUP_META: Record<GroupId, GroupMeta> = {
         sliders: SUMMON_HOST_SLIDERS,
         fasterKey: 'faster-summon-host', fasterLabel: 'Better',
         aggressiveKey: 'aggressive-summon-host', aggressiveLabel: 'Aggressive',
-        experimental: EXPERIMENTAL_SUMMON_HOST,
     },
     summonGuest: {
         label: 'Others summon you', icon: '🫱', desc: "Sign upload frequency as cooperator (with Tarnished's Furled Finger / Small Golden Effigy)",
@@ -109,12 +96,12 @@ const GROUP_META: Record<GroupId, GroupMeta> = {
         aggressiveKey: 'aggressive-summon-guest', aggressiveLabel: 'Aggressive',
     },
     hunter: {
-        label: 'Hunter', icon: '🛡', desc: 'Blue Cipher Ring response time and reach',
+        label: 'Hunter / Ring Search', icon: '🛡', desc: 'Blue/White Cipher Ring matchmaking — controls both being summoned as a Hunter and summoning Hunters for help',
         titleClassName: 'text-blue-800 dark:text-blue-700',
         sliders: HUNTER_SLIDERS,
         fasterKey: 'faster-hunter', fasterLabel: 'Better',
         aggressiveKey: 'aggressive-hunter', aggressiveLabel: 'Aggressive',
-        experimental: EXPERIMENTAL_HUNTER,
+        note: 'Hunter matchmaking also depends on Ring Search being enabled for the current area. Area-level Ring Search belongs to Multiplayer regions, not to timing presets.',
     },
 };
 
@@ -347,14 +334,8 @@ export function NetworkTab({platform}: NetworkTabProps) {
                             <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 pt-1">
                                 {meta.sliders.map(renderSlider)}
                             </div>
-                            {meta.experimental && (
-                                <div className="mt-2 pt-2 border-t border-amber-500/20">
-                                    <div className="flex items-center gap-1.5 mb-2">
-                                        <span className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-500 border border-amber-500/30">Experimental</span>
-                                        <span className="text-[9px] text-muted-foreground/80">Unconfirmed effect — never changed by Vanilla / Faster / Aggressive.</span>
-                                    </div>
-                                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">{meta.experimental.map(renderSlider)}</div>
-                                </div>
+                            {meta.note && (
+                                <p className="mt-2 text-[9px] text-muted-foreground/70 italic leading-relaxed">{meta.note}</p>
                             )}
                         </AccordionSection>
                     );

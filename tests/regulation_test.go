@@ -358,7 +358,7 @@ func TestNetworkParamFasterHunter(t *testing.T) {
 	p := core.NetworkParamFasterHunter()
 
 	if !floatEq(p.ReloadVisitListCoolTime, 10.0) || p.MaxVisitListCount != 8 ||
-		!floatEq(p.ReloadSearchCoopBlueMin, 12.0) || !floatEq(p.ReloadSearchCoopBlueMax, 45.0) {
+		!floatEq(p.ReloadSearchCoopBlueMin, 12.0) || !floatEq(p.ReloadSearchCoopBlueMax, 72.0) {
 		t.Errorf("Faster Hunter values mismatch: %+v", p)
 	}
 	// Experimental extras must stay vanilla.
@@ -465,7 +465,7 @@ func TestNetworkParamAggressiveHunter(t *testing.T) {
 	p := core.NetworkParamAggressiveHunter()
 
 	if !floatEq(p.ReloadVisitListCoolTime, 6.0) || p.MaxVisitListCount != 12 ||
-		!floatEq(p.ReloadSearchCoopBlueMin, 8.0) || !floatEq(p.ReloadSearchCoopBlueMax, 25.0) {
+		!floatEq(p.ReloadSearchCoopBlueMin, 8.0) || !floatEq(p.ReloadSearchCoopBlueMax, 48.0) {
 		t.Errorf("Aggressive Hunter values mismatch: %+v", p)
 	}
 	// Experimental extras must stay vanilla.

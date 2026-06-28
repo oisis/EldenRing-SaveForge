@@ -70,8 +70,8 @@ const fasterSummonHost     = (): Record<string, number> => ({...vanilla(), summo
 const aggressiveSummonHost = (): Record<string, number> => ({...vanilla(), summonTimeoutTime: 7,  reloadSignIntervalTime2: 12, reloadSignTotalCount: 20, singGetMax: 48, signDownloadSpan: 10});
 const fasterSummonGuest     = (): Record<string, number> => ({...vanilla(), updateSignIntervalTime: 15, signUpdateSpan: 20});
 const aggressiveSummonGuest = (): Record<string, number> => ({...vanilla(), updateSignIntervalTime: 10, signUpdateSpan: 12});
-const fasterHunter     = (): Record<string, number> => ({...vanilla(), reloadVisitListCoolTime: 10, maxVisitListCount: 8,  reloadSearchCoopBlueMin: 12, reloadSearchCoopBlueMax: 45});
-const aggressiveHunter = (): Record<string, number> => ({...vanilla(), reloadVisitListCoolTime: 6,  maxVisitListCount: 12, reloadSearchCoopBlueMin: 8,  reloadSearchCoopBlueMax: 25});
+const fasterHunter     = (): Record<string, number> => ({...vanilla(), reloadVisitListCoolTime: 10, maxVisitListCount: 8,  reloadSearchCoopBlueMin: 12, reloadSearchCoopBlueMax: 72});
+const aggressiveHunter = (): Record<string, number> => ({...vanilla(), reloadVisitListCoolTime: 6,  maxVisitListCount: 12, reloadSearchCoopBlueMin: 8,  reloadSearchCoopBlueMax: 48});
 
 describe('NETWORK_GROUP_KEYS — group scope excludes fields outside each role', () => {
     it('invader includes breakInRequestAreaCount (4 fields)', () => {
@@ -128,7 +128,7 @@ describe('preset composition (modular merge)', () => {
         expect(s.reloadVisitListCoolTime).toBe(10);
         expect(s.maxVisitListCount).toBe(8);
         expect(s.reloadSearchCoopBlueMin).toBe(12);
-        expect(s.reloadSearchCoopBlueMax).toBe(45);
+        expect(s.reloadSearchCoopBlueMax).toBe(72);
         // Untouched
         expect(s.maxCoopBlueSummonCount).toBe(2);
         expect(s.allAreaSearchRateVsBlue).toBe(30);
@@ -201,7 +201,7 @@ describe('preset composition (modular merge)', () => {
         expect(s.reloadVisitListCoolTime).toBe(10);
         expect(s.maxVisitListCount).toBe(8);
         expect(s.reloadSearchCoopBlueMin).toBe(12);
-        expect(s.reloadSearchCoopBlueMax).toBe(45);
+        expect(s.reloadSearchCoopBlueMax).toBe(72);
         // Extras preserved
         expect(s.maxCoopBlueSummonCount).toBe(5);
         expect(s.allAreaSearchRateVsBlue).toBe(80);
@@ -265,7 +265,7 @@ describe('Aggressive preset composition (modular merge)', () => {
         // Hunter
         expect(s.reloadVisitListCoolTime).toBe(6);
         expect(s.reloadSearchCoopBlueMin).toBe(8);
-        expect(s.reloadSearchCoopBlueMax).toBe(25);
+        expect(s.reloadSearchCoopBlueMax).toBe(48);
         expect(s.maxVisitListCount).toBe(12);
         // Untouched — extras + Visitor
         expect(s.maxCoopBlueSummonCount).toBe(2);
@@ -331,7 +331,7 @@ describe('Aggressive preset composition (modular merge)', () => {
         // Hunter applied
         expect(s.reloadVisitListCoolTime).toBe(6);
         expect(s.reloadSearchCoopBlueMin).toBe(8);
-        expect(s.reloadSearchCoopBlueMax).toBe(25);
+        expect(s.reloadSearchCoopBlueMax).toBe(48);
         expect(s.maxVisitListCount).toBe(12);
         // Experimental preserved
         expect(s.maxCoopBlueSummonCount).toBe(6);
