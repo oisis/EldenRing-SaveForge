@@ -50,8 +50,9 @@ func DiagnoseSaveCorruption(slot *SaveSlot, slotIndex int) SlotDiagnostics {
 	// 5. Stat bounds
 	diag.checkStats(slot)
 
-	// 6. DLC section
-	diag.checkDLCSection(slot)
+	// DLC section check intentionally omitted — the CSDlc format is not fully
+	// understood; bytes [3-49] contain DLC progress data for SotE-active characters
+	// and must not be zeroed.
 
 	// 7. GaItemData count
 	diag.checkGaItemData(slot)
@@ -156,7 +157,7 @@ func (d *SlotDiagnostics) checkInventoryIndices(slot *SaveSlot) {
 				continue
 			}
 			if item.Index <= InvEquipReservedMax {
-				d.addWarning("inventory", "%s item handle 0x%08X has reserved Index=%d (<=432)", label, item.GaItemHandle, item.Index)
+				d.addWarning("inventory_reserved", "%s item handle 0x%08X has reserved Index=%d (<=432)", label, item.GaItemHandle, item.Index)
 			}
 			indexMap[item.Index]++
 			if indexMap[item.Index] == 2 {
@@ -215,7 +216,8 @@ func (d *SlotDiagnostics) checkStats(slot *SaveSlot) {
 		slot.Player.Faith + slot.Player.Arcane
 	expectedLevel := attrSum - 79
 	if slot.Player.Level != expectedLevel {
-		d.addWarning("stats", "Level %d != expected %d (sum(attrs)=%d - 79)", slot.Player.Level, expectedLevel, attrSum)
+		// Category "stats_formula" — not automatically repairable (would change character level)
+		d.addWarning("stats_formula", "Level %d != expected %d (sum(attrs)=%d - 79)", slot.Player.Level, expectedLevel, attrSum)
 	}
 }
 
@@ -598,9 +600,7 @@ func RepairSlot(slot *SaveSlot) (fixed, skipped []string) {
 	if RepairGaItemDataCount(slot) {
 		fixed = append(fixed, "GaItemData count capped to maximum")
 	}
-	if RepairDLCSection(slot) {
-		fixed = append(fixed, "DLC section trailing bytes zeroed")
-	}
+	// RepairDLCSection intentionally removed — see checkDLCSection comment
 
 	dupes := ScanDuplicateInventoryIndices(slot)
 	physick := ScanDuplicateWondrousPhysick(slot)

@@ -37,15 +37,18 @@ var diagState struct {
 }
 
 var repairableCategories = map[string]bool{
-	"inventory":     true,
-	"stats":         true,
-	"dlc":           true,
-	"gaitemdata":    true,
-	"storage_count": true,
+	"inventory":  true,
+	"stats":      true,
+	"dlc":        true,
+	"gaitemdata": true,
+	"storage":    true,
 }
 
 func canRepairIssues(issues []core.DiagnosticIssue) bool {
 	for _, iss := range issues {
+		if iss.Severity == core.SeverityInfo {
+			continue // info messages are advisory only, nothing to repair
+		}
 		if repairableCategories[iss.Category] {
 			return true
 		}
@@ -131,6 +134,71 @@ func (a *App) RunDiagnosticsExternal(filePath string) (DiagnosticsReport, error)
 		Slots:     slots,
 		CanRepair: canRepairIssues(allIssues),
 	}, nil
+}
+
+// RunDiagnosticsAllLoaded scans every active slot of the currently loaded save.
+// Only slots that have at least one issue are included in the result.
+func (a *App) RunDiagnosticsAllLoaded() (DiagnosticsReport, error) {
+	var empty DiagnosticsReport
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return empty, fmt.Errorf("no save loaded")
+	}
+	a.lockAllSlots()
+	defer a.unlockAllSlots()
+
+	var slots []SlotDiagResult
+	var allIssues []core.DiagnosticIssue
+	for i := range a.save.Slots {
+		slot := &a.save.Slots[i]
+		if slot.Version == 0 {
+			continue
+		}
+		diag := core.DiagnoseSaveCorruption(slot, i)
+		if len(diag.Issues) == 0 {
+			continue
+		}
+		slots = append(slots, SlotDiagResult{
+			SlotIndex: i,
+			CharName:  core.UTF16ToString(slot.Player.CharacterName[:]),
+			Issues:    diag.Issues,
+		})
+		allIssues = append(allIssues, diag.Issues...)
+	}
+
+	return DiagnosticsReport{
+		Source:    "loaded",
+		Slots:     slots,
+		CanRepair: canRepairIssues(allIssues),
+	}, nil
+}
+
+// RepairAllLoadedSlots applies automated repairs to every active slot of the
+// currently loaded save. Pushes undo for each slot before mutating.
+func (a *App) RepairAllLoadedSlots() (RepairReport, error) {
+	var empty RepairReport
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return empty, fmt.Errorf("no save loaded")
+	}
+	a.lockAllSlots()
+	defer a.unlockAllSlots()
+
+	allFixed := []string{}
+	allSkipped := []string{}
+	for i := range a.save.Slots {
+		slot := &a.save.Slots[i]
+		if slot.Version == 0 {
+			continue
+		}
+		a.pushUndoLocked(i)
+		fixed, skipped := core.RepairSlot(slot)
+		allFixed = append(allFixed, fixed...)
+		allSkipped = append(allSkipped, skipped...)
+	}
+	return RepairReport{Fixed: allFixed, Skipped: allSkipped}, nil
 }
 
 // RepairLoadedSave applies all automated repairs to the given character slot.

@@ -366,6 +366,10 @@ export function ReorderWeaponInventory(arg1, arg2) {
   return window['go']['main']['App']['ReorderWeaponInventory'](arg1, arg2);
 }
 
+export function RepairAllLoadedSlots() {
+  return window['go']['main']['App']['RepairAllLoadedSlots']();
+}
+
 export function RepairDuplicateInventoryIndices(arg1) {
   return window['go']['main']['App']['RepairDuplicateInventoryIndices'](arg1);
 }
@@ -392,6 +396,10 @@ export function RevealAllMap(arg1) {
 
 export function RevertSlot(arg1) {
   return window['go']['main']['App']['RevertSlot'](arg1);
+}
+
+export function RunDiagnosticsAllLoaded() {
+  return window['go']['main']['App']['RunDiagnosticsAllLoaded']();
 }
 
 export function RunDiagnosticsExternal(arg1) {

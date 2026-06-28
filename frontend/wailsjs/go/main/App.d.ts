@@ -190,6 +190,8 @@ export function ReorderStorage(arg1:number,arg2:string,arg3:Array<number>):Promi
 
 export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<void>;
 
+export function RepairAllLoadedSlots():Promise<main.RepairReport>;
+
 export function RepairDuplicateInventoryIndices(arg1:number):Promise<core.InventoryIndexRepairReport>;
 
 export function RepairExternal():Promise<main.RepairReport>;
@@ -203,6 +205,8 @@ export function ResetNetworkParams():Promise<void>;
 export function RevealAllMap(arg1:number):Promise<void>;
 
 export function RevertSlot(arg1:number):Promise<void>;
+
+export function RunDiagnosticsAllLoaded():Promise<main.DiagnosticsReport>;
 
 export function RunDiagnosticsExternal(arg1:string):Promise<main.DiagnosticsReport>;
 

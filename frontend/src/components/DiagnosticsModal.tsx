@@ -5,24 +5,28 @@ import {
     RunDiagnosticsLoaded,
     RunDiagnosticsExternal,
     RepairLoadedSave,
+    RepairAllLoadedSlots,
     RepairExternal,
     SaveRepairedExternal,
     WriteSave,
 } from '../../wailsjs/go/main/App';
 import {main} from '../../wailsjs/go/models';
 
+type Source = 'loaded' | 'all-loaded' | 'external';
+
 type Mode =
     | {step: 'choice'}
-    | {step: 'scanning'; source: 'loaded' | 'external'; filePath?: string}
-    | {step: 'report'; report: main.DiagnosticsReport; filePath: string}
-    | {step: 'repairing'; source: 'loaded' | 'external'; filePath: string}
-    | {step: 'repair-report'; repairReport: main.RepairReport; source: 'loaded' | 'external'; filePath: string}
-    | {step: 'saving'; source: 'loaded' | 'external'; filePath: string};
+    | {step: 'scanning'; source: Source; filePath?: string}
+    | {step: 'report'; report: main.DiagnosticsReport; filePath: string; source: Source}
+    | {step: 'repairing'; source: Source; filePath: string}
+    | {step: 'repair-report'; repairReport: main.RepairReport; source: Source; filePath: string}
+    | {step: 'saving'; source: Source; filePath: string};
 
 interface Props {
     charIndex: number;
     platform: string | null;
     onClose: () => void;
+    initialReport?: main.DiagnosticsReport; // when set: skip 'choice', open at 'report' for all loaded slots
 }
 
 const severityColor: Record<string, string> = {
@@ -56,8 +60,12 @@ const BtnPrimary = ({onClick, disabled, children}: {onClick: () => void; disable
     </button>
 );
 
-export function DiagnosticsModal({charIndex, platform, onClose}: Props) {
-    const [mode, setMode] = useState<Mode>({step: 'choice'});
+export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: Props) {
+    const [mode, setMode] = useState<Mode>(
+        initialReport
+            ? {step: 'report', report: initialReport, filePath: 'loaded', source: 'all-loaded'}
+            : {step: 'choice'}
+    );
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -71,7 +79,7 @@ export function DiagnosticsModal({charIndex, platform, onClose}: Props) {
         setError(null);
         try {
             const report = await RunDiagnosticsLoaded(charIndex);
-            setMode({step: 'report', report, filePath: 'loaded'});
+            setMode({step: 'report', report, filePath: 'loaded', source: 'loaded'});
         } catch (e) {
             setError(String(e));
             setMode({step: 'choice'});
@@ -85,36 +93,36 @@ export function DiagnosticsModal({charIndex, platform, onClose}: Props) {
             if (!path) return;
             setMode({step: 'scanning', source: 'external', filePath: path});
             const report = await RunDiagnosticsExternal(path);
-            setMode({step: 'report', report, filePath: path});
+            setMode({step: 'report', report, filePath: path, source: 'external'});
         } catch (e) {
             setError(String(e));
             setMode({step: 'choice'});
         }
     };
 
-    const handleRepair = async (report: main.DiagnosticsReport, filePath: string) => {
-        const source = filePath === 'loaded' ? 'loaded' : 'external';
+    const handleRepair = async (report: main.DiagnosticsReport, filePath: string, source: Source) => {
         setMode({step: 'repairing', source, filePath});
         setError(null);
         try {
-            const repairReport = source === 'loaded'
-                ? await RepairLoadedSave(charIndex)
-                : await RepairExternal();
+            const repairReport =
+                source === 'external' ? await RepairExternal() :
+                source === 'all-loaded' ? await RepairAllLoadedSlots() :
+                await RepairLoadedSave(charIndex);
             setMode({step: 'repair-report', repairReport, source, filePath});
         } catch (e) {
             setError(String(e));
-            setMode({step: 'report', report, filePath});
+            setMode({step: 'report', report, filePath, source});
         }
     };
 
-    const handleSave = async (source: 'loaded' | 'external', filePath: string) => {
+    const handleSave = async (source: Source, filePath: string) => {
         setMode({step: 'saving', source, filePath});
         setError(null);
         try {
-            if (source === 'loaded') {
-                await WriteSave();
-            } else {
+            if (source === 'external') {
                 await SaveRepairedExternal(filePath);
+            } else {
+                await WriteSave();
             }
             onClose();
         } catch (e) {
@@ -130,11 +138,13 @@ export function DiagnosticsModal({charIndex, platform, onClose}: Props) {
     // Footer buttons depend on current step
     const footer = (() => {
         if (mode.step === 'report') {
-            const {report, filePath} = mode;
+            const {report, filePath, source} = mode;
             return (
                 <>
                     <BtnSecondary onClick={onClose}>Close</BtnSecondary>
-                    <BtnPrimary onClick={() => handleRepair(report, filePath)} disabled={!report.canRepair}>Repair</BtnPrimary>
+                    {report.canRepair && (
+                        <BtnPrimary onClick={() => handleRepair(report, filePath, source)}>Repair</BtnPrimary>
+                    )}
                 </>
             );
         }
@@ -143,7 +153,9 @@ export function DiagnosticsModal({charIndex, platform, onClose}: Props) {
             return (
                 <>
                     <BtnSecondary onClick={onClose}>Close</BtnSecondary>
-                    <BtnPrimary onClick={() => handleSave(source, filePath)} disabled={repairReport.fixed.length === 0}>Save</BtnPrimary>
+                    {source === 'external' && (
+                        <BtnPrimary onClick={() => handleSave(source, filePath)} disabled={repairReport.fixed.length === 0}>Save</BtnPrimary>
+                    )}
                 </>
             );
         }
@@ -246,44 +258,54 @@ export function DiagnosticsModal({charIndex, platform, onClose}: Props) {
                     {/* REPORT */}
                     {mode.step === 'report' && (
                         <div className="pb-2">
-                            {/* Summary badges */}
-                            <div className="flex flex-wrap gap-2 mb-3">
-                                {criticalCount > 0 && (
-                                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-red-500/10 border border-red-500/30 text-red-400">
-                                        {criticalCount} critical
-                                    </span>
-                                )}
-                                {warningCount > 0 && (
-                                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
-                                        {warningCount} warning
-                                    </span>
-                                )}
-                                {allIssues.length === 0 && (
-                                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-green-500/10 border border-green-500/30 text-green-400">
-                                        No issues found
-                                    </span>
-                                )}
-                            </div>
-                            {/* Issue list — each slot */}
-                            {mode.report.slots.map(slot =>
-                                slot.issues.length > 0 ? (
-                                    <div key={slot.slotIndex} className="mb-3">
-                                        <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">
-                                            Slot {slot.slotIndex + 1} — {slot.charName || '(unnamed)'}
-                                        </p>
-                                        <div className="space-y-1">
-                                            {slot.issues.map((iss, idx) => (
-                                                <div key={idx} className={`flex items-start gap-2 p-2 rounded-lg border text-[9px] ${severityBg[iss.severity] ?? 'bg-muted/20 border-border'}`}>
-                                                    <span className={`font-black uppercase shrink-0 ${severityColor[iss.severity] ?? 'text-muted-foreground'}`}>
-                                                        {iss.severity}
-                                                    </span>
-                                                    <span className="text-muted-foreground shrink-0">[{iss.category}]</span>
-                                                    <span className="text-foreground break-words min-w-0">{iss.description}</span>
-                                                </div>
-                                            ))}
-                                        </div>
+                            {!mode.report.canRepair ? (
+                                <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
+                                    <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <p className="text-[11px] font-black uppercase tracking-widest text-green-400">No repairable issues found</p>
+                                    <p className="text-[9px] text-muted-foreground max-w-xs">The save file is clean. Any remaining observations are informational and do not require action.</p>
+                                </div>
+                            ) : (
+                                <>
+                                    {/* Summary badges */}
+                                    <div className="flex flex-wrap gap-2 mb-3">
+                                        {criticalCount > 0 && (
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-red-500/10 border border-red-500/30 text-red-400">
+                                                {criticalCount} critical
+                                            </span>
+                                        )}
+                                        {warningCount > 0 && (
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
+                                                {warningCount} warning
+                                            </span>
+                                        )}
                                     </div>
-                                ) : null
+                                    {/* Issue list — each slot */}
+                                    {mode.report.slots.map(slot =>
+                                        slot.issues.length > 0 ? (
+                                            <div key={slot.slotIndex} className="mb-3">
+                                                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">
+                                                    Slot {slot.slotIndex + 1} — {slot.charName || '(unnamed)'}
+                                                </p>
+                                                <div className="space-y-1">
+                                                    {slot.issues.filter(iss => {
+                                                        const repairable = ['inventory','stats','dlc','gaitemdata','storage'];
+                                                        return iss.severity !== 'info' && repairable.includes(iss.category);
+                                                    }).map((iss, idx) => (
+                                                        <div key={idx} className={`flex items-start gap-2 p-2 rounded-lg border text-[9px] ${severityBg[iss.severity] ?? 'bg-muted/20 border-border'}`}>
+                                                            <span className={`font-black uppercase shrink-0 ${severityColor[iss.severity] ?? 'text-muted-foreground'}`}>
+                                                                {iss.severity}
+                                                            </span>
+                                                            <span className="text-muted-foreground shrink-0">[{iss.category}]</span>
+                                                            <span className="text-foreground break-words min-w-0">{iss.description}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ) : null
+                                    )}
+                                </>
                             )}
                         </div>
                     )}

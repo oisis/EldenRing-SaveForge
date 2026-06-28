@@ -1,12 +1,13 @@
 import {useState, useEffect, useCallback} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
 import {SettingsTab} from './components/SettingsTab';
+import {DiagnosticsModal} from './components/DiagnosticsModal';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {PvPTab} from './components/PvPTab';
@@ -50,6 +51,7 @@ const DEFAULT_PVP_OPTIONS: PvPOptions = {
 function App() {
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
+    const [postLoadDiagReport, setPostLoadDiagReport] = useState<main.DiagnosticsReport | null>(null);
     const [charNames, setCharacterNames] = useState<string[]>([]);
     const [slotStates, setSlotStates] = useState<main.SlotState[]>([]);
     const [selectedChar, setSelectedChar] = useState<number>(0);
@@ -214,6 +216,10 @@ function App() {
             setPlatform(plat);
             setSaveLoadKey(k => k + 1);
             refreshSlots();
+            // Non-blocking corruption scan — show modal only if there is something to repair
+            RunDiagnosticsAllLoaded()
+                .then(diagReport => { if (diagReport.canRepair) setPostLoadDiagReport(diagReport); })
+                .catch(() => {});
             return;
         }
         // Dirty: keep platform null so tabs/Save remain hidden; let the modal drive next step.
@@ -859,6 +865,14 @@ function App() {
                     refreshSlots();
                     refreshUndoDepth();
                 }}
+            />
+        )}
+        {postLoadDiagReport && (
+            <DiagnosticsModal
+                charIndex={selectedChar}
+                platform={platform}
+                initialReport={postLoadDiagReport}
+                onClose={() => setPostLoadDiagReport(null)}
             />
         )}
         <ToastBar sidebarWidth={256} />
