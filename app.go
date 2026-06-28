@@ -652,6 +652,9 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		}
 		keyID := db.HandleToItemID(item.GaItemHandle)
 		_, keyBaseID := db.GetItemDataFuzzy(keyID)
+		if _, seen := existingItemQty[keyBaseID]; seen {
+			continue // ponytail: item in both sections — CommonItems is canonical, skip double-count
+		}
 		existingKeyItemQty[keyBaseID] = int(item.Quantity & 0x7FFFFFFF)
 	}
 

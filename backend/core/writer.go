@@ -152,6 +152,18 @@ func AddItemsToSlot(slot *SaveSlot, itemIDs []uint32, invQty, storageQty int, fo
 				}
 			}
 			if handle == 0 {
+				// ponytail: O(n) scan; KeyItems is small (~32 slots), cost is negligible
+				for _, ki := range slot.Inventory.KeyItems {
+					if ki.Quantity > 0 && db.HandleToItemID(ki.GaItemHandle) == id {
+						handle = GaHandleInvalid // sentinel: exists in KeyItems, block CommonItems add
+						break
+					}
+				}
+			}
+			if handle == GaHandleInvalid {
+				continue // item already in KeyItems — skip to avoid duplicate
+			}
+			if handle == 0 {
 				if isStackable {
 					handle = (id & 0x0FFFFFFF) | handlePrefix
 					slot.GaMap[handle] = id
