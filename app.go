@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"os"
@@ -315,7 +314,7 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 // was choosing the destination path, writeSaveCore aborts with a clear
 // error WITHOUT touching the file or mutating any metadata — i.e. it
 // refuses to silently serialise save B under a path picked for save A.
-func (a *App) WriteSave(platform string) error {
+func (a *App) WriteSave() error {
 	a.saveMu.RLock()
 	if a.save == nil {
 		a.saveMu.RUnlock()
@@ -348,21 +347,22 @@ func (a *App) WriteSave(platform string) error {
 		}
 	}
 
-	return a.writeSaveCore(path, platform, expected)
+	return a.writeSaveCore(path, expected)
 }
 
-// writeSaveCore performs the in-memory mutation of a.save (Platform / IV /
-// Encrypted), serializes it to disk and resets undo state + lastSavePath.
+// writeSaveCore serializes a.save to disk in its current platform and resets
+// undo state + lastSavePath. Cross-platform conversion is handled separately
+// by ExecuteConversion (app_convert.go), which operates on a local copy and
+// never touches a.save.
 //
 // Acquires a.saveMu.Lock() for the entire critical section. Caller MUST
 // have performed dialog / backup work BEFORE invoking this helper, and
 // MUST pass `expected` — the *core.SaveFile snapshot taken before the
 // dialog. When a concurrent SelectAndOpenSave / DownloadRemoteSave
 // replaced a.save during the dialog wait, the identity check fails fast:
-// no metadata is mutated, no file is written, the helper returns a
-// user-facing error instead of silently writing save B to a path picked
-// for save A.
-func (a *App) writeSaveCore(path string, platform string, expected *core.SaveFile) error {
+// no file is written, the helper returns a user-facing error instead of
+// silently writing save B to a path picked for save A.
+func (a *App) writeSaveCore(path string, expected *core.SaveFile) error {
 	a.saveMu.Lock()
 	defer a.saveMu.Unlock()
 
@@ -371,22 +371,6 @@ func (a *App) writeSaveCore(path string, platform string, expected *core.SaveFil
 	}
 	if a.save != expected {
 		return fmt.Errorf("active save changed while the save dialog was open; write to %q aborted to avoid overwriting it with the wrong save", path)
-	}
-
-	// Apply target platform — enables cross-platform conversion.
-	origPlatform := a.save.Platform
-	a.save.Platform = core.Platform(platform)
-	if platform == "PC" && origPlatform == core.PlatformPS {
-		// PS4 → PC: enable AES encryption with a fresh random IV.
-		iv := make([]byte, 16)
-		if _, err := rand.Read(iv); err != nil {
-			return fmt.Errorf("failed to generate IV for encryption: %w", err)
-		}
-		a.save.IV = iv
-		a.save.Encrypted = true
-	}
-	if platform == "PS4" {
-		a.save.Encrypted = false
 	}
 
 	if err := a.save.SaveFile(path); err != nil {

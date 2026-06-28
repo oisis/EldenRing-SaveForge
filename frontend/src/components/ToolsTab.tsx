@@ -1,36 +1,80 @@
 import {useState} from 'react';
 import toast from '../lib/toast';
 import {FavoritesManager} from './FavoritesManager';
-import {WriteSave} from '../../wailsjs/go/main/App';
+import {PrepareConversion, ExecuteConversion} from '../../wailsjs/go/main/App';
 import {useFavorites} from '../state/favorites';
 
 interface ToolsTabProps {
     charIndex: number;
-    platform: string;
     onComplete: () => void;
     onMutate?: () => void;
 }
 
 type ToolView = 'overview' | 'favorites';
 
-export function ToolsTab({charIndex, platform, onComplete, onMutate}: ToolsTabProps) {
+export function ToolsTab({charIndex, onComplete, onMutate}: ToolsTabProps) {
     const [view, setView] = useState<ToolView>('overview');
-    const [converting, setConverting] = useState(false);
     const {count: favCount} = useFavorites();
 
-    const targetPlatform = platform === 'PC' ? 'PS4' : 'PC';
+    // Conversion flow state
+    const [convStep, setConvStep] = useState<'idle' | 'selecting' | 'steamid' | 'converting'>('idle');
+    const [convSourcePath, setConvSourcePath] = useState('');
+    const [convTargetPlatform, setConvTargetPlatform] = useState('');
+    const [steamIDInput, setSteamIDInput] = useState('');
+    const [steamIDError, setSteamIDError] = useState('');
 
-    const handleConvert = async () => {
-        setConverting(true);
+    const handleConvertClick = async () => {
+        setConvStep('selecting');
         try {
-            await WriteSave(targetPlatform);
-            toast.success(`Converted to ${targetPlatform}`);
+            const info = await PrepareConversion();
+            const target = info.platform === 'PC' ? 'PS4' : 'PC';
+            setConvSourcePath(info.path);
+            setConvTargetPlatform(target);
+
+            if (target === 'PC') {
+                setConvStep('steamid');
+            } else {
+                await runConversion(info.path, 'PS4', '');
+            }
         } catch (e) {
-            toast.error('Convert failed: ' + e);
-        } finally {
-            setConverting(false);
+            const msg = String(e);
+            if (!msg.includes('no file selected')) toast.error('Conversion failed: ' + e);
+            setConvStep('idle');
         }
     };
+
+    const runConversion = async (sourcePath: string, targetPlatform: string, steamID: string) => {
+        setConvStep('converting');
+        try {
+            const destPath = await ExecuteConversion(sourcePath, targetPlatform, steamID);
+            toast.success(`Saved to ${destPath}`);
+        } catch (e) {
+            const msg = String(e);
+            if (!msg.includes('no destination selected')) toast.error('Conversion failed: ' + e);
+        } finally {
+            setConvStep('idle');
+            setSteamIDInput('');
+            setSteamIDError('');
+        }
+    };
+
+    const handleSteamIDSubmit = () => {
+        const trimmed = steamIDInput.trim();
+        if (!/^\d{17}$/.test(trimmed) || !trimmed.startsWith('7656119')) {
+            setSteamIDError('Steam ID must be 17 digits starting with 7656119');
+            return;
+        }
+        setSteamIDError('');
+        runConversion(convSourcePath, 'PC', trimmed);
+    };
+
+    const cancelConversion = () => {
+        setConvStep('idle');
+        setSteamIDInput('');
+        setSteamIDError('');
+    };
+
+    const converting = convStep !== 'idle';
 
     if (view === 'favorites') {
         return (
@@ -49,6 +93,42 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate}: ToolsTabPr
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500 max-w-4xl mx-auto">
+            {/* SteamID modal for PS4 → PC conversion */}
+            {convStep === 'steamid' && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+                    <div className="card p-6 w-full max-w-sm space-y-4">
+                        <h3 className="text-[11px] font-black uppercase tracking-wider text-foreground">Steam ID Required</h3>
+                        <p className="text-[9px] text-muted-foreground">
+                            PS4 saves don't contain a Steam ID. Enter yours to embed it in the converted PC save.
+                            Find it at <span className="text-violet-400">steamcommunity.com/id/me</span> (17-digit number).
+                        </p>
+                        <div className="space-y-2">
+                            <input
+                                type="text"
+                                value={steamIDInput}
+                                onChange={e => { setSteamIDInput(e.target.value); setSteamIDError(''); }}
+                                onKeyDown={e => e.key === 'Enter' && handleSteamIDSubmit()}
+                                placeholder="76561198..."
+                                maxLength={17}
+                                className="w-full bg-background border border-border rounded px-3 py-2 text-[11px] font-mono focus:outline-none focus:border-violet-500"
+                                autoFocus
+                            />
+                            {steamIDError && <p className="text-[9px] text-destructive">{steamIDError}</p>}
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                            <button onClick={cancelConversion}
+                                className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
+                                Cancel
+                            </button>
+                            <button onClick={handleSteamIDSubmit}
+                                className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider bg-violet-500 text-white rounded hover:bg-violet-600 transition-colors">
+                                Convert
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* Favorite Items */}
                 <button onClick={() => setView('favorites')}
@@ -67,7 +147,7 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate}: ToolsTabPr
                 </button>
 
                 {/* Convert Save Format */}
-                <button onClick={handleConvert} disabled={converting || !platform}
+                <button onClick={handleConvertClick} disabled={converting}
                     className="card p-5 text-left hover:border-violet-500/40 hover:bg-violet-500/5 transition-all group disabled:opacity-50 disabled:cursor-not-allowed">
                     <div className="flex items-start gap-3">
                         <div className="w-10 h-10 rounded-lg bg-violet-500/10 flex items-center justify-center flex-shrink-0 group-hover:bg-violet-500/20 transition-colors">
@@ -83,7 +163,7 @@ export function ToolsTab({charIndex, platform, onComplete, onMutate}: ToolsTabPr
                                 Convert Format
                             </h4>
                             <p className="text-[9px] text-muted-foreground mt-1">
-                                {platform ? `Save as ${targetPlatform} (${platform === 'PC' ? '.dat' : '.sl2'})` : 'Load a save file first'}
+                                Convert any save file between PC (.sl2) and PS4 (.dat)
                             </p>
                         </div>
                     </div>

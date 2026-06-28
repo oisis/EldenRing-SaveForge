@@ -118,6 +118,10 @@ export function DownloadRemoteSave(arg1) {
   return window['go']['main']['App']['DownloadRemoteSave'](arg1);
 }
 
+export function ExecuteConversion(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ExecuteConversion'](arg1, arg2, arg3);
+}
+
 export function ExportBuildTemplateV2JSONFromCharacter(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportBuildTemplateV2JSONFromCharacter'](arg1, arg2, arg3);
 }
@@ -300,6 +304,10 @@ export function MoveInventoryWorkspaceItem(arg1, arg2, arg3, arg4) {
 
 export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
   return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
+}
+
+export function PrepareConversion() {
+  return window['go']['main']['App']['PrepareConversion']();
 }
 
 export function PreviewBuildTemplateFromLibrary(arg1) {
@@ -490,8 +498,8 @@ export function ValidateInventoryWorkspace(arg1) {
   return window['go']['main']['App']['ValidateInventoryWorkspace'](arg1);
 }
 
-export function WriteSave(arg1) {
-  return window['go']['main']['App']['WriteSave'](arg1);
+export function WriteSave() {
+  return window['go']['main']['App']['WriteSave']();
 }
 
 export function WriteSelectedToFavorites(arg1, arg2) {

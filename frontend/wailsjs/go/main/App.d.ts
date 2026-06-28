@@ -66,6 +66,8 @@ export function DiscardInventoryEditSession(arg1:string):Promise<void>;
 
 export function DownloadRemoteSave(arg1:string):Promise<string>;
 
+export function ExecuteConversion(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function ExportBuildTemplateV2JSONFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
 
 export function ExportBuildTemplateV2YAMLFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
@@ -157,6 +159,8 @@ export function ListBuiltinCharacterPresets():Promise<Array<main.BuiltinCharacte
 export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,arg4:number):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
+
+export function PrepareConversion():Promise<main.ConversionInfo>;
 
 export function PreviewBuildTemplateFromLibrary(arg1:string):Promise<main.LoadedTemplatePreview>;
 
@@ -252,6 +256,6 @@ export function ValidateBuiltinCharacterPreset(arg1:number,arg2:string):Promise<
 
 export function ValidateInventoryWorkspace(arg1:string):Promise<editor.WorkspaceValidationReport>;
 
-export function WriteSave(arg1:string):Promise<void>;
+export function WriteSave():Promise<void>;
 
 export function WriteSelectedToFavorites(arg1:number,arg2:Array<string>):Promise<number>;

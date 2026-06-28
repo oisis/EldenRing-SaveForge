@@ -1527,6 +1527,20 @@ export namespace main {
 	        this.className = source["className"];
 	    }
 	}
+	export class ConversionInfo {
+	    path: string;
+	    platform: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversionInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.platform = source["platform"];
+	    }
+	}
 	export class FavoriteSlotInfo {
 	    index: number;
 	    active: boolean;

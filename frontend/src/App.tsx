@@ -298,7 +298,7 @@ function App() {
     const doWriteSave = async () => {
         if (!platform) return;
         setSaving(true);
-        try { await WriteSave(platform); toast.success('File saved'); }
+        try { await WriteSave(); toast.success('File saved'); }
         catch (err) { toast.error(String(err)); }
         finally { setSaving(false); }
     };
@@ -706,7 +706,7 @@ function App() {
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={() => { refreshUndoDepth(); setInventoryVersion(v => v + 1); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
                                 {activeTab === 'advanced' && <PvPTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
-                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} platform={platform ?? ''} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} />}
+                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} />}
                                 </div>
                             </div>
                         )}
