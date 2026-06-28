@@ -6,7 +6,6 @@ import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
-import {ToolsTab} from './components/ToolsTab';
 import {SettingsTab} from './components/SettingsTab';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
@@ -125,8 +124,8 @@ function App() {
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
 
     const tabs = platform
-        ? ['character', 'inventory', 'world', 'advanced', 'tools', 'settings']
-        : ['character', 'inventory', 'settings'];
+        ? ['character', 'inventory', 'world', 'advanced', 'tools']
+        : ['character', 'inventory', 'tools'];
 
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
     useEffect(() => { GetInfuseTypes().then(res => setInfuseTypes(res || [])); }, []);
@@ -552,7 +551,7 @@ function App() {
 
                 <div className="flex-1 flex flex-col min-h-0 relative">
                     <div className="w-full h-full px-6 pb-6 pt-3 flex flex-col min-h-0">
-                        {activeTab === 'settings' ? (
+                        {activeTab === 'tools' ? (
                             <div className="animate-in fade-in slide-in-from-bottom-2 duration-500 overflow-y-auto custom-scrollbar pr-2">
                                 <SettingsTab
                                     theme={theme}
@@ -567,6 +566,9 @@ function App() {
                                     selectedDeployTarget={selectedDeployTarget}
                                     setSelectedDeployTarget={setSelectedDeployTarget}
                                     onAfterLoad={finalizeLoadedSaveWithIntegrityCheck}
+                                    charIndex={selectedChar}
+                                    onComplete={refreshSlots}
+                                    onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
                                 />
                             </div>
                         ) : !platform ? (
@@ -706,7 +708,6 @@ function App() {
                                 )}
                                 {activeTab === 'world' && <WorldTab charIdx={selectedChar} platform={platform} showFlaggedItems={showFlaggedItems} saveLoadKey={saveLoadKey} saveDataRevision={saveDataRevision} onMutate={() => { refreshUndoDepth(); setInventoryVersion(v => v + 1); }} addSettings={charAddSettings[selectedChar] ?? DEFAULT_ADD_SETTINGS} />}
                                 {activeTab === 'advanced' && <PvPTab charIdx={selectedChar} platform={platform} pvpOpts={pvpOpts} onPvpOptsChange={setPvpOpts} onMutate={handlePvPMutate} />}
-                                {activeTab === 'tools' && <ToolsTab charIndex={selectedChar} onComplete={refreshSlots} onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }} />}
                                 </div>
                             </div>
                         )}

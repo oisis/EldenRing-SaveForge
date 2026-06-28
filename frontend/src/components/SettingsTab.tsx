@@ -5,9 +5,12 @@ import {
     GetDeployTargets, SaveDeployTarget, DeleteDeployTarget,
     TestSSHConnection, DeploySave, DownloadRemoteSave,
     LaunchRemoteGame, CloseRemoteGame, DeployAndLaunch, CloseAndDownload,
+    PrepareConversion, ExecuteConversion,
 } from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 import {useSafetyMode} from '../state/safetyMode';
+import {FavoritesManager} from './FavoritesManager';
+import {useFavorites} from '../state/favorites';
 
 interface SettingsTabProps {
     theme: 'light' | 'dark' | 'golden';
@@ -21,13 +24,10 @@ interface SettingsTabProps {
     platform: string | null;
     selectedDeployTarget: string;
     setSelectedDeployTarget: (v: string) => void;
-    // Required: triggered after every successful remote download /
-    // close-and-download so App runs the shared load-time integrity gate
-    // (same flow as local SelectAndOpenSave). Required (not optional) so
-    // no future caller can wire SettingsTab in a way that bypasses the
-    // integrity gate — the editor is revealed only after this callback
-    // certifies the save is clean.
     onAfterLoad: (platform: string) => Promise<void> | void;
+    charIndex: number;
+    onComplete: () => void;
+    onMutate?: () => void;
 }
 
 const EMPTY_SSH_TARGET: deploy.Target = new deploy.Target({
@@ -50,8 +50,12 @@ export function SettingsTab({
     platform,
     selectedDeployTarget: selectedTarget, setSelectedDeployTarget: setSelectedTarget,
     onAfterLoad,
+    onComplete, onMutate,
 }: SettingsTabProps) {
     const safetyMode = useSafetyMode();
+    const {count: favCount} = useFavorites();
+    const [view, setView] = useState<'overview' | 'favorites'>('overview');
+
     const [steamIdInput, setSteamIdInput] = useState('');
     const [steamIdSaved, setSteamIdSaved] = useState('');
     const [steamIdError, setSteamIdError] = useState('');
@@ -65,6 +69,62 @@ export function SettingsTab({
         window.dispatchEvent(new CustomEvent('fullChaosModeChanged', { detail: checked }));
     };
 
+    // Conversion flow
+    const [convStep, setConvStep] = useState<'idle' | 'selecting' | 'steamid' | 'converting'>('idle');
+    const [convSourcePath, setConvSourcePath] = useState('');
+    const [steamIDInput, setSteamIDInput] = useState('');
+    const [steamIDError, setSteamIDError] = useState('');
+
+    const handleConvertClick = async () => {
+        setConvStep('selecting');
+        try {
+            const info = await PrepareConversion();
+            const target = info.platform === 'PC' ? 'PS4' : 'PC';
+            setConvSourcePath(info.path);
+            if (target === 'PC') {
+                setConvStep('steamid');
+            } else {
+                await runConversion(info.path, 'PS4', '');
+            }
+        } catch (e) {
+            const msg = String(e);
+            if (!msg.includes('no file selected')) toast.error('Conversion failed: ' + e);
+            setConvStep('idle');
+        }
+    };
+
+    const runConversion = async (sourcePath: string, targetPlatform: string, steamID: string) => {
+        setConvStep('converting');
+        try {
+            const destPath = await ExecuteConversion(sourcePath, targetPlatform, steamID);
+            toast.success(`Saved to ${destPath}`);
+        } catch (e) {
+            const msg = String(e);
+            if (!msg.includes('no destination selected')) toast.error('Conversion failed: ' + e);
+        } finally {
+            setConvStep('idle');
+            setSteamIDInput('');
+            setSteamIDError('');
+        }
+    };
+
+    const handleSteamIDSubmit = () => {
+        const trimmed = steamIDInput.trim();
+        if (!/^\d{17}$/.test(trimmed) || !trimmed.startsWith('7656119')) {
+            setSteamIDError('Steam ID must be 17 digits starting with 7656119');
+            return;
+        }
+        setSteamIDError('');
+        runConversion(convSourcePath, 'PC', trimmed);
+    };
+
+    const cancelConversion = () => {
+        setConvStep('idle');
+        setSteamIDInput('');
+        setSteamIDError('');
+    };
+
+    const converting = convStep !== 'idle';
 
     // Deploy state
     const [targets, setTargets] = useState<deploy.Target[]>([]);
@@ -169,8 +229,59 @@ export function SettingsTab({
     const dot = "w-1 h-5 bg-primary rounded-full shadow-[0_0_6px_rgba(var(--primary),0.3)]";
     const hdrText = "text-[10px] font-black uppercase tracking-[0.25em] text-foreground/80";
 
+    if (view === 'favorites') {
+        return (
+            <div className="space-y-3 animate-in fade-in duration-300">
+                <button onClick={() => setView('overview')}
+                    className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Back to Tools
+                </button>
+                <FavoritesManager />
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* SteamID modal for PS4 → PC conversion */}
+            {convStep === 'steamid' && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+                    <div className="card p-6 w-full max-w-sm space-y-4">
+                        <h3 className="text-[11px] font-black uppercase tracking-wider text-foreground">Steam ID Required</h3>
+                        <p className="text-[9px] text-muted-foreground">
+                            PS4 saves don't contain a Steam ID. Enter yours to embed it in the converted PC save.
+                            Find it at <span className="text-violet-400">steamcommunity.com/id/me</span> (17-digit number).
+                        </p>
+                        <div className="space-y-2">
+                            <input
+                                type="text"
+                                value={steamIDInput}
+                                onChange={e => { setSteamIDInput(e.target.value); setSteamIDError(''); }}
+                                onKeyDown={e => e.key === 'Enter' && handleSteamIDSubmit()}
+                                placeholder="76561198..."
+                                maxLength={17}
+                                className="w-full bg-background border border-border rounded px-3 py-2 text-[11px] font-mono focus:outline-none focus:border-violet-500"
+                                autoFocus
+                            />
+                            {steamIDError && <p className="text-[9px] text-destructive">{steamIDError}</p>}
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                            <button onClick={cancelConversion}
+                                className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors">
+                                Cancel
+                            </button>
+                            <button onClick={handleSteamIDSubmit}
+                                className="px-3 py-1.5 text-[9px] font-black uppercase tracking-wider bg-violet-500 text-white rounded hover:bg-violet-600 transition-colors">
+                                Convert
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Appearance + SteamID + UI Customization */}
             <section className="space-y-3">
                 <div className={sectionHdr}><div className={dot} /><h2 className={hdrText}>Appearance & Steam ID</h2></div>
@@ -205,7 +316,7 @@ export function SettingsTab({
                             </>)}
                         </div>
                     </div>
-                    {/* UI Customization — all toggles inline */}
+                    {/* UI Customization */}
                     <div className="flex items-center gap-3 flex-wrap pt-3 border-t border-border/40">
                         <p className="text-[10px] font-bold text-foreground">UI</p>
                         <label title="Show the hexadecimal item ID column in Inventory and Item Database tables." className="flex items-center gap-2 px-2.5 py-1.5 rounded bg-muted/20 border border-border/50 cursor-pointer hover:bg-muted/30 transition-all">
@@ -296,58 +407,83 @@ export function SettingsTab({
                 </div>
             </section>
 
-
             {/* Safety */}
             <section className="space-y-3">
                 <div className={sectionHdr}><div className={dot} /><h2 className={hdrText}>Safety</h2></div>
-                <div className="card px-4 py-3 space-y-2">
-                    <label className="flex items-start justify-between gap-4 p-2.5 rounded bg-muted/20 border border-border/50 cursor-pointer hover:bg-muted/30 transition-all">
-                        <div className="flex-1 space-y-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-foreground block">Online Safety Mode</span>
-                            <p className="text-[10px] text-muted-foreground leading-relaxed">
-                                <strong>Action gating.</strong> When enabled: Tier 2 edits (cut content, illegal stat values, runes &gt; 999M) are <strong>disabled</strong>;
-                                Tier 1 actions (bulk grace unlock, map reveal, etc.) <strong>require explicit confirmation</strong> every time.
-                                Recommended when actively playing online.
+                <div className="card px-4 py-3">
+                    <div className="flex gap-3">
+                        <label className="flex-1 flex flex-col gap-1.5 p-3 rounded bg-muted/20 border border-border/50 cursor-pointer hover:bg-muted/30 transition-all">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-foreground">Online Safety Mode</span>
+                                <input type="checkbox" checked={safetyMode.enabled} onChange={e => safetyMode.setEnabled(e.target.checked)} className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20 shrink-0" />
+                            </div>
+                            <p className="text-[9px] text-muted-foreground leading-relaxed">
+                                Tier 2 edits disabled; Tier 1 actions require confirmation. Recommended when playing online.
                             </p>
-                        </div>
-                        <input
-                            type="checkbox"
-                            checked={safetyMode.enabled}
-                            onChange={e => safetyMode.setEnabled(e.target.checked)}
-                            className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20 shrink-0 mt-1"
-                        />
-                    </label>
-                    <label className="flex items-start justify-between gap-4 p-2.5 rounded bg-muted/20 border border-border/50 cursor-pointer hover:bg-muted/30 transition-all">
-                        <div className="flex-1 space-y-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-foreground block">Show Cut &amp; Ban-Risk Items</span>
-                            <p className="text-[10px] text-muted-foreground leading-relaxed">
-                                <strong>List visibility.</strong> When enabled, cut content and ban-risk items appear in Item Database, Inventory and Gestures lists (with the ⚠ marker).
-                                Disable to hide them from view entirely. Independent from Online Safety Mode.
+                        </label>
+                        <label className="flex-1 flex flex-col gap-1.5 p-3 rounded bg-muted/20 border border-border/50 cursor-pointer hover:bg-muted/30 transition-all">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-foreground">Show Cut &amp; Ban-Risk Items</span>
+                                <input type="checkbox" checked={showFlaggedItems} onChange={e => setShowFlaggedItems(e.target.checked)} className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20 shrink-0" />
+                            </div>
+                            <p className="text-[9px] text-muted-foreground leading-relaxed">
+                                Cut content and ban-risk items appear in lists with the ⚠ marker. Independent from Safety Mode.
                             </p>
-                        </div>
-                        <input
-                            type="checkbox"
-                            checked={showFlaggedItems}
-                            onChange={e => setShowFlaggedItems(e.target.checked)}
-                            className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20 shrink-0 mt-1"
-                        />
-                    </label>
-                    <label className="flex items-start justify-between gap-4 p-2.5 rounded bg-red-500/5 border border-red-500/30 cursor-pointer hover:bg-red-500/10 transition-all">
-                        <div className="flex-1 space-y-1">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-red-500 block">Full Chaos Mode</span>
-                            <p className="text-[10px] text-muted-foreground leading-relaxed">
-                                <strong className="text-red-500/90">Bypasses all item caps.</strong> When enabled, the Item Database modal allows
-                                adding any quantity ignoring vanilla single-playthrough limits and NG+ scaling.
-                                <strong> Strongly increases EAC ban risk.</strong> Use only on offline / experimental saves.
+                        </label>
+                        <label className="flex-1 flex flex-col gap-1.5 p-3 rounded bg-red-500/5 border border-red-500/30 cursor-pointer hover:bg-red-500/10 transition-all">
+                            <div className="flex items-center justify-between gap-2">
+                                <span className="text-[10px] font-black uppercase tracking-widest text-red-500">Full Chaos Mode</span>
+                                <input type="checkbox" checked={fullChaosMode} onChange={e => handleChaosToggle(e.target.checked)} className="w-3.5 h-3.5 rounded border-red-500/40 text-red-500 focus:ring-red-500/20 shrink-0" />
+                            </div>
+                            <p className="text-[9px] text-muted-foreground leading-relaxed">
+                                <strong className="text-red-500/90">Bypasses all item caps.</strong> Strongly increases EAC ban risk. Offline / experimental saves only.
                             </p>
+                        </label>
+                    </div>
+                </div>
+            </section>
+
+            {/* Tools */}
+            <section className="space-y-3">
+                <div className={sectionHdr}><div className={dot} /><h2 className={hdrText}>Tools</h2></div>
+                <div className="card px-4 py-3">
+                    <div className="flex flex-wrap gap-2">
+                        <button onClick={() => setView('favorites')}
+                            className="flex items-center gap-2 px-3 py-2 rounded bg-primary text-primary-foreground hover:brightness-110 transition-all text-[9px] font-black uppercase tracking-widest shadow-sm active:scale-95">
+                            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                            </svg>
+                            Favorite Items{favCount > 0 ? ` (${favCount})` : ''}
+                        </button>
+                        <button onClick={handleConvertClick} disabled={converting}
+                            className="flex items-center gap-2 px-3 py-2 rounded bg-primary text-primary-foreground hover:brightness-110 transition-all text-[9px] font-black uppercase tracking-widest shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                            {converting
+                                ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                                </svg>
+                            }
+                            Convert Format
+                        </button>
+                        <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                            </svg>
+                            Save Comparison <span className="ml-1 text-[8px] opacity-60">(soon)</span>
                         </div>
-                        <input
-                            type="checkbox"
-                            checked={fullChaosMode}
-                            onChange={e => handleChaosToggle(e.target.checked)}
-                            className="w-3.5 h-3.5 rounded border-red-500/40 text-red-500 focus:ring-red-500/20 shrink-0 mt-1"
-                        />
-                    </label>
+                        <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                            </svg>
+                            Diagnostics <span className="ml-1 text-[8px] opacity-60">(soon)</span>
+                        </div>
+                        <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+                            </svg>
+                            Backup Manager <span className="ml-1 text-[8px] opacity-60">(soon)</span>
+                        </div>
+                    </div>
                 </div>
             </section>
         </div>
