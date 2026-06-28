@@ -1,4 +1,4 @@
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, type ReactNode} from 'react';
 import toast from '../lib/toast';
 import {
     GetNetworkParams, SetNetworkParams, ResetNetworkParams, GetNetworkPreset,
@@ -11,7 +11,7 @@ interface NetworkTabProps {
     platform: string | null;
 }
 
-type GroupId = 'invader' | 'cooperator' | 'blue';
+type GroupId = 'invader' | 'summonHost' | 'summonGuest' | 'hunter';
 
 interface SliderDef {
     key: string;
@@ -33,29 +33,36 @@ const INVADER_SLIDERS: SliderDef[] = [
     {key: 'breakInRequestTimeOutSec',      label: 'Request Timeout',  desc: 'Seconds before a single matchmaking request is abandoned. Too low (e.g. 3s) cancels near-and-far requests before they can complete.', min: 3,  max: 20, step: 1, unit: 's', defaultVal: 20},
 ];
 
-const COOPERATOR_SLIDERS: SliderDef[] = [
-    {key: 'reloadSignIntervalTime2', label: 'Sign Refresh',    desc: 'How often (seconds) the game fetches the summon sign list. Lower = signs from other players appear faster.', min: 1,  max: 120, step: 1, unit: 's', defaultVal: 60},
-    {key: 'reloadSignTotalCount',    label: 'Signs Retrieved', desc: 'Maximum number of summon signs downloaded per refresh cycle. Must be ≤ Sign Get Max.',                       min: 1,  max: 128, step: 1, unit: '',  defaultVal: 20},
-    {key: 'reloadSignCellCount',     label: 'Signs Per Cell',  desc: 'Maximum signs visible within a single map cell. Must be ≤ Signs Retrieved.',                                min: 1,  max: 99,  step: 1, unit: '',  defaultVal: 10},
-    {key: 'updateSignIntervalTime',  label: 'Sign Upload',     desc: 'How often your own summon sign is re-uploaded to the server. Lower = your sign stays fresher for hosts.',   min: 1,  max: 120, step: 1, unit: 's', defaultVal: 30},
-    {key: 'singGetMax',              label: 'Sign Get Max',    desc: 'Hard cap on the total number of signs retrievable. Acts as the ceiling for Signs Retrieved.',               min: 1,  max: 128, step: 1, unit: '',  defaultVal: 32},
-    {key: 'signDownloadSpan',        label: 'Download Span',   desc: 'Interval between full sign list download cycles.',                                                          min: 1,  max: 120, step: 1, unit: 's', defaultVal: 30},
-    {key: 'signUpdateSpan',          label: 'Upload Span',     desc: 'Interval between sign data uploads to the matchmaking server.',                                             min: 1,  max: 120, step: 1, unit: 's', defaultVal: 60},
+const SUMMON_HOST_SLIDERS: SliderDef[] = [
+    {key: 'summonTimeoutTime',       label: 'Summon Timeout',  desc: 'Seconds before a pending summon request times out. Lower = faster retry loop for the guest waiting to be pulled.',   min: 1, max: 120, step: 1, unit: 's', defaultVal: 45},
+    {key: 'reloadSignIntervalTime2', label: 'Sign Refresh',    desc: 'How often (seconds) the game fetches the summon sign list. Lower = signs from other players appear faster.',        min: 1, max: 120, step: 1, unit: 's', defaultVal: 60},
+    {key: 'reloadSignTotalCount',    label: 'Signs Retrieved', desc: 'Maximum number of summon signs downloaded per refresh cycle. Must be ≤ Sign Get Max.',                             min: 1, max: 128, step: 1, unit: '',  defaultVal: 20},
+    {key: 'singGetMax',              label: 'Sign Get Max',    desc: 'Hard cap on the total number of signs retrievable. Acts as the ceiling for Signs Retrieved.',                       min: 1, max: 128, step: 1, unit: '',  defaultVal: 32},
+    {key: 'signDownloadSpan',        label: 'Download Span',   desc: 'Interval between full sign list download cycles.',                                                                  min: 1, max: 120, step: 1, unit: 's', defaultVal: 30},
 ];
 
-const BLUE_SLIDERS: SliderDef[] = [
-    {key: 'reloadVisitListCoolTime',   label: 'Search Cooldown',   desc: 'Cooldown in seconds between Blue Cipher Ring search cycles. Lower = searches for invaded hosts more frequently.', min: 1,  max: 120, step: 1, unit: 's', defaultVal: 20},
-    {key: 'reloadSearchCoopBlueMin',   label: 'Reload Min',        desc: 'Minimum delay (seconds) between co-op blue reload searches. Must be ≤ Reload Max.',                              min: 1,  max: 180, step: 1, unit: 's', defaultVal: 30},
-    {key: 'reloadSearchCoopBlueMax',   label: 'Reload Max',        desc: 'Maximum delay (seconds) for the reload interval. Actual delay is randomised between Min and Max each cycle.',     min: 1,  max: 300, step: 1, unit: 's', defaultVal: 180},
-    {key: 'maxVisitListCount',         label: 'Visit List Size',   desc: 'Number of potential invaded-host targets fetched per search cycle. Higher = more options evaluated.',            min: 1,  max: 50,  step: 1, unit: '',  defaultVal: 5},
-    {key: 'allAreaSearchRateCoopBlue', label: 'Global Search %',   desc: 'Percentage chance the blue search covers ALL map areas instead of only the local area. Higher = wider reach.',    min: 0,  max: 100, step: 5, unit: '%', defaultVal: 30},
+const EXPERIMENTAL_SUMMON_HOST: SliderDef[] = [
+    {key: 'reloadSignCellCount', label: 'Signs Per Cell', desc: 'Max signs visible within a single map cell. Must be ≤ Signs Retrieved. Excluded from presets — increasing can cause sign clutter / overlap. Vanilla 10.', min: 1, max: 99, step: 1, unit: '', defaultVal: 10},
+];
+
+const SUMMON_GUEST_SLIDERS: SliderDef[] = [
+    {key: 'updateSignIntervalTime', label: 'Sign Upload', desc: 'How often your own summon sign is re-uploaded to the server. Lower = your sign stays fresher for hosts.', min: 1, max: 120, step: 1, unit: 's', defaultVal: 30},
+    {key: 'signUpdateSpan',         label: 'Upload Span', desc: 'Interval between sign data uploads to the matchmaking server.',                                           min: 1, max: 120, step: 1, unit: 's', defaultVal: 60},
+];
+
+const HUNTER_SLIDERS: SliderDef[] = [
+    {key: 'reloadVisitListCoolTime',  label: 'Search Cooldown', desc: 'Cooldown in seconds between Blue Cipher Ring search cycles. Lower = searches for invaded hosts more frequently.', min: 1, max: 120, step: 1, unit: 's', defaultVal: 20},
+    {key: 'maxVisitListCount',        label: 'Visit List Size',  desc: 'Number of potential invaded-host targets fetched per search cycle. Higher = more options evaluated.',            min: 1, max: 50,  step: 1, unit: '',  defaultVal: 5},
+    {key: 'reloadSearchCoopBlueMin',  label: 'Reload Min',       desc: 'Minimum delay (seconds) between co-op blue reload searches. Must be ≤ Reload Max.',                             min: 1, max: 180, step: 1, unit: 's', defaultVal: 30},
+    {key: 'reloadSearchCoopBlueMax',  label: 'Reload Max',       desc: 'Maximum delay (seconds) for the reload interval. Actual delay is randomised between Min and Max each cycle.',   min: 1, max: 300, step: 1, unit: 's', defaultVal: 180},
 ];
 
 // --- Experimental sliders (shown inside their functional group, never touched by presets) ---
 
-const EXPERIMENTAL_BLUE: SliderDef[] = [
-    {key: 'maxCoopBlueSummonCount', label: 'Blue Search Parallelism', desc: 'Client-side blue search parallelism (maxCoopBlueSummonCount). The server caps the actual number of active blues, so raising this rarely helps. Experimental — active Blue presets never change it. Vanilla 2.', min: 1, max: 10, step: 1, unit: '', defaultVal: 2},
-    {key: 'allAreaSearchRateVsBlue', label: 'Retribution Global %',   desc: 'Global-search rate for the retribution blue role (allAreaSearchRateVsBlue). Its effect in Elden Ring is unverified. Experimental — active Blue presets never change it. Vanilla 30.', min: 0, max: 100, step: 5, unit: '%', defaultVal: 30},
+const EXPERIMENTAL_HUNTER: SliderDef[] = [
+    {key: 'maxCoopBlueSummonCount',    label: 'Blue Search Parallelism', desc: 'Client-side blue search parallelism. Server caps actual joins, so raising this rarely helps. Experimental — never changed by presets. Vanilla 2.',      min: 1, max: 10,  step: 1, unit: '',  defaultVal: 2},
+    {key: 'allAreaSearchRateCoopBlue', label: 'Global Search %',         desc: 'Chance the blue search covers ALL map areas instead of only the local area. Experimental — never changed by presets. Vanilla 30.',                      min: 0, max: 100, step: 5, unit: '%', defaultVal: 30},
+    {key: 'allAreaSearchRateVsBlue',   label: 'Retribution Global %',    desc: 'Global-search rate for the retribution blue role. Effect in Elden Ring unverified. Experimental — never changed by presets. Vanilla 30.',              min: 0, max: 100, step: 5, unit: '%', defaultVal: 30},
 ];
 
 // Visitor / legacy ring-search fields. Hidden from the active UI until a confirmed
@@ -86,29 +93,38 @@ const GROUP_META: Record<GroupId, GroupMeta> = {
         fasterKey: 'faster-reds', fasterLabel: 'Faster',
         aggressiveKey: 'aggressive-reds', aggressiveLabel: 'Aggressive',
     },
-    cooperator: {
-        label: 'Summon Signs', icon: '☀', desc: 'Summon sign refresh & upload. Summoning Pool activation is configured separately in World / Exploration.',
-        titleClassName: 'text-orange-800 dark:text-orange-600',
-        sliders: COOPERATOR_SLIDERS,
-        fasterKey: 'faster-summons', fasterLabel: 'Faster',
-        aggressiveKey: 'aggressive-summons', aggressiveLabel: 'Aggressive',
+    summonHost: {
+        label: 'You summon others', icon: '☀', desc: 'Sign visibility and refresh speed as host (Furlcalling Finger Remedy active)',
+        titleClassName: '',
+        sliders: SUMMON_HOST_SLIDERS,
+        fasterKey: 'faster-summon-host', fasterLabel: 'Better',
+        aggressiveKey: 'aggressive-summon-host', aggressiveLabel: 'Aggressive',
+        experimental: EXPERIMENTAL_SUMMON_HOST,
     },
-    blue: {
-        label: 'Blue / Hunter', icon: '🛡', desc: 'Blue Cipher Ring response time & reach (test hunter-side with an active Blue Cipher Ring)',
+    summonGuest: {
+        label: 'Others summon you', icon: '🫱', desc: "Sign upload frequency as cooperator (with Tarnished's Furled Finger / Small Golden Effigy)",
+        titleClassName: '',
+        sliders: SUMMON_GUEST_SLIDERS,
+        fasterKey: 'faster-summon-guest', fasterLabel: 'Better',
+        aggressiveKey: 'aggressive-summon-guest', aggressiveLabel: 'Aggressive',
+    },
+    hunter: {
+        label: 'Hunter', icon: '🛡', desc: 'Blue Cipher Ring response time and reach',
         titleClassName: 'text-blue-800 dark:text-blue-700',
-        sliders: BLUE_SLIDERS,
-        fasterKey: 'faster-blue', fasterLabel: 'Faster',
-        aggressiveKey: 'aggressive-blue', aggressiveLabel: 'Aggressive',
-        experimental: EXPERIMENTAL_BLUE,
+        sliders: HUNTER_SLIDERS,
+        fasterKey: 'faster-hunter', fasterLabel: 'Better',
+        aggressiveKey: 'aggressive-hunter', aggressiveLabel: 'Aggressive',
+        experimental: EXPERIMENTAL_HUNTER,
     },
 };
 
-const GROUPS: GroupId[] = ['invader', 'cooperator', 'blue'];
+const GROUPS: GroupId[] = ['invader', 'summonHost', 'summonGuest', 'hunter'];
 
 // Vanilla baseline (from binary NetworkParam.param — source of truth).
 // reloadSignTotalCount=20 / reloadSignCellCount=10 (NOT the old doc value 32/8).
 const VANILLA_VALUES: NetDraft = {
     maxBreakInTargetListCount: 5,    breakInRequestIntervalTimeSec: 30, breakInRequestTimeOutSec: 20,  breakInRequestAreaCount: 5,
+    summonTimeoutTime: 45,
     reloadSignIntervalTime2: 60,     reloadSignTotalCount: 20,          reloadSignCellCount: 10,        updateSignIntervalTime: 30,
     singGetMax: 32,                  signDownloadSpan: 30,              signUpdateSpan: 60,
     reloadVisitListCoolTime: 20,     maxCoopBlueSummonCount: 2,         maxVisitListCount: 5,
@@ -122,6 +138,7 @@ function paramsToDict(p: core.NetworkParamValues): NetDraft {
         breakInRequestIntervalTimeSec: p.breakInRequestIntervalTimeSec,
         breakInRequestTimeOutSec:      p.breakInRequestTimeOutSec,
         breakInRequestAreaCount:       p.breakInRequestAreaCount,
+        summonTimeoutTime:             p.summonTimeoutTime,
         reloadSignIntervalTime2:       p.reloadSignIntervalTime2,
         reloadSignTotalCount:          p.reloadSignTotalCount,
         reloadSignCellCount:           p.reloadSignCellCount,
@@ -165,21 +182,25 @@ export function NetworkTab({platform}: NetworkTabProps) {
         // Fetch functional presets from the backend — single source of truth, no drift.
         Promise.all([
             GetNetworkPreset('faster-reds'),
-            GetNetworkPreset('faster-summons'),
-            GetNetworkPreset('faster-blue'),
             GetNetworkPreset('aggressive-reds'),
-            GetNetworkPreset('aggressive-summons'),
-            GetNetworkPreset('aggressive-blue'),
+            GetNetworkPreset('faster-summon-host'),
+            GetNetworkPreset('aggressive-summon-host'),
+            GetNetworkPreset('faster-summon-guest'),
+            GetNetworkPreset('aggressive-summon-guest'),
+            GetNetworkPreset('faster-hunter'),
+            GetNetworkPreset('aggressive-hunter'),
             GetNetworkPreset('vanilla'),
-        ]).then(([fReds, fSummons, fBlue, aReds, aSummons, aBlue, vanilla]) => {
+        ]).then(([fReds, aReds, fSumHost, aSumHost, fSumGuest, aSumGuest, fHunter, aHunter, vanilla]) => {
             setPresets({
-                'faster-reds': paramsToDict(fReds),
-                'faster-summons': paramsToDict(fSummons),
-                'faster-blue': paramsToDict(fBlue),
-                'aggressive-reds': paramsToDict(aReds),
-                'aggressive-summons': paramsToDict(aSummons),
-                'aggressive-blue': paramsToDict(aBlue),
-                'vanilla': paramsToDict(vanilla),
+                'faster-reds':            paramsToDict(fReds),
+                'aggressive-reds':        paramsToDict(aReds),
+                'faster-summon-host':     paramsToDict(fSumHost),
+                'aggressive-summon-host': paramsToDict(aSumHost),
+                'faster-summon-guest':    paramsToDict(fSumGuest),
+                'aggressive-summon-guest':paramsToDict(aSumGuest),
+                'faster-hunter':          paramsToDict(fHunter),
+                'aggressive-hunter':      paramsToDict(aHunter),
+                'vanilla':                paramsToDict(vanilla),
             });
         }).catch(() => setPresets({}));
     }, [platform]);
@@ -309,12 +330,17 @@ export function NetworkTab({platform}: NetworkTabProps) {
                 {/* Default-visible functional groups */}
                 {GROUPS.map(group => {
                     const meta = GROUP_META[group];
+                    const title: ReactNode = group === 'summonHost'
+                        ? <>☀ You <span className="text-orange-400">summon</span> others</>
+                        : group === 'summonGuest'
+                        ? <>🫱 Others <span className="text-orange-400">summon</span> you</>
+                        : `${meta.icon} ${meta.label}`;
                     return (
                         <AccordionSection
                             key={group}
                             id={`network-${group}`}
-                            title={`${meta.icon} ${meta.label}`}
-                            titleClassName={meta.titleClassName}
+                            title={title}
+                            titleClassName={meta.titleClassName || 'text-foreground/80'}
                             summary={meta.desc}
                             headerRight={makeGroupButtons(group)}
                         >

@@ -1743,6 +1743,19 @@ func (a *App) GetNetworkPreset(name string) (*core.NetworkParamValues, error) {
 		p = core.NetworkParamAggressiveBlue()
 	case "vanilla":
 		p = core.NetworkParamDefaults()
+	// Summon sections presets (v1.0-beta5+).
+	case "faster-summon-host":
+		p = core.NetworkParamFasterSummonHost()
+	case "aggressive-summon-host":
+		p = core.NetworkParamAggressiveSummonHost()
+	case "faster-summon-guest":
+		p = core.NetworkParamFasterSummonGuest()
+	case "aggressive-summon-guest":
+		p = core.NetworkParamAggressiveSummonGuest()
+	case "faster-hunter":
+		p = core.NetworkParamFasterHunter()
+	case "aggressive-hunter":
+		p = core.NetworkParamAggressiveHunter()
 	// Legacy preset keys (consumed only by the orphaned NetworkSpeedPanel).
 	case "fast-invasions":
 		p = core.NetworkParamFastInvasions()

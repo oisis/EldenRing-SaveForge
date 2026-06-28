@@ -12,17 +12,19 @@
 
 export type NetDraft = Record<string, number>;
 
-// Canonical field lists for the three functional preset groups. These are the
-// ONLY fields a group's Faster / Vanilla button is allowed to touch. They
+// Canonical field lists for the four functional preset groups. These are the
+// ONLY fields a group's Better / Vanilla button is allowed to touch. They
 // deliberately exclude fields that are still treated as Experimental:
-// - blue excludes maxCoopBlueSummonCount and allAreaSearchRateVsBlue (Blue extras)
+// - summonHost excludes reloadSignCellCount (clutter risk) and reloadSignIntervalTime1
+// - hunter excludes maxCoopBlueSummonCount, allAreaSearchRateCoopBlue, allAreaSearchRateVsBlue
 // - none include Visitor / legacy ring-search fields
 // This keeps presets modular: applying one group never overwrites another
 // group's manual values or any field outside that group.
 export const NETWORK_GROUP_KEYS = {
-    invader: ['maxBreakInTargetListCount', 'breakInRequestAreaCount', 'breakInRequestIntervalTimeSec', 'breakInRequestTimeOutSec'],
-    cooperator: ['reloadSignIntervalTime2', 'reloadSignTotalCount', 'reloadSignCellCount', 'updateSignIntervalTime', 'singGetMax', 'signDownloadSpan', 'signUpdateSpan'],
-    blue: ['reloadVisitListCoolTime', 'reloadSearchCoopBlueMin', 'reloadSearchCoopBlueMax', 'maxVisitListCount', 'allAreaSearchRateCoopBlue'],
+    invader:     ['maxBreakInTargetListCount', 'breakInRequestAreaCount', 'breakInRequestIntervalTimeSec', 'breakInRequestTimeOutSec'],
+    summonHost:  ['summonTimeoutTime', 'reloadSignIntervalTime2', 'reloadSignTotalCount', 'singGetMax', 'signDownloadSpan'],
+    summonGuest: ['updateSignIntervalTime', 'signUpdateSpan'],
+    hunter:      ['reloadVisitListCoolTime', 'maxVisitListCount', 'reloadSearchCoopBlueMin', 'reloadSearchCoopBlueMax'],
 } as const;
 
 export type NetworkGroupId = keyof typeof NETWORK_GROUP_KEYS;
