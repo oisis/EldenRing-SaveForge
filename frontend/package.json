@@ -13,8 +13,8 @@
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
     "react-hot-toast": "^2.6.0"
   },
   "devDependencies": {
@@ -22,15 +22,15 @@
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/react": "^18.0.17",
-    "@types/react-dom": "^18.0.6",
-    "@vitejs/plugin-react": "^2.2.0",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.5.2",
     "jsdom": "^29.1.1",
     "postcss": "^8.5.16",
     "tailwindcss": "^4.3.2",
     "typescript": "^5.9.3",
-    "vite": "^3.0.7",
-    "vitest": "^0.34.6"
+    "vite": "^8.1.0",
+    "vitest": "^4.1.9"
   }
 }
