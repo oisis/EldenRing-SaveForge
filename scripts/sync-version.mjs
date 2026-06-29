@@ -1,3 +1,4 @@
+import {createHash} from 'node:crypto';
 import {existsSync, readFileSync, writeFileSync} from 'node:fs';
 import {dirname, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -20,6 +21,7 @@ updateJson('frontend/package.json', data => {
   data.version = version;
   return data;
 });
+syncPackageJsonMd5();
 
 updateJson('frontend/package-lock.json', data => {
   data.version = version;
@@ -55,4 +57,10 @@ function writeFileIfChanged(relativePath, content) {
   if (current !== content) {
     writeFileSync(filePath, content);
   }
+}
+
+function syncPackageJsonMd5() {
+  const packageJsonPath = resolve(repoRoot, 'frontend/package.json');
+  const md5 = createHash('md5').update(readFileSync(packageJsonPath)).digest('hex');
+  writeFileIfChanged('frontend/package.json.md5', md5);
 }
