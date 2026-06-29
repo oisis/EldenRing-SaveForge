@@ -90,6 +90,9 @@ jobs:
       - name: Install frontend dependencies
         run: cd frontend && npm ci
 
+      - name: Sync app version
+        run: node scripts/sync-version.mjs
+
       - name: Build (macOS)
         if: matrix.platform == 'darwin'
         env:

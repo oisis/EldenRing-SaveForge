@@ -14,6 +14,7 @@ import {PvPTab} from './components/PvPTab';
 import {SortOrderTab} from './components/SortOrderTab';
 
 import {ToastBar} from './components/ToastBar';
+import {APP_VERSION} from './version';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
 import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
@@ -518,7 +519,7 @@ function App() {
                         </button>
                     )}
                     <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-50">
-                        <span>v0.5.0</span>
+                        <span>v{APP_VERSION}</span>
                         <span>System Ready</span>
                     </div>
                 </div>
