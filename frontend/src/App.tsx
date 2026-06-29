@@ -410,8 +410,8 @@ function App() {
                                 <span className="text-primary-foreground font-black text-lg tracking-tighter">ER</span>
                             </div>
                             <div>
-                                <h1 className="text-[10px] font-black tracking-[0.2em] leading-none">Elden Ring SaveForge</h1>
-                                <p className="text-[7px] text-primary tracking-wider mt-0.5">by OiSiS</p>
+                                <h1 className="text-xs font-black tracking-[0.2em] leading-none">Elden Ring SaveForge</h1>
+                                <p className="text-[9px] text-primary tracking-wider mt-0.5">by OiSiS</p>
                             </div>
                         </div>
                     </div>
@@ -426,8 +426,8 @@ function App() {
                     {platform && (
                         <div className="space-y-4 animate-in fade-in slide-in-from-left-2 duration-500">
                             <div className="flex items-center justify-between px-1">
-                                <h2 className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">Characters</h2>
-                                <span className="text-[8px] font-bold bg-muted/30 px-2 py-0.5 rounded-full text-muted-foreground">{activeSlots.filter(s => s).length}/10</span>
+                                <h2 className="text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground">Characters</h2>
+                                <span className="text-[10px] font-bold bg-muted/30 px-2 py-0.5 rounded-full text-muted-foreground">{activeSlots.filter(s => s).length}/10</span>
                             </div>
                             {/* Active slots */}
                             <div className="space-y-1">
@@ -465,11 +465,11 @@ function App() {
                     {slotStates.filter(s => !s.active).length > 0 && (
                                 <>
                                     <button onClick={() => setShowEmptySlots(v => !v)}
-                                        className="flex items-center gap-1.5 px-1 py-1 text-[9px] font-bold text-muted-foreground hover:text-foreground transition-colors w-full">
+                                        className="flex items-center gap-1.5 px-1 py-1 text-[11px] font-bold text-muted-foreground hover:text-foreground transition-colors w-full">
                                         <svg className={`w-2.5 h-2.5 transition-transform duration-200 ${showEmptySlots ? 'rotate-90' : ''}`}
                                             fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M9 5l7 7-7 7" /></svg>
                             <span className="uppercase tracking-widest">Inactive Slots</span>
-                            <span className="text-[8px] bg-muted/30 px-1.5 py-0.5 rounded-full">{slotStates.filter(s => !s.active).length}</span>
+                            <span className="text-[10px] bg-muted/30 px-1.5 py-0.5 rounded-full">{slotStates.filter(s => !s.active).length}</span>
                                     </button>
                                     {showEmptySlots && (
                                         <div className="space-y-1 animate-in fade-in slide-in-from-top-1 duration-200">
@@ -483,8 +483,8 @@ function App() {
                                             <div className="flex items-center justify-between relative z-10">
                                                 <div className="flex items-center space-x-2.5 min-w-0">
                                                     <div className={`w-1.5 h-1.5 flex-shrink-0 rounded-full ${residual ? 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.35)]' : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.3)]'}`} />
-                                                    <span className="text-[9px] text-muted-foreground/50 mr-1">{idx + 1}</span>
-                                                    <span className={`text-[10px] font-bold uppercase tracking-tight truncate ${residual ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/60 italic'}`}>{name}</span>
+                                                    <span className="text-[11px] text-muted-foreground/75 mr-1">{idx + 1}</span>
+                                                    <span className={`text-xs font-bold uppercase tracking-tight truncate ${residual ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground/80 italic'}`}>{name}</span>
                                                 </div>
                                                 {residual ? (
                                                     <button onClick={(e) => { e.stopPropagation(); handleCleanResidualSlot(idx); }}
@@ -493,7 +493,7 @@ function App() {
                                                         {cleaningSlot === idx ? 'Cleaning' : 'Clean'}
                                                     </button>
                                                 ) : (
-                                                    <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/50">Empty</span>
+                                                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground/75">Empty</span>
                                                 )}
                                             </div>
                                         </div>
@@ -680,7 +680,7 @@ function App() {
                                                         return (
                                                             <div key={label} className="flex items-center gap-2">
                                                                 <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{label}</span>
-                                                                <div className="w-16 h-1.5 bg-muted/30 rounded-full overflow-hidden">
+                                                                <div className="w-16 h-3 bg-muted/30 rounded-full overflow-hidden">
                                                                     <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
                                                                 </div>
                                                                 <span className={`text-[9px] font-bold tabular-nums ${pct >= 95 ? 'text-red-400' : 'text-muted-foreground'}`}>{used}/{max}</span>

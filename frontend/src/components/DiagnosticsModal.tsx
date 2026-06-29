@@ -31,7 +31,7 @@ interface Props {
 
 const severityColor: Record<string, string> = {
     critical: 'text-red-400',
-    warning: 'text-yellow-400',
+    warning: 'text-warning-foreground',
     info: 'text-blue-400',
 };
 
@@ -276,7 +276,7 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
                                             </span>
                                         )}
                                         {warningCount > 0 && (
-                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-yellow-400">
+                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-warning-foreground">
                                                 {warningCount} warning
                                             </span>
                                         )}

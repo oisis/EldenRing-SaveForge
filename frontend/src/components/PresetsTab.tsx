@@ -120,13 +120,13 @@ function StatPreviewPanel({data}: {data: PreviewData}) {
             {/* Validation warnings */}
             {data.warnings.length > 0 && (
                 <div className="flex flex-col gap-1 px-3 py-2 rounded border border-yellow-500/30 bg-yellow-500/8">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400/80 mb-0.5">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-warning-foreground mb-0.5">
                         Validation warnings
                     </p>
                     {data.warnings.map((w, i) => (
                         <div key={i} className="flex items-start gap-1.5">
-                            <span className="text-yellow-400/70 text-[10px] leading-none mt-px">⚠</span>
-                            <span className="text-[10px] text-yellow-200/70 leading-relaxed">{w}</span>
+                            <span className="text-yellow-600 text-[10px] leading-none mt-px">⚠</span>
+                            <span className="text-[10px] text-foreground/80 leading-relaxed">{w}</span>
                         </div>
                     ))}
                 </div>
@@ -169,11 +169,11 @@ function InventoryPreviewPanel({data}: {data: PreviewData}) {
     return (
         <div className="mt-2 pt-3 border-t border-border/30 flex flex-col gap-2">
             <div className="flex items-center gap-1.5">
-                <svg className="w-3 h-3 text-yellow-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3 text-yellow-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
                         d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.539-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                 </svg>
-                <p className="text-[9px] font-black uppercase tracking-widest text-yellow-400/80">
+                <p className="text-[9px] font-black uppercase tracking-widest text-warning-foreground">
                     Destructive — replaces entire inventory
                 </p>
             </div>
@@ -306,8 +306,8 @@ function PresetCard({
                         <div className="mt-0.5 flex flex-col gap-0.5">
                             {applyResult.warnings.map((w, i) => (
                                 <div key={i} className="flex items-start gap-1.5">
-                                    <span className="text-yellow-400/70 text-[10px] leading-none mt-px">⚠</span>
-                                    <span className="text-[10px] text-yellow-200/70">{w}</span>
+                                    <span className="text-yellow-600 text-[10px] leading-none mt-px">⚠</span>
+                                    <span className="text-[10px] text-foreground/75">{w}</span>
                                 </div>
                             ))}
                         </div>
@@ -470,11 +470,11 @@ export function PresetsTab({charIdx, onMutate}: PresetsTabProps) {
             </div>
 
             {/* Backup warning */}
-            <div className="px-3 py-2 rounded border-l-2 flex items-start gap-3 bg-yellow-500/10 border-yellow-500/40 text-yellow-200 shrink-0">
-                <span className="text-base leading-none text-yellow-400">⚠</span>
+            <div className="px-3 py-2 rounded border-l-2 flex items-start gap-3 bg-yellow-500/10 border-yellow-500/40 shrink-0">
+                <span className="text-base leading-none text-yellow-600">⚠</span>
                 <p className="text-[10px] leading-relaxed flex-1">
-                    <strong className="font-black uppercase tracking-widest">Backup first.</strong>{' '}
-                    <span className="text-muted-foreground">Always export or backup your save before applying presets. Preset apply cannot always be undone.</span>
+                    <strong className="font-black uppercase tracking-widest text-warning-foreground">Backup first.</strong>{' '}
+                    <span className="text-foreground/80">Always export or backup your save before applying presets. Preset apply cannot always be undone.</span>
                 </p>
             </div>
 

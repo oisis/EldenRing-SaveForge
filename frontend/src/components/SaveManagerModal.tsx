@@ -317,7 +317,7 @@ export function SaveManagerModal({targets, initialTarget, platform, onAfterLoad,
                     <div className="bg-background border border-border rounded-xl shadow-2xl p-5 max-w-sm mx-4 space-y-4">
                         <p className="text-[11px] font-bold text-foreground">Load into editor?</p>
                         {platform && (
-                            <p className="text-[10px] text-yellow-400">Warning: unsaved changes to the current file will be lost.</p>
+                            <p className="text-[10px] text-warning-foreground font-bold">Warning: unsaved changes to the current file will be lost.</p>
                         )}
                         <p className="text-[10px] text-muted-foreground">Load the downloaded backup into the editor, or just keep the saved file.</p>
                         <div className="flex gap-2 justify-end">

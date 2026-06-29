@@ -882,7 +882,7 @@ function WarningGroup({
     const hiddenCount = Math.max(0, items.length - visible.length);
     const headerClass =
         tone === 'amber'
-            ? 'text-[10px] font-bold uppercase tracking-wider text-amber-200'
+            ? 'text-[10px] font-bold uppercase tracking-wider text-warning-foreground'
             : 'text-[10px] font-bold uppercase tracking-wider text-muted-foreground';
     const itemClass = tone === 'amber' ? 'text-amber-100' : 'text-muted-foreground';
     return (

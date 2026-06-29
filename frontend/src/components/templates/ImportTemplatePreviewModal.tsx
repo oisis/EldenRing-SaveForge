@@ -355,7 +355,7 @@ export function ImportTemplatePreviewModal({
                     {/* Warnings */}
                     {warnings.length > 0 && (
                         <section data-testid="import-preview-warnings" aria-label="Warnings">
-                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-amber-300 mb-1">
+                            <h3 className="text-[10px] font-bold uppercase tracking-wider text-warning-foreground mb-1">
                                 Warnings ({warnings.length}) — informational, will not block import
                             </h3>
                             <ul className="space-y-1">
@@ -364,7 +364,7 @@ export function ImportTemplatePreviewModal({
                                         key={`warn-${i}`}
                                         data-testid="import-preview-warning"
                                         data-code={w.code}
-                                        className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-amber-200"
+                                        className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-foreground/85"
                                     >
                                         <div className="font-bold">{w.code}</div>
                                         <div>{w.message}</div>

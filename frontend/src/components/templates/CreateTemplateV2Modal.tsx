@@ -309,7 +309,7 @@ export function CreateTemplateV2Modal({ charIndex, onClose, onSaved, onError }: 
                             </h3>
                             <span
                                 data-testid="create-template-v2-containers-export-only"
-                                className="text-[10px] uppercase tracking-wider text-amber-300/90"
+                                className="text-[10px] uppercase tracking-wider text-warning-foreground"
                             >
                                 Export-only
                             </span>

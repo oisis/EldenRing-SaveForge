@@ -96,7 +96,7 @@ export function InventoryIntegrityModal({
                     <p>This issue may have been created by an older version of SaveForge.</p>
                     <p>It may cause incorrect in-game inventory ordering or duplicate unique tools and should be repaired before editing this file.</p>
                     <p>Repair rebuilds duplicate acquisition indices and removes surplus Flask of Wondrous Physick records. It does not change quantities, weapon upgrades, infusions, Ashes of War, storage contents, or character progression.</p>
-                    <p className="text-amber-400">Keep a backup of the original save before saving repaired changes.</p>
+                    <p className="text-warning-foreground">Keep a backup of the original save before saving repaired changes.</p>
                 </div>
 
                 <div className="border border-border/50 rounded-md divide-y divide-border/50 overflow-y-auto custom-scrollbar">
@@ -132,7 +132,7 @@ export function InventoryIntegrityModal({
                                     </div>
                                     {slot.conflicts.map((conflict, conflictIdx) => (
                                         <div key={`${conflictLabel(conflict)}-${conflict.index}-${conflictIdx}`} className="ml-2 text-[11px]">
-                                            <div className="font-bold text-amber-400">{conflictLabel(conflict)}</div>
+                                            <div className="font-bold text-warning-foreground">{conflictLabel(conflict)}</div>
                                             <ul className="ml-3 list-disc space-y-0.5 text-foreground/80">
                                                 {conflict.items.map((item, idx) => (
                                                     <li key={`${item.scope}-${item.row}-${idx}`}>

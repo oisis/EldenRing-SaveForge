@@ -635,7 +635,7 @@ export function TemplateLibraryModal({
                                                         Sections: <span className="font-bold">{selectedSections.join(', ')}</span>
                                                     </div>
                                                 )}
-                                                <div className="text-amber-200">
+                                                <div className="text-warning-foreground">
                                                     This will overwrite the selected profile/stat fields on the selected character.
                                                 </div>
                                                 {selectedSections.includes('profile') && (

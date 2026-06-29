@@ -59,7 +59,7 @@ export function WarningModal({title, children, onClose}: Props) {
                     </button>
                 </div>
 
-                <p className="mt-3 text-[8px] uppercase tracking-widest text-muted-foreground/40 text-center">
+                <p className="mt-3 text-[10px] uppercase tracking-widest text-muted-foreground/70 text-center">
                     Press Esc to close
                 </p>
             </div>
