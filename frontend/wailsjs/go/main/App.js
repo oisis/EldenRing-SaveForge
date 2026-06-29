@@ -90,12 +90,20 @@ export function CloseSave() {
   return window['go']['main']['App']['CloseSave']();
 }
 
+export function CreateManualBackup(arg1) {
+  return window['go']['main']['App']['CreateManualBackup'](arg1);
+}
+
 export function DeleteBuildTemplateFromLibrary(arg1) {
   return window['go']['main']['App']['DeleteBuildTemplateFromLibrary'](arg1);
 }
 
 export function DeleteDeployTarget(arg1) {
   return window['go']['main']['App']['DeleteDeployTarget'](arg1);
+}
+
+export function DeleteSaveBackup(arg1, arg2) {
+  return window['go']['main']['App']['DeleteSaveBackup'](arg1, arg2);
 }
 
 export function DeleteSlot(arg1) {
@@ -112,6 +120,10 @@ export function DeploySave(arg1) {
 
 export function DiscardInventoryEditSession(arg1) {
   return window['go']['main']['App']['DiscardInventoryEditSession'](arg1);
+}
+
+export function DownloadBackupFile(arg1, arg2) {
+  return window['go']['main']['App']['DownloadBackupFile'](arg1, arg2);
 }
 
 export function DownloadRemoteSave(arg1) {
@@ -302,6 +314,14 @@ export function ListBuiltinCharacterPresets() {
   return window['go']['main']['App']['ListBuiltinCharacterPresets']();
 }
 
+export function ListSaveBackups(arg1) {
+  return window['go']['main']['App']['ListSaveBackups'](arg1);
+}
+
+export function LoadSaveFromPath(arg1) {
+  return window['go']['main']['App']['LoadSaveFromPath'](arg1);
+}
+
 export function MoveInventoryWorkspaceItem(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['MoveInventoryWorkspaceItem'](arg1, arg2, arg3, arg4);
 }
@@ -446,6 +466,10 @@ export function SelectAndOpenSave() {
   return window['go']['main']['App']['SelectAndOpenSave']();
 }
 
+export function SetActiveBackup(arg1, arg2) {
+  return window['go']['main']['App']['SetActiveBackup'](arg1, arg2);
+}
+
 export function SetBellBearingUnlocked(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetBellBearingUnlocked'](arg1, arg2, arg3);
 }
@@ -520,6 +544,14 @@ export function TestSSHConnection(arg1) {
 
 export function TransferInventoryWorkspaceItem(arg1, arg2, arg3) {
   return window['go']['main']['App']['TransferInventoryWorkspaceItem'](arg1, arg2, arg3);
+}
+
+export function UnsetActiveBackup(arg1) {
+  return window['go']['main']['App']['UnsetActiveBackup'](arg1);
+}
+
+export function UpdateBackupMeta(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['UpdateBackupMeta'](arg1, arg2, arg3, arg4);
 }
 
 export function UpdateInventoryWorkspaceWeapon(arg1, arg2, arg3) {

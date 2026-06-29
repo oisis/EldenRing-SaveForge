@@ -62,17 +62,27 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 	}
 	defer sftpClient.Close()
 
-	// Backup remote file if it exists
+	// Backup remote file if it exists (creates .bak + .json sidecar for Save Manager).
 	if _, statErr := sftpClient.Stat(t.SavePath); statErr == nil {
-		backupPath := fmt.Sprintf("%s.%s.bkp", t.SavePath, time.Now().Format("20060102_150405"))
-		src, err := sftpClient.Open(t.SavePath)
-		if err == nil {
-			dst, err := sftpClient.Create(backupPath)
-			if err == nil {
-				io.Copy(dst, src)
-				dst.Close()
+		stamp := time.Now().Format("20060102_150405")
+		backupPath := fmt.Sprintf("%s.%s.bak", t.SavePath, stamp)
+		if existing, err := sftpClient.Open(t.SavePath); err == nil {
+			existingData, readErr := io.ReadAll(existing)
+			existing.Close()
+			if readErr == nil {
+				if dst, err := sftpClient.Create(backupPath); err == nil {
+					dst.Write(existingData) //nolint:errcheck
+					dst.Close()
+					meta := BackupMeta{
+						MD5: computeMD5(existingData), Tags: []string{},
+						Desc: "Auto-backup before deploy", CreatedAt: time.Now(),
+					}
+					if mf, err := sftpClient.Create(metaPath(backupPath)); err == nil {
+						mf.Write(marshalMeta(meta)) //nolint:errcheck
+						mf.Close()
+					}
+				}
 			}
-			src.Close()
 		}
 	}
 

@@ -12,6 +12,7 @@ import {useSafetyMode} from '../state/safetyMode';
 import {FavoritesManager} from './FavoritesManager';
 import {useFavorites} from '../state/favorites';
 import {DiagnosticsModal} from './DiagnosticsModal';
+import {SaveManagerModal} from './SaveManagerModal';
 
 interface SettingsTabProps {
     theme: 'light' | 'dark' | 'golden';
@@ -134,6 +135,7 @@ export function SettingsTab({
     const [editTarget, setEditTarget] = useState<deploy.Target>(new deploy.Target(EMPTY_SSH_TARGET));
     const [showForm, setShowForm] = useState(false);
     const [deploying, setDeploying] = useState(false);
+    const [showSaveManager, setShowSaveManager] = useState(false);
 
     const loadTargets = useCallback(() => {
         GetDeployTargets().then(t => setTargets(t || [])).catch(() => setTargets([]));
@@ -367,6 +369,7 @@ export function SettingsTab({
                             <button onClick={handleClose} disabled={deploying} className={`${btnSm} bg-red-600 text-white shadow-sm hover:brightness-110 active:scale-95`}>Close Game</button>
                             <button onClick={handleDeployAndLaunch} disabled={deploying || !platform} className={btnAction}>Deploy & Launch</button>
                             <button onClick={handleCloseAndDownload} disabled={deploying} className={`${btnSm} bg-orange-600 text-white shadow-sm hover:brightness-110 active:scale-95`}>Close & Download</button>
+                            <button onClick={() => setShowSaveManager(true)} disabled={deploying} className={btnAction}>Save Manager</button>
                         </div>
                     )}
                     {showForm && (
@@ -484,12 +487,6 @@ export function SettingsTab({
                             </svg>
                             Save Comparison <span className="ml-1 text-[8px] opacity-60">(soon)</span>
                         </div>
-                        <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-                            </svg>
-                            Backup Manager <span className="ml-1 text-[8px] opacity-60">(soon)</span>
-                        </div>
                     </div>
                 </div>
             </section>
@@ -500,6 +497,15 @@ export function SettingsTab({
                 charIndex={charIndex}
                 platform={platform}
                 onClose={() => setShowDiagnostics(false)}
+            />
+        )}
+        {showSaveManager && (
+            <SaveManagerModal
+                targets={targets}
+                initialTarget={selectedTarget}
+                platform={platform}
+                onAfterLoad={onAfterLoad}
+                onClose={() => setShowSaveManager(false)}
             />
         )}
         </>

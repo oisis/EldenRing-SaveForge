@@ -61,12 +61,18 @@ func (m *LocalManager) UploadSave(targetName string, localPath string) error {
 		return fmt.Errorf("cannot read source file: %w", err)
 	}
 
-	// Backup existing file
-	if _, statErr := os.Stat(destPath); statErr == nil {
-		backupPath := fmt.Sprintf("%s.%s.bkp", destPath, time.Now().Format("20060102_150405"))
+	// Backup existing file (creates .bak + .json sidecar for Save Manager).
+	if existingData, statErr := os.ReadFile(destPath); statErr == nil {
+		stamp := time.Now().Format("20060102_150405")
+		backupPath := fmt.Sprintf("%s.%s.bak", destPath, stamp)
 		if err := copyFile(destPath, backupPath); err != nil {
 			return fmt.Errorf("backup failed: %w", err)
 		}
+		meta := BackupMeta{
+			MD5: computeMD5(existingData), Tags: []string{},
+			Desc: "Auto-backup before deploy", CreatedAt: time.Now(),
+		}
+		os.WriteFile(metaPath(backupPath), marshalMeta(meta), 0644) //nolint:errcheck
 	}
 
 	// Ensure destination directory exists

@@ -52,9 +52,13 @@ export function CloseRemoteGame(arg1:string):Promise<string>;
 
 export function CloseSave():Promise<void>;
 
+export function CreateManualBackup(arg1:string):Promise<void>;
+
 export function DeleteBuildTemplateFromLibrary(arg1:string):Promise<void>;
 
 export function DeleteDeployTarget(arg1:string):Promise<void>;
+
+export function DeleteSaveBackup(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteSlot(arg1:number):Promise<void>;
 
@@ -63,6 +67,8 @@ export function DeployAndLaunch(arg1:string):Promise<void>;
 export function DeploySave(arg1:string):Promise<string>;
 
 export function DiscardInventoryEditSession(arg1:string):Promise<void>;
+
+export function DownloadBackupFile(arg1:string,arg2:string):Promise<string>;
 
 export function DownloadRemoteSave(arg1:string):Promise<string>;
 
@@ -158,6 +164,10 @@ export function ListBuildTemplateLibrary():Promise<Array<templates.LibraryTempla
 
 export function ListBuiltinCharacterPresets():Promise<Array<main.BuiltinCharacterPresetInfo>>;
 
+export function ListSaveBackups(arg1:string):Promise<Array<deploy.SaveBackupEntry>>;
+
+export function LoadSaveFromPath(arg1:string):Promise<string>;
+
 export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,arg4:number):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
@@ -230,6 +240,8 @@ export function SaveRepairedExternal(arg1:string):Promise<string>;
 
 export function SelectAndOpenSave():Promise<string>;
 
+export function SetActiveBackup(arg1:string,arg2:string):Promise<void>;
+
 export function SetBellBearingUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
 export function SetBossDefeated(arg1:number,arg2:number,arg3:boolean):Promise<void>;
@@ -267,6 +279,10 @@ export function StartInventoryEditSession(arg1:number):Promise<editor.InventoryW
 export function TestSSHConnection(arg1:string):Promise<string>;
 
 export function TransferInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string):Promise<editor.InventoryWorkspaceSnapshot>;
+
+export function UnsetActiveBackup(arg1:string):Promise<void>;
+
+export function UpdateBackupMeta(arg1:string,arg2:string,arg3:Array<string>,arg4:string):Promise<void>;
 
 export function UpdateInventoryWorkspaceWeapon(arg1:string,arg2:string,arg3:editor.WeaponPatch):Promise<editor.InventoryWorkspaceSnapshot>;
 

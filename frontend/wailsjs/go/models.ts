@@ -881,6 +881,30 @@ export namespace db {
 
 export namespace deploy {
 	
+	export class SaveBackupEntry {
+	    name: string;
+	    timestamp: string;
+	    size: number;
+	    md5: string;
+	    tags: string[];
+	    desc: string;
+	    isActive: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new SaveBackupEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.timestamp = source["timestamp"];
+	        this.size = source["size"];
+	        this.md5 = source["md5"];
+	        this.tags = source["tags"];
+	        this.desc = source["desc"];
+	        this.isActive = source["isActive"];
+	    }
+	}
 	export class Target {
 	    type: string;
 	    name: string;
