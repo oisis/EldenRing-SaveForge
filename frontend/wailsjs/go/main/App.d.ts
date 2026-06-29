@@ -80,6 +80,8 @@ export function GetActiveSlots():Promise<Array<boolean>>;
 
 export function GetAoWAvailability(arg1:number):Promise<Array<vm.AoWAvailabilityEntry>>;
 
+export function GetAppVersion():Promise<string>;
+
 export function GetBellBearings(arg1:number):Promise<Array<db.BellBearingEntry>>;
 
 export function GetBosses(arg1:number):Promise<Array<db.BossEntry>>;

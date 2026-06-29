@@ -146,6 +146,10 @@ export function GetAoWAvailability(arg1) {
   return window['go']['main']['App']['GetAoWAvailability'](arg1);
 }
 
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
+}
+
 export function GetBellBearings(arg1) {
   return window['go']['main']['App']['GetBellBearings'](arg1);
 }

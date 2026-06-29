@@ -1,11 +1,12 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.0.0-beta7",
+  "version": "0.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "build:wails": "tsc && vite build && cd .. && go run ./scripts/generate_app_version.go",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

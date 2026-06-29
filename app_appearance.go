@@ -11,12 +11,9 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 )
 
-// appVersion is the SaveForge version stamped into exported artifacts
-// (character presets, build templates). Overridden at build time via
-// `-ldflags "-X 'main.appVersion=$(VERSION)'"` from the Makefile; the
-// literal default below is what `go test` and `go run` see and should
-// track the current release.
-var appVersion = "0.15.0-beta"
+// appVersion is stamped into exported artifacts and exposed to the UI.
+// Build commands generate app_version_generated.go from Makefile VERSION.
+var appVersion = "dev"
 
 // PresetInfo is the frontend-facing summary of an appearance preset.
 type PresetInfo struct {

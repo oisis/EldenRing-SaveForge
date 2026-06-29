@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -14,7 +14,6 @@ import {PvPTab} from './components/PvPTab';
 import {SortOrderTab} from './components/SortOrderTab';
 
 import {ToastBar} from './components/ToastBar';
-import {APP_VERSION} from './version';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
 import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
@@ -50,6 +49,7 @@ const DEFAULT_PVP_OPTIONS: PvPOptions = {
 };
 
 function App() {
+    const [appVersion, setAppVersion] = useState('dev');
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
     const [postLoadDiagReport, setPostLoadDiagReport] = useState<main.DiagnosticsReport | null>(null);
@@ -113,6 +113,12 @@ function App() {
     const [pendingPlatform, setPendingPlatform] = useState<string | null>(null);
     const integrityBlocking = integrityReport !== null && !integrityReport.clean;
     const [templatesShellOpen, setTemplatesShellOpen] = useState(false);
+
+    useEffect(() => {
+        GetAppVersion()
+            .then(version => setAppVersion(version || 'dev'))
+            .catch(() => setAppVersion('dev'));
+    }, []);
 
     const refreshUndoDepth = useCallback(() => {
         if (!platform) { setUndoDepth(0); return; }
@@ -519,7 +525,7 @@ function App() {
                         </button>
                     )}
                     <div className="flex items-center justify-between text-[8px] font-bold text-muted-foreground uppercase tracking-widest opacity-50">
-                        <span>v{APP_VERSION}</span>
+                        <span>v{appVersion}</span>
                         <span>System Ready</span>
                     </div>
                 </div>
