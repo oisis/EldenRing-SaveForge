@@ -46,7 +46,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25.0"
 
       - name: Run tests
         run: go test -v ./backend/... ./tests/...
@@ -77,7 +77,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23"
+          go-version: "1.25.0"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -85,7 +85,7 @@ jobs:
           node-version: "22"
 
       - name: Install Wails CLI
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.11.0
 
       - name: Install frontend dependencies
         run: cd frontend && npm ci
