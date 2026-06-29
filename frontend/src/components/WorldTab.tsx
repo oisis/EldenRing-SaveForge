@@ -187,17 +187,35 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
     const unlockedWBs = whetblades.filter(w => w.unlocked).length;
 
     // --- Quest logic ---
-    const loadQuestProgress = async (npc: string) => {
+    const loadQuestProgress = async (npc: string, resetExpanded = false) => {
         if (!npc) { setQuestProgress(null); return; }
         setQuestLoading(true);
-        try { const p = await GetQuestProgress(charIdx, npc); setQuestProgress(p); setExpandedSteps({}); }
+        try {
+            const p = await GetQuestProgress(charIdx, npc);
+            setQuestProgress(p);
+            if (resetExpanded) setExpandedSteps({});
+        }
         catch { setQuestProgress(null); }
         finally { setQuestLoading(false); }
     };
-    const handleSelectNPC = (npc: string) => { setSelectedNPC(npc); loadQuestProgress(npc); };
+    const handleSelectNPC = (npc: string) => { setSelectedNPC(npc); loadQuestProgress(npc, true); };
     const handleSetQuestStep = async (stepIndex: number) => {
         if (!selectedNPC) return;
         await SetQuestStep(charIdx, selectedNPC, stepIndex);
+        await loadQuestProgress(selectedNPC);
+        onMutate?.();
+    };
+    const handleUnsetQuestStep = async (step: db.QuestStep) => {
+        if (!selectedNPC || !step.flags?.length) return;
+        for (const flag of step.flags) {
+            await SetMapFlag(charIdx, flag.id, flag.target !== 1);
+        }
+        await loadQuestProgress(selectedNPC);
+        onMutate?.();
+    };
+    const handleQuestFlagToggle = async (flag: db.QuestFlagState) => {
+        if (!selectedNPC) return;
+        await SetMapFlag(charIdx, flag.id, !flag.current);
         await loadQuestProgress(selectedNPC);
         onMutate?.();
     };
@@ -612,6 +630,7 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
                                                         </button>
                                                     )}
                                                     {!step.complete && <RiskActionButton riskKey="quest_step_skip" onConfirm={() => handleSetQuestStep(idx)} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Set</RiskActionButton>}
+                                                    {matchedFlags > 0 && <RiskActionButton riskKey="quest_step_skip" onConfirm={() => handleUnsetQuestStep(step)} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Unset</RiskActionButton>}
                                                 </div>
                                             </div>
                                             {isExpanded && step.flags && step.flags.length > 0 && (
@@ -619,13 +638,14 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
                                                     {step.flags.map((f, fi) => {
                                                         const matches = f.current === (f.target === 1);
                                                         return (
-                                                            <div key={fi} className="flex items-center gap-1.5 py-0.5">
+                                                            <button key={fi} type="button" onClick={() => handleQuestFlagToggle(f)}
+                                                                className="flex items-center gap-1.5 py-0.5 rounded text-left hover:bg-muted/20 focus:outline-none focus:ring-1 focus:ring-primary/50">
                                                                 <span className={`w-1.5 h-1.5 rounded-full ${matches ? 'bg-primary' : 'bg-muted-foreground/30'}`} />
                                                                 <span className="text-[11px] font-mono text-muted-foreground/70">{f.id}</span>
                                                                 <span className={`text-[11px] font-black uppercase ${matches ? 'text-primary' : 'text-muted-foreground/50'}`}>{f.current ? 'ON' : 'OFF'}</span>
                                                                 <span className="text-[11px] text-muted-foreground/40">{'\u2192'}</span>
                                                                 <span className="text-[11px] font-black uppercase text-muted-foreground/70">{f.target === 1 ? 'ON' : 'OFF'}</span>
-                                                            </div>
+                                                            </button>
                                                         );
                                                     })}
                                                 </div>
