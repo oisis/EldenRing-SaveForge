@@ -11,7 +11,7 @@ import {
 // the canonical-JSON mutator; this test file verifies the override
 // payload + invalid-flag contract that ApplyOverridesModal relies on.
 
-function renderPanel(onChange = vi.fn<[WeaponOverridePayload, boolean]>()) {
+function renderPanel(onChange = vi.fn<(override: WeaponOverridePayload, hasInvalid: boolean) => void>()) {
     render(<WeaponLevelOverridePanel onChange={onChange} />);
     return onChange;
 }
