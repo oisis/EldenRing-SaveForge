@@ -506,7 +506,7 @@ function FieldGrid<K extends string>({
                                 {!error && softWarning && (
                                     <div
                                         data-testid={`${testidPrefix}-soft-warning-${f.key}`}
-                                        className="text-amber-300"
+                                        className="text-warning-foreground"
                                     >
                                         {softWarning}
                                     </div>
@@ -699,7 +699,7 @@ export function ApplyOverridesModal({
                             {hasLayoutSelection && (
                                 <div
                                     data-testid="apply-overrides-items-layout-ignored"
-                                    className="text-[10px] text-amber-200/90"
+                                    className="text-[10px] text-warning-foreground/90"
                                 >
                                     Inventory / storage layout sections will be ignored — layout apply is not supported in Phase 8D.2.
                                 </div>

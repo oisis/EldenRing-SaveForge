@@ -695,7 +695,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             {item.nonStackable || item.readOnly ? (
-                                                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${item.inInventory ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground/30'}`}>
+                                                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${item.inInventory ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground/60'}`}>
                                                     {item.inInventory ? (item.nonStackable ? '✓' : item.invQty) : '—'}
                                                 </span>
                                             ) : item.inInventory ? (
@@ -708,15 +708,15 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                         onChange={e => handleQtyChange(item.invHandle, e.target.value, 'inv', item.maxInv)}
                                                         className={`w-16 bg-muted/20 border rounded px-2 py-1 text-center text-xs font-bold outline-none focus:ring-1 focus:ring-primary/30 transition-all ${editedInv[item.invHandle] !== undefined ? 'border-primary/50 text-primary bg-primary/5' : 'border-border/50 text-foreground'}`}
                                                     />
-                                                    <span className="text-[9px] font-bold text-muted-foreground/30 uppercase tracking-tighter">/ {item.maxInv}</span>
+                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter">/ {item.maxInv}</span>
                                                 </div>
                                             ) : (
-                                                <span className="text-muted-foreground/30 text-[10px] font-black">—</span>
+                                                <span className="text-muted-foreground/60 text-[10px] font-black">—</span>
                                             )}
                                         </td>
                                         <td className="px-6 py-4 text-center">
                                             {item.nonStackable || item.readOnly ? (
-                                                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${item.inStorage ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground/30'}`}>
+                                                <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${item.inStorage ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground/60'}`}>
                                                     {item.inStorage ? (item.nonStackable ? '✓' : item.storageQty) : '—'}
                                                 </span>
                                             ) : item.inStorage ? (
@@ -729,10 +729,10 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                         onChange={e => handleQtyChange(item.storageHandle, e.target.value, 'storage', item.maxStorage)}
                                                         className={`w-16 bg-muted/20 border rounded px-2 py-1 text-center text-xs font-bold outline-none focus:ring-1 focus:ring-primary/30 transition-all ${editedStorage[item.storageHandle] !== undefined ? 'border-primary/50 text-primary bg-primary/5' : 'border-border/50 text-foreground'}`}
                                                     />
-                                                    <span className="text-[9px] font-bold text-muted-foreground/30 uppercase tracking-tighter">/ {item.maxStorage}</span>
+                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter">/ {item.maxStorage}</span>
                                                 </div>
                                             ) : (
-                                                <span className="text-muted-foreground/30 text-[10px] font-black">—</span>
+                                                <span className="text-muted-foreground/60 text-[10px] font-black">—</span>
                                             )}
                                         </td>
                                     </tr>

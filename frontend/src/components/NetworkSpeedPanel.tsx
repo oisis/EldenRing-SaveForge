@@ -122,7 +122,7 @@ export function NetworkSpeedPanel({platform, onMutate}: NetworkSpeedPanelProps) 
                 <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-orange-500/8 border border-orange-500/20">
                     <span className="text-orange-400 text-[11px] flex-shrink-0 mt-0.5">⚠</span>
                     <div className="space-y-1.5">
-                        <p className="text-[10px] text-orange-300 leading-relaxed font-medium">
+                        <p className="text-[10px] text-orange-700 leading-relaxed font-medium">
                             Aggressive network settings may increase online enforcement risk.
                         </p>
                         <p className="text-[9px] text-muted-foreground leading-relaxed">

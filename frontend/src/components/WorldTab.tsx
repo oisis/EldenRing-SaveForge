@@ -23,7 +23,7 @@ const MiniProgress = ({current, total}: {current: number; total: number}) => {
     const pct = total > 0 ? Math.round((current / total) * 100) : 0;
     return (
         <div className="flex items-center gap-1.5 ml-auto">
-            <div className="w-16 h-1.5 bg-border rounded-full overflow-hidden">
+            <div className="w-16 h-3 bg-border rounded-full overflow-hidden">
                 <div className="h-full bg-primary rounded-full transition-all duration-300" style={{width: `${pct}%`}} />
             </div>
             <span className="text-[11px] font-mono text-muted-foreground">{current}/{total}</span>

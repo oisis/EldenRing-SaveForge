@@ -473,18 +473,18 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         {dirty && (
                             <span
                                 title="You have unsaved inventory edits. Press Save changes to persist."
-                                className="text-[10px] font-black uppercase tracking-wider text-cyan-300 bg-cyan-500/15 border border-cyan-500/30 rounded px-2 py-0.5 whitespace-nowrap"
+                                className="text-xs font-black uppercase tracking-wider text-cyan-700 bg-cyan-500/15 border border-cyan-500/40 rounded px-2 py-0.5 whitespace-nowrap"
                             >
                                 Unsaved
                             </span>
                         )}
                         {errorCount > 0 && (
-                            <span className="text-[10px] font-black uppercase tracking-wider text-red-300 bg-red-500/15 border border-red-500/30 rounded px-2 py-0.5 whitespace-nowrap">
+                            <span className="text-xs font-black uppercase tracking-wider text-destructive bg-red-500/10 border border-destructive/40 rounded px-2 py-0.5 whitespace-nowrap">
                                 {errorCount} error{errorCount === 1 ? '' : 's'}
                             </span>
                         )}
                         {warningCount > 0 && (
-                            <span className="text-[10px] font-black uppercase tracking-wider text-blue-300 bg-blue-500/10 border border-blue-500/30 rounded px-2 py-0.5 whitespace-nowrap">
+                            <span className="text-xs font-black uppercase tracking-wider text-info-foreground bg-blue-500/10 border border-blue-500/30 rounded px-2 py-0.5 whitespace-nowrap">
                                 {warningCount} warn
                             </span>
                         )}
@@ -492,14 +492,14 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                             disabled={saving || loading || invSelectedUIDs.size + stoSelectedUIDs.size === 0}
                             onClick={onRemoveSelected}
                             title="Remove selected items from the workspace"
-                            className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded text-red-300 hover:text-red-200 hover:bg-red-500/20 border border-red-500/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="px-3 py-1 text-xs font-black uppercase tracking-wider rounded text-destructive hover:text-destructive/80 hover:bg-red-500/20 border border-destructive/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Remove
                         </button>
                         <button
                             disabled={saving || loading}
                             onClick={() => { setAddContainer('inventory'); setAddOpen(true); }}
-                            className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded text-foreground/80 hover:text-foreground hover:bg-primary/20 border border-primary/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="px-3 py-1 text-xs font-black uppercase tracking-wider rounded text-foreground hover:bg-primary/20 border border-primary/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Add Item…
                         </button>
@@ -515,10 +515,10 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                         ? 'Save all pending edits to the save file.'
                                         : 'No pending edits to save.'
                             }
-                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                            className={`px-3 py-1 text-xs font-black uppercase tracking-wider rounded transition-all ${
                                 dirty && !saving && errorCount === 0
-                                    ? 'bg-green-700/80 text-white hover:bg-green-700 shadow-sm'
-                                    : 'opacity-40 cursor-not-allowed bg-muted/20 text-muted-foreground'
+                                    ? 'bg-primary text-primary-foreground hover:brightness-110 shadow-sm'
+                                    : 'opacity-50 cursor-not-allowed bg-muted/20 text-muted-foreground border border-border/40'
                             }`}
                         >
                             {saving ? 'Saving…' : 'Save changes'}
@@ -526,7 +526,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                         <button
                             disabled={!dirty || saving || loading}
                             onClick={() => setConfirmDiscardOpen(true)}
-                            className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-border/40 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                            className="px-3 py-1 text-xs font-black uppercase tracking-wider rounded text-foreground/70 hover:text-foreground hover:bg-muted/40 border border-border/60 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             Discard
                         </button>
@@ -845,7 +845,7 @@ function ItemTile({ item, isDragging, isDragOver, isSelected, onClick, onEditCli
                     {showIcon ? (
                         <img src={item.iconPath} alt="" draggable={false} className="max-w-full max-h-full object-contain drop-shadow-sm" onError={() => setImgError(true)} />
                     ) : (
-                        <span className="text-xl font-black text-muted-foreground/35 select-none leading-none">{item.name.charAt(0).toUpperCase()}</span>
+                        <span className="text-xl font-black text-muted-foreground/60 select-none leading-none">{item.name.charAt(0).toUpperCase()}</span>
                     )}
                 </div>
                 <div className="w-full shrink-0 overflow-hidden">
@@ -1016,16 +1016,16 @@ function ValidationPanel({ validation }: { validation: editor.WorkspaceValidatio
         <div className="shrink-0 rounded border border-border/40 bg-background/30">
             <button
                 onClick={() => setOpen(o => !o)}
-                className="w-full px-3 py-1 text-left text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all"
+                className="w-full px-3 py-1.5 text-left text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all"
             >
                 {open ? '▼' : '▶'} Validation ({validation.errors.length} error · {validation.warnings.length} warn)
             </button>
             {open && (
-                <ul className="max-h-32 overflow-y-auto text-[10px] divide-y divide-border/40">
+                <ul className="max-h-48 overflow-y-auto text-xs divide-y divide-border/40">
                     {issues.map((i, idx) => (
-                            <li key={`${i.code}-${idx}`} className={`px-3 py-1 ${i.severity === 'error' ? 'text-red-300' : 'text-blue-300/80'}`}>
+                        <li key={`${i.code}-${idx}`} className={`px-3 py-1.5 ${i.severity === 'error' ? 'text-destructive' : 'text-info-foreground'}`}>
                             <span className="font-bold mr-1">[{i.code}]</span>
-                            <span>{i.message}</span>
+                            <span className="text-foreground/80">{i.message}</span>
                         </li>
                     ))}
                 </ul>
@@ -1090,7 +1090,7 @@ function AddItemModal({ tab, target, onClose, onAdd }: AddItemModalProps) {
             <div className="bg-background border border-border rounded-xl p-5 w-[520px] max-h-[80vh] shadow-2xl flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
                 <div className="flex items-center gap-2">
                     <div className="w-1 h-4 bg-primary rounded-full" />
-                    <h3 className="text-[10px] font-black uppercase tracking-widest">Add Item to {container === 'inventory' ? 'Inventory' : 'Storage'} · {tab}</h3>
+                    <h3 className="text-sm font-black uppercase tracking-widest">Add Item to {container === 'inventory' ? 'Inventory' : 'Storage'} · {tab}</h3>
                 </div>
                 <input
                     autoFocus
@@ -1098,32 +1098,32 @@ function AddItemModal({ tab, target, onClose, onAdd }: AddItemModalProps) {
                     placeholder="Search item name…"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    className="w-full px-2 py-1 text-[11px] bg-muted/30 border border-border/40 rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                    className="w-full px-3 py-1.5 text-sm bg-muted/30 border border-border/40 rounded text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
                 />
                 <div className="flex-1 min-h-0 overflow-y-auto border border-border/40 rounded">
                     {loadingList ? (
-                        <div className="p-4 text-center text-[10px] text-muted-foreground">Loading…</div>
+                        <div className="p-4 text-center text-sm text-muted-foreground">Loading…</div>
                     ) : filtered.length === 0 ? (
-                        <div className="p-4 text-center text-[10px] text-muted-foreground">No matches.</div>
+                        <div className="p-4 text-center text-sm text-muted-foreground">No matches.</div>
                     ) : (
                         <ul>
                             {filtered.map(it => (
                                 <li key={it.id}>
                                     <button
                                         onClick={() => setSelectedID(it.id)}
-                                        className={`w-full text-left px-2 py-1 text-[11px] flex items-center gap-2 ${
+                                        className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 ${
                                             selectedID === it.id
                                                 ? 'bg-primary/20 text-primary'
-                                                : 'hover:bg-muted/30 text-foreground/80'
+                                                : 'hover:bg-muted/30 text-foreground/90'
                                         }`}
                                     >
                                         {it.iconPath ? (
-                                            <img src={it.iconPath} alt="" className="w-5 h-5 object-contain" />
+                                            <img src={it.iconPath} alt="" className="w-10 h-10 object-contain flex-shrink-0" />
                                         ) : (
-                                            <span className="w-5 h-5 inline-block" />
+                                            <span className="w-10 h-10 inline-block flex-shrink-0" />
                                         )}
                                         <span className="flex-1 truncate">{it.name}</span>
-                                        <span className="text-[9px] text-muted-foreground/60 font-mono">#{it.id.toString(16)}</span>
+                                        <span className="text-xs text-muted-foreground font-mono">#{it.id.toString(16)}</span>
                                     </button>
                                 </li>
                             ))}
@@ -1131,18 +1131,18 @@ function AddItemModal({ tab, target, onClose, onAdd }: AddItemModalProps) {
                     )}
                 </div>
                 <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-muted-foreground">
+                    <label className="flex items-center gap-1.5 text-xs font-bold uppercase text-muted-foreground">
                         Container:
                         <select
                             value={container}
                             onChange={(e) => setContainer(e.target.value as ContainerKind)}
-                            className="text-[10px] font-bold uppercase tracking-wider bg-muted/30 border border-border/40 rounded px-1.5 py-0.5"
+                            className="text-xs font-bold uppercase bg-muted/30 border border-border/40 rounded px-2 py-1"
                         >
                             <option value="inventory">Inventory</option>
                             <option value="storage">Storage</option>
                         </select>
                     </label>
-                    <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase text-muted-foreground">
+                    <label className="flex items-center gap-1.5 text-xs font-bold uppercase text-muted-foreground">
                         Quantity:
                         <input
                             type="number"
@@ -1150,18 +1150,18 @@ function AddItemModal({ tab, target, onClose, onAdd }: AddItemModalProps) {
                             max={999}
                             value={quantity}
                             onChange={(e) => setQuantity(parseInt(e.target.value || '1', 10))}
-                            className="w-14 text-[10px] bg-muted/30 border border-border/40 rounded px-1.5 py-0.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+                            className="w-16 text-sm bg-muted/30 border border-border/40 rounded px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
                         />
                     </label>
                     <div className="ml-auto flex gap-2">
-                        <button onClick={onClose} className="px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all">Cancel</button>
+                        <button onClick={onClose} className="px-3 py-1.5 text-xs font-black uppercase tracking-wider rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-all">Cancel</button>
                         <button
                             disabled={selectedID == null || adding}
                             onClick={onConfirm}
-                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all ${
+                            className={`px-3 py-1.5 text-xs font-black uppercase tracking-wider rounded transition-all ${
                                 selectedID != null && !adding
-                                    ? 'bg-primary/80 text-white hover:bg-primary shadow-sm'
-                                    : 'opacity-40 cursor-not-allowed bg-muted/20 text-muted-foreground'
+                                    ? 'bg-primary text-primary-foreground hover:brightness-110 shadow-sm'
+                                    : 'opacity-50 cursor-not-allowed bg-muted/20 text-muted-foreground'
                             }`}
                         >
                             {adding ? 'Adding…' : 'Add'}
