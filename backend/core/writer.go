@@ -869,11 +869,15 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], newItem.Quantity)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], newItem.Index)
 
-		// Advance the sort counter only. The per-item Index was derived by scanning
-		// past the max existing storage Index above, so consecutive adds stay unique
-		// without touching NextEquipIndex. NextEquipIndex is a separate equip-list
-		// counter (not a visibility gate) — leave it untouched to avoid corrupting
-		// the slot (CE-108255-1).
+		// LOCAL-ONLY NextEquipIndex bump: only when SaveForge writes a new record
+		// that would exceed the current NextEquipIndex. Never on load or topup.
+		// Global reconciliation on load caused CE-108255-1 (PS4 corruption).
+		if nextListId >= slot.Storage.NextEquipIndex {
+			slot.Storage.NextEquipIndex = nextListId + 1
+			if slot.Storage.nextEquipIndexOff > 0 {
+				binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextEquipIndexOff:], slot.Storage.NextEquipIndex)
+			}
+		}
 		slot.Storage.NextAcquisitionSortId++
 		if slot.Storage.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextAcqSortIdOff:], slot.Storage.NextAcquisitionSortId)
@@ -922,11 +926,15 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], acqIdx)
 
-		// NextAcquisitionSortId is the source of the per-item Index; advance it past
-		// the value we just used. NextEquipIndex is a SEPARATE equip-list counter
-		// (genuine saves keep it well below the acquisition counter — it is NOT a
-		// visibility gate); leave it untouched so we never corrupt the slot
-		// (CE-108255-1). This matches pre-regression behaviour (before b5b9d99/727da67).
+		// LOCAL-ONLY NextEquipIndex bump: only when SaveForge writes a new record
+		// that would exceed the current NextEquipIndex. Never on load or topup.
+		// Global reconciliation on load caused CE-108255-1 (PS4 corruption).
+		if acqIdx >= slot.Inventory.NextEquipIndex {
+			slot.Inventory.NextEquipIndex = acqIdx + 1
+			if slot.Inventory.nextEquipIndexOff > 0 {
+				binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
+			}
+		}
 		slot.Inventory.NextAcquisitionSortId++
 		if slot.Inventory.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
