@@ -402,6 +402,14 @@ export function RepairExternal() {
   return window['go']['main']['App']['RepairExternal']();
 }
 
+export function RepairInventoryWorkspaceItem(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RepairInventoryWorkspaceItem'](arg1, arg2, arg3);
+}
+
+export function RepairInventoryWorkspaceItems(arg1, arg2) {
+  return window['go']['main']['App']['RepairInventoryWorkspaceItems'](arg1, arg2);
+}
+
 export function RepairLoadedSave(arg1) {
   return window['go']['main']['App']['RepairLoadedSave'](arg1);
 }
@@ -460,6 +468,10 @@ export function SaveInventoryWorkspaceChanges(arg1) {
 
 export function SaveRepairedExternal(arg1) {
   return window['go']['main']['App']['SaveRepairedExternal'](arg1);
+}
+
+export function ScanInventoryIssues(arg1) {
+  return window['go']['main']['App']['ScanInventoryIssues'](arg1);
 }
 
 export function SelectAndOpenSave() {

@@ -1732,6 +1732,70 @@ export namespace main {
 		}
 	}
 	
+	export class WorkspaceIssueDetail {
+	    code: string;
+	    severity: string;
+	    message: string;
+	    uid: string;
+	    handle: number;
+	    itemName: string;
+	    canRepair: boolean;
+	    repairDesc: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceIssueDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.severity = source["severity"];
+	        this.message = source["message"];
+	        this.uid = source["uid"];
+	        this.handle = source["handle"];
+	        this.itemName = source["itemName"];
+	        this.canRepair = source["canRepair"];
+	        this.repairDesc = source["repairDesc"];
+	    }
+	}
+	export class InventoryIssuesScanReport {
+	    charIdx: number;
+	    sessionID: string;
+	    hasIssues: boolean;
+	    binaryIssues: core.DiagnosticIssue[];
+	    workspaceIssues: WorkspaceIssueDetail[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InventoryIssuesScanReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.charIdx = source["charIdx"];
+	        this.sessionID = source["sessionID"];
+	        this.hasIssues = source["hasIssues"];
+	        this.binaryIssues = this.convertValues(source["binaryIssues"], core.DiagnosticIssue);
+	        this.workspaceIssues = this.convertValues(source["workspaceIssues"], WorkspaceIssueDetail);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class InventoryOrderItem {
 	    handle: number;
 	    itemId: number;
@@ -1985,6 +2049,22 @@ export namespace main {
 	        this.active = source["active"];
 	        this.residual = source["residual"];
 	        this.empty = source["empty"];
+	    }
+	}
+	
+	
+	export class WorkspaceRepairSpec {
+	    uid: string;
+	    code: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceRepairSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uid = source["uid"];
+	        this.code = source["code"];
 	    }
 	}
 

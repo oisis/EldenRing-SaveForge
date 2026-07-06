@@ -132,8 +132,10 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
     };
 
     const allIssues = mode.step === 'report' ? mode.report.slots.flatMap(s => s.issues) : [];
-    const criticalCount = allIssues.filter(i => i.severity === 'critical').length;
-    const warningCount = allIssues.filter(i => i.severity === 'warning').length;
+    const displayableCategories = ['inventory', 'stats', 'dlc', 'gaitemdata', 'storage', 'weapons'];
+    const displayedIssues = allIssues.filter(i => i.severity !== 'info' && displayableCategories.includes(i.category));
+    const criticalCount = displayedIssues.filter(i => i.severity === 'critical').length;
+    const warningCount = displayedIssues.filter(i => i.severity === 'warning').length;
 
     // Footer buttons depend on current step
     const footer = (() => {
@@ -258,12 +260,12 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
                     {/* REPORT */}
                     {mode.step === 'report' && (
                         <div className="pb-2">
-                            {!mode.report.canRepair ? (
+                            {displayedIssues.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
                                     <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
-                                    <p className="text-[11px] font-black uppercase tracking-widest text-green-400">No repairable issues found</p>
+                                    <p className="text-[11px] font-black uppercase tracking-widest text-green-400">No issues found</p>
                                     <p className="text-[9px] text-muted-foreground max-w-xs">The save file is clean. Any remaining observations are informational and do not require action.</p>
                                 </div>
                             ) : (
@@ -290,8 +292,7 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
                                                 </p>
                                                 <div className="space-y-1">
                                                     {slot.issues.filter(iss => {
-                                                        const repairable = ['inventory','stats','dlc','gaitemdata','storage'];
-                                                        return iss.severity !== 'info' && repairable.includes(iss.category);
+                                                        return iss.severity !== 'info' && displayableCategories.includes(iss.category);
                                                     }).map((iss, idx) => (
                                                         <div key={idx} className={`flex items-start gap-2 p-2 rounded-lg border text-[9px] ${severityBg[iss.severity] ?? 'bg-muted/20 border-border'}`}>
                                                             <span className={`font-black uppercase shrink-0 ${severityColor[iss.severity] ?? 'text-muted-foreground'}`}>

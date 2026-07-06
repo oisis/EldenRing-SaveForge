@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
@@ -87,6 +88,27 @@ func (a *App) RunDiagnosticsLoaded(charIndex int) (DiagnosticsReport, error) {
 		return empty, fmt.Errorf("slot %d is empty", charIndex)
 	}
 	diag := core.DiagnoseSaveCorruption(slot, charIndex)
+
+	// Workspace validation — build a temporary snapshot to surface
+	// semantic issues (e.g. upgrade_out_of_range) alongside binary ones.
+	if wsSnap, wsErr := editor.BuildSnapshot(slot, "", charIndex); wsErr == nil {
+		wsReport := editor.Validate(wsSnap)
+		for _, iss := range wsReport.Errors {
+			diag.Issues = append(diag.Issues, core.DiagnosticIssue{
+				Severity:    core.SeverityCritical,
+				Category:    "weapons",
+				Description: iss.Message,
+			})
+		}
+		for _, iss := range wsReport.Warnings {
+			diag.Issues = append(diag.Issues, core.DiagnosticIssue{
+				Severity:    core.SeverityWarning,
+				Category:    "weapons",
+				Description: iss.Message,
+			})
+		}
+	}
+
 	charName := core.UTF16ToString(slot.Player.CharacterName[:])
 
 	return DiagnosticsReport{

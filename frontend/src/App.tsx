@@ -1,13 +1,14 @@
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, ScanInventoryIssues} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
 import {SettingsTab} from './components/SettingsTab';
 import {DiagnosticsModal} from './components/DiagnosticsModal';
+import {InventoryIssuesModal} from './components/InventoryIssuesModal';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {PvPTab} from './components/PvPTab';
@@ -53,6 +54,9 @@ function App() {
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
     const [postLoadDiagReport, setPostLoadDiagReport] = useState<main.DiagnosticsReport | null>(null);
+    const [inventoryIssuesReport, setInventoryIssuesReport] = useState<main.InventoryIssuesScanReport | null>(null);
+    // Tracks "saveLoadKey:charIdx" combos already shown to avoid re-triggering.
+    const scannedKeys = useRef(new Set<string>());
     const [charNames, setCharacterNames] = useState<string[]>([]);
     const [slotStates, setSlotStates] = useState<main.SlotState[]>([]);
     const [selectedChar, setSelectedChar] = useState<number>(0);
@@ -131,6 +135,21 @@ function App() {
     }, [refreshUndoDepth]);
 
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
+
+    // On-load inventory issues scan — triggers when file loads or character switches.
+    useEffect(() => {
+        if (!platform || integrityBlocking) {
+            if (!platform) scannedKeys.current.clear();
+            return;
+        }
+        const key = `${saveLoadKey}:${selectedChar}`;
+        if (scannedKeys.current.has(key)) return;
+        scannedKeys.current.add(key);
+        ScanInventoryIssues(selectedChar)
+            .then(report => { if (report.hasIssues) setInventoryIssuesReport(report); })
+            .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [platform, selectedChar, saveLoadKey, integrityBlocking]);
 
     const tabs = platform
         ? ['character', 'inventory', 'world', 'advanced', 'tools']
@@ -880,6 +899,16 @@ function App() {
                 platform={platform}
                 initialReport={postLoadDiagReport}
                 onClose={() => setPostLoadDiagReport(null)}
+            />
+        )}
+        {inventoryIssuesReport && (
+            <InventoryIssuesModal
+                report={inventoryIssuesReport}
+                onClose={() => setInventoryIssuesReport(null)}
+                onSaved={() => {
+                    setInventoryIssuesReport(null);
+                    setInventoryVersion(v => v + 1);
+                }}
             />
         )}
         <ToastBar sidebarWidth={256} />

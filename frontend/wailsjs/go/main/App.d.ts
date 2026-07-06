@@ -208,6 +208,10 @@ export function RepairDuplicateInventoryIndices(arg1:number):Promise<core.Invent
 
 export function RepairExternal():Promise<main.RepairReport>;
 
+export function RepairInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string):Promise<editor.InventoryWorkspaceSnapshot>;
+
+export function RepairInventoryWorkspaceItems(arg1:string,arg2:Array<main.WorkspaceRepairSpec>):Promise<editor.InventoryWorkspaceSnapshot>;
+
 export function RepairLoadedSave(arg1:number):Promise<main.RepairReport>;
 
 export function ResetMapExploration(arg1:number):Promise<void>;
@@ -237,6 +241,8 @@ export function SaveImportedBuildTemplateJSONToLibrary(arg1:string):Promise<temp
 export function SaveInventoryWorkspaceChanges(arg1:string):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function SaveRepairedExternal(arg1:string):Promise<string>;
+
+export function ScanInventoryIssues(arg1:number):Promise<main.InventoryIssuesScanReport>;
 
 export function SelectAndOpenSave():Promise<string>;
 
