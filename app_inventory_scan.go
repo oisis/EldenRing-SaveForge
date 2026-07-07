@@ -165,6 +165,37 @@ func (a *App) RepairInventoryWorkspaceItems(sessionID string, repairs []Workspac
 	return snap, nil
 }
 
+// RepairAllWeaponIssues scans the current workspace for auto-repairable
+// weapon issues (upgrade_out_of_range, pending AoW) and applies all fixes in
+// one batch. Returns a RepairReport with fixed/skipped counts.
+// The caller must still WriteSave to persist changes to disk.
+func (a *App) RepairAllWeaponIssues(charIdx int) (RepairReport, error) {
+	scan, err := a.ScanInventoryIssues(charIdx)
+	if err != nil {
+		return RepairReport{}, fmt.Errorf("RepairAllWeaponIssues: %w", err)
+	}
+
+	var specs []WorkspaceRepairSpec
+	for _, iss := range scan.WorkspaceIssues {
+		if iss.CanRepair {
+			specs = append(specs, WorkspaceRepairSpec{UID: iss.UID, Code: iss.Code})
+		}
+	}
+	if len(specs) == 0 {
+		return RepairReport{Fixed: []string{}, Skipped: []string{}}, nil
+	}
+
+	if _, err := a.RepairInventoryWorkspaceItems(scan.SessionID, specs); err != nil {
+		return RepairReport{}, fmt.Errorf("RepairAllWeaponIssues: %w", err)
+	}
+
+	fixed := make([]string, len(specs))
+	for i, s := range specs {
+		fixed[i] = s.UID
+	}
+	return RepairReport{Fixed: fixed, Skipped: []string{}}, nil
+}
+
 // _forceExportTypesInventoryIssues surfaces the new DTOs to the Wails
 // type generator. Never called.
 func (a *App) _forceExportTypesInventoryIssues() (InventoryIssuesScanReport, WorkspaceIssueDetail, WorkspaceRepairSpec) {

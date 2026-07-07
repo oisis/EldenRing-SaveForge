@@ -84,9 +84,27 @@ func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, b
 
 	// ── Pre-flight rejection checks (no mutation) ─────────────────
 	rep := Validate(*snap)
-	if !rep.OK {
+	// ponytail: these codes represent pre-existing or in-progress repair
+	// states — they cannot be hard blockers because Fix-single repairs one
+	// item at a time while others remain unfixed. Only errors that would
+	// corrupt the physical write are blocking.
+	nonBlocking := map[string]bool{
+		CodeDuplicateUID:      true,
+		CodeDuplicateHandle:   true,
+		CodeUpgradeOutOfRange: true,
+		CodePendingAoWUnknown: true,
+		CodePendingAoWConflict: true,
+	}
+	var blockingErr *WorkspaceValidationIssue
+	for i := range rep.Errors {
+		if !nonBlocking[rep.Errors[i].Code] {
+			blockingErr = &rep.Errors[i]
+			break
+		}
+	}
+	if blockingErr != nil {
 		return nil, fmt.Errorf("ApplyWorkspaceSave: workspace fails validation: %d error(s) (first: %s)",
-			len(rep.Errors), rep.Errors[0].Message)
+			len(rep.Errors), blockingErr.Message)
 	}
 
 	if baseline == nil {

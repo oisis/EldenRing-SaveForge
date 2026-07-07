@@ -394,6 +394,10 @@ export function RepairAllLoadedSlots() {
   return window['go']['main']['App']['RepairAllLoadedSlots']();
 }
 
+export function RepairAllWeaponIssues(arg1) {
+  return window['go']['main']['App']['RepairAllWeaponIssues'](arg1);
+}
+
 export function RepairDuplicateInventoryIndices(arg1) {
   return window['go']['main']['App']['RepairDuplicateInventoryIndices'](arg1);
 }

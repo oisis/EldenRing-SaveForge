@@ -204,6 +204,8 @@ export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<v
 
 export function RepairAllLoadedSlots():Promise<main.RepairReport>;
 
+export function RepairAllWeaponIssues(arg1:number):Promise<main.RepairReport>;
+
 export function RepairDuplicateInventoryIndices(arg1:number):Promise<core.InventoryIndexRepairReport>;
 
 export function RepairExternal():Promise<main.RepairReport>;

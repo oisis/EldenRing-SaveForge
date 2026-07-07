@@ -12,7 +12,9 @@ import {useSafetyMode} from '../state/safetyMode';
 import {FavoritesManager} from './FavoritesManager';
 import {useFavorites} from '../state/favorites';
 import {DiagnosticsModal} from './DiagnosticsModal';
+import {InventoryIssuesModal} from './InventoryIssuesModal';
 import {SaveManagerModal} from './SaveManagerModal';
+import {main} from '../../wailsjs/go/models';
 
 interface SettingsTabProps {
     theme: 'light' | 'dark' | 'golden';
@@ -72,6 +74,7 @@ export function SettingsTab({
     };
 
     const [showDiagnostics, setShowDiagnostics] = useState(false);
+    const [inventoryIssuesReport, setInventoryIssuesReport] = useState<main.InventoryIssuesScanReport | null>(null);
 
     // Conversion flow
     const [convStep, setConvStep] = useState<'idle' | 'selecting' | 'steamid' | 'converting'>('idle');
@@ -497,6 +500,20 @@ export function SettingsTab({
                 charIndex={charIndex}
                 platform={platform}
                 onClose={() => setShowDiagnostics(false)}
+                onOpenInventoryIssues={(report) => {
+                    setInventoryIssuesReport(report);
+                    setShowDiagnostics(false);
+                }}
+            />
+        )}
+        {inventoryIssuesReport && (
+            <InventoryIssuesModal
+                report={inventoryIssuesReport}
+                onClose={() => setInventoryIssuesReport(null)}
+                onSaved={() => {
+                    setInventoryIssuesReport(null);
+                    onMutate?.();
+                }}
             />
         )}
         {showSaveManager && (

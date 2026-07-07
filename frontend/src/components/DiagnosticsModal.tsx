@@ -2,13 +2,13 @@ import {useState, useEffect} from 'react';
 import {createPortal} from 'react-dom';
 import {
     PickDiagnosticsFile,
-    RunDiagnosticsLoaded,
     RunDiagnosticsExternal,
     RepairLoadedSave,
     RepairAllLoadedSlots,
     RepairExternal,
     SaveRepairedExternal,
     WriteSave,
+    ScanInventoryIssues,
 } from '../../wailsjs/go/main/App';
 import {main} from '../../wailsjs/go/models';
 
@@ -27,6 +27,7 @@ interface Props {
     platform: string | null;
     onClose: () => void;
     initialReport?: main.DiagnosticsReport; // when set: skip 'choice', open at 'report' for all loaded slots
+    onOpenInventoryIssues?: (report: main.InventoryIssuesScanReport) => void;
 }
 
 const severityColor: Record<string, string> = {
@@ -60,7 +61,7 @@ const BtnPrimary = ({onClick, disabled, children}: {onClick: () => void; disable
     </button>
 );
 
-export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: Props) {
+export function DiagnosticsModal({charIndex, platform, onClose, initialReport, onOpenInventoryIssues}: Props) {
     const [mode, setMode] = useState<Mode>(
         initialReport
             ? {step: 'report', report: initialReport, filePath: 'loaded', source: 'all-loaded'}
@@ -78,8 +79,13 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
         setMode({step: 'scanning', source: 'loaded'});
         setError(null);
         try {
-            const report = await RunDiagnosticsLoaded(charIndex);
-            setMode({step: 'report', report, filePath: 'loaded', source: 'loaded'});
+            const scan = await ScanInventoryIssues(charIndex);
+            if (scan.hasIssues) {
+                onOpenInventoryIssues?.(scan);
+                onClose();
+            } else {
+                setMode({step: 'report', report: new main.DiagnosticsReport({source: 'loaded', slots: [], canRepair: false}), filePath: 'loaded', source: 'loaded'});
+            }
         } catch (e) {
             setError(String(e));
             setMode({step: 'choice'});
@@ -132,8 +138,7 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
     };
 
     const allIssues = mode.step === 'report' ? mode.report.slots.flatMap(s => s.issues) : [];
-    const displayableCategories = ['inventory', 'stats', 'dlc', 'gaitemdata', 'storage', 'weapons'];
-    const displayedIssues = allIssues.filter(i => i.severity !== 'info' && displayableCategories.includes(i.category));
+    const displayedIssues = allIssues.filter(i => i.severity !== 'info');
     const criticalCount = displayedIssues.filter(i => i.severity === 'critical').length;
     const warningCount = displayedIssues.filter(i => i.severity === 'warning').length;
 
@@ -167,7 +172,7 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
     const subtitle = {
         choice: 'Select save to scan',
         scanning: 'Scanning…',
-        report: `${allIssues.length} issue(s) found`,
+        report: displayedIssues.length > 0 ? `${displayedIssues.length} issue(s) found` : 'No issues found',
         repairing: 'Repairing…',
         'repair-report': 'Repair complete',
         saving: 'Saving…',
@@ -270,30 +275,29 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
                                 </div>
                             ) : (
                                 <>
-                                    {/* Summary badges */}
-                                    <div className="flex flex-wrap gap-2 mb-3">
-                                        {criticalCount > 0 && (
-                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-red-500/10 border border-red-500/30 text-red-400">
-                                                {criticalCount} critical
-                                            </span>
-                                        )}
-                                        {warningCount > 0 && (
-                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-warning-foreground">
-                                                {warningCount} warning
-                                            </span>
-                                        )}
-                                    </div>
-                                    {/* Issue list — each slot */}
-                                    {mode.report.slots.map(slot =>
-                                        slot.issues.length > 0 ? (
+                                    {(criticalCount > 0 || warningCount > 0) && (
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                            {criticalCount > 0 && (
+                                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-red-500/10 border border-red-500/30 text-red-400">
+                                                    {criticalCount} critical
+                                                </span>
+                                            )}
+                                            {warningCount > 0 && (
+                                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-warning-foreground">
+                                                    {warningCount} warning
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                    {mode.report.slots.map(slot => {
+                                        const slotIssues = slot.issues.filter(iss => iss.severity !== 'info');
+                                        return slotIssues.length > 0 ? (
                                             <div key={slot.slotIndex} className="mb-3">
                                                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">
                                                     Slot {slot.slotIndex + 1} — {slot.charName || '(unnamed)'}
                                                 </p>
                                                 <div className="space-y-1">
-                                                    {slot.issues.filter(iss => {
-                                                        return iss.severity !== 'info' && displayableCategories.includes(iss.category);
-                                                    }).map((iss, idx) => (
+                                                    {slotIssues.map((iss, idx) => (
                                                         <div key={idx} className={`flex items-start gap-2 p-2 rounded-lg border text-[9px] ${severityBg[iss.severity] ?? 'bg-muted/20 border-border'}`}>
                                                             <span className={`font-black uppercase shrink-0 ${severityColor[iss.severity] ?? 'text-muted-foreground'}`}>
                                                                 {iss.severity}
@@ -304,8 +308,8 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
                                                     ))}
                                                 </div>
                                             </div>
-                                        ) : null
-                                    )}
+                                        ) : null;
+                                    })}
                                 </>
                             )}
                         </div>
@@ -367,3 +371,4 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
         document.body
     );
 }
+

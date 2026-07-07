@@ -367,19 +367,21 @@ export function InventoryIssuesModal({ report, onClose, onSaved }: Props) {
                     {phase.kind === 'issues' && (
                         <>
                             <button
-                                onClick={handleSkip}
+                                onClick={groups.size > 0 ? handleSkip : onClose}
                                 disabled={isBusy}
                                 className="px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
                             >
-                                Skip — fix later in Tools
+                                {groups.size > 0 ? 'Skip — fix later in Tools' : 'Close'}
                             </button>
-                            <button
-                                onClick={handleRepairSelected}
-                                disabled={isBusy || totalChecked === 0}
-                                className="px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                            >
-                                Repair selected ({totalChecked})
-                            </button>
+                            {groups.size > 0 && (
+                                <button
+                                    onClick={handleRepairSelected}
+                                    disabled={isBusy || totalChecked === 0}
+                                    className="px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                                >
+                                    Repair selected ({totalChecked})
+                                </button>
+                            )}
                         </>
                     )}
                     {phase.kind === 'report' && (
