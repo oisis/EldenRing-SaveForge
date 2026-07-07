@@ -60,15 +60,15 @@ jobs:
           - os: macos-latest
             platform: darwin
             arch: arm64
-            artifact_prefix: EldenRing-SaveForge-macos-arm64
+            artifact_prefix: ER-SaveForge-macos-arm64
           - os: ubuntu-latest
             platform: linux
             arch: amd64
-            artifact_prefix: EldenRing-SaveForge-linux-amd64
+            artifact_prefix: ER-SaveForge-linux-amd64
           - os: windows-latest
             platform: windows
             arch: amd64
-            artifact_prefix: EldenRing-SaveForge-windows-amd64
+            artifact_prefix: ER-SaveForge-windows-amd64
     runs-on: ${{ matrix.os }}
 
     steps:
