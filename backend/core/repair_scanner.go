@@ -89,7 +89,10 @@ func ScanRepairIssues(slotIndex int, slot *SaveSlot) []RepairIssue {
 
 // ---- helpers ----------------------------------------------------------------
 
-func repairIssueID(key IssueKey) string {
+func repairIssueID(key IssueKey) string { return IssueKeyID(key) }
+
+// IssueKeyID computes the stable issueID for a given IssueKey (hex SHA-256[:8]).
+func IssueKeyID(key IssueKey) string {
 	b, _ := json.Marshal(key)
 	h := sha256.Sum256(b)
 	return fmt.Sprintf("%x", h[:8])
