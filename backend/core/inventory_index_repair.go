@@ -149,3 +149,107 @@ func RepairDuplicateInventoryIndices(slot *SaveSlot) (InventoryIndexRepairReport
 
 	return report, nil
 }
+
+// AssignFreshInventoryIndex assigns a new, safe acquisition index to exactly
+// one inventory record identified by scope + row. The new index is:
+//   - greater than all existing indices across inventory_common and inventory_key;
+//   - greater than InvEquipReservedMax;
+//   - unique within the combined index space.
+//
+// Both the in-memory InventoryItem and the raw slot.Data bytes are updated.
+// NextAcquisitionSortId is advanced if the new index exceeds the current value.
+// NextEquipIndex is never touched (see CE-108255-1).
+//
+// Scope must be "inventory_common" or "inventory_key".
+// This primitive is the building block for both duplicate-index repair and
+// reserved-range repair; the batch RepairDuplicateInventoryIndices uses its
+// own counter loop for efficiency.
+func AssignFreshInventoryIndex(slot *SaveSlot, scope string, row int) (InventoryIndexRepairChange, error) {
+	var zero InventoryIndexRepairChange
+	if slot == nil {
+		return zero, fmt.Errorf("AssignFreshInventoryIndex: nil slot")
+	}
+
+	commonStart := slot.MagicOffset + InvStartFromMagic
+	keyStart := commonStart + CommonItemCount*InvRecordLen + InvKeyCountHeader
+
+	var items []InventoryItem
+	var entryStart int
+	switch scope {
+	case "inventory_common":
+		items = slot.Inventory.CommonItems
+		entryStart = commonStart
+	case "inventory_key":
+		items = slot.Inventory.KeyItems
+		entryStart = keyStart
+	default:
+		return zero, fmt.Errorf("AssignFreshInventoryIndex: unknown scope %q", scope)
+	}
+
+	if row < 0 || row >= len(items) {
+		return zero, fmt.Errorf("AssignFreshInventoryIndex: row %d out of bounds (len=%d)", row, len(items))
+	}
+	it := items[row]
+	if it.GaItemHandle == GaHandleEmpty || it.GaItemHandle == GaHandleInvalid {
+		return zero, fmt.Errorf("AssignFreshInventoryIndex: row %d has empty/invalid handle", row)
+	}
+
+	// Collect all existing indices across both scopes to guarantee uniqueness.
+	seen := make(map[uint32]bool)
+	var maxIdx uint32
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
+			continue
+		}
+		seen[item.Index] = true
+		if item.Index > maxIdx {
+			maxIdx = item.Index
+		}
+	}
+	for _, item := range slot.Inventory.KeyItems {
+		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
+			continue
+		}
+		seen[item.Index] = true
+		if item.Index > maxIdx {
+			maxIdx = item.Index
+		}
+	}
+
+	nextFree := maxIdx + 1
+	if slot.Inventory.NextAcquisitionSortId > nextFree {
+		nextFree = slot.Inventory.NextAcquisitionSortId
+	}
+	if nextFree <= InvEquipReservedMax {
+		nextFree = InvEquipReservedMax + 1
+	}
+	for seen[nextFree] {
+		nextFree++
+	}
+	newIdx := nextFree
+
+	off := entryStart + row*InvRecordLen + 8
+	if off < 0 || off+4 > len(slot.Data) {
+		return zero, fmt.Errorf("AssignFreshInventoryIndex: %s row %d index byte offset %d out of bounds (data len %d)",
+			scope, row, off, len(slot.Data))
+	}
+	binary.LittleEndian.PutUint32(slot.Data[off:], newIdx)
+	items[row].Index = newIdx
+
+	// Advance acquisition counter so future additions don't collide.
+	// Never touch NextEquipIndex (CE-108255-1).
+	if newIdx+1 > slot.Inventory.NextAcquisitionSortId {
+		slot.Inventory.NextAcquisitionSortId = newIdx + 1
+		if slot.Inventory.nextAcqSortIdOff > 0 && slot.Inventory.nextAcqSortIdOff+4 <= len(slot.Data) {
+			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
+		}
+	}
+
+	return InventoryIndexRepairChange{
+		Scope:    scope,
+		Row:      row,
+		Handle:   it.GaItemHandle,
+		OldIndex: it.Index,
+		NewIndex: newIdx,
+	}, nil
+}

@@ -324,6 +324,136 @@ func TestRepairDuplicateInventoryIndices_IgnoresEmptyHandles(t *testing.T) {
 	}
 }
 
+// ---- AssignFreshInventoryIndex ---------------------------------------------
+
+func TestAssignFreshInventoryIndex_NilSlot(t *testing.T) {
+	if _, err := AssignFreshInventoryIndex(nil, "inventory_common", 0); err == nil {
+		t.Fatal("expected error for nil slot")
+	}
+}
+
+func TestAssignFreshInventoryIndex_UnknownScope(t *testing.T) {
+	slot := buildRepairFixture(t, []InventoryItem{
+		{GaItemHandle: 0xB0000001, Quantity: 1, Index: 500},
+	}, nil)
+	if _, err := AssignFreshInventoryIndex(slot, "storage_common", 0); err == nil {
+		t.Fatal("expected error for unknown scope")
+	}
+}
+
+func TestAssignFreshInventoryIndex_RowOutOfBounds(t *testing.T) {
+	slot := buildRepairFixture(t, []InventoryItem{
+		{GaItemHandle: 0xB0000001, Quantity: 1, Index: 500},
+	}, nil)
+	if _, err := AssignFreshInventoryIndex(slot, "inventory_common", 5); err == nil {
+		t.Fatal("expected error for out-of-bounds row")
+	}
+}
+
+func TestAssignFreshInventoryIndex_EmptyHandle(t *testing.T) {
+	slot := buildRepairFixture(t, []InventoryItem{
+		{GaItemHandle: GaHandleEmpty, Quantity: 0, Index: 500},
+	}, nil)
+	if _, err := AssignFreshInventoryIndex(slot, "inventory_common", 0); err == nil {
+		t.Fatal("expected error for empty handle")
+	}
+}
+
+// TestAssignFreshInventoryIndex_ReservedRange is the required spec test:
+// an item whose index is <= InvEquipReservedMax (432) must receive a new index
+// that is strictly greater than both InvEquipReservedMax and all existing indices.
+func TestAssignFreshInventoryIndex_ReservedRange(t *testing.T) {
+	const reservedIdx = uint32(100) // <= 432 — reserved range
+	const highIdx = uint32(600)     // existing high-watermark item
+
+	slot := buildRepairFixture(t, []InventoryItem{
+		{GaItemHandle: 0xB0000001, Quantity: 1, Index: reservedIdx}, // target: in reserved range
+		{GaItemHandle: 0xB0000002, Quantity: 1, Index: highIdx},     // unrelated high item
+	}, nil)
+	preEquip := slot.Inventory.NextEquipIndex
+
+	change, err := AssignFreshInventoryIndex(slot, "inventory_common", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if change.OldIndex != reservedIdx {
+		t.Errorf("OldIndex = %d, want %d", change.OldIndex, reservedIdx)
+	}
+	if change.NewIndex <= InvEquipReservedMax {
+		t.Errorf("NewIndex %d must be > InvEquipReservedMax (%d)", change.NewIndex, InvEquipReservedMax)
+	}
+	if change.NewIndex <= highIdx {
+		t.Errorf("NewIndex %d must be > max existing index %d", change.NewIndex, highIdx)
+	}
+	// Raw slot.Data must match.
+	if got := readRawIndex(t, slot, "inventory_common", 0); got != change.NewIndex {
+		t.Errorf("raw slot.Data not updated: got %d, want %d", got, change.NewIndex)
+	}
+	// In-memory struct must match.
+	if slot.Inventory.CommonItems[0].Index != change.NewIndex {
+		t.Errorf("in-memory Index not updated: got %d, want %d",
+			slot.Inventory.CommonItems[0].Index, change.NewIndex)
+	}
+	// NextEquipIndex must be preserved (CE-108255-1).
+	if slot.Inventory.NextEquipIndex != preEquip {
+		t.Errorf("NextEquipIndex changed: %d → %d", preEquip, slot.Inventory.NextEquipIndex)
+	}
+	// NextAcquisitionSortId must be > new index.
+	if slot.Inventory.NextAcquisitionSortId <= change.NewIndex {
+		t.Errorf("NextAcquisitionSortId %d not > new index %d",
+			slot.Inventory.NextAcquisitionSortId, change.NewIndex)
+	}
+}
+
+func TestAssignFreshInventoryIndex_DuplicateIndex_AssignsUnique(t *testing.T) {
+	slot := buildRepairFixture(t, []InventoryItem{
+		{GaItemHandle: 0xB0000001, Quantity: 1, Index: 552}, // first — keep
+		{GaItemHandle: 0xB0000002, Quantity: 1, Index: 552}, // second — target
+	}, nil)
+
+	change, err := AssignFreshInventoryIndex(slot, "inventory_common", 1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if change.OldIndex != 552 {
+		t.Errorf("OldIndex = %d, want 552", change.OldIndex)
+	}
+	if change.NewIndex <= 552 {
+		t.Errorf("NewIndex %d must be > 552", change.NewIndex)
+	}
+	// First row untouched.
+	if slot.Inventory.CommonItems[0].Index != 552 {
+		t.Errorf("first row must keep Index 552, got %d", slot.Inventory.CommonItems[0].Index)
+	}
+	// No duplicates remain.
+	if issues := ScanDuplicateInventoryIndices(slot); len(issues) != 0 {
+		t.Errorf("scanner still reports %d issues after single-record repair", len(issues))
+	}
+}
+
+func TestAssignFreshInventoryIndex_KeyScope(t *testing.T) {
+	slot := buildRepairFixture(t,
+		[]InventoryItem{{GaItemHandle: 0xB0000001, Quantity: 1, Index: 700}},
+		[]InventoryItem{{GaItemHandle: 0xC0000099, Quantity: 1, Index: 700}},
+	)
+	change, err := AssignFreshInventoryIndex(slot, "inventory_key", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if change.Scope != "inventory_key" {
+		t.Errorf("Scope = %q, want inventory_key", change.Scope)
+	}
+	if change.NewIndex <= 700 {
+		t.Errorf("NewIndex %d must be > 700", change.NewIndex)
+	}
+	if got := readRawIndex(t, slot, "inventory_key", 0); got != change.NewIndex {
+		t.Errorf("raw key data not updated: got %d want %d", got, change.NewIndex)
+	}
+	if issues := ScanDuplicateInventoryIndices(slot); len(issues) != 0 {
+		t.Errorf("scanner still reports issues: %+v", issues)
+	}
+}
+
 // TestMapInventoryReconcilesKeyItemIndex reproduces Bug #2: NextAcquisitionSortId was
 // reconciled against CommonItems only, so a KeyItem with a higher Index was invisible
 // to the reconcile. The next addToInventory would then assign an Index that collides
