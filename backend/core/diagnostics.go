@@ -119,15 +119,16 @@ func (d *SlotDiagnostics) checkGaItems(slot *SaveSlot) {
 		if ga.IsEmpty() {
 			continue
 		}
-		// Validate type prefix
-		prefix := ga.ItemID & GaHandleTypeMask
+		// Validate handle type prefix (upper nibble). ItemID uses different prefixes
+		// (0x0=weapon record, 0x1=armor record) and must not be checked here.
+		prefix := ga.Handle & GaHandleTypeMask
 		switch prefix {
 		case ItemTypeWeapon, ItemTypeArmor, ItemTypeAccessory, ItemTypeItem, ItemTypeAow:
 			// valid
 		default:
 			invalidHandles++
 			if invalidHandles <= 5 {
-				d.addWarning("gaitem", "GaItem[%d] has unknown type prefix 0x%X (itemID=0x%08X)", i, prefix, ga.ItemID)
+				d.addWarning("gaitem", "GaItem[%d] has unknown type prefix 0x%X (handle=0x%08X)", i, prefix, ga.Handle)
 			}
 		}
 	}
