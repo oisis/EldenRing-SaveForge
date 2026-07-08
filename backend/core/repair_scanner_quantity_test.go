@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -40,6 +41,15 @@ func countCode(issues []RepairIssue, code string) int {
 // bareSlot is a minimal slot: empty GaItems (no AoW issues) and Level 0 (no
 // stats issue), so only the inventory scanner produces output.
 func bareSlot() *SaveSlot { return &SaveSlot{GaMap: map[uint32]uint32{}} }
+
+// clearSlot is bareSlot at a given NG+ cycle (ClearCount).
+func clearSlot(cc uint32) *SaveSlot {
+	return &SaveSlot{GaMap: map[uint32]uint32{}, Player: PlayerGameData{ClearCount: cc}}
+}
+
+// stoneswordKeyHandle resolves KnownDB to "Stonesword Key": MaxInventory 55,
+// MaxStorage 0, flagged scales_with_ng.
+const stoneswordKeyHandle = uint32(0xB0001F40)
 
 func TestScanQuantity_InventoryBoundary_NoIssue(t *testing.T) {
 	recs := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 999, nil)}
@@ -200,5 +210,88 @@ func TestScanQuantity_CategoryChecksApplied_CountsOnlyExecuted(t *testing.T) {
 	}
 	if cov.CategoryChecksApplied > cov.KnownDB {
 		t.Errorf("CategoryChecksApplied %d must not exceed KnownDB %d", cov.CategoryChecksApplied, cov.KnownDB)
+	}
+}
+
+// ---- Prompt 14: NG+ scaling -------------------------------------------------
+
+func TestScanQuantity_NG_FlaggedUsesBaseInventory(t *testing.T) {
+	// ClearCount 0 (NG): Stonesword Key legitimate up to base 55; 56 exceeds.
+	ok := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 55, nil)}
+	if !ok[0].ScalesWithNG {
+		t.Fatalf("fixture must be scales_with_ng")
+	}
+	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(0), ok), RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("qty 55 at NG must not flag (base 55), got %d", got)
+	}
+	over := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 56, nil)}
+	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(0), over), RepairCodeQuantityAboveMax); got != 1 {
+		t.Errorf("qty 56 at NG must flag (base 55), got %d", got)
+	}
+}
+
+func TestScanQuantity_NGPlus3_AcceptsScaledCap(t *testing.T) {
+	// ClearCount 3 (NG+3): effective cap = 55 × 4 = 220.
+	atCap := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 220, nil)}
+	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(3), atCap), RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("qty 220 at NG+3 must not flag (55×4), got %d", got)
+	}
+}
+
+func TestScanQuantity_NGPlus3_AboveScaledCapFlagsOnceWithEffectiveLimit(t *testing.T) {
+	over := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 221, nil)}
+	issues := ScanRepairIssuesFromRecords(0, clearSlot(3), over)
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 1 {
+		t.Fatalf("qty 221 at NG+3 must flag exactly once (55×4=220), got %d", got)
+	}
+	// Description must report the NG-aware effective limit actually used (220).
+	for _, i := range issues {
+		if i.Key.Code == RepairCodeQuantityAboveMax && !strings.Contains(i.Description, "max 220") {
+			t.Errorf("description must report effective limit 220, got %q", i.Description)
+		}
+	}
+}
+
+func TestScanQuantity_Unflagged_DoesNotScaleWithClearCount(t *testing.T) {
+	// Smithing Stone (no scales_with_ng): cap stays 999 regardless of NG+.
+	recs := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 1000, nil)}
+	if recs[0].ScalesWithNG {
+		t.Fatalf("Smithing Stone must NOT be scales_with_ng")
+	}
+	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(3), recs), RepairCodeQuantityAboveMax); got != 1 {
+		t.Errorf("unflagged qty 1000 must flag even at NG+3 (cap stays 999), got %d", got)
+	}
+}
+
+func TestScanQuantity_FlaggedInStorage_ZeroLimitStillFlags(t *testing.T) {
+	// Stonesword Key MaxStorage 0 — storage never scales, so even at NG+3 a
+	// single copy in storage is not permitted.
+	recs := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, stoneswordKeyHandle, 1, nil)}
+	if recs[0].MaxStorage != 0 {
+		t.Fatalf("fixture MaxStorage = %d, want 0", recs[0].MaxStorage)
+	}
+	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(3), recs), RepairCodeQuantityAboveMax); got != 1 {
+		t.Errorf("flagged item in zero-limit storage must flag at any NG+, got %d", got)
+	}
+}
+
+func TestScanQuantity_DBResolutionSetsScalesWithNG(t *testing.T) {
+	if !resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 1, nil).ScalesWithNG {
+		t.Error("Stonesword Key must resolve ScalesWithNG = true")
+	}
+	if resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 1, nil).ScalesWithNG {
+		t.Error("Smithing Stone must resolve ScalesWithNG = false")
+	}
+}
+
+func TestScanQuantity_NG_CategoryChecksAppliedCountsKnownDB(t *testing.T) {
+	recs := []ResolvedRecord{
+		resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 300, nil), // KnownDB, flagged, over even NG+3
+		resolveRec(repairScopeInventoryCommon, 1, smithingStoneHandle, 10, nil),  // KnownDB
+		resolveRec(repairScopeInventoryCommon, 2, 0x10000005, 5, nil),            // unknown
+	}
+	_, cov := ScanRepairIssuesWithCoverage(0, clearSlot(3), recs)
+	if cov.CategoryChecksApplied != 2 {
+		t.Errorf("CategoryChecksApplied = %d, want 2 (only KnownDB)", cov.CategoryChecksApplied)
 	}
 }

@@ -35,6 +35,20 @@ func TestRepairActionsForCode_QuantityZero(t *testing.T) {
 	}
 }
 
+// TestRepairActionsForCode_QuantityAboveMax_ReportOnly confirms the NG-aware
+// over-cap issue stays report-only: no reviewed mutating clamp primitive exists
+// yet, so the only offered action is report_only.
+func TestRepairActionsForCode_QuantityAboveMax_ReportOnly(t *testing.T) {
+	actions, def := repairActionsForCode(core.RepairCodeQuantityAboveMax)
+
+	if def != RepairActionReportOnly {
+		t.Errorf("default action = %q, want %q", def, RepairActionReportOnly)
+	}
+	if len(actions) != 1 || actions[0].ID != RepairActionReportOnly {
+		t.Errorf("quantity_above_max must offer only report_only, got %+v", actions)
+	}
+}
+
 func TestRepairActionsForCode_DuplicateHandleCanBeLeftUnchanged(t *testing.T) {
 	actions, def := repairActionsForCode(core.RepairCodeDuplicateHandle)
 

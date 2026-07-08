@@ -121,7 +121,7 @@ func ScanRepairIssuesWithCoverage(slotIndex int, slot *SaveSlot, records []Resol
 // the number of KnownDB records the container/quantity validator executed, so
 // callers can report honest structural and category coverage.
 func scanRepairIssuesFrom(slotIndex int, slot *SaveSlot, records []ResolvedRecord) ([]RepairIssue, int, int) {
-	inv, structuralChecked, categoryChecked := scanInventoryRepairIssues(slotIndex, records)
+	inv, structuralChecked, categoryChecked := scanInventoryRepairIssues(slotIndex, slot.Player.ClearCount, records)
 	var out []RepairIssue
 	out = append(out, inv...)
 	out = append(out, scanAoWRepairIssues(slotIndex, slot)...)
@@ -202,7 +202,7 @@ func mkIssue(key IssueKey, desc, severity string, actions []string, def, fp stri
 // collection. Resolution status (known DB / technical placeholder / unknown) is
 // authoritative here — the scanner never re-derives item identity, guaranteeing
 // coverage and issues agree. Pass-through is no longer an aggregate issue.
-func scanInventoryRepairIssues(slotIndex int, records []ResolvedRecord) ([]RepairIssue, int, int) {
+func scanInventoryRepairIssues(slotIndex int, clearCount uint32, records []ResolvedRecord) ([]RepairIssue, int, int) {
 	var out []RepairIssue
 	seenHandles := make(map[uint32]bool)
 	seenIndices := make(map[uint32]bool) // shared across index-dedup scopes only
@@ -308,17 +308,26 @@ func scanInventoryRepairIssues(slotIndex int, records []ResolvedRecord) ([]Repai
 		// against its own container's DB limit (no cross-record accounting).
 		if r.Resolution == ResolutionKnownDB {
 			categoryChecked++
-			var limit uint32
+			// uint64 throughout so the NG+ multiplier and comparison cannot
+			// overflow. A zero limit means the item is not permitted in this
+			// container, so any present quantity exceeds it.
+			var limit uint64
 			switch r.Scope {
 			case repairScopeStorageCommon:
-				limit = r.MaxStorage
+				limit = uint64(r.MaxStorage) // storage caps never scale with NG+
 			default: // inventory_common / inventory_key
-				limit = r.MaxInventory
+				limit = uint64(r.MaxInventory)
+				// scales_with_ng items respawn each NG+ cycle, so the legitimate
+				// inventory cap grows linearly: base × (ClearCount + 1). See
+				// spec/34-item-caps.md. Full Chaos Mode is a frontend edit
+				// override, not save-integrity truth, and is intentionally ignored.
+				if r.ScalesWithNG {
+					limit *= uint64(clearCount) + 1
+				}
 			}
-			// A zero limit means the item is not permitted in this container, so
-			// any present quantity exceeds it. Preserve the high-bit quantity flag
-			// semantics by masking before the comparison.
-			eff := r.Quantity & 0x7FFFFFFF
+			// Preserve the high-bit quantity flag semantics by masking before the
+			// comparison.
+			eff := uint64(r.Quantity & 0x7FFFFFFF)
 			if eff > limit {
 				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeQuantityAboveMax,
 					Scope: r.Scope, Row: r.Row, Handle: h,

@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/binary"
+	"slices"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
@@ -85,6 +86,7 @@ type ResolvedRecord struct {
 	Category         string        // DB category when resolved
 	MaxInventory     uint32        // authoritative DB per-record cap in inventory_common/inventory_key (0 = not permitted); meaningful only when Resolution == KnownDB
 	MaxStorage       uint32        // authoritative DB per-record cap in storage_common (0 = not permitted); meaningful only when Resolution == KnownDB
+	ScalesWithNG     bool          // DB flag "scales_with_ng": MaxInventory cap scales linearly with the NG+ cycle (see spec/34-item-caps.md); MaxStorage never scales. Meaningful only when Resolution == KnownDB
 	Quantity         uint32        // record quantity as stored
 	AcquisitionIndex uint32        // record acquisition/sort index as stored
 	HasGaItem        bool          // a per-instance GaItem actually exists for this handle. slot.GaMap is built 1:1 from the non-empty slot.GaItems entries (structures.go scanGaItems), so GaMap membership is equivalent to GaItem existence — this is not a mere numeric coincidence.
@@ -212,6 +214,7 @@ func ResolveRecord(slot *SaveSlot, scope string, row int, handle, qty, acq uint3
 	rec.Category = itemData.Category
 	rec.MaxInventory = itemData.MaxInventory
 	rec.MaxStorage = itemData.MaxStorage
+	rec.ScalesWithNG = slices.Contains(itemData.Flags, "scales_with_ng")
 
 	if itemData.Name == "" {
 		rec.Resolution = ResolutionUnknown
