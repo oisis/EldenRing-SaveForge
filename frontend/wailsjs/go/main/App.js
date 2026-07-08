@@ -46,10 +46,6 @@ export function ApplyPvPPreparation(arg1, arg2) {
   return window['go']['main']['App']['ApplyPvPPreparation'](arg1, arg2);
 }
 
-export function ApplyRepairsExternal(arg1, arg2) {
-  return window['go']['main']['App']['ApplyRepairsExternal'](arg1, arg2);
-}
-
 export function ApplyRepairsLoaded(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyRepairsLoaded'](arg1, arg2, arg3);
 }
@@ -338,10 +334,6 @@ export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
   return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
 }
 
-export function PickDiagnosticsFile() {
-  return window['go']['main']['App']['PickDiagnosticsFile']();
-}
-
 export function PrepareConversion() {
   return window['go']['main']['App']['PrepareConversion']();
 }
@@ -410,20 +402,12 @@ export function RepairDuplicateInventoryIndices(arg1) {
   return window['go']['main']['App']['RepairDuplicateInventoryIndices'](arg1);
 }
 
-export function RepairExternal() {
-  return window['go']['main']['App']['RepairExternal']();
-}
-
 export function RepairInventoryWorkspaceItem(arg1, arg2, arg3) {
   return window['go']['main']['App']['RepairInventoryWorkspaceItem'](arg1, arg2, arg3);
 }
 
 export function RepairInventoryWorkspaceItems(arg1, arg2) {
   return window['go']['main']['App']['RepairInventoryWorkspaceItems'](arg1, arg2);
-}
-
-export function RepairLoadedSave(arg1) {
-  return window['go']['main']['App']['RepairLoadedSave'](arg1);
 }
 
 export function ResetMapExploration(arg1) {
@@ -444,14 +428,6 @@ export function RevertSlot(arg1) {
 
 export function RunDiagnosticsAllLoaded() {
   return window['go']['main']['App']['RunDiagnosticsAllLoaded']();
-}
-
-export function RunDiagnosticsExternal(arg1) {
-  return window['go']['main']['App']['RunDiagnosticsExternal'](arg1);
-}
-
-export function RunDiagnosticsLoaded(arg1) {
-  return window['go']['main']['App']['RunDiagnosticsLoaded'](arg1);
 }
 
 export function SaveBuildTemplateToLibrary(arg1, arg2) {
@@ -478,16 +454,8 @@ export function SaveInventoryWorkspaceChanges(arg1) {
   return window['go']['main']['App']['SaveInventoryWorkspaceChanges'](arg1);
 }
 
-export function SaveRepairedExternal(arg1) {
-  return window['go']['main']['App']['SaveRepairedExternal'](arg1);
-}
-
 export function ScanInventoryIssues(arg1) {
   return window['go']['main']['App']['ScanInventoryIssues'](arg1);
-}
-
-export function ScanRepairIssuesExternal() {
-  return window['go']['main']['App']['ScanRepairIssuesExternal']();
 }
 
 export function ScanRepairIssuesLoaded(arg1) {

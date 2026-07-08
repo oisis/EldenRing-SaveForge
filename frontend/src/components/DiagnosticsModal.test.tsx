@@ -1,57 +1,48 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { RepairIssueReport } from '../lib/repairIssues';
 
-const scanRepairIssuesLoaded = vi.fn<(idx: number) => Promise<RepairIssueReport>>();
+const RepairAllLoadedSlots = vi.fn();
 
-vi.mock('../lib/repairIssues', () => ({
-    scanRepairIssuesLoaded: (idx: number) => scanRepairIssuesLoaded(idx),
-    scanRepairIssuesExternal: vi.fn(),
+vi.mock('../../wailsjs/go/main/App', () => ({
+    RepairAllLoadedSlots: () => RepairAllLoadedSlots(),
 }));
 
-// Imported after the mock so DiagnosticsModal binds to the mocked scan helpers.
+// Imported after the mock so DiagnosticsModal binds to the mocked endpoint.
 import { DiagnosticsModal } from './DiagnosticsModal';
+import { main } from '../../wailsjs/go/models';
 
-function fakeReport(hasIssues: boolean): RepairIssueReport {
-    return {
-        slotIndex: 0,
-        charName: 'Tarnished',
+function reportWithIssue(): main.DiagnosticsReport {
+    return new main.DiagnosticsReport({
         source: 'loaded',
-        hasIssues,
-        issues: [],
-        coverage: {
-            totalPhysical: 5, resolved: 5, knownDB: 5, technicalPlaceholder: 0, unknown: 0,
-            resolutionChecksApplied: 5, structuralChecksApplied: 5, categoryChecksApplied: 5,
-            perCategory: {}, unknownByReason: {},
-        },
-    };
+        canRepair: true,
+        slots: [{
+            slotIndex: 0,
+            charName: 'Tarnished',
+            issues: [{ category: 'inventory', severity: 'warning', description: 'Duplicate inventory index' }],
+        }],
+    });
 }
 
-describe('DiagnosticsModal manual loaded scan', () => {
-    it('opens the inventory issues modal for a clean scan (to show coverage)', async () => {
-        scanRepairIssuesLoaded.mockResolvedValue(fakeReport(false));
-        const onOpen = vi.fn();
-        render(
-            <DiagnosticsModal charIndex={0} platform="steam" onClose={vi.fn()} onOpenInventoryIssues={onOpen} />,
-        );
-
-        fireEvent.click(screen.getByText('Loaded save'));
-
-        await waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
-        expect(onOpen.mock.calls[0][1]).toBe('loaded');
-        expect(onOpen.mock.calls[0][0][0].hasIssues).toBe(false);
+describe('DiagnosticsModal (post-load all-loaded report)', () => {
+    it('renders the initial all-loaded report issues', () => {
+        render(<DiagnosticsModal initialReport={reportWithIssue()} onClose={vi.fn()} />);
+        expect(screen.getByText('Duplicate inventory index')).toBeInTheDocument();
+        expect(screen.getByText(/Tarnished/)).toBeInTheDocument();
     });
 
-    it('opens the inventory issues modal for a scan with issues', async () => {
-        scanRepairIssuesLoaded.mockResolvedValue(fakeReport(true));
-        const onOpen = vi.fn();
-        render(
-            <DiagnosticsModal charIndex={0} platform="steam" onClose={vi.fn()} onOpenInventoryIssues={onOpen} />,
-        );
+    it('has no loaded/external choice controls', () => {
+        render(<DiagnosticsModal initialReport={reportWithIssue()} onClose={vi.fn()} />);
+        expect(screen.queryByText('Loaded save')).not.toBeInTheDocument();
+        expect(screen.queryByText('External file')).not.toBeInTheDocument();
+    });
 
-        fireEvent.click(screen.getByText('Loaded save'));
+    it('applies repairs via RepairAllLoadedSlots', async () => {
+        RepairAllLoadedSlots.mockResolvedValue({ fixed: ['Fixed duplicate index'], skipped: [] });
+        render(<DiagnosticsModal initialReport={reportWithIssue()} onClose={vi.fn()} />);
 
-        await waitFor(() => expect(onOpen).toHaveBeenCalledTimes(1));
-        expect(onOpen.mock.calls[0][0][0].hasIssues).toBe(true);
+        fireEvent.click(screen.getByRole('button', { name: 'Repair' }));
+
+        await waitFor(() => expect(RepairAllLoadedSlots).toHaveBeenCalledTimes(1));
+        expect(await screen.findByText('Fixed duplicate index')).toBeInTheDocument();
     });
 });

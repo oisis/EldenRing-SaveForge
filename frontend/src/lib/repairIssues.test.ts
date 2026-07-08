@@ -5,7 +5,6 @@ function report(hasIssues: boolean): RepairIssueReport {
     return {
         slotIndex: 0,
         charName: 'T',
-        source: 'loaded',
         hasIssues,
         issues: [],
         coverage: {

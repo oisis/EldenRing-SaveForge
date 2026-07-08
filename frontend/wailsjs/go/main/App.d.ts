@@ -30,8 +30,6 @@ export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
 
 export function ApplyPvPPreparation(arg1:number,arg2:main.PvPPreparationOptions):Promise<Array<string>>;
 
-export function ApplyRepairsExternal(arg1:Array<main.RepairApplyTarget>,arg2:boolean):Promise<main.RepairApplyReport>;
-
 export function ApplyRepairsLoaded(arg1:number,arg2:Array<main.RepairApplyTarget>,arg3:boolean):Promise<main.RepairApplyReport>;
 
 export function AuditLoadedSaveIssues():Promise<Array<main.SaveIssue>>;
@@ -176,8 +174,6 @@ export function MoveInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string,a
 
 export function MoveItemsBetweenInventoryAndStorage(arg1:number,arg2:Array<number>,arg3:string):Promise<core.TransferResult>;
 
-export function PickDiagnosticsFile():Promise<string>;
-
 export function PrepareConversion():Promise<main.ConversionInfo>;
 
 export function PreviewBuildTemplateFromLibrary(arg1:string):Promise<main.LoadedTemplatePreview>;
@@ -212,13 +208,9 @@ export function RepairAllWeaponIssues(arg1:number):Promise<main.RepairReport>;
 
 export function RepairDuplicateInventoryIndices(arg1:number):Promise<core.InventoryIndexRepairReport>;
 
-export function RepairExternal():Promise<main.RepairReport>;
-
 export function RepairInventoryWorkspaceItem(arg1:string,arg2:string,arg3:string):Promise<editor.InventoryWorkspaceSnapshot>;
 
 export function RepairInventoryWorkspaceItems(arg1:string,arg2:Array<main.WorkspaceRepairSpec>):Promise<editor.InventoryWorkspaceSnapshot>;
-
-export function RepairLoadedSave(arg1:number):Promise<main.RepairReport>;
 
 export function ResetMapExploration(arg1:number):Promise<void>;
 
@@ -229,10 +221,6 @@ export function RevealAllMap(arg1:number):Promise<void>;
 export function RevertSlot(arg1:number):Promise<void>;
 
 export function RunDiagnosticsAllLoaded():Promise<main.DiagnosticsReport>;
-
-export function RunDiagnosticsExternal(arg1:string):Promise<main.DiagnosticsReport>;
-
-export function RunDiagnosticsLoaded(arg1:number):Promise<main.DiagnosticsReport>;
 
 export function SaveBuildTemplateToLibrary(arg1:string,arg2:main.BuildTemplateExportOptions):Promise<templates.LibraryTemplateEntry>;
 
@@ -246,11 +234,7 @@ export function SaveImportedBuildTemplateJSONToLibrary(arg1:string):Promise<temp
 
 export function SaveInventoryWorkspaceChanges(arg1:string):Promise<editor.InventoryWorkspaceSnapshot>;
 
-export function SaveRepairedExternal(arg1:string):Promise<string>;
-
 export function ScanInventoryIssues(arg1:number):Promise<main.InventoryIssuesScanReport>;
-
-export function ScanRepairIssuesExternal():Promise<Array<main.RepairIssueReport>>;
 
 export function ScanRepairIssuesLoaded(arg1:number):Promise<main.RepairIssueReport>;
 

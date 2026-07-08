@@ -1,5 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+
+// The default (no-injected) apply path must route through ApplyRepairsLoaded.
+const applyRepairsLoadedMock = vi.hoisted(() => vi.fn());
+vi.mock('../../wailsjs/go/main/App', () => ({
+    ApplyRepairsLoaded: (charIdx: number, targets: unknown, stop: boolean) => applyRepairsLoadedMock(charIdx, targets, stop),
+    ScanRepairIssuesLoaded: vi.fn(),
+}));
+
 import { InventoryIssuesModal } from './InventoryIssuesModal';
 import type { IssueKey, RepairApplyReport, RepairIssue, RepairIssueReport, ValidationCoverage } from '../lib/repairIssues';
 
@@ -48,7 +56,6 @@ function report(issues: RepairIssue[]): RepairIssueReport[] {
     return [{
         slotIndex: 0,
         charName: 'Tarnished',
-        source: 'loaded',
         hasIssues: issues.length > 0,
         issues,
         coverage: {
@@ -87,7 +94,6 @@ function renderModal(issues: RepairIssue[], applyRepairs = vi.fn(async () => okR
     render(
         <InventoryIssuesModal
             reports={report(issues)}
-            source="loaded"
             charIndex={0}
             onClose={vi.fn()}
             onSaved={vi.fn()}
@@ -114,6 +120,18 @@ describe('InventoryIssuesModal', () => {
             selectedAction: 'remove_record',
             fingerprint: 'abc123',
         });
+    });
+
+    it('routes the default apply path through ApplyRepairsLoaded with the char index', async () => {
+        applyRepairsLoadedMock.mockResolvedValue(okReport());
+        render(
+            <InventoryIssuesModal reports={report([issue({})])} charIndex={3} onClose={vi.fn()} onSaved={vi.fn()} />,
+        );
+
+        fireEvent.click(screen.getByRole('button', { name: /Repair selected/i }));
+
+        await waitFor(() => expect(applyRepairsLoadedMock).toHaveBeenCalledTimes(1));
+        expect(applyRepairsLoadedMock.mock.calls[0][0]).toBe(3);
     });
 
     it('expands record details with identifiers and capacity', () => {
@@ -266,14 +284,13 @@ function coverage(overrides: Partial<ValidationCoverage> = {}): ValidationCovera
 }
 
 function reportWith(slotIndex: number, charName: string, issues: RepairIssue[], cov: ValidationCoverage): RepairIssueReport {
-    return { slotIndex, charName, source: 'external', hasIssues: issues.length > 0, issues, coverage: cov };
+    return { slotIndex, charName, hasIssues: issues.length > 0, issues, coverage: cov };
 }
 
 function renderReports(reports: RepairIssueReport[]) {
     render(
         <InventoryIssuesModal
             reports={reports}
-            source="external"
             charIndex={0}
             onClose={vi.fn()}
             onSaved={vi.fn()}

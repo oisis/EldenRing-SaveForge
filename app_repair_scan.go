@@ -60,13 +60,12 @@ type RepairIssueDTO struct {
 	Capacity      *RepairCapacityRequirement `json:"capacity,omitempty"`
 }
 
-// RepairIssueReport is returned by ScanRepairIssuesLoaded / ScanRepairIssuesExternal.
+// RepairIssueReport is returned by ScanRepairIssuesLoaded.
 type RepairIssueReport struct {
 	SlotIndex int                     `json:"slotIndex"`
 	CharName  string                  `json:"charName"`
 	Issues    []RepairIssueDTO        `json:"issues"`
 	HasIssues bool                    `json:"hasIssues"`
-	Source    string                  `json:"source"` // "loaded" or absolute file path
 	Coverage  core.ValidationCoverage `json:"coverage"`
 }
 
@@ -289,7 +288,7 @@ func workspaceIssueToDTO(slotIndex int, iss editor.WorkspaceValidationIssue, sna
 // buildRepairIssueReport merges core and workspace issues for one slot.
 // Deduplication is by IssueID (not code), so the same code for different
 // records/handles is never silently dropped.
-func buildRepairIssueReport(slotIndex int, charName, source string, slot *core.SaveSlot, wsValidation *editor.WorkspaceValidationReport, snap *editor.InventoryWorkspaceSnapshot) RepairIssueReport {
+func buildRepairIssueReport(slotIndex int, charName string, slot *core.SaveSlot, wsValidation *editor.WorkspaceValidationReport, snap *editor.InventoryWorkspaceSnapshot) RepairIssueReport {
 	// Resolve the physical record collection once and feed both the coverage
 	// report and the scanner from it, so their semantics cannot diverge. Coverage
 	// is produced by the scan itself so StructuralChecksApplied reflects the
@@ -322,7 +321,6 @@ func buildRepairIssueReport(slotIndex int, charName, source string, slot *core.S
 		CharName:  charName,
 		Issues:    dtos,
 		HasIssues: len(dtos) > 0,
-		Source:    source,
 		Coverage:  coverage,
 	}
 }
@@ -352,34 +350,7 @@ func (a *App) ScanRepairIssuesLoaded(charIdx int) (RepairIssueReport, error) {
 	defer a.slotMu[charIdx].Unlock()
 	slot := &a.save.Slots[charIdx]
 	charName := core.UTF16ToString(slot.Player.CharacterName[:])
-	return buildRepairIssueReport(charIdx, charName, "loaded", slot, &snap.Validation, &snap), nil
-}
-
-// ScanRepairIssuesExternal scans all populated slots of the external save cached
-// by RunDiagnosticsExternal. Read-only — does not mutate the save.
-// diagState.mu is held for the duration of the scan to prevent concurrent mutations.
-func (a *App) ScanRepairIssuesExternal() ([]RepairIssueReport, error) {
-	diagState.mu.Lock()
-	defer diagState.mu.Unlock()
-
-	if diagState.save == nil {
-		return nil, fmt.Errorf("ScanRepairIssuesExternal: no external file loaded; run RunDiagnosticsExternal first")
-	}
-
-	var reports []RepairIssueReport
-	for i := range diagState.save.Slots {
-		slot := &diagState.save.Slots[i]
-		if slot.Version == 0 {
-			continue
-		}
-		charName := core.UTF16ToString(slot.Player.CharacterName[:])
-		report := buildRepairIssueReport(i, charName, "external", slot, nil, nil)
-		// Every populated slot is returned, including clean ones: the report
-		// carries ValidationCoverage the UI surfaces to prove the scan ran and
-		// how deep it went. Discarding clean slots would hide that coverage.
-		reports = append(reports, report)
-	}
-	return reports, nil
+	return buildRepairIssueReport(charIdx, charName, slot, &snap.Validation, &snap), nil
 }
 
 // _forceExportTypesRepairScan surfaces all new DTO types to the Wails type

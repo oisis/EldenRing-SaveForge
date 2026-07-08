@@ -121,7 +121,7 @@ func resolveItemName(snap *editor.InventoryWorkspaceSnapshot, uid string) string
 // workspace issue (identified by uid+code) and commits it as a workspace
 // save (SaveInventoryWorkspaceChanges). The returned snapshot reflects the
 // post-repair state. Compatibility path: new repair UI should prefer
-// ApplyRepairsLoaded / ApplyRepairsExternal.
+// ApplyRepairsLoaded.
 func (a *App) RepairInventoryWorkspaceItem(sessionID, uid, code string) (editor.InventoryWorkspaceSnapshot, error) {
 	var empty editor.InventoryWorkspaceSnapshot
 	{

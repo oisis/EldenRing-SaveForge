@@ -2173,7 +2173,6 @@ export namespace main {
 	    charName: string;
 	    issues: RepairIssueDTO[];
 	    hasIssues: boolean;
-	    source: string;
 	    coverage: core.ValidationCoverage;
 	
 	    static createFrom(source: any = {}) {
@@ -2186,7 +2185,6 @@ export namespace main {
 	        this.charName = source["charName"];
 	        this.issues = this.convertValues(source["issues"], RepairIssueDTO);
 	        this.hasIssues = source["hasIssues"];
-	        this.source = source["source"];
 	        this.coverage = this.convertValues(source["coverage"], core.ValidationCoverage);
 	    }
 	

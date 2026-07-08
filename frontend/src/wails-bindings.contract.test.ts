@@ -39,19 +39,26 @@ describe('Wails binding contract: App methods', () => {
         expect('empty' in sample).toBe(true);
     });
 
-    it('exposes central repair scan/apply endpoints', () => {
+    it('exposes central loaded-save repair scan/apply endpoints', () => {
         expect(typeof App.ScanRepairIssuesLoaded).toBe('function');
-        expect(typeof App.ScanRepairIssuesExternal).toBe('function');
         expect(typeof App.ApplyRepairsLoaded).toBe('function');
-        expect(typeof App.ApplyRepairsExternal).toBe('function');
     });
 
     it('keeps legacy repair endpoints while UI migrates to central repair flow', () => {
         expect(typeof App.RepairInventoryWorkspaceItem).toBe('function');
         expect(typeof App.RepairInventoryWorkspaceItems).toBe('function');
-        expect(typeof App.RepairLoadedSave).toBe('function');
-        expect(typeof App.RepairExternal).toBe('function');
         expect(typeof App.RepairDuplicateInventoryIndices).toBe('function');
+    });
+
+    it('no longer exposes the removed external diagnostics/repair endpoints', () => {
+        expect((App as Record<string, unknown>).PickDiagnosticsFile).toBeUndefined();
+        expect((App as Record<string, unknown>).RunDiagnosticsExternal).toBeUndefined();
+        expect((App as Record<string, unknown>).RepairExternal).toBeUndefined();
+        expect((App as Record<string, unknown>).SaveRepairedExternal).toBeUndefined();
+        expect((App as Record<string, unknown>).ScanRepairIssuesExternal).toBeUndefined();
+        expect((App as Record<string, unknown>).ApplyRepairsExternal).toBeUndefined();
+        expect((App as Record<string, unknown>).RunDiagnosticsLoaded).toBeUndefined();
+        expect((App as Record<string, unknown>).RepairLoadedSave).toBeUndefined();
     });
 
     it('exposes Phase E local build template library endpoints', () => {
@@ -94,7 +101,6 @@ describe('Wails binding contract: central repair DTOs', () => {
         expect('charName' in report).toBe(true);
         expect('issues' in report).toBe(true);
         expect('hasIssues' in report).toBe(true);
-        expect('source' in report).toBe(true);
 
         const issue = main.RepairIssueDTO.createFrom({});
         expect('issueID' in issue).toBe(true);

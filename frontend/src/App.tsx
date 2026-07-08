@@ -19,7 +19,7 @@ import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
 import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
 import {db} from '../wailsjs/go/models';
-import { scanRepairIssuesLoaded, shouldAutoOpenOnLoad, type RepairIssueReport, type RepairSource } from './lib/repairIssues';
+import { scanRepairIssuesLoaded, shouldAutoOpenOnLoad, type RepairIssueReport } from './lib/repairIssues';
 
 type Theme = 'light' | 'dark' | 'golden';
 
@@ -55,7 +55,7 @@ function App() {
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
     const [postLoadDiagReport, setPostLoadDiagReport] = useState<main.DiagnosticsReport | null>(null);
-    const [inventoryIssuesModal, setInventoryIssuesModal] = useState<{ reports: RepairIssueReport[]; source: RepairSource } | null>(null);
+    const [inventoryIssuesModal, setInventoryIssuesModal] = useState<{ reports: RepairIssueReport[] } | null>(null);
     // Tracks "saveLoadKey:charIdx" combos already shown to avoid re-triggering.
     const scannedKeys = useRef(new Set<string>());
     const [charNames, setCharacterNames] = useState<string[]>([]);
@@ -147,7 +147,7 @@ function App() {
         if (scannedKeys.current.has(key)) return;
         scannedKeys.current.add(key);
         scanRepairIssuesLoaded(selectedChar)
-            .then(report => { if (shouldAutoOpenOnLoad(report)) setInventoryIssuesModal({ reports: [report], source: 'loaded' }); })
+            .then(report => { if (shouldAutoOpenOnLoad(report)) setInventoryIssuesModal({ reports: [report] }); })
             .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [platform, selectedChar, saveLoadKey, integrityBlocking]);
@@ -896,8 +896,6 @@ function App() {
         )}
         {postLoadDiagReport && (
             <DiagnosticsModal
-                charIndex={selectedChar}
-                platform={platform}
                 initialReport={postLoadDiagReport}
                 onClose={() => setPostLoadDiagReport(null)}
             />
@@ -905,7 +903,6 @@ function App() {
         {inventoryIssuesModal && (
             <InventoryIssuesModal
                 reports={inventoryIssuesModal.reports}
-                source={inventoryIssuesModal.source}
                 charIndex={selectedChar}
                 onClose={() => setInventoryIssuesModal(null)}
                 onSaved={() => {

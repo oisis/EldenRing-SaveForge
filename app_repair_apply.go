@@ -93,40 +93,6 @@ func (a *App) ApplyRepairsLoaded(charIdx int, targets []RepairApplyTarget, stopO
 	return rep, nil
 }
 
-// ApplyRepairsExternal applies a batch to the external save cached by
-// RunDiagnosticsExternal. Each target is dispatched to its own slot (Key.Slot),
-// so a batch may span "specified slot" or "all active slots". No workspace
-// session and no undo — the existing SaveRepairedExternal flow persists the
-// result unchanged.
-func (a *App) ApplyRepairsExternal(targets []RepairApplyTarget, stopOnFirstFailure bool) (RepairApplyReport, error) {
-	var empty RepairApplyReport
-	diagState.mu.Lock()
-	defer diagState.mu.Unlock()
-	if diagState.save == nil {
-		return empty, fmt.Errorf("ApplyRepairsExternal: no external file loaded; run RunDiagnosticsExternal first")
-	}
-
-	rep := RepairApplyReport{Results: make([]RepairActionResult, 0, len(targets))}
-	for _, t := range targets {
-		si := t.Key.Slot
-		if si < 0 || si >= len(diagState.save.Slots) || diagState.save.Slots[si].Version == 0 {
-			r := RepairActionResult{
-				IssueID: t.IssueID, SlotIndex: si, Action: t.SelectedAction,
-				Outcome: repairOutcomeFailed, Message: "target slot inactive or out of range",
-			}
-			if tallyRepairOutcome(&rep, r, stopOnFirstFailure) {
-				return rep, nil
-			}
-			continue
-		}
-		r := applyRepairActionToSlot(&diagState.save.Slots[si], si, t)
-		if tallyRepairOutcome(&rep, r, stopOnFirstFailure) {
-			return rep, nil
-		}
-	}
-	return rep, nil
-}
-
 // ---- batch + single-action core --------------------------------------------
 
 // applyRepairBatchToSlot applies every target to a single slot in order,

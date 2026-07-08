@@ -2,20 +2,17 @@ import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import toast from '../lib/toast';
 import {
-    applyRepairsExternal,
     applyRepairsLoaded,
     makeRepairTarget,
     type RepairApplyReport,
     type RepairApplyTarget,
     type RepairIssue,
     type RepairIssueReport,
-    type RepairSource,
     type ValidationCoverage,
 } from '../lib/repairIssues';
 
 interface Props {
     reports: RepairIssueReport[];
-    source: RepairSource;
     charIndex: number;
     onClose: () => void;
     onSaved: () => void;
@@ -190,7 +187,7 @@ function CoverageSection({ coverage }: { coverage: ValidationCoverage }) {
     );
 }
 
-export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSaved, applyRepairs }: Props) {
+export function InventoryIssuesModal({ reports, charIndex, onClose, onSaved, applyRepairs }: Props) {
     const [phase, setPhase] = useState<Phase>({ kind: 'issues' });
     const [checked, setChecked] = useState<Set<string>>(() => new Set(
         reports.flatMap(r => r.issues).filter(i => isMutatingAction(i.defaultAction)).map(i => i.issueID),
@@ -210,10 +207,7 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
     const totalMutating = issues.filter(issue => isMutatingAction(selectedActions[issue.issueID] ?? issue.defaultAction)).length;
     const selectedCount = issues.filter(issue => checked.has(issue.issueID)).length;
 
-    const invokeApply = applyRepairs ?? (async (targets, stop) => {
-        if (source === 'external') return applyRepairsExternal(targets, stop);
-        return applyRepairsLoaded(charIndex, targets, stop);
-    });
+    const invokeApply = applyRepairs ?? ((targets, stop) => applyRepairsLoaded(charIndex, targets, stop));
 
     const setAction = (issue: RepairIssue, action: string) => {
         setSelectedActions(prev => ({ ...prev, [issue.issueID]: action }));
@@ -321,7 +315,7 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
                             )}
                             <div className="space-y-3">
                                     {reports.map(report => (
-                                        <div key={`${report.source}-${report.slotIndex}`} className="space-y-2">
+                                        <div key={report.slotIndex} className="space-y-2">
                                             {reports.length > 1 && (
                                                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
                                                     Slot {report.slotIndex + 1}{report.charName ? ` - ${report.charName}` : ''}

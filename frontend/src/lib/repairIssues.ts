@@ -1,12 +1,8 @@
 import {
-    ApplyRepairsExternal,
     ApplyRepairsLoaded,
-    ScanRepairIssuesExternal,
     ScanRepairIssuesLoaded,
 } from '../../wailsjs/go/main/App';
 import { core, main } from '../../wailsjs/go/models';
-
-export type RepairSource = 'loaded' | 'external';
 
 export type IssueKey = core.IssueKey;
 export type ValidationCoverage = core.ValidationCoverage;
@@ -32,16 +28,8 @@ export function shouldAutoOpenOnLoad(report: RepairIssueReport): boolean {
     return report.hasIssues;
 }
 
-export function scanRepairIssuesExternal(): Promise<RepairIssueReport[]> {
-    return ScanRepairIssuesExternal();
-}
-
 export function applyRepairsLoaded(charIdx: number, targets: RepairApplyTarget[], stopOnFirstFailure: boolean): Promise<RepairApplyReport> {
     return ApplyRepairsLoaded(charIdx, targets.map(toGeneratedTarget), stopOnFirstFailure);
-}
-
-export function applyRepairsExternal(targets: RepairApplyTarget[], stopOnFirstFailure: boolean): Promise<RepairApplyReport> {
-    return ApplyRepairsExternal(targets.map(toGeneratedTarget), stopOnFirstFailure);
 }
 
 export function makeRepairTarget(issue: RepairIssue, selectedAction: string): RepairApplyTarget {
