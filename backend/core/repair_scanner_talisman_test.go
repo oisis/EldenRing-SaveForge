@@ -42,3 +42,26 @@ func TestScanRepairIssues_TalismanDuplicateHandle_NotAnError(t *testing.T) {
 		}
 	}
 }
+
+// TestScanRepairIssues_TalismanDuplicateHandle_CrossContainer covers the same
+// talisman held in inventory AND storage. seenHandles is shared across all
+// sections, so this would regress if the accessory guard were ever narrowed or
+// the map moved into the per-section loop.
+func TestScanRepairIssues_TalismanDuplicateHandle_CrossContainer(t *testing.T) {
+	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{},
+		Inventory: EquipInventoryData{
+			CommonItems: []InventoryItem{{GaItemHandle: talismanHandle, Quantity: 1, Index: 500}},
+		},
+		Storage: EquipInventoryData{
+			CommonItems: []InventoryItem{{GaItemHandle: talismanHandle, Quantity: 1, Index: 501}},
+		},
+	}
+
+	for _, iss := range ScanRepairIssues(0, slot) {
+		if iss.Key.Code == RepairCodeDuplicateHandle || iss.Key.Code == RepairCodeDuplicateUID {
+			t.Errorf("talisman handle 0x%08X split across inventory and storage is normal — must not be reported as %s: %q",
+				talismanHandle, iss.Key.Code, iss.Description)
+		}
+	}
+}
