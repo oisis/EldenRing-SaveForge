@@ -107,6 +107,31 @@ func repairDebugKey(key IssueKey) string {
 	return s
 }
 
+// FingerprintRecordAt returns the fingerprint of the inventory/storage record
+// currently at scope+row, so a repair apply endpoint can stale-check a target
+// against the state captured at scan time before dispatching a primitive.
+// ok=false when scope is unknown or row is out of range.
+func FingerprintRecordAt(slot *SaveSlot, scope string, row int) (string, bool) {
+	if slot == nil {
+		return "", false
+	}
+	var list []InventoryItem
+	switch scope {
+	case repairScopeInventoryCommon:
+		list = slot.Inventory.CommonItems
+	case repairScopeInventoryKey:
+		list = slot.Inventory.KeyItems
+	case repairScopeStorageCommon:
+		list = slot.Storage.CommonItems
+	default:
+		return "", false
+	}
+	if row < 0 || row >= len(list) {
+		return "", false
+	}
+	return fingerprintInventoryItem(list[row]), true
+}
+
 func fingerprintInventoryItem(item InventoryItem) string {
 	var b [12]byte
 	binary.LittleEndian.PutUint32(b[0:], item.GaItemHandle)

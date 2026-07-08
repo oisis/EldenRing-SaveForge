@@ -1393,6 +1393,15 @@ func (a *App) SetSteamIDFromString(s string) error {
 // this helper neither acquires that lock nor takes a snapshot of the undo
 // stack itself — so it must not be called concurrently for the same idx.
 func (a *App) pushUndoLocked(idx int) {
+	a.pushUndoSnapshotLocked(idx, a.buildSlotSnapshotLocked(idx))
+}
+
+// buildSlotSnapshotLocked deep-copies the current state of slot[idx] into an
+// undo snapshot WITHOUT pushing it. The repair apply endpoint captures this
+// before a batch and only pushes it (via pushUndoSnapshotLocked) if at least
+// one action actually mutated — so a fully-rolled-back batch leaves no undo
+// entry. Same locking contract as pushUndoLocked.
+func (a *App) buildSlotSnapshotLocked(idx int) slotSnapshot {
 	slot := &a.save.Slots[idx]
 
 	// Deep copy Data
@@ -1438,6 +1447,12 @@ func (a *App) pushUndoLocked(idx int) {
 		PartGaItemHandle:   slot.PartGaItemHandle,
 	}
 
+	return snap
+}
+
+// pushUndoSnapshotLocked appends a pre-built undo snapshot onto the stack,
+// enforcing the depth cap. Same locking contract as pushUndoLocked.
+func (a *App) pushUndoSnapshotLocked(idx int, snap slotSnapshot) {
 	stack := a.undoStacks[idx]
 	if len(stack) >= maxUndoDepth {
 		stack = stack[1:] // drop oldest
