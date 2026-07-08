@@ -83,6 +83,8 @@ type ResolvedRecord struct {
 	BaseID           uint32        // DB base itemID (upgrade/infusion stripped) when resolved
 	Name             string        // DB name when resolved; placeholder name for naked armor
 	Category         string        // DB category when resolved
+	MaxInventory     uint32        // authoritative DB per-record cap in inventory_common/inventory_key (0 = not permitted); meaningful only when Resolution == KnownDB
+	MaxStorage       uint32        // authoritative DB per-record cap in storage_common (0 = not permitted); meaningful only when Resolution == KnownDB
 	Quantity         uint32        // record quantity as stored
 	AcquisitionIndex uint32        // record acquisition/sort index as stored
 	HasGaItem        bool          // a per-instance GaItem actually exists for this handle. slot.GaMap is built 1:1 from the non-empty slot.GaItems entries (structures.go scanGaItems), so GaMap membership is equivalent to GaItem existence — this is not a mere numeric coincidence.
@@ -208,6 +210,8 @@ func ResolveRecord(slot *SaveSlot, scope string, row int, handle, qty, acq uint3
 	rec.BaseID = baseID
 	rec.Name = itemData.Name
 	rec.Category = itemData.Category
+	rec.MaxInventory = itemData.MaxInventory
+	rec.MaxStorage = itemData.MaxStorage
 
 	if itemData.Name == "" {
 		rec.Resolution = ResolutionUnknown
@@ -313,8 +317,11 @@ func storagePhysicalRows(slot *SaveSlot) []int {
 //	                          processed (see ScanRepairIssuesWithCoverage). The
 //	                          builder never claims structural checks it did not
 //	                          execute.
-//	CategoryChecksApplied   = 0               (no category validator exists yet;
-//	                                            arrives in Prompt 13)
+//	CategoryChecksApplied   = 0 from the builder; the pipeline fills it with the
+//	                          number of KnownDB records the container/quantity
+//	                          validator actually executed (see
+//	                          ScanRepairIssuesWithCoverage). Only KnownDB records
+//	                          are category-checked, so this is ≤ KnownDB.
 //
 // PerCategory counts only records that resolved to a recognised DB category, so
 // its values sum to KnownDB minus any KnownDB record with an empty category —

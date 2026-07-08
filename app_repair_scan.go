@@ -120,6 +120,7 @@ func repairActionsForCode(code string) ([]RepairIssueAction, string) {
 		core.RepairCodeUnknownHandleType:         {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
 		core.RepairCodeMissingGaItemMapping:      {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
 		core.RepairCodeQuantityZero:              {[]string{core.RepairActionRemoveRecord, RepairActionLeaveUnchanged}, core.RepairActionRemoveRecord},
+		core.RepairCodeQuantityAboveMax:          {[]string{RepairActionReportOnly}, RepairActionReportOnly},
 		core.RepairCodePassThroughRecords:        {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
 		core.RepairCodeInventoryReserved:         {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},
 		core.RepairCodeDuplicateAcquisitionIndex: {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},

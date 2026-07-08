@@ -18,6 +18,7 @@ const (
 	RepairCodeUnknownHandleType    = "unknown_handle_type"
 	RepairCodeMissingGaItemMapping = "missing_gaitem_mapping"
 	RepairCodeQuantityZero         = "quantity_zero"
+	RepairCodeQuantityAboveMax     = "quantity_above_max"
 	// RepairCodePassThroughRecords is retained for JSON/action-map
 	// compatibility but is no longer emitted as an aggregate issue —
 	// pass-through is a write strategy, not a defect. Per-record resolution
@@ -97,7 +98,7 @@ func ScanRepairIssues(slotIndex int, slot *SaveSlot) []RepairIssue {
 // and pass the same slice to both this function and BuildCoverageReport to
 // guarantee the two never diverge. Read-only.
 func ScanRepairIssuesFromRecords(slotIndex int, slot *SaveSlot, records []ResolvedRecord) []RepairIssue {
-	issues, _ := scanRepairIssuesFrom(slotIndex, slot, records)
+	issues, _, _ := scanRepairIssuesFrom(slotIndex, slot, records)
 	return issues
 }
 
@@ -108,22 +109,24 @@ func ScanRepairIssuesFromRecords(slotIndex int, slot *SaveSlot, records []Resolv
 // entry point: it guarantees structural coverage is only reported AFTER the
 // scanner has run. Read-only.
 func ScanRepairIssuesWithCoverage(slotIndex int, slot *SaveSlot, records []ResolvedRecord) ([]RepairIssue, ValidationCoverage) {
-	cov := BuildCoverageReport(records) // ResolutionChecksApplied set; StructuralChecksApplied == 0
-	issues, structuralChecked := scanRepairIssuesFrom(slotIndex, slot, records)
+	cov := BuildCoverageReport(records) // ResolutionChecksApplied set; StructuralChecksApplied/CategoryChecksApplied == 0
+	issues, structuralChecked, categoryChecked := scanRepairIssuesFrom(slotIndex, slot, records)
 	cov.StructuralChecksApplied = structuralChecked
+	cov.CategoryChecksApplied = categoryChecked
 	return issues, cov
 }
 
-// scanRepairIssuesFrom is the shared scan core. It returns the issue list and
-// the number of records the structural (inventory) scanner actually iterated,
-// so callers can report honest structural coverage.
-func scanRepairIssuesFrom(slotIndex int, slot *SaveSlot, records []ResolvedRecord) ([]RepairIssue, int) {
-	inv, structuralChecked := scanInventoryRepairIssues(slotIndex, records)
+// scanRepairIssuesFrom is the shared scan core. It returns the issue list, the
+// number of records the structural (inventory) scanner actually iterated, and
+// the number of KnownDB records the container/quantity validator executed, so
+// callers can report honest structural and category coverage.
+func scanRepairIssuesFrom(slotIndex int, slot *SaveSlot, records []ResolvedRecord) ([]RepairIssue, int, int) {
+	inv, structuralChecked, categoryChecked := scanInventoryRepairIssues(slotIndex, records)
 	var out []RepairIssue
 	out = append(out, inv...)
 	out = append(out, scanAoWRepairIssues(slotIndex, slot)...)
 	out = append(out, scanStatsRepairIssues(slotIndex, slot)...)
-	return out, structuralChecked
+	return out, structuralChecked, categoryChecked
 }
 
 // ---- helpers ----------------------------------------------------------------
@@ -199,12 +202,13 @@ func mkIssue(key IssueKey, desc, severity string, actions []string, def, fp stri
 // collection. Resolution status (known DB / technical placeholder / unknown) is
 // authoritative here — the scanner never re-derives item identity, guaranteeing
 // coverage and issues agree. Pass-through is no longer an aggregate issue.
-func scanInventoryRepairIssues(slotIndex int, records []ResolvedRecord) ([]RepairIssue, int) {
+func scanInventoryRepairIssues(slotIndex int, records []ResolvedRecord) ([]RepairIssue, int, int) {
 	var out []RepairIssue
 	seenHandles := make(map[uint32]bool)
 	seenIndices := make(map[uint32]bool) // shared across index-dedup scopes only
 
 	structuralChecked := 0
+	categoryChecked := 0
 	for _, r := range records {
 		structuralChecked++ // every physical record is subjected to the structural rules below
 		h := r.Handle
@@ -296,9 +300,39 @@ func scanInventoryRepairIssues(slotIndex int, records []ResolvedRecord) ([]Repai
 			}
 			seenIndices[r.AcquisitionIndex] = true
 		}
+
+		// Category/container quantity rule — runs ONLY for records that resolved
+		// to a DB entry. Unknown records and technical placeholders carry no
+		// authoritative cap, so guessing a limit for them would fabricate a
+		// validation result. Each physical record is validated independently
+		// against its own container's DB limit (no cross-record accounting).
+		if r.Resolution == ResolutionKnownDB {
+			categoryChecked++
+			var limit uint32
+			switch r.Scope {
+			case repairScopeStorageCommon:
+				limit = r.MaxStorage
+			default: // inventory_common / inventory_key
+				limit = r.MaxInventory
+			}
+			// A zero limit means the item is not permitted in this container, so
+			// any present quantity exceeds it. Preserve the high-bit quantity flag
+			// semantics by masking before the comparison.
+			eff := r.Quantity & 0x7FFFFFFF
+			if eff > limit {
+				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeQuantityAboveMax,
+					Scope: r.Scope, Row: r.Row, Handle: h,
+					Field: "quantity", Value: fmt.Sprintf("%d", eff)}
+				out = append(out, mkIssue(key,
+					fmt.Sprintf("item 0x%08X quantity %d exceeds %s max %d", h, eff, r.Scope, limit),
+					repairSeverityWarning,
+					[]string{RepairActionNoAction},
+					RepairActionNoAction, r.Fingerprint))
+			}
+		}
 	}
 
-	return out, structuralChecked
+	return out, structuralChecked, categoryChecked
 }
 
 // ---- AoW scanner ------------------------------------------------------------
