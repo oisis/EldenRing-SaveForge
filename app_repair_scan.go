@@ -374,9 +374,10 @@ func (a *App) ScanRepairIssuesExternal() ([]RepairIssueReport, error) {
 		}
 		charName := core.UTF16ToString(slot.Player.CharacterName[:])
 		report := buildRepairIssueReport(i, charName, "external", slot, nil, nil)
-		if report.HasIssues {
-			reports = append(reports, report)
-		}
+		// Every populated slot is returned, including clean ones: the report
+		// carries ValidationCoverage the UI surfaces to prove the scan ran and
+		// how deep it went. Discarding clean slots would hide that coverage.
+		reports = append(reports, report)
 	}
 	return reports, nil
 }

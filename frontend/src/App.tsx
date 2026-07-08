@@ -19,7 +19,7 @@ import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
 import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
 import {db} from '../wailsjs/go/models';
-import { scanRepairIssuesLoaded, type RepairIssueReport, type RepairSource } from './lib/repairIssues';
+import { scanRepairIssuesLoaded, shouldAutoOpenOnLoad, type RepairIssueReport, type RepairSource } from './lib/repairIssues';
 
 type Theme = 'light' | 'dark' | 'golden';
 
@@ -147,7 +147,7 @@ function App() {
         if (scannedKeys.current.has(key)) return;
         scannedKeys.current.add(key);
         scanRepairIssuesLoaded(selectedChar)
-            .then(report => { if (report.hasIssues) setInventoryIssuesModal({ reports: [report], source: 'loaded' }); })
+            .then(report => { if (shouldAutoOpenOnLoad(report)) setInventoryIssuesModal({ reports: [report], source: 'loaded' }); })
             .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [platform, selectedChar, saveLoadKey, integrityBlocking]);

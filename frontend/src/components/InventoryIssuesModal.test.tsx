@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { InventoryIssuesModal } from './InventoryIssuesModal';
-import type { IssueKey, RepairApplyReport, RepairIssue, RepairIssueReport } from '../lib/repairIssues';
+import type { IssueKey, RepairApplyReport, RepairIssue, RepairIssueReport, ValidationCoverage } from '../lib/repairIssues';
 
 type IssueOverrides = Partial<Omit<RepairIssue, 'key'>> & { key?: Partial<IssueKey> };
 
@@ -233,5 +233,132 @@ describe('InventoryIssuesModal', () => {
 
         expect(screen.getByText('No action')).toBeInTheDocument();
         expect(screen.queryByLabelText('Repair action')).not.toBeInTheDocument();
+    });
+
+    it('labels quantity_above_max readably', () => {
+        renderModal([
+            issue({
+                issueID: 'issue-quantity_above_max-0',
+                key: { code: 'quantity_above_max' },
+                description: 'item quantity exceeds max',
+            }),
+        ]);
+        expect(screen.getByText('Quantity above max')).toBeInTheDocument();
+    });
+});
+
+// ---- Prompt 15: validation coverage -----------------------------------------
+
+function coverage(overrides: Partial<ValidationCoverage> = {}): ValidationCoverage {
+    return {
+        totalPhysical: 0,
+        resolved: 0,
+        knownDB: 0,
+        technicalPlaceholder: 0,
+        unknown: 0,
+        resolutionChecksApplied: 0,
+        structuralChecksApplied: 0,
+        categoryChecksApplied: 0,
+        perCategory: {},
+        unknownByReason: {},
+        ...overrides,
+    };
+}
+
+function reportWith(slotIndex: number, charName: string, issues: RepairIssue[], cov: ValidationCoverage): RepairIssueReport {
+    return { slotIndex, charName, source: 'external', hasIssues: issues.length > 0, issues, coverage: cov };
+}
+
+function renderReports(reports: RepairIssueReport[]) {
+    render(
+        <InventoryIssuesModal
+            reports={reports}
+            source="external"
+            charIndex={0}
+            onClose={vi.fn()}
+            onSaved={vi.fn()}
+            applyRepairs={vi.fn(async () => okReport())}
+        />,
+    );
+}
+
+describe('InventoryIssuesModal validation coverage', () => {
+    it('renders all coverage totals for a single report', () => {
+        renderReports([reportWith(0, 'Tarnished', [], coverage({
+            totalPhysical: 100, resolved: 95, knownDB: 90, technicalPlaceholder: 5,
+            unknown: 0, resolutionChecksApplied: 100, structuralChecksApplied: 100, categoryChecksApplied: 90,
+        }))]);
+
+        expect(screen.getByTestId('coverage-totalPhysical')).toHaveTextContent('100');
+        expect(screen.getByTestId('coverage-resolved')).toHaveTextContent('95');
+        expect(screen.getByTestId('coverage-knownDB')).toHaveTextContent('90');
+        expect(screen.getByTestId('coverage-technicalPlaceholder')).toHaveTextContent('5');
+        expect(screen.getByTestId('coverage-unknown')).toHaveTextContent('0');
+        expect(screen.getByTestId('coverage-resolutionChecksApplied')).toHaveTextContent('100');
+        expect(screen.getByTestId('coverage-structuralChecksApplied')).toHaveTextContent('100');
+        expect(screen.getByTestId('coverage-categoryChecksApplied')).toHaveTextContent('90');
+    });
+
+    it('shows the no-issues banner and coverage for a clean report', () => {
+        renderReports([reportWith(0, 'Tarnished', [], coverage({ totalPhysical: 42, resolved: 42, knownDB: 42 }))]);
+        expect(screen.getByText('No repair issues found')).toBeInTheDocument();
+        expect(screen.getByTestId('validation-coverage')).toBeInTheDocument();
+        expect(screen.getByTestId('coverage-totalPhysical')).toHaveTextContent('42');
+    });
+
+    it('renders a warning when there are unresolved records', () => {
+        renderReports([reportWith(0, 'T', [], coverage({ totalPhysical: 3, unknown: 2 }))]);
+        expect(screen.getByTestId('coverage-warning')).toHaveTextContent(/could not be resolved/i);
+    });
+
+    it('does not render the warning when nothing is unresolved', () => {
+        renderReports([reportWith(0, 'T', [], coverage({ totalPhysical: 3, unknown: 0 }))]);
+        expect(screen.queryByTestId('coverage-warning')).not.toBeInTheDocument();
+    });
+
+    it('describes technical placeholders as resolved but excluded from category validation', () => {
+        renderReports([reportWith(0, 'T', [], coverage({ technicalPlaceholder: 2 }))]);
+        expect(screen.getByText(/Technical placeholders are resolved but intentionally excluded from category validation/i)).toBeInTheDocument();
+        expect(screen.getByText(/Category checks apply only to Known DB records/i)).toBeInTheDocument();
+    });
+
+    it('renders perCategory and unknownByReason maps in stable sorted order', () => {
+        renderReports([reportWith(0, 'T', [], coverage({
+            perCategory: { talismans: 2, bolstering_materials: 1 },
+            unknownByReason: { unknown_handle_type: 1, missing_db_entry: 2 },
+        }))]);
+
+        fireEvent.click(screen.getByRole('button', { name: /Breakdown/i }));
+        const breakdown = screen.getByTestId('coverage-breakdown');
+        const items = within(breakdown).getAllByRole('listitem').map(li => li.textContent);
+        // per-category (sorted) then unknown-by-reason (sorted)
+        expect(items).toEqual([
+            'bolstering_materials1',
+            'talismans2',
+            'missing_db_entry2',
+            'unknown_handle_type1',
+        ]);
+    });
+
+    it('shows empty states in the breakdown when maps are empty', () => {
+        renderReports([reportWith(0, 'T', [], coverage({ totalPhysical: 1, knownDB: 1 }))]);
+        fireEvent.click(screen.getByRole('button', { name: /Breakdown/i }));
+        expect(screen.getByText('No categorised records')).toBeInTheDocument();
+        expect(screen.getByText('No unresolved records')).toBeInTheDocument();
+    });
+
+    it('keeps coverage associated with the correct slot for multiple reports', () => {
+        renderReports([
+            reportWith(0, 'Alpha', [], coverage({ totalPhysical: 10 })),
+            reportWith(1, 'Beta', [], coverage({ totalPhysical: 20 })),
+        ]);
+
+        expect(screen.getByText(/Slot 1 - Alpha/)).toBeInTheDocument();
+        expect(screen.getByText(/Slot 2 - Beta/)).toBeInTheDocument();
+
+        const sections = screen.getAllByTestId('validation-coverage');
+        expect(sections).toHaveLength(2);
+        expect(within(sections[0]).getByTestId('coverage-totalPhysical')).toHaveTextContent('10');
+        expect(within(sections[1]).getByTestId('coverage-totalPhysical')).toHaveTextContent('20');
     });
 });

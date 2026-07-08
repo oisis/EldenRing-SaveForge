@@ -9,6 +9,7 @@ import { core, main } from '../../wailsjs/go/models';
 export type RepairSource = 'loaded' | 'external';
 
 export type IssueKey = core.IssueKey;
+export type ValidationCoverage = core.ValidationCoverage;
 export type RepairIssueAction = main.RepairIssueAction;
 export type RepairIssueRecord = main.RepairIssueRecord;
 export type RepairCapacityRequirement = main.RepairCapacityRequirement;
@@ -22,6 +23,13 @@ export type RepairApplyReport = Omit<main.RepairApplyReport, 'convertValues'>;
 
 export function scanRepairIssuesLoaded(charIdx: number): Promise<RepairIssueReport> {
     return ScanRepairIssuesLoaded(charIdx);
+}
+
+// shouldAutoOpenOnLoad is the single source of the automatic on-load rule: the
+// issues modal opens automatically only when a scan found issues. Manual scans
+// (DiagnosticsModal) open it regardless, to surface validation coverage.
+export function shouldAutoOpenOnLoad(report: RepairIssueReport): boolean {
+    return report.hasIssues;
 }
 
 export function scanRepairIssuesExternal(): Promise<RepairIssueReport[]> {

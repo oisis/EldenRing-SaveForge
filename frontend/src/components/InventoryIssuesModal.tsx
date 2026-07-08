@@ -10,6 +10,7 @@ import {
     type RepairIssue,
     type RepairIssueReport,
     type RepairSource,
+    type ValidationCoverage,
 } from '../lib/repairIssues';
 
 interface Props {
@@ -41,7 +42,10 @@ function codeLabel(code: string): string {
         case 'duplicate_uid': return 'Duplicate UID';
         case 'duplicate_handle': return 'Duplicate handle';
         case 'unknown_item_id': return 'Unknown item ID';
+        case 'unknown_handle_type': return 'Unknown handle type';
+        case 'missing_gaitem_mapping': return 'Missing GaItem mapping';
         case 'quantity_zero': return 'Quantity zero';
+        case 'quantity_above_max': return 'Quantity above max';
         case 'pass_through_records': return 'Pass-through records';
         case 'inventory_reserved': return 'Reserved acquisition index';
         case 'duplicate_acquisition_index': return 'Duplicate acquisition index';
@@ -102,6 +106,88 @@ function severityClass(severity: string): string {
 
 function isMutatingAction(action: string): boolean {
     return !NO_OP_ACTIONS.has(action);
+}
+
+function CoverageMetric({ label, value, id }: { label: string; value: number; id: string }) {
+    return (
+        <div className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">{label}</span>
+            <span data-testid={`coverage-${id}`} className="font-bold text-foreground tabular-nums">{value}</span>
+        </div>
+    );
+}
+
+function CoverageMap({ title, entries, emptyLabel }: { title: string; entries: [string, number][]; emptyLabel: string }) {
+    const sorted = [...entries].sort((a, b) => a[0].localeCompare(b[0]));
+    return (
+        <div>
+            <p className="text-[8px] font-black uppercase tracking-widest text-muted-foreground mb-1">{title}</p>
+            {sorted.length === 0 ? (
+                <p className="text-muted-foreground/70 italic">{emptyLabel}</p>
+            ) : (
+                <ul className="space-y-0.5">
+                    {sorted.map(([k, v]) => (
+                        <li key={k} className="flex items-baseline justify-between gap-2">
+                            <span className="text-foreground/80 truncate">{k}</span>
+                            <span className="font-bold text-foreground tabular-nums">{v}</span>
+                        </li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    );
+}
+
+// CoverageSection surfaces the measurable ValidationCoverage for one report so a
+// user can tell scan depth apart from "no issues". Wording is deliberate: a clean
+// scan is not "fully validated", and unresolved records mean limited depth — not
+// automatic corruption.
+function CoverageSection({ coverage }: { coverage: ValidationCoverage }) {
+    const [open, setOpen] = useState(false);
+    const hasUnresolved = coverage.unknown > 0;
+    return (
+        <div data-testid="validation-coverage" className="rounded-lg border border-border/50 bg-background/30 p-3 text-[9px] space-y-2">
+            <div className="flex items-center justify-between gap-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Validation coverage</p>
+                <button
+                    type="button"
+                    onClick={() => setOpen(o => !o)}
+                    className="px-2 py-0.5 text-[8px] font-black uppercase tracking-widest rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-all"
+                >
+                    {open ? 'Hide breakdown' : 'Breakdown'}
+                </button>
+            </div>
+
+            {hasUnresolved && (
+                <div data-testid="coverage-warning" className="rounded border border-yellow-500/30 bg-yellow-500/10 px-2 py-1.5 text-warning-foreground">
+                    {coverage.unknown} record(s) could not be resolved — validation depth was limited for them. This does not by itself mean the save is corrupt.
+                </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                <CoverageMetric id="totalPhysical" label="Physical records scanned" value={coverage.totalPhysical} />
+                <CoverageMetric id="resolved" label="Resolved records" value={coverage.resolved} />
+                <CoverageMetric id="knownDB" label="Known DB records" value={coverage.knownDB} />
+                <CoverageMetric id="technicalPlaceholder" label="Technical placeholders" value={coverage.technicalPlaceholder} />
+                <CoverageMetric id="unknown" label="Unresolved records" value={coverage.unknown} />
+                <CoverageMetric id="resolutionChecksApplied" label="Resolution checks applied" value={coverage.resolutionChecksApplied} />
+                <CoverageMetric id="structuralChecksApplied" label="Structural checks applied" value={coverage.structuralChecksApplied} />
+                <CoverageMetric id="categoryChecksApplied" label="Category checks applied" value={coverage.categoryChecksApplied} />
+            </div>
+
+            <p className="text-muted-foreground/80 leading-relaxed">
+                Technical placeholders are resolved but intentionally excluded from category validation.
+                Category checks apply only to Known DB records.
+            </p>
+
+            {open && (
+                <div data-testid="coverage-breakdown" className="border-t border-border/40 pt-2 grid grid-cols-2 gap-x-4 gap-y-2">
+                    <CoverageMap title="Per category" entries={Object.entries(coverage.perCategory ?? {})} emptyLabel="No categorised records" />
+                    <CoverageMap title="Unresolved by reason" entries={Object.entries(coverage.unknownByReason ?? {})} emptyLabel="No unresolved records" />
+                </div>
+            )}
+        </div>
+    );
 }
 
 export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSaved, applyRepairs }: Props) {
@@ -225,15 +311,15 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
 
                     {phase.kind === 'issues' && (
                         <>
-                            {issues.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
+                            {issues.length === 0 && (
+                                <div className="flex flex-col items-center justify-center py-6 gap-3 text-center">
                                     <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
                                     <p className="text-[11px] font-black uppercase tracking-widest text-green-400">No repair issues found</p>
                                 </div>
-                            ) : (
-                                <div className="space-y-3">
+                            )}
+                            <div className="space-y-3">
                                     {reports.map(report => (
                                         <div key={`${report.source}-${report.slotIndex}`} className="space-y-2">
                                             {reports.length > 1 && (
@@ -241,6 +327,7 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
                                                     Slot {report.slotIndex + 1}{report.charName ? ` - ${report.charName}` : ''}
                                                 </p>
                                             )}
+                                            <CoverageSection coverage={report.coverage} />
                                             {report.issues.map(issue => {
                                                 const selected = selectedActions[issue.issueID] ?? issue.defaultAction;
                                                 const isExpanded = expanded.has(issue.issueID);
@@ -319,8 +406,7 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
                                             })}
                                         </div>
                                     ))}
-                                </div>
-                            )}
+                            </div>
                         </>
                     )}
 

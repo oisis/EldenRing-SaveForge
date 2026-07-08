@@ -80,8 +80,10 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport, o
         setError(null);
         try {
             const scan = await scanRepairIssuesLoaded(charIndex);
-            if (scan.hasIssues) {
-                onOpenInventoryIssues?.([scan], 'loaded');
+            // A manual scan always opens the issues modal — even with no issues —
+            // so the user can see the validation coverage proving the scan ran.
+            if (onOpenInventoryIssues) {
+                onOpenInventoryIssues([scan], 'loaded');
                 onClose();
             } else {
                 setMode({step: 'report', report: new main.DiagnosticsReport({source: 'loaded', slots: [], canRepair: false}), filePath: 'loaded', source: 'loaded'});

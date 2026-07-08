@@ -38,6 +38,41 @@ func TestRepairActionsForCode_QuantityZero(t *testing.T) {
 // TestRepairActionsForCode_QuantityAboveMax_ReportOnly confirms the NG-aware
 // over-cap issue stays report-only: no reviewed mutating clamp primitive exists
 // yet, so the only offered action is report_only.
+// TestScanRepairIssuesExternal_RetainsCleanPopulatedSlots confirms a populated
+// external slot with no issues is still returned, carrying its ValidationCoverage
+// so the UI can prove the scan ran (Prompt 15, requirement 10).
+func TestScanRepairIssuesExternal_RetainsCleanPopulatedSlots(t *testing.T) {
+	// Single Smithing Stone: handle-encoded, qty within cap, index above the
+	// reserved range → resolves KnownDB with no repair issues.
+	clean := buildApplyInvFixture(t, []core.InventoryItem{
+		{GaItemHandle: 0xB0002774, Quantity: 5, Index: 500},
+	})
+	save := &core.SaveFile{}
+	save.Slots[0] = *clean
+	diagState.mu.Lock()
+	diagState.save = save
+	diagState.mu.Unlock()
+	defer func() {
+		diagState.mu.Lock()
+		diagState.save = nil
+		diagState.mu.Unlock()
+	}()
+
+	reports, err := (&App{}).ScanRepairIssuesExternal()
+	if err != nil {
+		t.Fatalf("ScanRepairIssuesExternal: %v", err)
+	}
+	if len(reports) != 1 {
+		t.Fatalf("want 1 report for the populated slot, got %d", len(reports))
+	}
+	if reports[0].HasIssues {
+		t.Fatalf("clean slot must have HasIssues=false, got %+v", reports[0].Issues)
+	}
+	if reports[0].Coverage.TotalPhysical != 1 {
+		t.Fatalf("clean slot coverage TotalPhysical = %d, want 1", reports[0].Coverage.TotalPhysical)
+	}
+}
+
 func TestRepairActionsForCode_QuantityAboveMax_ReportOnly(t *testing.T) {
 	actions, def := repairActionsForCode(core.RepairCodeQuantityAboveMax)
 
