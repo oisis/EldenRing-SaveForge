@@ -62,11 +62,12 @@ type RepairIssueDTO struct {
 
 // RepairIssueReport is returned by ScanRepairIssuesLoaded / ScanRepairIssuesExternal.
 type RepairIssueReport struct {
-	SlotIndex int              `json:"slotIndex"`
-	CharName  string           `json:"charName"`
-	Issues    []RepairIssueDTO `json:"issues"`
-	HasIssues bool             `json:"hasIssues"`
-	Source    string           `json:"source"` // "loaded" or absolute file path
+	SlotIndex int                     `json:"slotIndex"`
+	CharName  string                  `json:"charName"`
+	Issues    []RepairIssueDTO        `json:"issues"`
+	HasIssues bool                    `json:"hasIssues"`
+	Source    string                  `json:"source"` // "loaded" or absolute file path
+	Coverage  core.ValidationCoverage `json:"coverage"`
 }
 
 // App-layer action ID constants (supplement core.RepairAction* constants).
@@ -116,6 +117,8 @@ func repairActionsForCode(code string) ([]RepairIssueAction, string) {
 		core.RepairCodeDuplicateHandle:           {[]string{core.RepairActionCreateCopy, RepairActionLeaveUnchanged}, core.RepairActionCreateCopy},
 		core.RepairCodeDuplicateUID:              {[]string{core.RepairActionCreateCopy, RepairActionLeaveUnchanged}, core.RepairActionCreateCopy},
 		core.RepairCodeUnknownItemID:             {[]string{RepairActionLeaveUnchanged, core.RepairActionRemoveRecord}, RepairActionLeaveUnchanged},
+		core.RepairCodeUnknownHandleType:         {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
+		core.RepairCodeMissingGaItemMapping:      {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
 		core.RepairCodeQuantityZero:              {[]string{core.RepairActionRemoveRecord, RepairActionLeaveUnchanged}, core.RepairActionRemoveRecord},
 		core.RepairCodePassThroughRecords:        {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
 		core.RepairCodeInventoryReserved:         {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},
@@ -286,7 +289,12 @@ func workspaceIssueToDTO(slotIndex int, iss editor.WorkspaceValidationIssue, sna
 // Deduplication is by IssueID (not code), so the same code for different
 // records/handles is never silently dropped.
 func buildRepairIssueReport(slotIndex int, charName, source string, slot *core.SaveSlot, wsValidation *editor.WorkspaceValidationReport, snap *editor.InventoryWorkspaceSnapshot) RepairIssueReport {
-	coreIssues := core.ScanRepairIssues(slotIndex, slot)
+	// Resolve the physical record collection once and feed both the coverage
+	// report and the scanner from it, so their semantics cannot diverge. Coverage
+	// is produced by the scan itself so StructuralChecksApplied reflects the
+	// checks the scanner actually executed (not a builder assumption).
+	records := core.ResolveInventoryRecords(slot)
+	coreIssues, coverage := core.ScanRepairIssuesWithCoverage(slotIndex, slot, records)
 
 	seenIDs := make(map[string]bool, len(coreIssues))
 	dtos := make([]RepairIssueDTO, 0, len(coreIssues))
@@ -314,6 +322,7 @@ func buildRepairIssueReport(slotIndex int, charName, source string, slot *core.S
 		Issues:    dtos,
 		HasIssues: len(dtos) > 0,
 		Source:    source,
+		Coverage:  coverage,
 	}
 }
 

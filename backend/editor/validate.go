@@ -40,19 +40,19 @@ const (
 
 // Validation issue codes. Frontend / tests use these as stable keys.
 const (
-	CodeDuplicateUID            = "duplicate_uid"
-	CodeDuplicateHandle         = "duplicate_handle"
-	CodeUnknownItemID           = "unknown_item_id"
-	CodeQuantityZero            = "quantity_zero"
-	CodeUpgradeOutOfRange       = "upgrade_out_of_range"
-	CodeCategoryUnsupported     = "category_unsupported"
-	CodePassThroughRecords      = "pass_through_records"
-	CodeSharedAoWConflict       = "shared_aow_conflict"
-	CodeSharedAoWNotChecked     = "shared_aow_not_checked"
-	CodePendingAoWUnknown       = "pending_aow_unknown"
-	CodePendingAoWConflict      = "pending_aow_conflict"
-	CodeCurrentAoWMissing       = "current_aow_missing"
-	CodeCurrentAoWShared        = "current_aow_shared"
+	CodeDuplicateUID             = "duplicate_uid"
+	CodeDuplicateHandle          = "duplicate_handle"
+	CodeUnknownItemID            = "unknown_item_id"
+	CodeQuantityZero             = "quantity_zero"
+	CodeUpgradeOutOfRange        = "upgrade_out_of_range"
+	CodeCategoryUnsupported      = "category_unsupported"
+	CodePassThroughRecords       = "pass_through_records"
+	CodeSharedAoWConflict        = "shared_aow_conflict"
+	CodeSharedAoWNotChecked      = "shared_aow_not_checked"
+	CodePendingAoWUnknown        = "pending_aow_unknown"
+	CodePendingAoWConflict       = "pending_aow_conflict"
+	CodeCurrentAoWMissing        = "current_aow_missing"
+	CodeCurrentAoWShared         = "current_aow_shared"
 	CodeCurrentAoWNonAoWCategory = "current_aow_non_aow_category"
 )
 
@@ -249,15 +249,15 @@ func Validate(snap InventoryWorkspaceSnapshot) WorkspaceValidationReport {
 	check(snap.InventoryItems)
 	check(snap.StorageItems)
 
-	totalPassthrough := rep.UnsupportedInventoryCount + rep.UnsupportedStorageCount
-	if totalPassthrough > 0 {
-		rep.Warnings = append(rep.Warnings, WorkspaceValidationIssue{
-			Severity: SeverityWarning,
-			Code:     CodePassThroughRecords,
-			Message: fmt.Sprintf("%d records will round-trip unchanged (unsupported categories, technical placeholders, or duplicate handles)",
-				totalPassthrough),
-		})
-	}
+	// Pass-through is a write strategy, not an integrity defect. The old
+	// aggregate ("N records will round-trip unchanged") collapsed every
+	// record outside the Sort Order Workspace allow-list into a single fake
+	// issue. It is replaced by the measurable, issue-independent coverage
+	// report (core.BuildCoverageReport). CodePassThroughRecords is retained
+	// as a constant for backward-compatible JSON parsing but is no longer
+	// emitted. UnsupportedInventoryCount / UnsupportedStorageCount remain on
+	// the report for callers that need the raw counts.
+	_ = CodePassThroughRecords
 
 	// Phase 4A landed per-item shared-AoW detection via the
 	// CurrentAoWStatus=AoWStatusShared path (CodeCurrentAoWShared

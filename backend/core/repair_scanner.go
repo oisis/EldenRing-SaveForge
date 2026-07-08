@@ -12,10 +12,16 @@ import (
 // Issue code constants — match the codes used in backend/editor/validate.go
 // and in the UI so the frontend can use a single stable key for each problem.
 const (
-	RepairCodeDuplicateHandle           = "duplicate_handle"
-	RepairCodeDuplicateUID              = "duplicate_uid"
-	RepairCodeUnknownItemID             = "unknown_item_id"
-	RepairCodeQuantityZero              = "quantity_zero"
+	RepairCodeDuplicateHandle      = "duplicate_handle"
+	RepairCodeDuplicateUID         = "duplicate_uid"
+	RepairCodeUnknownItemID        = "unknown_item_id"
+	RepairCodeUnknownHandleType    = "unknown_handle_type"
+	RepairCodeMissingGaItemMapping = "missing_gaitem_mapping"
+	RepairCodeQuantityZero         = "quantity_zero"
+	// RepairCodePassThroughRecords is retained for JSON/action-map
+	// compatibility but is no longer emitted as an aggregate issue —
+	// pass-through is a write strategy, not a defect. Per-record resolution
+	// status is reported via the coverage model instead.
 	RepairCodePassThroughRecords        = "pass_through_records"
 	RepairCodeCurrentAoWMissing         = "current_aow_missing"
 	RepairCodeCurrentAoWShared          = "current_aow_shared"
@@ -79,12 +85,45 @@ type RepairIssue struct {
 }
 
 // ScanRepairIssues returns all repair issues found in slot. Read-only.
+// It resolves the physical record collection once and delegates to
+// ScanRepairIssuesFromRecords so coverage and scanning share identical
+// record semantics.
 func ScanRepairIssues(slotIndex int, slot *SaveSlot) []RepairIssue {
+	return ScanRepairIssuesFromRecords(slotIndex, slot, ResolveInventoryRecords(slot))
+}
+
+// ScanRepairIssuesFromRecords scans a pre-resolved record collection. Callers
+// that also build a coverage report should resolve once (ResolveInventoryRecords)
+// and pass the same slice to both this function and BuildCoverageReport to
+// guarantee the two never diverge. Read-only.
+func ScanRepairIssuesFromRecords(slotIndex int, slot *SaveSlot, records []ResolvedRecord) []RepairIssue {
+	issues, _ := scanRepairIssuesFrom(slotIndex, slot, records)
+	return issues
+}
+
+// ScanRepairIssuesWithCoverage runs the full scan over a pre-resolved record
+// collection and returns both the issues and a coverage report whose
+// StructuralChecksApplied reflects the records the structural scanner actually
+// processed — not a count the coverage builder assumed. This is the pipeline
+// entry point: it guarantees structural coverage is only reported AFTER the
+// scanner has run. Read-only.
+func ScanRepairIssuesWithCoverage(slotIndex int, slot *SaveSlot, records []ResolvedRecord) ([]RepairIssue, ValidationCoverage) {
+	cov := BuildCoverageReport(records) // ResolutionChecksApplied set; StructuralChecksApplied == 0
+	issues, structuralChecked := scanRepairIssuesFrom(slotIndex, slot, records)
+	cov.StructuralChecksApplied = structuralChecked
+	return issues, cov
+}
+
+// scanRepairIssuesFrom is the shared scan core. It returns the issue list and
+// the number of records the structural (inventory) scanner actually iterated,
+// so callers can report honest structural coverage.
+func scanRepairIssuesFrom(slotIndex int, slot *SaveSlot, records []ResolvedRecord) ([]RepairIssue, int) {
+	inv, structuralChecked := scanInventoryRepairIssues(slotIndex, records)
 	var out []RepairIssue
-	out = append(out, scanInventoryRepairIssues(slotIndex, slot)...)
+	out = append(out, inv...)
 	out = append(out, scanAoWRepairIssues(slotIndex, slot)...)
 	out = append(out, scanStatsRepairIssues(slotIndex, slot)...)
-	return out
+	return out, structuralChecked
 }
 
 // ---- helpers ----------------------------------------------------------------
@@ -154,134 +193,112 @@ func mkIssue(key IssueKey, desc, severity string, actions []string, def, fp stri
 	}
 }
 
-// resolveItemID returns the itemID for an inventory handle:
-// slot.GaMap first (weapon/armor GaItems), then db.HandleToItemID (goods/talismans).
-func resolveItemID(slot *SaveSlot, h uint32) uint32 {
-	if id, ok := slot.GaMap[h]; ok {
-		return id
-	}
-	return db.HandleToItemID(h)
-}
-
 // ---- inventory scanner ------------------------------------------------------
 
-func scanInventoryRepairIssues(slotIndex int, slot *SaveSlot) []RepairIssue {
-	type scopedSection struct {
-		items      []InventoryItem
-		scope      string
-		indexDedup bool // participates in duplicate_acquisition_index check
-	}
-	// Storage does NOT share the acquisition-index dedup map with inventory
-	// (matches semantics of core.ScanDuplicateInventoryIndices).
-	sections := []scopedSection{
-		{slot.Inventory.CommonItems, repairScopeInventoryCommon, true},
-		{slot.Inventory.KeyItems, repairScopeInventoryKey, true},
-		{slot.Storage.CommonItems, repairScopeStorageCommon, false},
-	}
-
+// scanInventoryRepairIssues emits per-record issues from a pre-resolved record
+// collection. Resolution status (known DB / technical placeholder / unknown) is
+// authoritative here — the scanner never re-derives item identity, guaranteeing
+// coverage and issues agree. Pass-through is no longer an aggregate issue.
+func scanInventoryRepairIssues(slotIndex int, records []ResolvedRecord) ([]RepairIssue, int) {
 	var out []RepairIssue
 	seenHandles := make(map[uint32]bool)
-	seenIndices := make(map[uint32]bool) // only populated when sec.indexDedup == true
-	passthroughCount := 0
+	seenIndices := make(map[uint32]bool) // shared across index-dedup scopes only
 
-	for _, sec := range sections {
-		for row, item := range sec.items {
-			h := item.GaItemHandle
-			if h == GaHandleEmpty || h == GaHandleInvalid {
-				continue
-			}
+	structuralChecked := 0
+	for _, r := range records {
+		structuralChecked++ // every physical record is subjected to the structural rules below
+		h := r.Handle
 
-			prefix := h & GaHandleTypeMask
-			knownType := prefix == ItemTypeWeapon || prefix == ItemTypeArmor ||
-				prefix == ItemTypeAccessory || prefix == ItemTypeItem || prefix == ItemTypeAow
-			if !knownType {
-				passthroughCount++
-				continue
-			}
-
-			fp := fingerprintInventoryItem(item)
-			itemID := resolveItemID(slot, h)
-			displayID := db.WondrousPhysickDisplayID(itemID)
-
-			// Only GaItem-backed handles are instance-unique. Talismans and
-			// goods are item-derived (db.HandleToItemID), and arrows/bolts are
-			// stackable ammo despite using the weapon prefix. Repeated handles
-			// for those categories are normal save state, not duplicate records
-			// that need rehandling.
-			if prefix != ItemTypeAccessory && prefix != ItemTypeItem && !db.IsArrowID(itemID) {
-				if seenHandles[h] {
-					keyH := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateHandle,
-						Scope: sec.scope, Row: row, Handle: h}
-					out = append(out, mkIssue(keyH,
-						fmt.Sprintf("handle 0x%08X appears more than once", h),
-						repairSeverityError,
-						[]string{RepairActionCreateCopy},
-						RepairActionCreateCopy, fp))
-				}
-				seenHandles[h] = true
-			}
-
-			// unknown_item_id: resolve itemID via GaMap then db.HandleToItemID,
-			// then check DB. Omitting GaMap lookup is NOT sufficient — goods and
-			// talismans are handle-encoded and don't need a GaItem entry.
-			itemData, _ := db.GetItemDataFuzzy(displayID)
-			if itemData.Name == "" {
-				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeUnknownItemID,
-					Scope: sec.scope, Row: row, Handle: h}
+		// Unknown resolution — a distinct problem per reason. Unknown handle
+		// type and missing DB entry are NOT the same defect, so they carry
+		// separate codes. Both are read-only (no mutating default action).
+		switch r.Resolution {
+		case ResolutionUnknown:
+			switch r.UnknownReason {
+			case UnknownReasonUnknownHandleType:
+				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeUnknownHandleType,
+					Scope: r.Scope, Row: r.Row, Handle: h}
 				out = append(out, mkIssue(key,
-					fmt.Sprintf("handle 0x%08X (itemID 0x%08X) not found in item DB", h, itemID),
+					fmt.Sprintf("handle 0x%08X has unrecognised type prefix 0x%08X", h, r.HandleType),
+					repairSeverityWarning,
+					[]string{RepairActionNoAction},
+					RepairActionNoAction, r.Fingerprint))
+			default: // UnknownReasonMissingDBEntry
+				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeUnknownItemID,
+					Scope: r.Scope, Row: r.Row, Handle: h}
+				out = append(out, mkIssue(key,
+					fmt.Sprintf("handle 0x%08X (itemID 0x%08X) not found in item DB", h, r.ItemID),
 					repairSeverityError,
 					[]string{RepairActionNoAction},
-					RepairActionNoAction, fp))
+					RepairActionNoAction, r.Fingerprint))
 			}
-
-			if item.Quantity&0x7FFFFFFF == 0 {
-				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeQuantityZero,
-					Scope: sec.scope, Row: row, Handle: h}
+		default:
+			// Instance-backed items require a per-instance GaItem. A resolved
+			// weapon/armor/aow record with no GaMap entry is a distinct defect.
+			if r.Identity == IdentityInstanceBacked && !r.HasGaItem {
+				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeMissingGaItemMapping,
+					Scope: r.Scope, Row: r.Row, Handle: h}
 				out = append(out, mkIssue(key,
-					fmt.Sprintf("item 0x%08X has quantity 0", h),
+					fmt.Sprintf("instance-backed handle 0x%08X (itemID 0x%08X) has no GaItem mapping", h, r.ItemID),
 					repairSeverityError,
-					[]string{RepairActionRemoveRecord},
-					RepairActionRemoveRecord, fp))
+					[]string{RepairActionNoAction},
+					RepairActionNoAction, r.Fingerprint))
 			}
+		}
 
-			if item.Index > 0 && item.Index <= 432 {
-				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeInventoryReserved,
-					Scope: sec.scope, Row: row, Handle: h,
-					Field: "index", Value: fmt.Sprintf("%d", item.Index)}
+		// Duplicate handle — only instance-backed records are per-instance
+		// unique. Handle-encoded goods/talismans and stackable ammo share
+		// handles by design; technical placeholders are exempt too.
+		if r.Identity == IdentityInstanceBacked {
+			if seenHandles[h] {
+				keyH := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateHandle,
+					Scope: r.Scope, Row: r.Row, Handle: h}
+				out = append(out, mkIssue(keyH,
+					fmt.Sprintf("handle 0x%08X appears more than once", h),
+					repairSeverityError,
+					[]string{RepairActionCreateCopy},
+					RepairActionCreateCopy, r.Fingerprint))
+			}
+			seenHandles[h] = true
+		}
+
+		if r.Quantity&0x7FFFFFFF == 0 {
+			key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeQuantityZero,
+				Scope: r.Scope, Row: r.Row, Handle: h}
+			out = append(out, mkIssue(key,
+				fmt.Sprintf("item 0x%08X has quantity 0", h),
+				repairSeverityError,
+				[]string{RepairActionRemoveRecord},
+				RepairActionRemoveRecord, r.Fingerprint))
+		}
+
+		if r.AcquisitionIndex > 0 && r.AcquisitionIndex <= 432 {
+			key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeInventoryReserved,
+				Scope: r.Scope, Row: r.Row, Handle: h,
+				Field: "index", Value: fmt.Sprintf("%d", r.AcquisitionIndex)}
+			out = append(out, mkIssue(key,
+				fmt.Sprintf("item 0x%08X has reserved acquisition index %d (≤432)", h, r.AcquisitionIndex),
+				repairSeverityWarning,
+				[]string{RepairActionRepairIndex},
+				RepairActionRepairIndex, r.Fingerprint))
+		}
+
+		if r.IndexDedup && r.AcquisitionIndex > 0 {
+			if seenIndices[r.AcquisitionIndex] {
+				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateAcquisitionIndex,
+					Scope: r.Scope, Row: r.Row, Handle: h,
+					Field: "index", Value: fmt.Sprintf("%d", r.AcquisitionIndex)}
 				out = append(out, mkIssue(key,
-					fmt.Sprintf("item 0x%08X has reserved acquisition index %d (≤432)", h, item.Index),
-					repairSeverityWarning,
+					fmt.Sprintf("item 0x%08X shares acquisition index %d", h, r.AcquisitionIndex),
+					repairSeverityError,
 					[]string{RepairActionRepairIndex},
-					RepairActionRepairIndex, fp))
+					RepairActionRepairIndex, r.Fingerprint))
 			}
-
-			if sec.indexDedup {
-				if item.Index > 0 && seenIndices[item.Index] {
-					key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateAcquisitionIndex,
-						Scope: sec.scope, Row: row, Handle: h,
-						Field: "index", Value: fmt.Sprintf("%d", item.Index)}
-					out = append(out, mkIssue(key,
-						fmt.Sprintf("item 0x%08X shares acquisition index %d", h, item.Index),
-						repairSeverityError,
-						[]string{RepairActionRepairIndex},
-						RepairActionRepairIndex, fp))
-				}
-				seenIndices[item.Index] = true
-			}
+			seenIndices[r.AcquisitionIndex] = true
 		}
 	}
 
-	if passthroughCount > 0 {
-		key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodePassThroughRecords}
-		out = append(out, mkIssue(key,
-			fmt.Sprintf("%d records with unrecognised handle type will round-trip unchanged", passthroughCount),
-			repairSeverityInfo,
-			[]string{RepairActionNoAction},
-			RepairActionNoAction, ""))
-	}
-
-	return out
+	return out, structuralChecked
 }
 
 // ---- AoW scanner ------------------------------------------------------------

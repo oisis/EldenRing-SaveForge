@@ -69,9 +69,14 @@ const (
 	AoWStatusShared  = "shared"  // weapon's AoW handle is referenced by another weapon (save corruption)
 )
 
-// invUnarmedBaseID mirrors the legacy ReorderInventory constant — the
-// "Unarmed" placeholder weapon kept by the game as a technical slot.
-const invUnarmedBaseID = uint32(0x0001ADB0)
+// containerScope maps a workspace ContainerKind to the core scope string used
+// by the shared record resolver.
+func containerScope(c ContainerKind) string {
+	if c == ContainerStorage {
+		return "storage_common"
+	}
+	return "inventory_common"
+}
 
 // InventoryWorkspaceSnapshot is the read-only DTO returned across the
 // Wails boundary. It is a single point-in-time view of an
@@ -335,15 +340,13 @@ func countHandleOccurrences(slot *core.SaveSlot) map[uint32]int {
 // handle across both containers (see countHandleOccurrences), used to
 // decide the UID format below.
 func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, handle, qty, acq uint32, seen map[uint32]int, weaponAoWRefs map[uint32]uint32, aowSharedCount map[uint32]int, handleCount map[uint32]int) classified {
-	hasGa := false
-	itemID, ok := slot.GaMap[handle]
-	if ok {
-		hasGa = true
-	} else {
-		itemID = db.HandleToItemID(handle)
-	}
-
-	itemData, baseID := db.GetItemDataFuzzy(itemID)
+	// Resolve identity through the shared canonical resolver so the workspace
+	// and the core scanner agree on itemID, technical placeholders (Unarmed,
+	// naked armor) and unknown records. The raw itemID is preserved as-is.
+	rec := core.ResolveRecord(slot, containerScope(container), slotIdx, handle, qty, acq)
+	hasGa := rec.HasGaItem
+	itemID := rec.ItemID
+	baseID := rec.BaseID
 
 	raw := func(reason, name, cat string) classified {
 		return classified{raw: &RawInventoryRecord{
@@ -360,28 +363,37 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 		}}
 	}
 
-	// Duplicate handle in the same container — except talismans, whose
-	// handle is item-derived and legitimately shared across copies.
-	if handle&core.GaHandleTypeMask != core.ItemTypeAccessory {
+	// Duplicate-handle protection applies ONLY to instance-backed records
+	// (weapon / armor / AoW), whose handles are allocated per-instance and must
+	// be unique. Handle-encoded goods and talismans derive their handle from the
+	// itemID, and stackable ammo shares a handle by design — every copy carries
+	// the identical handle legitimately, so a repeated handle is normal save
+	// state, not corruption. Technical placeholders are exempt too. The resolver
+	// is the single source of this classification, shared with the core scanner.
+	if rec.Identity == core.IdentityInstanceBacked {
 		if _, dup := seen[handle]; dup {
-			return raw(ReasonDuplicateHandle, itemData.Name, itemData.Category)
+			return raw(ReasonDuplicateHandle, rec.Name, rec.Category)
 		}
 		seen[handle] = slotIdx
 	}
 
-	if itemData.Name == "" {
+	// Technical placeholders (Unarmed, naked armor) — physical slot kept, but
+	// not editable. These resolve cleanly; they are NOT unknown items.
+	if rec.Resolution == core.ResolutionTechnicalPlaceholder {
+		return raw(ReasonTechnicalPlaceholder, rec.Name, rec.Category)
+	}
+
+	if rec.Resolution == core.ResolutionUnknown {
 		return raw(ReasonUnknownItem, "", "")
 	}
 
-	// Unarmed placeholder — physical slot kept, but not editable.
-	if baseID == invUnarmedBaseID || itemData.Name == "Unarmed" {
-		return raw(ReasonTechnicalPlaceholder, itemData.Name, itemData.Category)
+	if !SupportedCategories[rec.Category] {
+		return raw(ReasonUnsupportedCategory, rec.Name, rec.Category)
 	}
 
-	if !SupportedCategories[itemData.Category] {
-		return raw(ReasonUnsupportedCategory, itemData.Name, itemData.Category)
-	}
-
+	// Editable known-DB item: fetch full metadata (MaxUpgrade / icon / weapon
+	// mount fields) not carried on the lightweight ResolvedRecord.
+	itemData, _ := db.GetItemDataFuzzy(rec.DisplayID)
 	level, infusion := decodeWeaponUpgradeInfusion(itemID, baseID)
 	isWeapon := isWeaponCategory(itemData.Category)
 	isArmor := isArmorCategory(itemData.Category)
