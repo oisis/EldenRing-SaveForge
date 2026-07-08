@@ -43,11 +43,16 @@ func snapshotSlotBytes(slot *core.SaveSlot) []byte {
 	return cp
 }
 
+// assertNoDuplicateHandles checks for handle collisions that indicate real
+// corruption. Talismans are exempt: their handle is item-derived
+// (db.HandleToItemID), not allocated per-instance, so every copy of the
+// same talisman legitimately shares a handle — in one container or split
+// across inventory/storage (see editor.Validate's matching exception).
 func assertNoDuplicateHandles(t *testing.T, snap editor.InventoryWorkspaceSnapshot) {
 	t.Helper()
 	seen := map[uint32]string{}
 	for _, it := range snap.InventoryItems {
-		if it.OriginalHandle == 0 {
+		if it.OriginalHandle == 0 || it.IsTalisman {
 			continue
 		}
 		if other, dup := seen[it.OriginalHandle]; dup {
@@ -56,7 +61,7 @@ func assertNoDuplicateHandles(t *testing.T, snap editor.InventoryWorkspaceSnapsh
 		seen[it.OriginalHandle] = it.UID
 	}
 	for _, it := range snap.StorageItems {
-		if it.OriginalHandle == 0 {
+		if it.OriginalHandle == 0 || it.IsTalisman {
 			continue
 		}
 		if other, dup := seen[it.OriginalHandle]; dup {

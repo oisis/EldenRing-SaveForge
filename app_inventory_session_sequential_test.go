@@ -68,15 +68,16 @@ func TestSaveInventoryWorkspaceChanges_ThreeStageSequentialSaves(t *testing.T) {
 	if after2.InventoryItems[0].OriginalHandle == 0 {
 		t.Error("Stage 2: added Dagger has zero handle after Save (never allocated)")
 	}
-	// Baseline must NOW include the freshly-allocated handle as an
+	// Baseline must NOW include the freshly-allocated item as an
 	// inventory original — otherwise the next save would treat it as a
-	// re-add or remove it spuriously.
-	addedHandle := after2.InventoryItems[0].OriginalHandle
+	// re-add or remove it spuriously. Keyed by record UID, not handle
+	// (see editor.InventoryEditSession.BaselineEditableHandles).
+	addedUID := after2.InventoryItems[0].UID
 	sess2 := app.editSessions[snap.SessionID]
-	if got, ok := sess2.BaselineEditableHandles[addedHandle]; !ok {
-		t.Errorf("Stage 2: baseline missing newly-added handle 0x%08X", addedHandle)
+	if got, ok := sess2.BaselineEditableHandles[addedUID]; !ok {
+		t.Errorf("Stage 2: baseline missing newly-added item %s", addedUID)
 	} else if got != editor.ContainerInventory {
-		t.Errorf("Stage 2: baseline[0x%08X] = %q, want inventory", addedHandle, got)
+		t.Errorf("Stage 2: baseline[%s] = %q, want inventory", addedUID, got)
 	}
 
 	// ─── Stage 3: upgrade a weapon ─────────────────────────────────

@@ -212,6 +212,15 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 	// rescanning GaItems per record.
 	weaponAoWRefs, aowSharedCount := buildWeaponAoWMaps(slot)
 
+	// Count how many records (across BOTH containers) carry each handle.
+	// classifyRecord uses this to decide UID format: a handle that
+	// appears exactly once keeps the plain "hnd:0x%08X" form (stable
+	// across a Save even if the wipe-and-replay path relocates it to a
+	// new physical slot), while a handle repeated across records — e.g.
+	// several copies of the same talisman — gets a container+slot
+	// qualifier so each record still has a distinct, unique UID.
+	handleCount := countHandleOccurrences(slot)
+
 	// Inventory scan.
 	invStart := slot.MagicOffset + core.InvStartFromMagic
 	for i := 0; i < core.CommonItemCount; i++ {
@@ -225,7 +234,7 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 		}
 		qty := binary.LittleEndian.Uint32(slot.Data[off+4:])
 		acq := binary.LittleEndian.Uint32(slot.Data[off+8:])
-		c := classifyRecord(slot, ContainerInventory, i, h, qty, acq, invSeen, weaponAoWRefs, aowSharedCount)
+		c := classifyRecord(slot, ContainerInventory, i, h, qty, acq, invSeen, weaponAoWRefs, aowSharedCount, handleCount)
 		if c.editable != nil {
 			snap.InventoryItems = append(snap.InventoryItems, *c.editable)
 		}
@@ -248,7 +257,7 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 			}
 			qty := binary.LittleEndian.Uint32(slot.Data[off+4:])
 			acq := binary.LittleEndian.Uint32(slot.Data[off+8:])
-			c := classifyRecord(slot, ContainerStorage, i, h, qty, acq, stoSeen, weaponAoWRefs, aowSharedCount)
+			c := classifyRecord(slot, ContainerStorage, i, h, qty, acq, stoSeen, weaponAoWRefs, aowSharedCount, handleCount)
 			if c.editable != nil {
 				snap.StorageItems = append(snap.StorageItems, *c.editable)
 			}
@@ -274,6 +283,32 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 	return snap, nil
 }
 
+// countHandleOccurrences scans both the inventory and storage CommonItems
+// regions and counts how many records carry each non-empty handle. Used by
+// BuildSnapshot to decide, per record, whether its UID needs a
+// container+slot qualifier (see classifyRecord).
+func countHandleOccurrences(slot *core.SaveSlot) map[uint32]int {
+	counts := make(map[uint32]int)
+	tally := func(startOff, count int) {
+		for i := 0; i < count; i++ {
+			off := startOff + i*core.InvRecordLen
+			if off+core.InvRecordLen > len(slot.Data) {
+				break
+			}
+			h := binary.LittleEndian.Uint32(slot.Data[off:])
+			if h == core.GaHandleEmpty || h == core.GaHandleInvalid {
+				continue
+			}
+			counts[h]++
+		}
+	}
+	tally(slot.MagicOffset+core.InvStartFromMagic, core.CommonItemCount)
+	if slot.StorageBoxOffset > 0 {
+		tally(slot.StorageBoxOffset+core.StorageHeaderSkip, core.StorageCommonCount)
+	}
+	return counts
+}
+
 // classifyRecord inspects a single 12-byte record and decides whether it
 // becomes an EditableItem or a pass-through RawInventoryRecord.
 //
@@ -285,12 +320,21 @@ func BuildSnapshot(slot *core.SaveSlot, sessionID string, charIdx int) (Inventor
 // The `seen` map tracks the first slot index a handle appeared at within
 // a container; a second appearance is forced to pass-through with
 // ReasonDuplicateHandle so the editable list never carries duplicate
-// handles (validator catches it separately).
+// handles (validator catches it separately). This dedup does NOT apply
+// to ItemTypeAccessory (talisman) handles: unlike weapon/armor/AoW
+// GaItems, a talisman handle is derived directly from its itemID
+// (db.HandleToItemID), not allocated per-instance — every copy of the
+// same talisman carries the identical handle by design, whether it sits
+// in one container twice or split across inventory/storage. That is
+// normal save state, not corruption, so two such records are both
+// editable; UID (below) still gives each its own record identity.
 //
 // weaponAoWRefs / aowSharedCount carry pre-computed AoW state for
 // editable weapons. They are produced once per BuildSnapshot by
-// buildWeaponAoWMaps.
-func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, handle, qty, acq uint32, seen map[uint32]int, weaponAoWRefs map[uint32]uint32, aowSharedCount map[uint32]int) classified {
+// buildWeaponAoWMaps. handleCount carries the total occurrence count per
+// handle across both containers (see countHandleOccurrences), used to
+// decide the UID format below.
+func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, handle, qty, acq uint32, seen map[uint32]int, weaponAoWRefs map[uint32]uint32, aowSharedCount map[uint32]int, handleCount map[uint32]int) classified {
 	hasGa := false
 	itemID, ok := slot.GaMap[handle]
 	if ok {
@@ -316,11 +360,14 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 		}}
 	}
 
-	// Duplicate handle in the same container.
-	if _, dup := seen[handle]; dup {
-		return raw(ReasonDuplicateHandle, itemData.Name, itemData.Category)
+	// Duplicate handle in the same container — except talismans, whose
+	// handle is item-derived and legitimately shared across copies.
+	if handle&core.GaHandleTypeMask != core.ItemTypeAccessory {
+		if _, dup := seen[handle]; dup {
+			return raw(ReasonDuplicateHandle, itemData.Name, itemData.Category)
+		}
+		seen[handle] = slotIdx
 	}
-	seen[handle] = slotIdx
 
 	if itemData.Name == "" {
 		return raw(ReasonUnknownItem, "", "")
@@ -342,7 +389,19 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 	sortKey := data.ItemSortKeys[baseID]
 	defaultAoWID, defaultAoWName := defaultAoWForBaseID(baseID)
 
+	// UID identifies the physical RECORD, not just the handle. The plain
+	// "hnd:0x%08X" form is kept whenever the handle is unique in this
+	// snapshot (the overwhelming common case) so it stays stable across a
+	// Save even if the wipe-and-replay path relocates the record to a new
+	// physical slot. A handle that repeats — talismans (and any other
+	// item-derived handle) sharing a container, or split across
+	// inventory/storage — gets a container+slotIdx qualifier so each
+	// record still resolves to its own distinct, stable-for-the-session
+	// UID.
 	uid := fmt.Sprintf("hnd:0x%08X", handle)
+	if handleCount[handle] > 1 {
+		uid = fmt.Sprintf("hnd:0x%08X:%s:%d", handle, container, slotIdx)
+	}
 
 	editable := &EditableItem{
 		UID:              uid,

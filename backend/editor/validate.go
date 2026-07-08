@@ -104,7 +104,14 @@ func Validate(snap InventoryWorkspaceSnapshot) WorkspaceValidationReport {
 			}
 			uidSeen[it.UID] = true
 
-			if it.OriginalHandle != 0 {
+			// Talisman handles are item-derived (db.HandleToItemID), not
+			// allocated per-instance, so every copy of the same talisman
+			// legitimately shares a handle — in one container or split
+			// across inventory/storage. That is normal save state, not
+			// corruption, so talismans are exempt from this check; UID
+			// (record-based: container+slot+handle) still catches any
+			// genuine duplicate-record bug.
+			if it.OriginalHandle != 0 && !it.IsTalisman {
 				if handleSeen[it.OriginalHandle] {
 					if !dupHandleSet[it.OriginalHandle] {
 						dupHandleSet[it.OriginalHandle] = true

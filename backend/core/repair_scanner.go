@@ -179,24 +179,34 @@ func scanInventoryRepairIssues(slotIndex int, slot *SaveSlot) []RepairIssue {
 			// duplicate_handle + duplicate_uid: both emitted when the same
 			// handle appears more than once. duplicate_uid is a consequence of
 			// duplicate_handle (UID = "hnd:0x%08X" in workspace layer).
-			if seenHandles[h] {
-				keyH := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateHandle,
-					Scope: sec.scope, Row: row, Handle: h}
-				out = append(out, mkIssue(keyH,
-					fmt.Sprintf("handle 0x%08X appears more than once", h),
-					repairSeverityError,
-					[]string{RepairActionCreateCopy},
-					RepairActionCreateCopy, fp))
+			//
+			// Excluded for ItemTypeAccessory (talismans): that handle is
+			// item-derived (db.HandleToItemID), not allocated per-instance,
+			// so every copy of the same talisman legitimately shares a
+			// handle — in one container or split across inventory/storage.
+			// That is normal save state, not corruption (see
+			// backend/editor's matching exception in classifyRecord /
+			// Validate).
+			if prefix != ItemTypeAccessory {
+				if seenHandles[h] {
+					keyH := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateHandle,
+						Scope: sec.scope, Row: row, Handle: h}
+					out = append(out, mkIssue(keyH,
+						fmt.Sprintf("handle 0x%08X appears more than once", h),
+						repairSeverityError,
+						[]string{RepairActionCreateCopy},
+						RepairActionCreateCopy, fp))
 
-				keyU := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateUID,
-					Scope: sec.scope, Row: row, Handle: h}
-				out = append(out, mkIssue(keyU,
-					fmt.Sprintf("handle 0x%08X causes duplicate UID (hnd:0x%08X)", h, h),
-					repairSeverityError,
-					[]string{RepairActionCreateCopy},
-					RepairActionCreateCopy, fp))
+					keyU := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateUID,
+						Scope: sec.scope, Row: row, Handle: h}
+					out = append(out, mkIssue(keyU,
+						fmt.Sprintf("handle 0x%08X causes duplicate UID (hnd:0x%08X)", h, h),
+						repairSeverityError,
+						[]string{RepairActionCreateCopy},
+						RepairActionCreateCopy, fp))
+				}
+				seenHandles[h] = true
 			}
-			seenHandles[h] = true
 
 			// unknown_item_id: resolve itemID via GaMap then db.HandleToItemID,
 			// then check DB. Omitting GaMap lookup is NOT sufficient — goods and
