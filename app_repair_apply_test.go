@@ -310,6 +310,96 @@ func TestApplyRepairsLoaded_BoundaryNoOpClampNoUndo(t *testing.T) {
 	}
 }
 
+// TestApplyRepairsLoaded_ClampInvalidatesActiveSession confirms that a
+// successful clamp evicts the active inventory edit session for the character
+// through the real ApplyRepairsLoaded path (not invalidateSessionForChar in
+// isolation), so a stale workspace can never be committed over the repaired slot.
+func TestApplyRepairsLoaded_ClampInvalidatesActiveSession(t *testing.T) {
+	app := NewApp()
+	app.save = &core.SaveFile{}
+	app.save.Slots[0] = *buildApplyInvFixture(t, []core.InventoryItem{
+		{GaItemHandle: smithingStoneHandleQty, Quantity: 1500, Index: 500},
+	})
+	slot := &app.save.Slots[0]
+
+	if _, err := app.StartInventoryEditSession(0); err != nil {
+		t.Fatalf("StartInventoryEditSession: %v", err)
+	}
+	sessID := app.editSessionByChar[0]
+	if sessID == "" {
+		t.Fatal("no active session registered after Start")
+	}
+
+	rep, err := app.ApplyRepairsLoaded(0, []RepairApplyTarget{clampTarget(slot, 0)}, false)
+	if err != nil {
+		t.Fatalf("ApplyRepairsLoaded: %v", err)
+	}
+	if rep.Applied != 1 {
+		t.Fatalf("applied = %d, want 1", rep.Applied)
+	}
+	if slot.Inventory.CommonItems[0].Quantity != 999 {
+		t.Errorf("quantity = %d, want clamped 999", slot.Inventory.CommonItems[0].Quantity)
+	}
+	if got := len(app.undoStacks[0]); got != 1 {
+		t.Errorf("undo depth = %d, want 1", got)
+	}
+	if id, ok := app.editSessionByChar[0]; ok {
+		t.Errorf("editSessionByChar[0] still present (%q); want evicted", id)
+	}
+	if _, ok := app.editSessions[sessID]; ok {
+		t.Errorf("session %q still in editSessions; want removed", sessID)
+	}
+	// The old session ID is now unusable — the registry no longer resolves it.
+	if _, err := app.GetInventoryEditSession(sessID); err == nil {
+		t.Error("old session still resolvable after clamp invalidation")
+	}
+}
+
+// TestApplyRepairsLoaded_NoOpClampRetainsActiveSession confirms that a failed
+// (boundary no-op) clamp leaves the active session intact and usable — the slot
+// was not mutated, so there is nothing to invalidate.
+func TestApplyRepairsLoaded_NoOpClampRetainsActiveSession(t *testing.T) {
+	app := NewApp()
+	app.save = &core.SaveFile{}
+	app.save.Slots[0] = *buildApplyInvFixture(t, []core.InventoryItem{
+		{GaItemHandle: smithingStoneHandleQty, Quantity: 999, Index: 500},
+	})
+	slot := &app.save.Slots[0]
+	before := append([]byte(nil), slot.Data...)
+
+	if _, err := app.StartInventoryEditSession(0); err != nil {
+		t.Fatalf("StartInventoryEditSession: %v", err)
+	}
+	sessID := app.editSessionByChar[0]
+
+	fp, _ := core.FingerprintRecordAt(slot, "inventory_common", 0)
+	key := core.IssueKey{
+		Slot: 0, Domain: "inventory", Code: core.RepairCodeQuantityAboveMax,
+		Scope: "inventory_common", Row: 0, Handle: smithingStoneHandleQty, Field: "quantity", Value: "999",
+	}
+	target := RepairApplyTarget{IssueID: core.IssueKeyID(key), Key: key, Fingerprint: fp, SelectedAction: core.RepairActionClampQuantity}
+
+	rep, err := app.ApplyRepairsLoaded(0, []RepairApplyTarget{target}, false)
+	if err != nil {
+		t.Fatalf("ApplyRepairsLoaded: %v", err)
+	}
+	if rep.Applied != 0 || rep.Failed != 1 {
+		t.Fatalf("want applied=0 failed=1, got applied=%d failed=%d", rep.Applied, rep.Failed)
+	}
+	if got := len(app.undoStacks[0]); got != 0 {
+		t.Errorf("undo pushed on a no-op clamp batch: depth=%d", got)
+	}
+	if id := app.editSessionByChar[0]; id != sessID {
+		t.Errorf("editSessionByChar[0] = %q, want retained %q", id, sessID)
+	}
+	if _, err := app.GetInventoryEditSession(sessID); err != nil {
+		t.Errorf("original session no longer usable after no-op clamp: %v", err)
+	}
+	if !bytes.Equal(before, slot.Data) || slot.Inventory.CommonItems[0].Quantity != 999 {
+		t.Fatal("no-op clamp mutated the slot")
+	}
+}
+
 func TestApplyRepairAction_LeaveUnchangedIsSkippedNotFailed(t *testing.T) {
 	slot := twoZeroQtySlot(t)
 	target := quantityZeroTarget(slot, 0)

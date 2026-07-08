@@ -110,8 +110,28 @@ func TestScanQuantity_ZeroStorageLimit_NotPermitted(t *testing.T) {
 			if !strings.Contains(i.Description, "not permitted in storage_common") {
 				t.Errorf("description = %q, want a 'not permitted in storage_common' message", i.Description)
 			}
-			if i.DefaultAction != RepairActionRemoveRecord {
-				t.Errorf("core default action = %q, want remove_record", i.DefaultAction)
+			// Core must remain removable but default to a non-mutating action,
+			// so a direct core consumer never gets a destructive default.
+			hasRemove, hasNoAction := false, false
+			for _, a := range i.Actions {
+				switch a {
+				case RepairActionRemoveRecord:
+					hasRemove = true
+				case RepairActionNoAction:
+					hasNoAction = true
+				}
+			}
+			if !hasRemove {
+				t.Error("core actions must include remove_record")
+			}
+			if !hasNoAction {
+				t.Error("core actions must include no_action")
+			}
+			if i.DefaultAction != RepairActionNoAction {
+				t.Errorf("core default action = %q, want no_action", i.DefaultAction)
+			}
+			if i.DefaultAction == RepairActionRemoveRecord {
+				t.Error("core default action must not be destructive remove_record")
 			}
 		}
 	}

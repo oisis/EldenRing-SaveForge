@@ -365,11 +365,15 @@ func scanInventoryRepairIssues(slotIndex int, clearCount uint32, records []Resol
 					key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeItemNotAllowedInContainer,
 						Scope: r.Scope, Row: r.Row, Handle: h,
 						Field: "quantity", Value: fmt.Sprintf("%d", eff)}
+					// Core uses no_action as its conservative non-mutating default
+					// so a direct core consumer never receives a destructive
+					// default; the App DTO layer re-maps this to the user-facing
+					// leave_unchanged action (see repairActionsForCode).
 					out = append(out, mkIssue(key,
 						fmt.Sprintf("item 0x%08X is not permitted in %s", h, r.Scope),
 						repairSeverityWarning,
-						[]string{RepairActionRemoveRecord},
-						RepairActionRemoveRecord, r.Fingerprint))
+						[]string{RepairActionRemoveRecord, RepairActionNoAction},
+						RepairActionNoAction, r.Fingerprint))
 				} else {
 					key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeQuantityAboveMax,
 						Scope: r.Scope, Row: r.Row, Handle: h,
