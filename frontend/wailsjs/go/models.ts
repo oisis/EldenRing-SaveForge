@@ -198,6 +198,37 @@ export namespace core {
 		    return a;
 		}
 	}
+	
+	export class ValidationCoverage {
+	    totalPhysical: number;
+	    resolved: number;
+	    knownDB: number;
+	    technicalPlaceholder: number;
+	    unknown: number;
+	    resolutionChecksApplied: number;
+	    structuralChecksApplied: number;
+	    categoryChecksApplied: number;
+	    perCategory: Record<string, number>;
+	    unknownByReason: Record<string, number>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ValidationCoverage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalPhysical = source["totalPhysical"];
+	        this.resolved = source["resolved"];
+	        this.knownDB = source["knownDB"];
+	        this.technicalPlaceholder = source["technicalPlaceholder"];
+	        this.unknown = source["unknown"];
+	        this.resolutionChecksApplied = source["resolutionChecksApplied"];
+	        this.structuralChecksApplied = source["structuralChecksApplied"];
+	        this.categoryChecksApplied = source["categoryChecksApplied"];
+	        this.perCategory = source["perCategory"];
+	        this.unknownByReason = source["unknownByReason"];
+	    }
+	}
 
 }
 
@@ -2143,6 +2174,7 @@ export namespace main {
 	    issues: RepairIssueDTO[];
 	    hasIssues: boolean;
 	    source: string;
+	    coverage: core.ValidationCoverage;
 	
 	    static createFrom(source: any = {}) {
 	        return new RepairIssueReport(source);
@@ -2155,6 +2187,7 @@ export namespace main {
 	        this.issues = this.convertValues(source["issues"], RepairIssueDTO);
 	        this.hasIssues = source["hasIssues"];
 	        this.source = source["source"];
+	        this.coverage = this.convertValues(source["coverage"], core.ValidationCoverage);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -51,6 +51,18 @@ function report(issues: RepairIssue[]): RepairIssueReport[] {
         source: 'loaded',
         hasIssues: issues.length > 0,
         issues,
+        coverage: {
+            totalPhysical: 0,
+            resolved: 0,
+            knownDB: 0,
+            technicalPlaceholder: 0,
+            unknown: 0,
+            resolutionChecksApplied: 0,
+            structuralChecksApplied: 0,
+            categoryChecksApplied: 0,
+            perCategory: {},
+            unknownByReason: {},
+        },
     }];
 }
 
