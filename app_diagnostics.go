@@ -11,7 +11,7 @@ import (
 
 // DiagnosticsReport is returned by RunDiagnostics* endpoints.
 type DiagnosticsReport struct {
-	Source    string           `json:"source"`    // "loaded" or absolute file path
+	Source    string           `json:"source"` // "loaded" or absolute file path
 	Slots     []SlotDiagResult `json:"slots"`
 	CanRepair bool             `json:"canRepair"` // true if any repairable issue found
 }
@@ -201,8 +201,10 @@ func (a *App) RepairAllLoadedSlots() (RepairReport, error) {
 	return RepairReport{Fixed: allFixed, Skipped: allSkipped}, nil
 }
 
-// RepairLoadedSave applies all automated repairs to the given character slot.
-// Pushes an undo snapshot before mutating.
+// RepairLoadedSave applies legacy automated repairs to the given character slot.
+// Pushes an undo snapshot before mutating. Compatibility path: new actionable
+// repair UI should use ApplyRepairsLoaded so each selected issue/action gets
+// fingerprint stale-checking and per-action rollback.
 func (a *App) RepairLoadedSave(charIndex int) (RepairReport, error) {
 	var empty RepairReport
 	a.saveMu.RLock()
@@ -226,7 +228,9 @@ func (a *App) RepairLoadedSave(charIndex int) (RepairReport, error) {
 	return RepairReport{Fixed: fixed, Skipped: skipped}, nil
 }
 
-// RepairExternal applies all automated repairs to the cached external save file.
+// RepairExternal applies legacy automated repairs to the cached external save
+// file. Compatibility path: new actionable repair UI should use
+// ApplyRepairsExternal and keep SaveRepairedExternal for persistence.
 func (a *App) RepairExternal() (RepairReport, error) {
 	var empty RepairReport
 	diagState.mu.Lock()

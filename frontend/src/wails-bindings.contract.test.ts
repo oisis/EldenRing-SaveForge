@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import * as App from '../wailsjs/go/main/App';
-import { editor, main, templates } from '../wailsjs/go/models';
+import { core, editor, main, templates } from '../wailsjs/go/models';
 
 // This is a contract test that locks the Wails-generated binding surface
 // the inventory workspace UI depends on. Any unintentional rename or
@@ -39,6 +39,21 @@ describe('Wails binding contract: App methods', () => {
         expect('empty' in sample).toBe(true);
     });
 
+    it('exposes central repair scan/apply endpoints', () => {
+        expect(typeof App.ScanRepairIssuesLoaded).toBe('function');
+        expect(typeof App.ScanRepairIssuesExternal).toBe('function');
+        expect(typeof App.ApplyRepairsLoaded).toBe('function');
+        expect(typeof App.ApplyRepairsExternal).toBe('function');
+    });
+
+    it('keeps legacy repair endpoints while UI migrates to central repair flow', () => {
+        expect(typeof App.RepairInventoryWorkspaceItem).toBe('function');
+        expect(typeof App.RepairInventoryWorkspaceItems).toBe('function');
+        expect(typeof App.RepairLoadedSave).toBe('function');
+        expect(typeof App.RepairExternal).toBe('function');
+        expect(typeof App.RepairDuplicateInventoryIndices).toBe('function');
+    });
+
     it('exposes Phase E local build template library endpoints', () => {
         // Phase 8A removed the public JSON template exchange. Library
         // entries remain on-disk JSON (internal storage) but the public
@@ -57,6 +72,87 @@ describe('Wails binding contract: App methods', () => {
     it('exposes Phase F library refresh / path endpoints', () => {
         expect(typeof App.RebuildBuildTemplateLibraryIndex).toBe('function');
         expect(typeof App.GetBuildTemplateLibraryPath).toBe('function');
+    });
+});
+
+describe('Wails binding contract: central repair DTOs', () => {
+    it('exposes core.IssueKey fields used by repair targets', () => {
+        const sample = core.IssueKey.createFrom({});
+        expect('slot' in sample).toBe(true);
+        expect('domain' in sample).toBe(true);
+        expect('code' in sample).toBe(true);
+        expect('scope' in sample).toBe(true);
+        expect('row' in sample).toBe(true);
+        expect('handle' in sample).toBe(true);
+        expect('field' in sample).toBe(true);
+        expect('value' in sample).toBe(true);
+    });
+
+    it('exposes RepairIssueReport and nested issue/action/record/capacity DTOs', () => {
+        const report = main.RepairIssueReport.createFrom({});
+        expect('slotIndex' in report).toBe(true);
+        expect('charName' in report).toBe(true);
+        expect('issues' in report).toBe(true);
+        expect('hasIssues' in report).toBe(true);
+        expect('source' in report).toBe(true);
+
+        const issue = main.RepairIssueDTO.createFrom({});
+        expect('issueID' in issue).toBe(true);
+        expect('debugKey' in issue).toBe(true);
+        expect('fingerprint' in issue).toBe(true);
+        expect('key' in issue).toBe(true);
+        expect('description' in issue).toBe(true);
+        expect('severity' in issue).toBe(true);
+        expect('actions' in issue).toBe(true);
+        expect('defaultAction' in issue).toBe(true);
+        expect('record' in issue).toBe(true);
+        expect('capacity' in issue).toBe(true);
+
+        const action = main.RepairIssueAction.createFrom({});
+        expect('id' in action).toBe(true);
+        expect('label' in action).toBe(true);
+
+        const record = main.RepairIssueRecord.createFrom({});
+        expect('scope' in record).toBe(true);
+        expect('row' in record).toBe(true);
+        expect('handle' in record).toBe(true);
+        expect('itemId' in record).toBe(true);
+        expect('name' in record).toBe(true);
+        expect('category' in record).toBe(true);
+        expect('quantity' in record).toBe(true);
+        expect('currentUpgrade' in record).toBe(true);
+        expect('infusionName' in record).toBe(true);
+        expect('unknown' in record).toBe(true);
+
+        const capacity = main.RepairCapacityRequirement.createFrom({});
+        expect('resource' in capacity).toBe(true);
+        expect('needed' in capacity).toBe(true);
+        expect('available' in capacity).toBe(true);
+    });
+
+    it('exposes RepairApplyTarget and RepairApplyReport result DTOs', () => {
+        const target = main.RepairApplyTarget.createFrom({});
+        expect('issueID' in target).toBe(true);
+        expect('key' in target).toBe(true);
+        expect('fingerprint' in target).toBe(true);
+        expect('selectedAction' in target).toBe(true);
+        expect('aowHandle' in target).toBe(true);
+        expect('aowItemID' in target).toBe(true);
+
+        const report = main.RepairApplyReport.createFrom({});
+        expect('applied' in report).toBe(true);
+        expect('skipped' in report).toBe(true);
+        expect('failed' in report).toBe(true);
+        expect('needsUserInput' in report).toBe(true);
+        expect('stopped' in report).toBe(true);
+        expect('results' in report).toBe(true);
+
+        const result = main.RepairActionResult.createFrom({});
+        expect('issueID' in result).toBe(true);
+        expect('slotIndex' in result).toBe(true);
+        expect('action' in result).toBe(true);
+        expect('outcome' in result).toBe(true);
+        expect('message' in result).toBe(true);
     });
 });
 

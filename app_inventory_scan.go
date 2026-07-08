@@ -120,7 +120,8 @@ func resolveItemName(snap *editor.InventoryWorkspaceSnapshot, uid string) string
 // RepairInventoryWorkspaceItem applies an automatic fix for a single
 // workspace issue (identified by uid+code) and commits it as a workspace
 // save (SaveInventoryWorkspaceChanges). The returned snapshot reflects the
-// post-repair state.
+// post-repair state. Compatibility path: new repair UI should prefer
+// ApplyRepairsLoaded / ApplyRepairsExternal.
 func (a *App) RepairInventoryWorkspaceItem(sessionID, uid, code string) (editor.InventoryWorkspaceSnapshot, error) {
 	var empty editor.InventoryWorkspaceSnapshot
 	{
@@ -144,7 +145,8 @@ func (a *App) RepairInventoryWorkspaceItem(sessionID, uid, code string) (editor.
 // RepairInventoryWorkspaceItems applies automatic fixes for all provided
 // specs in one batch, then commits a single workspace save. Best-effort:
 // all repairable specs are attempted even if some fail. Returns the
-// post-repair snapshot.
+// post-repair snapshot. Compatibility path: kept for SortOrderTab and older
+// workspace-specific callers while central repair apply becomes primary.
 func (a *App) RepairInventoryWorkspaceItems(sessionID string, repairs []WorkspaceRepairSpec) (editor.InventoryWorkspaceSnapshot, error) {
 	var empty editor.InventoryWorkspaceSnapshot
 	{

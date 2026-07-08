@@ -46,6 +46,14 @@ export function ApplyPvPPreparation(arg1, arg2) {
   return window['go']['main']['App']['ApplyPvPPreparation'](arg1, arg2);
 }
 
+export function ApplyRepairsExternal(arg1, arg2) {
+  return window['go']['main']['App']['ApplyRepairsExternal'](arg1, arg2);
+}
+
+export function ApplyRepairsLoaded(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyRepairsLoaded'](arg1, arg2, arg3);
+}
+
 export function AuditLoadedSaveIssues() {
   return window['go']['main']['App']['AuditLoadedSaveIssues']();
 }
@@ -476,6 +484,14 @@ export function SaveRepairedExternal(arg1) {
 
 export function ScanInventoryIssues(arg1) {
   return window['go']['main']['App']['ScanInventoryIssues'](arg1);
+}
+
+export function ScanRepairIssuesExternal() {
+  return window['go']['main']['App']['ScanRepairIssuesExternal']();
+}
+
+export function ScanRepairIssuesLoaded(arg1) {
+  return window['go']['main']['App']['ScanRepairIssuesLoaded'](arg1);
 }
 
 export function SelectAndOpenSave() {

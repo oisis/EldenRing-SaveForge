@@ -30,6 +30,10 @@ export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
 
 export function ApplyPvPPreparation(arg1:number,arg2:main.PvPPreparationOptions):Promise<Array<string>>;
 
+export function ApplyRepairsExternal(arg1:Array<main.RepairApplyTarget>,arg2:boolean):Promise<main.RepairApplyReport>;
+
+export function ApplyRepairsLoaded(arg1:number,arg2:Array<main.RepairApplyTarget>,arg3:boolean):Promise<main.RepairApplyReport>;
+
 export function AuditLoadedSaveIssues():Promise<Array<main.SaveIssue>>;
 
 export function BulkSetBellBearings(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
@@ -245,6 +249,10 @@ export function SaveInventoryWorkspaceChanges(arg1:string):Promise<editor.Invent
 export function SaveRepairedExternal(arg1:string):Promise<string>;
 
 export function ScanInventoryIssues(arg1:number):Promise<main.InventoryIssuesScanReport>;
+
+export function ScanRepairIssuesExternal():Promise<Array<main.RepairIssueReport>>;
+
+export function ScanRepairIssuesLoaded(arg1:number):Promise<main.RepairIssueReport>;
 
 export function SelectAndOpenSave():Promise<string>;
 
