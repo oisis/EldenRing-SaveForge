@@ -90,15 +90,46 @@ func TestScanQuantity_StorageAboveMax_Flags(t *testing.T) {
 }
 
 func TestScanQuantity_ZeroStorageLimit_NotPermitted(t *testing.T) {
-	// Flask of Wondrous Physick: MaxStorage == 0 → not permitted in storage, so
-	// even quantity 1 exceeds the container limit.
+	// Flask of Wondrous Physick: MaxStorage == 0 → not permitted in storage. This
+	// is a distinct defect (item_not_allowed_in_container), NOT quantity_above_max:
+	// clamping it would drive the quantity to zero.
 	recs := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, physickHandleQty, 1, nil)}
 	if recs[0].Resolution != ResolutionKnownDB || recs[0].MaxStorage != 0 {
 		t.Fatalf("fixture not KnownDB/MaxStorage 0: res=%q maxStor=%d", recs[0].Resolution, recs[0].MaxStorage)
 	}
 	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 1 {
+		t.Errorf("zero-limit container must flag item_not_allowed_in_container, got %d", got)
+	}
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("zero-limit container must NOT flag quantity_above_max, got %d", got)
+	}
+	// Description must name the container, not "quantity above max 0".
+	for _, i := range issues {
+		if i.Key.Code == RepairCodeItemNotAllowedInContainer {
+			if !strings.Contains(i.Description, "not permitted in storage_common") {
+				t.Errorf("description = %q, want a 'not permitted in storage_common' message", i.Description)
+			}
+			if i.DefaultAction != RepairActionRemoveRecord {
+				t.Errorf("core default action = %q, want remove_record", i.DefaultAction)
+			}
+		}
+	}
+}
+
+func TestScanQuantity_PositiveCap_NeverEmitsNotAllowed(t *testing.T) {
+	recs := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 1000, nil)}
+	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 0 {
+		t.Errorf("positive-cap over-quantity must NOT flag item_not_allowed_in_container, got %d", got)
+	}
 	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 1 {
-		t.Errorf("record in a zero-limit container must flag, got %d", got)
+		t.Errorf("positive-cap over-quantity must flag quantity_above_max, got %d", got)
+	}
+	for _, i := range issues {
+		if i.Key.Code == RepairCodeQuantityAboveMax && i.DefaultAction != RepairActionClampQuantity {
+			t.Errorf("core default action = %q, want clamp_quantity", i.DefaultAction)
+		}
 	}
 }
 
@@ -265,13 +296,42 @@ func TestScanQuantity_Unflagged_DoesNotScaleWithClearCount(t *testing.T) {
 
 func TestScanQuantity_FlaggedInStorage_ZeroLimitStillFlags(t *testing.T) {
 	// Stonesword Key MaxStorage 0 — storage never scales, so even at NG+3 a
-	// single copy in storage is not permitted.
+	// single copy in storage is not permitted → item_not_allowed_in_container.
 	recs := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, stoneswordKeyHandle, 1, nil)}
 	if recs[0].MaxStorage != 0 {
 		t.Fatalf("fixture MaxStorage = %d, want 0", recs[0].MaxStorage)
 	}
-	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(3), recs), RepairCodeQuantityAboveMax); got != 1 {
-		t.Errorf("flagged item in zero-limit storage must flag at any NG+, got %d", got)
+	issues := ScanRepairIssuesFromRecords(0, clearSlot(3), recs)
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 1 {
+		t.Errorf("flagged item in zero-limit storage must flag item_not_allowed_in_container at any NG+, got %d", got)
+	}
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("zero-limit storage must NOT flag quantity_above_max, got %d", got)
+	}
+}
+
+// TestScanQuantity_RescanAfterClamp_ResolvesWithoutZeroDefect exercises the
+// full loop: a scanner-reported quantity_above_max, an actual clamp, and a
+// rescan that must show neither quantity_above_max nor a new quantity_zero.
+func TestScanQuantity_RescanAfterClamp_ResolvesWithoutZeroDefect(t *testing.T) {
+	slot := buildInvFixtureNZ(t, []InventoryItem{{GaItemHandle: smithingStoneHandle, Quantity: 1500, Index: 500}})
+
+	before := ScanRepairIssues(0, slot)
+	if countCode(before, RepairCodeQuantityAboveMax) != 1 {
+		t.Fatalf("pre-clamp scan must report quantity_above_max, got %d", countCode(before, RepairCodeQuantityAboveMax))
+	}
+
+	fp, _ := FingerprintRecordAt(slot, repairScopeInventoryCommon, 0)
+	if _, err := ClampInventoryQuantityAt(slot, repairScopeInventoryCommon, 0, fp); err != nil {
+		t.Fatalf("clamp: %v", err)
+	}
+
+	after := ScanRepairIssues(0, slot)
+	if got := countCode(after, RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("rescan still reports quantity_above_max: %d", got)
+	}
+	if got := countCode(after, RepairCodeQuantityZero); got != 0 {
+		t.Errorf("clamp created a quantity_zero defect: %d", got)
 	}
 }
 

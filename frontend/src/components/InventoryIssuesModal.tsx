@@ -43,6 +43,7 @@ function codeLabel(code: string): string {
         case 'missing_gaitem_mapping': return 'Missing GaItem mapping';
         case 'quantity_zero': return 'Quantity zero';
         case 'quantity_above_max': return 'Quantity above max';
+        case 'item_not_allowed_in_container': return 'Item not allowed in container';
         case 'pass_through_records': return 'Pass-through records';
         case 'inventory_reserved': return 'Reserved acquisition index';
         case 'duplicate_acquisition_index': return 'Duplicate acquisition index';

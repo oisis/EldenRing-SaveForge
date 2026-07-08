@@ -182,10 +182,11 @@ func applyRepairActionToSlot(slot *core.SaveSlot, slotIndex int, t RepairApplyTa
 	// Post-mutation validation: the targeted issue must be gone. Force the scan
 	// slot index into the key so the recomputed issueID lines up with the fresh
 	// scan (which stamps Slot=slotIndex).
+	issues := core.ScanRepairIssues(slotIndex, slot)
 	wantKey := t.Key
 	wantKey.Slot = slotIndex
 	wantID := core.IssueKeyID(wantKey)
-	for _, iss := range core.ScanRepairIssues(slotIndex, slot) {
+	for _, iss := range issues {
 		if iss.IssueID == wantID {
 			core.RestoreSlot(slot, snap)
 			res.Outcome = repairOutcomeFailed
@@ -194,8 +195,36 @@ func applyRepairActionToSlot(slot *core.SaveSlot, slotIndex int, t RepairApplyTa
 		}
 	}
 
+	// Clamp-specific postcondition: IssueKey.Value carries the OLD effective
+	// quantity, so a buggy partial clamp would change the value → a new IssueID
+	// the original-ID check above cannot catch. Re-check the targeted row itself
+	// for any lingering over-cap or zero-quantity defect. Row-scoped (not
+	// value-scoped) deliberately — but NOT used for remove_record, where clearing
+	// a compacted storage row shifts a different record into the same row and must
+	// not look like a failure.
+	if t.SelectedAction == core.RepairActionClampQuantity &&
+		clampLeavesQuantityInvalid(issues, t.Key.Scope, t.Key.Row) {
+		core.RestoreSlot(slot, snap)
+		res.Outcome = repairOutcomeFailed
+		res.Message = "post-validation: quantity still invalid at the clamped row"
+		return res
+	}
+
 	res.Outcome = repairOutcomeApplied
 	return res
+}
+
+// clampLeavesQuantityInvalid reports whether, after a clamp, the inventory record
+// at scope+row still carries an over-cap or zero-quantity issue — the two defects
+// a correct clamp must eliminate without introducing.
+func clampLeavesQuantityInvalid(issues []core.RepairIssue, scope string, row int) bool {
+	for _, iss := range issues {
+		if iss.Key.Domain == "inventory" && iss.Key.Scope == scope && iss.Key.Row == row &&
+			(iss.Key.Code == core.RepairCodeQuantityAboveMax || iss.Key.Code == core.RepairCodeQuantityZero) {
+			return true
+		}
+	}
+	return false
 }
 
 // dispatchRepairAction routes (domain, action) to the backing core primitive.
@@ -210,6 +239,9 @@ func dispatchRepairAction(slot *core.SaveSlot, t RepairApplyTarget) error {
 			return err
 		case core.RepairActionCreateCopy:
 			_, err := core.RehandleInventoryRecord(slot, t.Key.Scope, t.Key.Row)
+			return err
+		case core.RepairActionClampQuantity:
+			_, err := core.ClampInventoryQuantityAt(slot, t.Key.Scope, t.Key.Row, t.Fingerprint)
 			return err
 		}
 	case "aow":

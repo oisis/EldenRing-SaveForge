@@ -35,17 +35,32 @@ func TestRepairActionsForCode_QuantityZero(t *testing.T) {
 	}
 }
 
-// TestRepairActionsForCode_QuantityAboveMax_ReportOnly confirms the NG-aware
-// over-cap issue stays report-only: no reviewed mutating clamp primitive exists
-// yet, so the only offered action is report_only.
-func TestRepairActionsForCode_QuantityAboveMax_ReportOnly(t *testing.T) {
+// TestRepairActionsForCode_QuantityAboveMax_Clamp confirms a positive-cap
+// over-quantity offers a clamp with leave_unchanged, defaulting to the clamp.
+func TestRepairActionsForCode_QuantityAboveMax_Clamp(t *testing.T) {
 	actions, def := repairActionsForCode(core.RepairCodeQuantityAboveMax)
 
-	if def != RepairActionReportOnly {
-		t.Errorf("default action = %q, want %q", def, RepairActionReportOnly)
+	if def != core.RepairActionClampQuantity {
+		t.Errorf("default action = %q, want %q", def, core.RepairActionClampQuantity)
 	}
-	if len(actions) != 1 || actions[0].ID != RepairActionReportOnly {
-		t.Errorf("quantity_above_max must offer only report_only, got %+v", actions)
+	if len(actions) != 2 || actions[0].ID != core.RepairActionClampQuantity || actions[1].ID != RepairActionLeaveUnchanged {
+		t.Errorf("quantity_above_max must offer [clamp_quantity, leave_unchanged], got %+v", actions)
+	}
+	if actions[0].Label != "Clamp quantity to allowed maximum" {
+		t.Errorf("clamp label = %q", actions[0].Label)
+	}
+}
+
+// TestRepairActionsForCode_ItemNotAllowed offers removal without selecting it by
+// default (removal is destructive), plus leave_unchanged.
+func TestRepairActionsForCode_ItemNotAllowed(t *testing.T) {
+	actions, def := repairActionsForCode(core.RepairCodeItemNotAllowedInContainer)
+
+	if def != RepairActionLeaveUnchanged {
+		t.Errorf("default action = %q, want %q", def, RepairActionLeaveUnchanged)
+	}
+	if len(actions) != 2 || actions[0].ID != core.RepairActionRemoveRecord || actions[1].ID != RepairActionLeaveUnchanged {
+		t.Errorf("item_not_allowed must offer [remove_record, leave_unchanged], got %+v", actions)
 	}
 }
 

@@ -19,6 +19,13 @@ const (
 	RepairCodeMissingGaItemMapping = "missing_gaitem_mapping"
 	RepairCodeQuantityZero         = "quantity_zero"
 	RepairCodeQuantityAboveMax     = "quantity_above_max"
+	// RepairCodeItemNotAllowedInContainer is emitted instead of
+	// quantity_above_max when the effective container cap is zero: the item is
+	// not permitted in that container at all, which is a distinct defect from an
+	// excessive-but-legal quantity. Splitting the codes keeps the clamp repair
+	// from ever driving a quantity down to zero (which would manufacture a new
+	// quantity_zero defect).
+	RepairCodeItemNotAllowedInContainer = "item_not_allowed_in_container"
 	// RepairCodePassThroughRecords is retained for JSON/action-map
 	// compatibility but is no longer emitted as an aggregate issue —
 	// pass-through is a write strategy, not a defect. Per-record resolution
@@ -41,6 +48,9 @@ const (
 	RepairActionRepairIndex  = "repair_index"
 	RepairActionFixLevel     = "fix_level"
 	RepairActionNoAction     = "no_action"
+	// RepairActionClampQuantity clamps an over-cap record down to its
+	// authoritative effective cap (ClampInventoryQuantityAt).
+	RepairActionClampQuantity = "clamp_quantity"
 )
 
 const (
@@ -196,6 +206,41 @@ func mkIssue(key IssueKey, desc, severity string, actions []string, def, fp stri
 	}
 }
 
+// EffectiveQuantityCap returns the authoritative per-record quantity cap for a
+// resolved record. It is the single source of quantity-cap semantics for both
+// the scanner and the clamp repair primitive, so the two can never disagree.
+//
+// applies is false — and limit is 0 — for any record that carries no
+// authoritative cap: a record that did not resolve to a DB entry (unknown /
+// technical placeholder) or one in an unrecognised scope. Callers must not
+// category-check or clamp such a record.
+//
+// For a KnownDB record: inventory_common / inventory_key use MaxInventory and
+// scale linearly with the NG+ cycle when the item is flagged scales_with_ng
+// (base × (ClearCount+1); see spec/34-item-caps.md). storage_common uses
+// MaxStorage and never scales. All arithmetic is uint64 so the multiplier and
+// comparison cannot overflow. A zero cap is a legitimate value (item not
+// permitted in the container) and still returns applies=true. Full Chaos Mode is
+// a frontend edit override, not save-integrity truth, and is intentionally
+// ignored.
+func EffectiveQuantityCap(rec ResolvedRecord, clearCount uint32) (limit uint64, applies bool) {
+	if rec.Resolution != ResolutionKnownDB {
+		return 0, false
+	}
+	switch rec.Scope {
+	case repairScopeStorageCommon:
+		return uint64(rec.MaxStorage), true
+	case repairScopeInventoryCommon, repairScopeInventoryKey:
+		limit = uint64(rec.MaxInventory)
+		if rec.ScalesWithNG {
+			limit *= uint64(clearCount) + 1
+		}
+		return limit, true
+	default:
+		return 0, false
+	}
+}
+
 // ---- inventory scanner ------------------------------------------------------
 
 // scanInventoryRepairIssues emits per-record issues from a pre-resolved record
@@ -301,42 +346,40 @@ func scanInventoryRepairIssues(slotIndex int, clearCount uint32, records []Resol
 			seenIndices[r.AcquisitionIndex] = true
 		}
 
-		// Category/container quantity rule — runs ONLY for records that resolved
-		// to a DB entry. Unknown records and technical placeholders carry no
-		// authoritative cap, so guessing a limit for them would fabricate a
-		// validation result. Each physical record is validated independently
-		// against its own container's DB limit (no cross-record accounting).
-		if r.Resolution == ResolutionKnownDB {
+		// Category/container quantity rule — runs ONLY for records that carry an
+		// authoritative cap (KnownDB in a known scope). Unknown records and
+		// technical placeholders carry no cap, so guessing a limit for them would
+		// fabricate a validation result. EffectiveQuantityCap is the single source
+		// of cap semantics, shared verbatim with the clamp repair primitive.
+		if limit, applies := EffectiveQuantityCap(r, clearCount); applies {
 			categoryChecked++
-			// uint64 throughout so the NG+ multiplier and comparison cannot
-			// overflow. A zero limit means the item is not permitted in this
-			// container, so any present quantity exceeds it.
-			var limit uint64
-			switch r.Scope {
-			case repairScopeStorageCommon:
-				limit = uint64(r.MaxStorage) // storage caps never scale with NG+
-			default: // inventory_common / inventory_key
-				limit = uint64(r.MaxInventory)
-				// scales_with_ng items respawn each NG+ cycle, so the legitimate
-				// inventory cap grows linearly: base × (ClearCount + 1). See
-				// spec/34-item-caps.md. Full Chaos Mode is a frontend edit
-				// override, not save-integrity truth, and is intentionally ignored.
-				if r.ScalesWithNG {
-					limit *= uint64(clearCount) + 1
-				}
-			}
 			// Preserve the high-bit quantity flag semantics by masking before the
 			// comparison.
 			eff := uint64(r.Quantity & 0x7FFFFFFF)
 			if eff > limit {
-				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeQuantityAboveMax,
-					Scope: r.Scope, Row: r.Row, Handle: h,
-					Field: "quantity", Value: fmt.Sprintf("%d", eff)}
-				out = append(out, mkIssue(key,
-					fmt.Sprintf("item 0x%08X quantity %d exceeds %s max %d", h, eff, r.Scope, limit),
-					repairSeverityWarning,
-					[]string{RepairActionNoAction},
-					RepairActionNoAction, r.Fingerprint))
+				if limit == 0 {
+					// A zero cap means the item is not permitted in this container
+					// at all — a distinct defect from an excessive quantity. It is
+					// removable, never clampable (clamping to 0 would create a
+					// quantity_zero defect).
+					key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeItemNotAllowedInContainer,
+						Scope: r.Scope, Row: r.Row, Handle: h,
+						Field: "quantity", Value: fmt.Sprintf("%d", eff)}
+					out = append(out, mkIssue(key,
+						fmt.Sprintf("item 0x%08X is not permitted in %s", h, r.Scope),
+						repairSeverityWarning,
+						[]string{RepairActionRemoveRecord},
+						RepairActionRemoveRecord, r.Fingerprint))
+				} else {
+					key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeQuantityAboveMax,
+						Scope: r.Scope, Row: r.Row, Handle: h,
+						Field: "quantity", Value: fmt.Sprintf("%d", eff)}
+					out = append(out, mkIssue(key,
+						fmt.Sprintf("item 0x%08X quantity %d exceeds %s max %d", h, eff, r.Scope, limit),
+						repairSeverityWarning,
+						[]string{RepairActionClampQuantity},
+						RepairActionClampQuantity, r.Fingerprint))
+				}
 			}
 		}
 	}

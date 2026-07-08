@@ -111,6 +111,33 @@ The banner shows:
 
 **Conscious decision**: the clamp at load/save **does NOT** modify values in an existing save. A player who has 999 Larval Tears (e.g. from another editor) keeps them on the load → save round-trip.
 
+## Repair: safe quantity clamp (loaded save only)
+
+The integrity scanner reports records whose effective quantity exceeds their
+container cap. `EffectiveQuantityCap(rec, clearCount)` in
+`backend/core/repair_scanner.go` is the single source of cap semantics, shared
+verbatim by the scanner and the repair primitive, so the two can never disagree.
+
+- **Positive cap** → `quantity_above_max`. Offered actions: `clamp_quantity`
+  (default) and `leave_unchanged`. `ClampInventoryQuantityAt`
+  (`backend/core/quantity_clamp.go`) recomputes the authoritative cap at apply
+  time (never trusting the frontend), writes both the raw 4-byte quantity field
+  and the in-memory value, and **preserves the high quantity bit** (`0x80000000`).
+- **Zero cap** (item not permitted in the container, e.g. Stonesword Key in
+  storage) → a separate `item_not_allowed_in_container` issue. Offered actions:
+  `remove_record` and `leave_unchanged` (**default**, because removal is
+  destructive). The quantity is **never** clamped to zero — that would only
+  manufacture a new `quantity_zero` defect.
+
+The clamp runs through the existing loaded-save repair pipeline: fingerprint
+stale-check, one pre-batch undo snapshot (only when a mutation succeeds),
+rollback on failure, post-repair rescan, and a clamp-specific postcondition that
+rejects any result still leaving `quantity_above_max` or `quantity_zero` at the
+targeted row.
+
+**Full Chaos Mode** remains a frontend edit override only — it is irrelevant to
+integrity scanning and to this repair, both of which always use the vanilla cap.
+
 ## Verification
 
 - `go test ./backend/...` — pass (data, db, vm, core)

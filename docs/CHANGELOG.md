@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(repair): add safe quantity clamp action
+
+Loaded-save repair can now fix over-cap inventory/storage quantities. The
+scanner splits the old `quantity_above_max` condition into two codes:
+
+- **positive cap** → `quantity_above_max`, offering `clamp_quantity` (default)
+  and `leave_unchanged`. The new `ClampInventoryQuantityAt` primitive recomputes
+  the authoritative cap at apply time (never trusting the frontend), preserves
+  the raw high quantity bit, and updates both raw bytes and in-memory state;
+- **zero cap** → `item_not_allowed_in_container`, offering `remove_record` and
+  `leave_unchanged` (default). The quantity is never clamped to zero.
+
+Cap semantics are unified in one exported `EffectiveQuantityCap` helper shared by
+the scanner and the repair. The clamp runs through the existing repair pipeline
+(fingerprint stale-check, undo snapshot, rollback, post-repair rescan) with an
+added clamp-specific postcondition rejecting any result that still leaves
+`quantity_above_max` or `quantity_zero` at the targeted row. No DTO shape or Wails
+binding changed — the new issue-code and action-ID strings flow through existing
+fields.
+
 ### docs(templates): record v2 items layout manual validation (Phase 8G)
 
 Closes the Templates v2 items + layout milestone by recording the

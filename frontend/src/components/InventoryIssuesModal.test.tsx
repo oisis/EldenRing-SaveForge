@@ -263,6 +263,70 @@ describe('InventoryIssuesModal', () => {
         ]);
         expect(screen.getByText('Quantity above max')).toBeInTheDocument();
     });
+
+    // A positive-cap over-quantity: clamp is the default mutating action, checked
+    // and submitted as clamp_quantity.
+    function clampIssue(): RepairIssue {
+        return issue({
+            issueID: 'issue-quantity_above_max-0',
+            key: { code: 'quantity_above_max' },
+            description: 'item quantity 1500 exceeds inventory_common max 999',
+            actions: [
+                { id: 'clamp_quantity', label: 'Clamp quantity to allowed maximum' },
+                { id: 'leave_unchanged', label: 'Leave unchanged' },
+            ],
+            defaultAction: 'clamp_quantity',
+        });
+    }
+
+    it('selects clamp_quantity by default and submits it', async () => {
+        const applyRepairs = vi.fn(async () => okReport());
+        renderModal([clampIssue()], applyRepairs);
+
+        const checkbox = screen.getByLabelText(/^Select /) as HTMLInputElement;
+        expect(checkbox.checked).toBe(true);
+        expect((screen.getByLabelText('Repair action') as HTMLSelectElement).value).toBe('clamp_quantity');
+
+        fireEvent.click(screen.getByRole('button', { name: /Repair selected/i }));
+        await waitFor(() => expect(applyRepairs).toHaveBeenCalledTimes(1));
+        const calls = applyRepairs.mock.calls as unknown as Array<[Array<{ selectedAction: string }>, boolean]>;
+        expect(calls[0][0][0].selectedAction).toBe('clamp_quantity');
+    });
+
+    // A zero-cap container violation: separate label, defaults to leave_unchanged
+    // (not selected), and remove_record becomes selectable on demand.
+    function notAllowedIssue(): RepairIssue {
+        return issue({
+            issueID: 'issue-item_not_allowed_in_container-0',
+            key: { code: 'item_not_allowed_in_container', scope: 'storage_common' },
+            description: 'item is not permitted in storage_common',
+            actions: [
+                { id: 'remove_record', label: 'Remove record' },
+                { id: 'leave_unchanged', label: 'Leave unchanged' },
+            ],
+            defaultAction: 'leave_unchanged',
+        });
+    }
+
+    it('labels item_not_allowed_in_container and defaults to leave_unchanged unselected', () => {
+        renderModal([notAllowedIssue()]);
+        expect(screen.getByText('Item not allowed in container')).toBeInTheDocument();
+
+        const checkbox = screen.getByLabelText(/^Select /) as HTMLInputElement;
+        expect(checkbox.checked).toBe(false);
+        expect(checkbox.disabled).toBe(true);
+        expect((screen.getByLabelText('Repair action') as HTMLSelectElement).value).toBe('leave_unchanged');
+    });
+
+    it('marks item_not_allowed_in_container as a mutating repair once remove_record is chosen', () => {
+        renderModal([notAllowedIssue()]);
+        fireEvent.change(screen.getByLabelText('Repair action'), { target: { value: 'remove_record' } });
+
+        const checkbox = screen.getByLabelText(/^Select /) as HTMLInputElement;
+        expect(checkbox.checked).toBe(true);
+        expect(checkbox.disabled).toBe(false);
+        expect(screen.getByRole('button', { name: /Repair selected \(1\)/i })).toBeInTheDocument();
+    });
 });
 
 // ---- Prompt 15: validation coverage -----------------------------------------

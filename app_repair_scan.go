@@ -90,6 +90,8 @@ func repairActionLabel(id string) string {
 		return "Pick replacement Ash of War"
 	case core.RepairActionRepairIndex:
 		return "Assign new acquisition index"
+	case core.RepairActionClampQuantity:
+		return "Clamp quantity to allowed maximum"
 	case core.RepairActionFixLevel:
 		return "Set level to formula result"
 	case core.RepairActionNoAction:
@@ -119,7 +121,8 @@ func repairActionsForCode(code string) ([]RepairIssueAction, string) {
 		core.RepairCodeUnknownHandleType:         {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
 		core.RepairCodeMissingGaItemMapping:      {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
 		core.RepairCodeQuantityZero:              {[]string{core.RepairActionRemoveRecord, RepairActionLeaveUnchanged}, core.RepairActionRemoveRecord},
-		core.RepairCodeQuantityAboveMax:          {[]string{RepairActionReportOnly}, RepairActionReportOnly},
+		core.RepairCodeQuantityAboveMax:          {[]string{core.RepairActionClampQuantity, RepairActionLeaveUnchanged}, core.RepairActionClampQuantity},
+		core.RepairCodeItemNotAllowedInContainer: {[]string{core.RepairActionRemoveRecord, RepairActionLeaveUnchanged}, RepairActionLeaveUnchanged},
 		core.RepairCodePassThroughRecords:        {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
 		core.RepairCodeInventoryReserved:         {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},
 		core.RepairCodeDuplicateAcquisitionIndex: {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},
