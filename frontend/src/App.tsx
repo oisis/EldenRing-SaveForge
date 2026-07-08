@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback, useRef} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, ScanInventoryIssues} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -19,6 +19,7 @@ import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
 import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
 import {db} from '../wailsjs/go/models';
+import { scanRepairIssuesLoaded, type RepairIssueReport, type RepairSource } from './lib/repairIssues';
 
 type Theme = 'light' | 'dark' | 'golden';
 
@@ -54,7 +55,7 @@ function App() {
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
     const [postLoadDiagReport, setPostLoadDiagReport] = useState<main.DiagnosticsReport | null>(null);
-    const [inventoryIssuesReport, setInventoryIssuesReport] = useState<main.InventoryIssuesScanReport | null>(null);
+    const [inventoryIssuesModal, setInventoryIssuesModal] = useState<{ reports: RepairIssueReport[]; source: RepairSource } | null>(null);
     // Tracks "saveLoadKey:charIdx" combos already shown to avoid re-triggering.
     const scannedKeys = useRef(new Set<string>());
     const [charNames, setCharacterNames] = useState<string[]>([]);
@@ -145,8 +146,8 @@ function App() {
         const key = `${saveLoadKey}:${selectedChar}`;
         if (scannedKeys.current.has(key)) return;
         scannedKeys.current.add(key);
-        ScanInventoryIssues(selectedChar)
-            .then(report => { if (report.hasIssues) setInventoryIssuesReport(report); })
+        scanRepairIssuesLoaded(selectedChar)
+            .then(report => { if (report.hasIssues) setInventoryIssuesModal({ reports: [report], source: 'loaded' }); })
             .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [platform, selectedChar, saveLoadKey, integrityBlocking]);
@@ -901,13 +902,17 @@ function App() {
                 onClose={() => setPostLoadDiagReport(null)}
             />
         )}
-        {inventoryIssuesReport && (
+        {inventoryIssuesModal && (
             <InventoryIssuesModal
-                report={inventoryIssuesReport}
-                onClose={() => setInventoryIssuesReport(null)}
+                reports={inventoryIssuesModal.reports}
+                source={inventoryIssuesModal.source}
+                charIndex={selectedChar}
+                onClose={() => setInventoryIssuesModal(null)}
                 onSaved={() => {
-                    setInventoryIssuesReport(null);
+                    setInventoryIssuesModal(null);
                     setInventoryVersion(v => v + 1);
+                    setSaveDataRevision(v => v + 1);
+                    refreshUndoDepth();
                 }}
             />
         )}

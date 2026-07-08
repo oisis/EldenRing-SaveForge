@@ -14,7 +14,7 @@ import {useFavorites} from '../state/favorites';
 import {DiagnosticsModal} from './DiagnosticsModal';
 import {InventoryIssuesModal} from './InventoryIssuesModal';
 import {SaveManagerModal} from './SaveManagerModal';
-import {main} from '../../wailsjs/go/models';
+import { type RepairIssueReport, type RepairSource } from '../lib/repairIssues';
 
 interface SettingsTabProps {
     theme: 'light' | 'dark' | 'golden';
@@ -74,7 +74,7 @@ export function SettingsTab({
     };
 
     const [showDiagnostics, setShowDiagnostics] = useState(false);
-    const [inventoryIssuesReport, setInventoryIssuesReport] = useState<main.InventoryIssuesScanReport | null>(null);
+    const [inventoryIssuesModal, setInventoryIssuesModal] = useState<{ reports: RepairIssueReport[]; source: RepairSource } | null>(null);
 
     // Conversion flow
     const [convStep, setConvStep] = useState<'idle' | 'selecting' | 'steamid' | 'converting'>('idle');
@@ -500,18 +500,20 @@ export function SettingsTab({
                 charIndex={charIndex}
                 platform={platform}
                 onClose={() => setShowDiagnostics(false)}
-                onOpenInventoryIssues={(report) => {
-                    setInventoryIssuesReport(report);
+                onOpenInventoryIssues={(reports, source) => {
+                    setInventoryIssuesModal({ reports, source });
                     setShowDiagnostics(false);
                 }}
             />
         )}
-        {inventoryIssuesReport && (
+        {inventoryIssuesModal && (
             <InventoryIssuesModal
-                report={inventoryIssuesReport}
-                onClose={() => setInventoryIssuesReport(null)}
+                reports={inventoryIssuesModal.reports}
+                source={inventoryIssuesModal.source}
+                charIndex={charIndex}
+                onClose={() => setInventoryIssuesModal(null)}
                 onSaved={() => {
-                    setInventoryIssuesReport(null);
+                    setInventoryIssuesModal(null);
                     onMutate?.();
                 }}
             />

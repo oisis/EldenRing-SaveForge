@@ -8,9 +8,9 @@ import {
     RepairExternal,
     SaveRepairedExternal,
     WriteSave,
-    ScanInventoryIssues,
 } from '../../wailsjs/go/main/App';
 import {main} from '../../wailsjs/go/models';
+import { scanRepairIssuesExternal, scanRepairIssuesLoaded, type RepairIssueReport } from '../lib/repairIssues';
 
 type Source = 'loaded' | 'all-loaded' | 'external';
 
@@ -27,7 +27,7 @@ interface Props {
     platform: string | null;
     onClose: () => void;
     initialReport?: main.DiagnosticsReport; // when set: skip 'choice', open at 'report' for all loaded slots
-    onOpenInventoryIssues?: (report: main.InventoryIssuesScanReport) => void;
+    onOpenInventoryIssues?: (reports: RepairIssueReport[], source: 'loaded' | 'external') => void;
 }
 
 const severityColor: Record<string, string> = {
@@ -79,9 +79,9 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport, o
         setMode({step: 'scanning', source: 'loaded'});
         setError(null);
         try {
-            const scan = await ScanInventoryIssues(charIndex);
+            const scan = await scanRepairIssuesLoaded(charIndex);
             if (scan.hasIssues) {
-                onOpenInventoryIssues?.(scan);
+                onOpenInventoryIssues?.([scan], 'loaded');
                 onClose();
             } else {
                 setMode({step: 'report', report: new main.DiagnosticsReport({source: 'loaded', slots: [], canRepair: false}), filePath: 'loaded', source: 'loaded'});
@@ -110,6 +110,14 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport, o
         setMode({step: 'repairing', source, filePath});
         setError(null);
         try {
+            if (source === 'external' && onOpenInventoryIssues) {
+                const repairReports = await scanRepairIssuesExternal();
+                if (repairReports.length > 0) {
+                    onOpenInventoryIssues(repairReports, 'external');
+                    onClose();
+                    return;
+                }
+            }
             const repairReport =
                 source === 'external' ? await RepairExternal() :
                 source === 'all-loaded' ? await RepairAllLoadedSlots() :
@@ -371,4 +379,3 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport, o
         document.body
     );
 }
-
