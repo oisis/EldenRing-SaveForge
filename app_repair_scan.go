@@ -113,21 +113,21 @@ func repairActionsForCode(code string) ([]RepairIssueAction, string) {
 		def string
 	}
 	m := map[string]mapping{
-		core.RepairCodeDuplicateHandle:           {[]string{core.RepairActionCreateCopy}, core.RepairActionCreateCopy},
-		core.RepairCodeDuplicateUID:              {[]string{core.RepairActionCreateCopy}, core.RepairActionCreateCopy},
+		core.RepairCodeDuplicateHandle:           {[]string{core.RepairActionCreateCopy, RepairActionLeaveUnchanged}, core.RepairActionCreateCopy},
+		core.RepairCodeDuplicateUID:              {[]string{core.RepairActionCreateCopy, RepairActionLeaveUnchanged}, core.RepairActionCreateCopy},
 		core.RepairCodeUnknownItemID:             {[]string{RepairActionLeaveUnchanged, core.RepairActionRemoveRecord}, RepairActionLeaveUnchanged},
 		core.RepairCodeQuantityZero:              {[]string{core.RepairActionRemoveRecord, RepairActionLeaveUnchanged}, core.RepairActionRemoveRecord},
 		core.RepairCodePassThroughRecords:        {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
-		core.RepairCodeInventoryReserved:         {[]string{core.RepairActionRepairIndex}, core.RepairActionRepairIndex},
-		core.RepairCodeDuplicateAcquisitionIndex: {[]string{core.RepairActionRepairIndex}, core.RepairActionRepairIndex},
-		core.RepairCodeCurrentAoWMissing:         {[]string{core.RepairActionClearAoW, core.RepairActionPickAoW}, core.RepairActionClearAoW},
-		core.RepairCodeCurrentAoWShared:          {[]string{core.RepairActionCreateCopy, core.RepairActionClearAoW}, core.RepairActionCreateCopy},
-		core.RepairCodeCurrentAoWNonAoWCategory:  {[]string{core.RepairActionClearAoW}, core.RepairActionClearAoW},
-		core.RepairCodeStatsFormula:              {[]string{core.RepairActionFixLevel}, core.RepairActionFixLevel},
-		editor.CodeUpgradeOutOfRange:             {[]string{RepairActionClampUpgrade}, RepairActionClampUpgrade},
+		core.RepairCodeInventoryReserved:         {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},
+		core.RepairCodeDuplicateAcquisitionIndex: {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},
+		core.RepairCodeCurrentAoWMissing:         {[]string{core.RepairActionClearAoW, core.RepairActionPickAoW, RepairActionLeaveUnchanged}, core.RepairActionClearAoW},
+		core.RepairCodeCurrentAoWShared:          {[]string{core.RepairActionCreateCopy, core.RepairActionClearAoW, RepairActionLeaveUnchanged}, core.RepairActionCreateCopy},
+		core.RepairCodeCurrentAoWNonAoWCategory:  {[]string{core.RepairActionClearAoW, RepairActionLeaveUnchanged}, core.RepairActionClearAoW},
+		core.RepairCodeStatsFormula:              {[]string{core.RepairActionFixLevel, RepairActionLeaveUnchanged}, core.RepairActionFixLevel},
+		editor.CodeUpgradeOutOfRange:             {[]string{RepairActionClampUpgrade, RepairActionLeaveUnchanged}, RepairActionClampUpgrade},
 		editor.CodeCategoryUnsupported:           {[]string{RepairActionReportOnly}, RepairActionReportOnly},
-		editor.CodePendingAoWUnknown:             {[]string{core.RepairActionClearAoW}, core.RepairActionClearAoW},
-		editor.CodePendingAoWConflict:            {[]string{core.RepairActionClearAoW}, core.RepairActionClearAoW},
+		editor.CodePendingAoWUnknown:             {[]string{core.RepairActionClearAoW, RepairActionLeaveUnchanged}, core.RepairActionClearAoW},
+		editor.CodePendingAoWConflict:            {[]string{core.RepairActionClearAoW, RepairActionLeaveUnchanged}, core.RepairActionClearAoW},
 	}
 	p, ok := m[code]
 	if !ok {

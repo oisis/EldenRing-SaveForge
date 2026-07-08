@@ -9,7 +9,7 @@ import "testing"
 // Every copy of the same talisman — in the same container, or split across
 // inventory and storage — carries the IDENTICAL handle by design. That is
 // normal save state, not corruption, and must not be reported the same way
-// TestScanRepairIssues_DuplicateHandle treats a repeated goods handle.
+// TestScanRepairIssues_DuplicateHandle treats a repeated GaItem-backed weapon.
 
 // talismanHandle / talismanItemID — "Sacrificial Twig" (backend/db/data/talismans.go).
 // Handle = 0xA0 prefix | (itemID & 0x0FFFFFFF): 0xA0000000 | 0x000017B6.
@@ -18,10 +18,10 @@ const (
 )
 
 // TestScanRepairIssues_TalismanDuplicateHandle_NotAnError is RED against the
-// current scanner: scanInventoryRepairIssues (repair_scanner.go) applies the
-// same seenHandles dedup to ItemTypeAccessory as it does to weapons/armor/
-// goods, so two legitimate Sacrificial Twig stacks in the same container are
-// currently reported as duplicate_handle + duplicate_uid.
+// scanner: scanInventoryRepairIssues (repair_scanner.go) must not apply the
+// same seenHandles dedup to ItemTypeAccessory as it does to weapons/armor, so
+// two legitimate Sacrificial Twig stacks in the same container are not reported
+// as duplicate_handle.
 func TestScanRepairIssues_TalismanDuplicateHandle_NotAnError(t *testing.T) {
 	slot := &SaveSlot{
 		GaMap: map[uint32]uint32{},

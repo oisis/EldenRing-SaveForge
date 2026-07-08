@@ -35,6 +35,29 @@ func TestRepairActionsForCode_QuantityZero(t *testing.T) {
 	}
 }
 
+func TestRepairActionsForCode_DuplicateHandleCanBeLeftUnchanged(t *testing.T) {
+	actions, def := repairActionsForCode(core.RepairCodeDuplicateHandle)
+
+	if def != core.RepairActionCreateCopy {
+		t.Errorf("default action = %q, want %q", def, core.RepairActionCreateCopy)
+	}
+	hasCreateCopy, hasLeave := false, false
+	for _, a := range actions {
+		switch a.ID {
+		case core.RepairActionCreateCopy:
+			hasCreateCopy = true
+		case RepairActionLeaveUnchanged:
+			hasLeave = true
+		}
+	}
+	if !hasCreateCopy {
+		t.Error("duplicate_handle actions must include create_copy")
+	}
+	if !hasLeave {
+		t.Error("duplicate_handle actions must include leave_unchanged")
+	}
+}
+
 // ---- workspaceIssueToDTO with Record ----------------------------------------
 
 // TestWorkspaceIssueToDTO_UpgradeOutOfRange_HasRecord confirms that a workspace
@@ -121,25 +144,25 @@ func TestWorkspaceIssueToDTO_NoUID_FallsBackToWorkspaceScope(t *testing.T) {
 // dropped by deduplication.
 func TestBuildRepairIssueReport_SameCodeDifferentHandle(t *testing.T) {
 	// Build a slot with one duplicate-handle pair so core emits duplicate_handle.
-	h := uint32(0xB0002774) // Smithing Stone handle (safe: resolves via HandleToItemID)
+	h := uint32(0x80000002)
 	slot := &core.SaveSlot{
-		GaMap: map[uint32]uint32{},
+		GaMap: map[uint32]uint32{h: 0x00400110},
 		Inventory: core.EquipInventoryData{
 			CommonItems: []core.InventoryItem{
-				{GaItemHandle: h, Quantity: 5, Index: 500},
-				{GaItemHandle: h, Quantity: 5, Index: 501}, // duplicate → core emits duplicate_handle for h
+				{GaItemHandle: h, Quantity: 1, Index: 500},
+				{GaItemHandle: h, Quantity: 1, Index: 501}, // duplicate → core emits duplicate_handle for h
 			},
 		},
 	}
 
 	// A workspace issue with the same code but a different handle (h2).
-	h2 := uint32(0xB0002775)
+	h2 := uint32(0x80000003)
 	wsValidation := &editor.WorkspaceValidationReport{
 		Errors: []editor.WorkspaceValidationIssue{
 			{
 				Severity: editor.SeverityError,
 				Code:     core.RepairCodeDuplicateHandle,
-				Message:  "duplicate handle 0xB0002775",
+				Message:  "duplicate handle 0x80000003",
 				Handle:   h2,
 				// no UID → scope stays "workspace", row=-1
 			},

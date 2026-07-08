@@ -176,14 +176,6 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
         void applyTargets(targets);
     };
 
-    const handleRepairDefaults = () => {
-        const targets = issues
-            .filter(issue => isMutatingAction(issue.defaultAction))
-            .map(issue => makeRepairTarget(issue, issue.defaultAction));
-        setChecked(new Set(targets.map(t => t.issueID)));
-        void applyTargets(targets);
-    };
-
     const handleSkip = () => {
         if (issues.length > 0) toast(`${issues.length} issue(s) left unchanged.`);
         onClose();
@@ -273,18 +265,26 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
                                                                 </div>
                                                                 <p className="text-[9px] text-muted-foreground mt-1 truncate">{issueSubtitle(issue) || issue.description}</p>
                                                             </div>
-                                                            <label className="sr-only" htmlFor={`action-${issue.issueID}`}>Repair action</label>
-                                                            <select
-                                                                id={`action-${issue.issueID}`}
-                                                                value={selected}
-                                                                onChange={e => setAction(issue, e.target.value)}
-                                                                disabled={isRepairing}
-                                                                className="w-full rounded border border-border bg-card px-2 py-1.5 text-[9px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                                                            >
-                                                                {issue.actions.map(action => (
-                                                                    <option key={action.id} value={action.id}>{action.label}</option>
-                                                                ))}
-                                                            </select>
+                                                            {issue.actions.length > 1 ? (
+                                                                <>
+                                                                    <label className="sr-only" htmlFor={`action-${issue.issueID}`}>Repair action</label>
+                                                                    <select
+                                                                        id={`action-${issue.issueID}`}
+                                                                        value={selected}
+                                                                        onChange={e => setAction(issue, e.target.value)}
+                                                                        disabled={isRepairing}
+                                                                        className="w-full rounded border border-border bg-card px-2 py-1.5 text-[9px] text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                                                                    >
+                                                                        {issue.actions.map(action => (
+                                                                            <option key={action.id} value={action.id}>{action.label}</option>
+                                                                        ))}
+                                                                    </select>
+                                                                </>
+                                                            ) : (
+                                                                <span className="w-full rounded border border-border/60 bg-muted/10 px-2 py-1.5 text-[9px] text-muted-foreground">
+                                                                    {actionLabel(issue, selected)}
+                                                                </span>
+                                                            )}
                                                             <button
                                                                 type="button"
                                                                 onClick={() => toggleExpanded(issue.issueID)}
@@ -369,13 +369,6 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
                                     Close
                                 </button>
                                 <button
-                                    onClick={handleRepairDefaults}
-                                    disabled={isRepairing || totalMutating === 0}
-                                    className="px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded border border-primary/40 text-primary hover:bg-primary/10 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-                                >
-                                    Repair all default actions
-                                </button>
-                                <button
                                     onClick={handleRepairSelected}
                                     disabled={isRepairing || selectedCount === 0}
                                     className="px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
@@ -397,7 +390,7 @@ export function InventoryIssuesModal({ reports, source, charIndex, onClose, onSa
                                 onClick={onSaved}
                                 className="ml-auto px-4 py-1.5 text-[9px] font-black uppercase tracking-widest rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
                             >
-                                Done
+                                Close and refresh
                             </button>
                         </>
                     )}

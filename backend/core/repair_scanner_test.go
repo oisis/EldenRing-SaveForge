@@ -9,6 +9,10 @@ import (
 const (
 	testHandleSmithingStone = uint32(0xB0002774)
 	testItemIDSmithingStone = uint32(0x40002774)
+	testHandleDagger        = uint32(0x80000002)
+	testItemIDDagger        = uint32(0x00400110)
+	testHandleArrow         = uint32(0x80800AA1)
+	testItemIDArrow         = uint32(0x02FAF080)
 )
 
 // ---- regression test --------------------------------------------------------
@@ -16,15 +20,16 @@ const (
 // TestScanRepairIssues_DuplicateHandle is the early regression anchor.
 //
 // Regression: duplicate_handle and duplicate_uid were reported by editor.Validate
-// with CanRepair=false, making them appear as "unrepairable" in the UI. This test
-// confirms the core scanner emits both codes with proposed actions.
+// with CanRepair=false, making them appear as "unrepairable" in the UI. The core
+// scanner now emits only duplicate_handle for GaItem-backed duplicate records;
+// duplicate_uid is redundant UI/workspace identity fallout, not a separate repair.
 func TestScanRepairIssues_DuplicateHandle(t *testing.T) {
-	h := uint32(testHandleSmithingStone)
 	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{testHandleDagger: testItemIDDagger},
 		Inventory: EquipInventoryData{
 			CommonItems: []InventoryItem{
-				{GaItemHandle: h, Quantity: 5, Index: 500},
-				{GaItemHandle: h, Quantity: 5, Index: 501}, // duplicate → regression
+				{GaItemHandle: testHandleDagger, Quantity: 1, Index: 500},
+				{GaItemHandle: testHandleDagger, Quantity: 1, Index: 501}, // duplicate → regression
 			},
 		},
 	}
@@ -47,16 +52,66 @@ func TestScanRepairIssues_DuplicateHandle(t *testing.T) {
 			}
 		case RepairCodeDuplicateUID:
 			foundUID = true
-			if len(iss.Actions) == 0 {
-				t.Errorf("duplicate_uid must have proposed actions, got none")
-			}
 		}
 	}
 	if !foundHandle {
 		t.Error("expected duplicate_handle issue, scanner returned none")
 	}
-	if !foundUID {
-		t.Error("expected duplicate_uid issue alongside duplicate_handle, scanner returned none")
+	if foundUID {
+		t.Error("duplicate_uid is redundant with duplicate_handle and must not be emitted by core scanner")
+	}
+}
+
+// TestScanRepairIssues_GoodsDuplicateHandle_NotAnError confirms repeated goods
+// handles are not treated as duplicate records. Goods handles are item-derived
+// like talismans; rehandling them into synthetic GaMap-backed handles is unsafe
+// for game decoding.
+func TestScanRepairIssues_GoodsDuplicateHandle_NotAnError(t *testing.T) {
+	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{},
+		Inventory: EquipInventoryData{
+			CommonItems: []InventoryItem{
+				{GaItemHandle: testHandleSmithingStone, Quantity: 10, Index: 500},
+			},
+		},
+		Storage: EquipInventoryData{
+			CommonItems: []InventoryItem{
+				{GaItemHandle: testHandleSmithingStone, Quantity: 10, Index: 501},
+			},
+		},
+	}
+
+	for _, iss := range ScanRepairIssues(0, slot) {
+		if iss.Key.Code == RepairCodeDuplicateHandle || iss.Key.Code == RepairCodeDuplicateUID {
+			t.Errorf("goods handle 0x%08X repeated across inventory/storage is normal — must not be reported as %s: %q",
+				testHandleSmithingStone, iss.Key.Code, iss.Description)
+		}
+	}
+}
+
+// TestScanRepairIssues_AmmoDuplicateHandle_NotAnError confirms arrows/bolts are
+// not treated like unique weapon instances. They use the weapon handle prefix,
+// but are stackable ammo and can legitimately appear in inventory and storage.
+func TestScanRepairIssues_AmmoDuplicateHandle_NotAnError(t *testing.T) {
+	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{testHandleArrow: testItemIDArrow},
+		Inventory: EquipInventoryData{
+			CommonItems: []InventoryItem{
+				{GaItemHandle: testHandleArrow, Quantity: 600, Index: 500},
+			},
+		},
+		Storage: EquipInventoryData{
+			CommonItems: []InventoryItem{
+				{GaItemHandle: testHandleArrow, Quantity: 600, Index: 501},
+			},
+		},
+	}
+
+	for _, iss := range ScanRepairIssues(0, slot) {
+		if iss.Key.Code == RepairCodeDuplicateHandle || iss.Key.Code == RepairCodeDuplicateUID {
+			t.Errorf("ammo handle 0x%08X repeated across inventory/storage is normal — must not be reported as %s: %q",
+				testHandleArrow, iss.Key.Code, iss.Description)
+		}
 	}
 }
 
@@ -81,6 +136,26 @@ func TestScanRepairIssues_NoFalseAlarmHandleEncoded(t *testing.T) {
 	for _, iss := range issues {
 		if iss.Key.Code == RepairCodeUnknownItemID {
 			t.Errorf("false alarm: handle-encoded item without GaMap should not be unknown_item_id; got %q", iss.Description)
+		}
+	}
+}
+
+// TestScanRepairIssues_NoFalseAlarmFilledWondrousPhysick confirms the filled
+// save-state Flask of Wondrous Physick ID is normalized to the DB display ID
+// before unknown_item_id checks.
+func TestScanRepairIssues_NoFalseAlarmFilledWondrousPhysick(t *testing.T) {
+	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{},
+		Inventory: EquipInventoryData{
+			CommonItems: []InventoryItem{
+				{GaItemHandle: 0xB00000FA, Quantity: 1, Index: 500},
+			},
+		},
+	}
+
+	for _, iss := range ScanRepairIssues(0, slot) {
+		if iss.Key.Code == RepairCodeUnknownItemID {
+			t.Errorf("filled Wondrous Physick handle should resolve through display ID normalization; got %q", iss.Description)
 		}
 	}
 }
@@ -210,10 +285,10 @@ func TestScanRepairIssues_StatsFormula(t *testing.T) {
 	slot := &SaveSlot{
 		Player: PlayerGameData{
 			// sum = 80, expected level = 1
-			Level:        2, // mismatch → should trigger
-			Vigor:        10, Mind: 10, Endurance: 10,
-			Strength:     10, Dexterity: 10, Intelligence: 10,
-			Faith:        10, Arcane: 10,
+			Level: 2, // mismatch → should trigger
+			Vigor: 10, Mind: 10, Endurance: 10,
+			Strength: 10, Dexterity: 10, Intelligence: 10,
+			Faith: 10, Arcane: 10,
 		},
 	}
 
@@ -254,12 +329,12 @@ func TestScanRepairIssues_CleanSlot(t *testing.T) {
 
 // TestScanRepairIssues_IssueIDDeterministic confirms issueID is stable across runs.
 func TestScanRepairIssues_IssueIDDeterministic(t *testing.T) {
-	h := testHandleSmithingStone
 	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{testHandleDagger: testItemIDDagger},
 		Inventory: EquipInventoryData{
 			CommonItems: []InventoryItem{
-				{GaItemHandle: h, Quantity: 5, Index: 500},
-				{GaItemHandle: h, Quantity: 5, Index: 501},
+				{GaItemHandle: testHandleDagger, Quantity: 1, Index: 500},
+				{GaItemHandle: testHandleDagger, Quantity: 1, Index: 501},
 			},
 		},
 	}

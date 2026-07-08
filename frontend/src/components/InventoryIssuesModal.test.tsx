@@ -149,6 +149,9 @@ describe('InventoryIssuesModal', () => {
         expect(selects[0].value).toBe('remove_record');
         expect(selects[1].value).toBe('leave_unchanged');
         expect(screen.getByRole('button', { name: /Repair selected \(1\)/i })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Repair all default actions/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Defaults selected/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Defaults all/i })).not.toBeInTheDocument();
     });
 
     it('shows weapon and AoW context for current AoW issues', () => {
@@ -204,5 +207,19 @@ describe('InventoryIssuesModal', () => {
         fireEvent.change(within(card).getByLabelText('Repair action'), { target: { value: 'pick_aow' } });
 
         expect(screen.getByText(/Compatible Ash of War selection needs a concrete AoW handle/i)).toBeInTheDocument();
+    });
+
+    it('renders a static action label instead of a dropdown when only one action exists', () => {
+        renderModal([
+            issue({
+                issueID: 'issue-pass-through-0',
+                key: { code: 'pass_through_records' },
+                actions: [{ id: 'no_action', label: 'No action' }],
+                defaultAction: 'no_action',
+            }),
+        ]);
+
+        expect(screen.getByText('No action')).toBeInTheDocument();
+        expect(screen.queryByLabelText('Repair action')).not.toBeInTheDocument();
     });
 });
