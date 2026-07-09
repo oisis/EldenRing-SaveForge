@@ -168,9 +168,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_prefix }}-${{ steps.version.outputs.version }}
-          path: |
-            build/bin/${{ matrix.artifact_prefix }}-${{ steps.version.outputs.version }}.zip
-            ${{ matrix.artifact_prefix }}-${{ steps.version.outputs.version }}.AppImage
+          path: build/bin/${{ matrix.artifact_prefix }}-${{ steps.version.outputs.version }}.zip
 
   release:
     needs: build
@@ -203,6 +201,4 @@ jobs:
           name: "Elden Ring SaveForge ${{ steps.version.outputs.tag }}"
           draft: false
           generate_release_notes: true
-          files: |
-            artifacts/**/*.zip
-            artifacts/**/*.AppImage
+          files: artifacts/**/*.zip

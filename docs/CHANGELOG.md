@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(ci): stop publishing the standalone Linux AppImage as a release asset
+
+The Linux job still bundles the AppImage inside its release zip; it is no longer
+uploaded or attached separately. The release now ships only the per-platform zip
+archives.
+
 ### feat(chaos): make Chaos Mode reach real game caps, reveal risk items, and warn before enabling
 
 Chaos Mode now behaves as intended end to end. The DB owned-count columns use the
