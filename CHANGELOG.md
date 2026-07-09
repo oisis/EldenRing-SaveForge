@@ -19,6 +19,10 @@
   alongside binary scan results (category: `weapons`).
 
 ### Fixed
+- Repair scanner no longer reports false-positive `unknown_item_id` for five legal technical
+  variant GoodsParam rows (`0x40002AFA`, `0x40002AFC`, `0x40002B08`, `0x40001FAD`, `0x40001FD2`).
+  These share their base item's params and are now registered in the item DB (flagged
+  `no_database`, kept out of the item picker).
 - Workspace validation issues (`upgrade_out_of_range`, `pending_aow_unknown`, `pending_aow_conflict`)
   are now surfaced in Tools → Diagnostic, resolving the gap between the two separate scan systems.
 - DiagnosticsModal "No repairable issues found" state now correctly considers all displayable

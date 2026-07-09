@@ -72,6 +72,14 @@ func TestItemTextsHasKnownIDs(t *testing.T) {
 func TestItemTextsAllAppItemsCovered(t *testing.T) {
 	allowed := map[uint32]bool{
 		0x4000D17E: true, // duplicate Holy Water Pot in extra_in_app (no FMG text)
+		// Technical left-side variant GoodsParam rows: share their base item's
+		// FMG text, so the generator emits no separate ItemTexts entry. Added to
+		// the DB solely to stop false-positive unknown_item_id in the scanner.
+		0x40002AFA: true, // Crimson Crystal Tear (Variant)
+		0x40002AFC: true, // Cerulean Crystal Tear (Variant)
+		0x40002B08: true, // Ruptured Crystal Tear (Variant)
+		0x40001FAD: true, // Academy Glintstone Key (Variant)
+		0x40001FD2: true, // Miniature Ranni (Variant)
 	}
 	var missing []uint32
 	for _, m := range allCategoryMaps() {
