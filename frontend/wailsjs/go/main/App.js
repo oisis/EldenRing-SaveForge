@@ -58,6 +58,10 @@ export function AuditLoadedSaveIssues() {
   return window['go']['main']['App']['AuditLoadedSaveIssues']();
 }
 
+export function BackupCurrentSave() {
+  return window['go']['main']['App']['BackupCurrentSave']();
+}
+
 export function BulkSetBellBearings(arg1, arg2, arg3) {
   return window['go']['main']['App']['BulkSetBellBearings'](arg1, arg2, arg3);
 }

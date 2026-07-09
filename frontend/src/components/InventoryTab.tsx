@@ -160,11 +160,14 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
         maxInv: number; maxStorage: number; maxUpgrade: number; currentUpgrade: number; iconPath: string;
         flags: string[];
         readOnly: boolean;
+        uid: string;
     };
 
-    const rowKey = (item: MergedItem) => item.nonStackable
-        ? `h-${item.inInventory ? 'i' : 's'}-${item.invHandle || item.storageHandle}`
-        : `s-${item.id}`;
+    // uid is a per-record unique React key. Talismans store N copies as N separate
+    // records sharing one id-derived handle, so handle alone is NOT unique — a
+    // collision breaks React reconciliation (sort/search/order glitch). uid is
+    // assigned at build time with an occurrence counter to disambiguate copies.
+    const rowKey = (item: MergedItem) => item.uid;
 
     // Build item list for display.
     // Non-stackable (maxInventory <= 1 and maxStorage <= 1): separate row for each instance in inventory and storage.
@@ -186,6 +189,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                     maxUpgrade: item.maxUpgrade, currentUpgrade: item.currentUpgrade ?? 0, iconPath: item.iconPath,
                     flags: item.flags ?? [],
                     readOnly: item.readOnly ?? false,
+                    uid: '',
                 });
             } else {
                 stackableMap.set(item.id, {
@@ -198,6 +202,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                     maxUpgrade: item.maxUpgrade, currentUpgrade: item.currentUpgrade ?? 0, iconPath: item.iconPath,
                     flags: item.flags ?? [],
                     readOnly: item.readOnly ?? false,
+                    uid: '',
                 });
             }
         });
@@ -214,6 +219,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                     maxUpgrade: item.maxUpgrade, currentUpgrade: item.currentUpgrade ?? 0, iconPath: item.iconPath,
                     flags: item.flags ?? [],
                     readOnly: item.readOnly ?? false,
+                    uid: '',
                 });
             } else {
                 const existing = stackableMap.get(item.id);
@@ -232,12 +238,23 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                         maxUpgrade: item.maxUpgrade, currentUpgrade: item.currentUpgrade ?? 0, iconPath: item.iconPath,
                         flags: item.flags ?? [],
                         readOnly: item.readOnly ?? false,
+                        uid: '',
                     });
                 }
             }
         });
 
-        return [...nonStackableList, ...Array.from(stackableMap.values())];
+        const all = [...nonStackableList, ...Array.from(stackableMap.values())];
+        const seen = new Map<string, number>();
+        for (const it of all) {
+            const base = it.nonStackable
+                ? `h-${it.inInventory ? 'i' : 's'}-${it.invHandle || it.storageHandle}`
+                : `s-${it.id}`;
+            const n = seen.get(base) ?? 0;
+            seen.set(base, n + 1);
+            it.uid = n === 0 ? base : `${base}#${n}`;
+        }
+        return all;
     }, [charInventory, charStorage]);
 
     const handleImageError = (iconPath: string) => {

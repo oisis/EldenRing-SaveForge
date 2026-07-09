@@ -6,6 +6,7 @@ import {
     TestSSHConnection, DeploySave, DownloadRemoteSave,
     LaunchRemoteGame, CloseRemoteGame, DeployAndLaunch, CloseAndDownload,
     PrepareConversion, ExecuteConversion,
+    BackupCurrentSave,
 } from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 import {useSafetyMode} from '../state/safetyMode';
@@ -13,6 +14,7 @@ import {FavoritesManager} from './FavoritesManager';
 import {useFavorites} from '../state/favorites';
 import {InventoryIssuesModal} from './InventoryIssuesModal';
 import {SaveManagerModal} from './SaveManagerModal';
+import {ChaosWarningModal} from './ChaosWarningModal';
 import {scanRepairIssuesLoaded, type RepairIssueReport} from '../lib/repairIssues';
 
 interface SettingsTabProps {
@@ -66,10 +68,29 @@ export function SettingsTab({
 
     const [fullChaosMode, setFullChaosMode] = useState<boolean>(() =>
         localStorage.getItem('setting:fullChaosMode') === 'true');
+    const [chaosModalOpen, setChaosModalOpen] = useState(false);
+    const commitChaos = (value: boolean) => {
+        setFullChaosMode(value);
+        localStorage.setItem('setting:fullChaosMode', String(value));
+        window.dispatchEvent(new CustomEvent('fullChaosModeChanged', { detail: value }));
+    };
+    // Enabling requires an explicit warning + confirmation; disabling is immediate.
     const handleChaosToggle = (checked: boolean) => {
-        setFullChaosMode(checked);
-        localStorage.setItem('setting:fullChaosMode', String(checked));
-        window.dispatchEvent(new CustomEvent('fullChaosModeChanged', { detail: checked }));
+        if (checked) setChaosModalOpen(true);
+        else commitChaos(false);
+    };
+    const confirmChaos = async (autoBackup: boolean) => {
+        if (autoBackup) {
+            try {
+                await BackupCurrentSave();
+                toast.success('Backup created');
+            } catch (err) {
+                toast.error(`Backup failed: ${err}`);
+                return; // do not enable Chaos Mode without the requested backup
+            }
+        }
+        setChaosModalOpen(false);
+        commitChaos(true);
     };
 
     const [scanning, setScanning] = useState(false);
@@ -457,11 +478,11 @@ export function SettingsTab({
                         </label>
                         <label className="flex-1 flex flex-col gap-1.5 p-3 rounded bg-red-500/5 border border-red-500/30 cursor-pointer hover:bg-red-500/10 transition-all">
                             <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-red-500">Full Chaos Mode</span>
+                                <span className="text-[10px] font-black uppercase tracking-widest text-red-500">Chaos Mode</span>
                                 <input type="checkbox" checked={fullChaosMode} onChange={e => handleChaosToggle(e.target.checked)} className="w-3.5 h-3.5 rounded border-red-500/40 text-red-500 focus:ring-red-500/20 shrink-0" />
                             </div>
                             <p className="text-[9px] text-muted-foreground leading-relaxed">
-                                <strong className="text-red-500/90">Uses technical game caps instead of conservative safety caps.</strong> Strongly increases EAC ban risk. Offline / experimental saves only.
+                                <strong className="text-red-500/90">Uses technical game caps and reveals risk-flagged items.</strong> Practically guarantees an EAC ban online. Offline / experimental saves only.
                             </p>
                         </label>
                     </div>
@@ -532,6 +553,12 @@ export function SettingsTab({
                 platform={platform}
                 onAfterLoad={onAfterLoad}
                 onClose={() => setShowSaveManager(false)}
+            />
+        )}
+        {chaosModalOpen && (
+            <ChaosWarningModal
+                onConfirm={confirmChaos}
+                onCancel={() => setChaosModalOpen(false)}
             />
         )}
         </>

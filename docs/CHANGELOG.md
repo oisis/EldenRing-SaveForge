@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0_beta2] - 2026-07-10
+
+### fix(inventory): model talisman copies without GaItem capacity
+
+Adding talismans no longer falsely fails preflight as `gaitem_full`. Talismans are
+handle-encoded and allocate no serialized `GaItem`, yet each copy is a distinct
+quantity-1 physical inventory/storage record. A single shared classifier
+(`classifyItemAdd`) now drives both `CheckAddCapacity` and `AddItemsToSlotBatch`,
+so preflight counts N physical slots and zero `GaItem`s for N talismans — fixing
+both the false `gaitem_full` rejection and the inverse risk of under-counting
+physical slots for a single `ItemToAdd{InvQty: N}`. The redundant caller-provided
+`ItemToAdd.IsStackable` flag was removed; classification is now derived purely
+from the item ID (plus the explicit `ForceStackable` arrow override).
+
+### fix(ci): stop publishing the standalone Linux AppImage as a release asset
+
+The Linux job still bundles the AppImage inside its release zip; it is no longer
+uploaded or attached separately. The release now ships only the per-platform zip
+archives.
+
+### feat(chaos): make Chaos Mode reach real game caps, reveal risk items, and warn before enabling
+
+Chaos Mode now behaves as intended end to end. The DB owned-count columns use the
+active mode's effective cap, so an item added to its regulation game limit (e.g.
+Ancient Dragon Smithing Stone at 999) reads `999 / 999` instead of the previous
+`999 / 18`. The artificial 99-copy ceiling on non-stackable items is removed in
+both Normal and Chaos Mode; the add-quantity input is now bounded by free
+inventory/storage slots (`GetSlotCapacity`), with `CheckAddCapacity` still the
+hard all-or-nothing guard. Chaos Mode reveals all risk-flagged items
+(`cut_content`, `ban_risk`, `pre_order`, `dlc_duplicate`) regardless of the "show
+flagged" toggle.
+
+Enabling Chaos Mode now shows a warning modal (OK / Cancel — Cancel does not
+enable) stating that edits are irreversible (restore-from-backup only) and that
+using it online is practically a guaranteed ban, with a default-on "create a
+backup first" checkbox wired to the new `BackupCurrentSave` endpoint. While
+active, the top navigation bar turns red with a pulsing "CHAOS MODE!!!" label.
+Renamed "Full Chaos Mode" to "Chaos Mode" and corrected the stale
+"bypasses all caps" comment.
+
 ## [1.1.0] - 2026-07-09
 
 ### feat(inventory): on-load validation modal, auto-repair engine, diagnostics integration

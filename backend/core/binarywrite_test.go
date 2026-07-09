@@ -68,7 +68,7 @@ func TestBinaryAddAndReload(t *testing.T) {
 
 	// ADD: smithing stone [3], qty=1 to inventory
 	_ = db.GetItemDataFuzzy // ensure db imported
-	if err := addToInventory(&slotCopy, stoneHandle, 1, false); err != nil {
+	if err := addToInventory(&slotCopy, stoneHandle, 1, false, false); err != nil {
 		t.Fatalf("addToInventory: %v", err)
 	}
 

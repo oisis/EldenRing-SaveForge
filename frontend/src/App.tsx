@@ -62,6 +62,10 @@ function App() {
     const [slotStates, setSlotStates] = useState<main.SlotState[]>([]);
     const [selectedChar, setSelectedChar] = useState<number>(0);
     const [activeTab, setActiveTab] = useState('character');
+    // Chaos Mode active flag — drives the red danger styling on the top nav.
+    // Synced from SettingsTab via the fullChaosModeChanged custom event.
+    const [fullChaosMode, setFullChaosMode] = useState<boolean>(() =>
+        localStorage.getItem('setting:fullChaosMode') === 'true');
     const [inventoryVersion, setInventoryVersion] = useState(0);
     const [saveLoadKey, setSaveLoadKey] = useState(0);
     const [theme, setTheme] = useState<Theme>(() => {
@@ -158,6 +162,11 @@ function App() {
 
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
     useEffect(() => { GetInfuseTypes().then(res => setInfuseTypes(res || [])); }, []);
+    useEffect(() => {
+        const handler = (e: Event) => setFullChaosMode((e as CustomEvent<boolean>).detail);
+        window.addEventListener('fullChaosModeChanged', handler);
+        return () => window.removeEventListener('fullChaosModeChanged', handler);
+    }, []);
     useEffect(() => { localStorage.setItem('setting:columnVisibility', JSON.stringify(columnVisibility)); }, [columnVisibility]);
     useEffect(() => { localStorage.setItem('setting:showFlaggedItems', String(showFlaggedItems)); }, [showFlaggedItems]);
     useEffect(() => { localStorage.setItem('setting:debugMode', String(debugMode)); }, [debugMode]);
@@ -553,8 +562,8 @@ function App() {
 
             {/* Main Content */}
             <main className="flex-1 flex flex-col relative z-10 bg-background overflow-hidden">
-                <header className="h-14 border-b border-border flex items-center justify-between px-8 bg-background/50 backdrop-blur-md sticky top-0 z-30">
-                    <nav className="flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50">
+                <header className={`h-14 border-b flex items-center justify-between px-8 backdrop-blur-md sticky top-0 z-30 transition-colors ${fullChaosMode ? 'border-red-600 bg-red-600/15' : 'border-border bg-background/50'}`}>
+                    <nav className={`flex gap-1.5 p-1 rounded-lg border ${fullChaosMode ? 'bg-red-600/10 border-red-600/50' : 'bg-muted/30 border-border/50'}`}>
                         {tabs.map(tab => (
                             <button
                                 key={tab}
@@ -562,12 +571,24 @@ function App() {
                                     if (tab === 'inventory') setInventoryVersion(v => v + 1);
                                     setActiveTab(tab);
                                 }}
-                                className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${activeTab === tab ? 'bg-green-700/80 shadow-sm text-white' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'}`}
+                                className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${
+                                    activeTab === tab
+                                        ? (fullChaosMode ? 'bg-red-600 shadow-sm text-white' : 'bg-green-700/80 shadow-sm text-white')
+                                        : (fullChaosMode ? (theme === 'light' ? 'text-black/80 hover:text-black' : 'text-white/90 hover:text-white') + ' hover:bg-red-600/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40')
+                                }`}
                             >
                                 {tab}
                             </button>
                         ))}
                     </nav>
+                    {fullChaosMode && (
+                        <span
+                            style={{ WebkitTextStroke: '0.4px rgba(255,255,255,0.9)' }}
+                            className="text-sm font-black uppercase tracking-[0.2em] text-red-600 animate-pulse select-none"
+                        >
+                            CHAOS MODE!!!
+                        </span>
+                    )}
                     <div className="flex items-center space-x-4">
                         {undoDepth > 0 && (
                             <button

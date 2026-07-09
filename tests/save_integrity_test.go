@@ -1070,11 +1070,10 @@ func TestNoWarningsOnCleanSaves(t *testing.T) {
 // TestAcquisitionSortIdIncrementFix verifies that after adding N items:
 //   - NextAcquisitionSortId increments by exactly N (it is the source of each
 //     new item's Index)
-//   - NextEquipIndex is LEFT UNTOUCHED — it is a separate equip-list counter,
-//     NOT a visibility gate. Genuine console saves keep it far below the
-//     acquisition counter (e.g. ER0000 has NextEquipIndex=1198 with item indices
-//     up to ~15668, and the game renders every item). Forcing it up corrupts the
-//     slot (CE-108255-1).
+//   - NextEquipIndex is never globally reconciled on load, because genuine
+//     console saves may keep it far below existing acquisition indices. But when
+//     SaveForge itself creates a new record at or beyond that counter, it bumps
+//     the counter locally so the new record remains visible in-game (issue #3).
 //   - New items get unique indices drawn from the acquisition counter.
 func TestAcquisitionSortIdIncrementFix(t *testing.T) {
 	save := loadTestSave(t, pcSavePath)
@@ -1096,9 +1095,12 @@ func TestAcquisitionSortIdIncrementFix(t *testing.T) {
 		t.Errorf("NextAcquisitionSortId: want %d+3=%d, got %d",
 			beforeAcq, beforeAcq+3, afterAcq)
 	}
-	if afterEquip != beforeEquip {
-		t.Errorf("NextEquipIndex must be preserved: want %d, got %d (add must not touch it)",
-			beforeEquip, afterEquip)
+	wantEquip := beforeEquip
+	if afterAcq > beforeEquip {
+		wantEquip = afterAcq
+	}
+	if afterEquip != wantEquip {
+		t.Errorf("NextEquipIndex: want %d, got %d", wantEquip, afterEquip)
 	}
 	// The three new items must carry unique acquisition indices in [beforeAcq, afterAcq).
 	seen := map[uint32]bool{}
@@ -1113,7 +1115,7 @@ func TestAcquisitionSortIdIncrementFix(t *testing.T) {
 			seen[item.Index] = true
 		}
 	}
-	t.Logf("OK: AcqSort %d→%d (+%d), EquipIdx %d→%d (+%d, preserved)",
+	t.Logf("OK: AcqSort %d→%d (+%d), EquipIdx %d→%d (+%d, local insert update)",
 		beforeAcq, afterAcq, afterAcq-beforeAcq,
 		beforeEquip, afterEquip, afterEquip-beforeEquip)
 }
