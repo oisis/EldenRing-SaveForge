@@ -114,7 +114,12 @@ func TestValidate_UnknownItemID(t *testing.T) {
 	}
 }
 
-func TestValidate_PassThroughCountWarning(t *testing.T) {
+// TestValidate_NoPassThroughAggregate confirms Prompt 12 removed the aggregate
+// "N records will round-trip unchanged" warning. Pass-through is a write
+// strategy, not an integrity defect — record resolution is now reported through
+// the measurable coverage model (core.BuildCoverageReport), not a fake issue.
+// The raw unsupported counts remain on the report for callers that need them.
+func TestValidate_NoPassThroughAggregate(t *testing.T) {
 	snap := InventoryWorkspaceSnapshot{
 		InventoryItems: []EditableItem{cleanItem("uid:p", 0x80800001)},
 		UnsupportedInventoryRecords: []RawInventoryRecord{
@@ -125,14 +130,10 @@ func TestValidate_PassThroughCountWarning(t *testing.T) {
 	if !rep.OK {
 		t.Fatalf("expected OK=true (warnings only), got errors=%+v", rep.Errors)
 	}
-	foundCount := 0
 	for _, w := range rep.Warnings {
 		if w.Code == CodePassThroughRecords {
-			foundCount++
+			t.Errorf("pass-through aggregate must no longer be emitted, got %+v", w)
 		}
-	}
-	if foundCount != 1 {
-		t.Errorf("expected exactly one pass-through warning, got %d (%+v)", foundCount, rep.Warnings)
 	}
 	if rep.UnsupportedInventoryCount != 1 {
 		t.Errorf("UnsupportedInventoryCount = %d, want 1", rep.UnsupportedInventoryCount)

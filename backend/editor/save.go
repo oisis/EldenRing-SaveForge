@@ -12,9 +12,12 @@ import (
 // HandlesByUID maps editor UIDs to allocated GaItem handles after a
 // successful ApplyWorkspaceSave. UID format for existing items is
 // "hnd:0x%08X" (handle never changes — kept stable across transfers and
-// reorders) and "new:N" for added items (handle freshly minted by
-// AddItemsToSlotBatch). Removed items are absent from this map.
-// Callers use this to follow the same item through subsequent edits.
+// reorders), or "hnd:0x%08X:<container>:<slot>" for a handle that repeats
+// across records in the same snapshot (e.g. several copies of the same
+// talisman — see classifyRecord), and "new:N" for added items (handle
+// freshly minted by AddItemsToSlotBatch). Removed items are absent from
+// this map. Callers use this to follow the same item through subsequent
+// edits.
 type HandlesByUID map[string]uint32
 
 // ApplyWorkspaceSave is the Phase 4B commit path. It validates the
@@ -77,20 +80,38 @@ type HandlesByUID map[string]uint32
 //     slot.Data is byte-identical to the input.
 //   - Once writes begin (after the rejection block), an error means
 //     slot.Data has been partially mutated. Caller MUST roll back.
-func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, baseline map[uint32]ContainerKind) (HandlesByUID, error) {
+func ApplyWorkspaceSave(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, baseline map[string]ContainerKind) (HandlesByUID, error) {
 	if slot == nil || snap == nil {
 		return nil, fmt.Errorf("ApplyWorkspaceSave: nil slot or snapshot")
 	}
 
 	// ── Pre-flight rejection checks (no mutation) ─────────────────
 	rep := Validate(*snap)
-	if !rep.OK {
+	// ponytail: these codes represent pre-existing or in-progress repair
+	// states — they cannot be hard blockers because Fix-single repairs one
+	// item at a time while others remain unfixed. Only errors that would
+	// corrupt the physical write are blocking.
+	nonBlocking := map[string]bool{
+		CodeDuplicateUID:      true,
+		CodeDuplicateHandle:   true,
+		CodeUpgradeOutOfRange: true,
+		CodePendingAoWUnknown: true,
+		CodePendingAoWConflict: true,
+	}
+	var blockingErr *WorkspaceValidationIssue
+	for i := range rep.Errors {
+		if !nonBlocking[rep.Errors[i].Code] {
+			blockingErr = &rep.Errors[i]
+			break
+		}
+	}
+	if blockingErr != nil {
 		return nil, fmt.Errorf("ApplyWorkspaceSave: workspace fails validation: %d error(s) (first: %s)",
-			len(rep.Errors), rep.Errors[0].Message)
+			len(rep.Errors), blockingErr.Message)
 	}
 
 	if baseline == nil {
-		return nil, fmt.Errorf("ApplyWorkspaceSave: session missing baseline handle map (requires a session created with baseline tracking)")
+		return nil, fmt.Errorf("ApplyWorkspaceSave: session missing baseline record map (requires a session created with baseline tracking)")
 	}
 	// Pending AoW pre-flight (Phase 4B). Collect intents first so
 	// execution and validation share one source of truth; validation
@@ -331,64 +352,67 @@ func lookupHandleByUID(snap *InventoryWorkspaceSnapshot, uid string) uint32 {
 }
 
 // currentEditableContainerMap collapses both editable container slices
-// into a (handle → container) map for Source=Original items with a real
-// handle. Added items and zero handles are skipped — they're not
-// represented in the baseline. Shared by both detection helpers.
-func currentEditableContainerMap(snap *InventoryWorkspaceSnapshot) map[uint32]ContainerKind {
-	out := make(map[uint32]ContainerKind, len(snap.InventoryItems)+len(snap.StorageItems))
+// into a (record UID → container) map for Source=Original items with a
+// real handle. Added items and zero handles are skipped — they're not
+// represented in the baseline. Keyed by UID rather than OriginalHandle
+// because a handle alone does not identify a physical record — talisman
+// (and other item-derived) handles are legitimately shared by several
+// records. Shared by both detection helpers.
+func currentEditableContainerMap(snap *InventoryWorkspaceSnapshot) map[string]ContainerKind {
+	out := make(map[string]ContainerKind, len(snap.InventoryItems)+len(snap.StorageItems))
 	for _, it := range snap.InventoryItems {
 		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
-			out[it.OriginalHandle] = ContainerInventory
+			out[it.UID] = ContainerInventory
 		}
 	}
 	for _, it := range snap.StorageItems {
 		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
-			out[it.OriginalHandle] = ContainerStorage
+			out[it.UID] = ContainerStorage
 		}
 	}
 	return out
 }
 
-// detectRemovedEditableHandles returns the baseline handles that no
+// detectRemovedEditableHandles returns the baseline record UIDs that no
 // longer appear in the workspace's editable lists. Added items are not
 // considered — they're not in the baseline to begin with. Used by
 // callers that want to know which removals are about to be committed
 // (e.g., for future GC bookkeeping or telemetry); the actual record
 // removal happens implicitly via the wipe-and-replay layout, which
 // only emits items present in the workspace.
-func detectRemovedEditableHandles(snap *InventoryWorkspaceSnapshot, baseline map[uint32]ContainerKind) []uint32 {
+func detectRemovedEditableHandles(snap *InventoryWorkspaceSnapshot, baseline map[string]ContainerKind) []string {
 	if baseline == nil {
 		return nil
 	}
 	current := currentEditableContainerMap(snap)
-	var removed []uint32
-	for h := range baseline {
-		if _, present := current[h]; !present {
-			removed = append(removed, h)
+	var removed []string
+	for uid := range baseline {
+		if _, present := current[uid]; !present {
+			removed = append(removed, uid)
 		}
 	}
 	return removed
 }
 
-// detectTransferredEditableItems returns the baseline handles whose
-// container differs in the current workspace, mapped to their new
-// container. Added items are ignored (no baseline entry). Reorder
+// detectTransferredEditableItems returns the baseline records whose
+// container differs in the current workspace, mapped (by UID) to their
+// new container. Added items are ignored (no baseline entry). Reorder
 // within the same container is not flagged. Used the same way as
 // detectRemovedEditableHandles — informational; the wipe-and-replay
 // layout realises the move by emitting the item in its new container.
-func detectTransferredEditableItems(snap *InventoryWorkspaceSnapshot, baseline map[uint32]ContainerKind) map[uint32]ContainerKind {
+func detectTransferredEditableItems(snap *InventoryWorkspaceSnapshot, baseline map[string]ContainerKind) map[string]ContainerKind {
 	if baseline == nil {
 		return nil
 	}
 	current := currentEditableContainerMap(snap)
-	out := map[uint32]ContainerKind{}
-	for h, orig := range baseline {
-		cur, present := current[h]
+	out := map[string]ContainerKind{}
+	for uid, orig := range baseline {
+		cur, present := current[uid]
 		if !present {
 			continue
 		}
 		if cur != orig {
-			out[h] = cur
+			out[uid] = cur
 		}
 	}
 	return out
@@ -516,7 +540,7 @@ func executeWeaponPatches(slot *core.SaveSlot, items []EditableItem) error {
 //   - Storage uses a compacted CommonItems list (only non-empty
 //     entries, in physical slot order) — matching ReadStorage's parse
 //     convention.
-func writeContainerLayout(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, kind ContainerKind, baseline map[uint32]ContainerKind) error {
+func writeContainerLayout(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot, kind ContainerKind, baseline map[string]ContainerKind) error {
 	var (
 		editables   []EditableItem
 		passthrough []RawInventoryRecord
@@ -686,12 +710,19 @@ func writeContainerLayout(slot *core.SaveSlot, snap *InventoryWorkspaceSnapshot,
 
 // containerSameItemSet reports whether the container holds exactly the same
 // original items it was loaded with — no added items, no removed or
-// transferred items (the editable original-handle set equals the baseline set
-// for this container). A reorder is allowed: the set is unchanged even if the
+// transferred items (the editable record set equals the baseline set for
+// this container). A reorder is allowed: the set is unchanged even if the
 // Position order differs. When true the caller can keep every item at its
 // original physical slot and reuse the original acquisition-index pool, so a
 // no-op save stays byte-identical and a reorder touches only index fields.
-func containerSameItemSet(editables []EditableItem, kind ContainerKind, baseline map[uint32]ContainerKind) bool {
+//
+// Keyed by EditableItem.UID rather than OriginalHandle: a handle alone does
+// not identify a physical record (talisman handles are item-derived and
+// legitimately repeat across records), so a handle-keyed baseline can only
+// remember one of several same-handle records and miscounts baselineCount —
+// which previously forced a same-handle-in-two-containers item through the
+// full wipe-and-replay path on every save, even a no-op one.
+func containerSameItemSet(editables []EditableItem, kind ContainerKind, baseline map[string]ContainerKind) bool {
 	if baseline == nil {
 		return false
 	}
@@ -708,7 +739,7 @@ func containerSameItemSet(editables []EditableItem, kind ContainerKind, baseline
 		if it.Source != ItemSourceOriginal || it.OriginalSlotIndex < 0 {
 			return false // an added item
 		}
-		if baseline[it.OriginalHandle] != kind {
+		if baseline[it.UID] != kind {
 			return false // removed, transferred in, or moved between containers
 		}
 	}

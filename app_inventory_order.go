@@ -578,7 +578,7 @@ func (a *App) ReorderStorage(charIdx int, tab string, orderedHandles []uint32) e
 	}
 
 	// Stride-2 base: start at NextAcquisitionSortId rounded up to nearest even.
-	// Strictly > InvEquipReservedMax to stay clear of reserved equipment slots.
+	// For newly generated editor indices, stay above InvEquipReservedMax.
 	base := slot.Storage.NextAcquisitionSortId
 	if base <= uint32(core.InvEquipReservedMax) {
 		base = uint32(core.InvEquipReservedMax) + 2

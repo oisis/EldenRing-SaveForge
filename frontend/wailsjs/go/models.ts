@@ -68,6 +68,32 @@ export namespace core {
 		    return a;
 		}
 	}
+	export class IssueKey {
+	    slot: number;
+	    domain: string;
+	    code: string;
+	    scope: string;
+	    row: number;
+	    handle: number;
+	    field?: string;
+	    value?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new IssueKey(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slot = source["slot"];
+	        this.domain = source["domain"];
+	        this.code = source["code"];
+	        this.scope = source["scope"];
+	        this.row = source["row"];
+	        this.handle = source["handle"];
+	        this.field = source["field"];
+	        this.value = source["value"];
+	    }
+	}
 	export class NetworkParamValues {
 	    maxBreakInTargetListCount: number;
 	    breakInRequestIntervalTimeSec: number;
@@ -171,6 +197,37 @@ export namespace core {
 		    }
 		    return a;
 		}
+	}
+	
+	export class ValidationCoverage {
+	    totalPhysical: number;
+	    resolved: number;
+	    knownDB: number;
+	    technicalPlaceholder: number;
+	    unknown: number;
+	    resolutionChecksApplied: number;
+	    structuralChecksApplied: number;
+	    categoryChecksApplied: number;
+	    perCategory: Record<string, number>;
+	    unknownByReason: Record<string, number>;
+	
+	    static createFrom(source: any = {}) {
+	        return new ValidationCoverage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalPhysical = source["totalPhysical"];
+	        this.resolved = source["resolved"];
+	        this.knownDB = source["knownDB"];
+	        this.technicalPlaceholder = source["technicalPlaceholder"];
+	        this.unknown = source["unknown"];
+	        this.resolutionChecksApplied = source["resolutionChecksApplied"];
+	        this.structuralChecksApplied = source["structuralChecksApplied"];
+	        this.categoryChecksApplied = source["categoryChecksApplied"];
+	        this.perCategory = source["perCategory"];
+	        this.unknownByReason = source["unknownByReason"];
+	    }
 	}
 
 }
@@ -658,6 +715,10 @@ export namespace db {
 	    subCategory?: string;
 	    maxInventory: number;
 	    maxStorage: number;
+	    gameMaxInventory: number;
+	    gameMaxStorage: number;
+	    gameMaxInventoryKnown: boolean;
+	    gameMaxStorageKnown: boolean;
 	    maxUpgrade: number;
 	    iconPath: string;
 	    flags: string[];
@@ -685,6 +746,10 @@ export namespace db {
 	        this.subCategory = source["subCategory"];
 	        this.maxInventory = source["maxInventory"];
 	        this.maxStorage = source["maxStorage"];
+	        this.gameMaxInventory = source["gameMaxInventory"];
+	        this.gameMaxStorage = source["gameMaxStorage"];
+	        this.gameMaxInventoryKnown = source["gameMaxInventoryKnown"];
+	        this.gameMaxStorageKnown = source["gameMaxStorageKnown"];
 	        this.maxUpgrade = source["maxUpgrade"];
 	        this.iconPath = source["iconPath"];
 	        this.flags = source["flags"];
@@ -1732,6 +1797,70 @@ export namespace main {
 		}
 	}
 	
+	export class WorkspaceIssueDetail {
+	    code: string;
+	    severity: string;
+	    message: string;
+	    uid: string;
+	    handle: number;
+	    itemName: string;
+	    canRepair: boolean;
+	    repairDesc: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceIssueDetail(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.severity = source["severity"];
+	        this.message = source["message"];
+	        this.uid = source["uid"];
+	        this.handle = source["handle"];
+	        this.itemName = source["itemName"];
+	        this.canRepair = source["canRepair"];
+	        this.repairDesc = source["repairDesc"];
+	    }
+	}
+	export class InventoryIssuesScanReport {
+	    charIdx: number;
+	    sessionID: string;
+	    hasIssues: boolean;
+	    binaryIssues: core.DiagnosticIssue[];
+	    workspaceIssues: WorkspaceIssueDetail[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InventoryIssuesScanReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.charIdx = source["charIdx"];
+	        this.sessionID = source["sessionID"];
+	        this.hasIssues = source["hasIssues"];
+	        this.binaryIssues = this.convertValues(source["binaryIssues"], core.DiagnosticIssue);
+	        this.workspaceIssues = this.convertValues(source["workspaceIssues"], WorkspaceIssueDetail);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class InventoryOrderItem {
 	    handle: number;
 	    itemId: number;
@@ -1837,6 +1966,253 @@ export namespace main {
 	        this.summoningPools = source["summoningPools"];
 	        this.sitesOfGrace = source["sitesOfGrace"];
 	    }
+	}
+	export class RepairActionResult {
+	    issueID: string;
+	    slotIndex: number;
+	    action: string;
+	    outcome: string;
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairActionResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.issueID = source["issueID"];
+	        this.slotIndex = source["slotIndex"];
+	        this.action = source["action"];
+	        this.outcome = source["outcome"];
+	        this.message = source["message"];
+	    }
+	}
+	export class RepairApplyReport {
+	    applied: number;
+	    skipped: number;
+	    failed: number;
+	    needsUserInput: number;
+	    stopped: boolean;
+	    results: RepairActionResult[];
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairApplyReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.applied = source["applied"];
+	        this.skipped = source["skipped"];
+	        this.failed = source["failed"];
+	        this.needsUserInput = source["needsUserInput"];
+	        this.stopped = source["stopped"];
+	        this.results = this.convertValues(source["results"], RepairActionResult);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RepairApplyTarget {
+	    issueID: string;
+	    key: core.IssueKey;
+	    fingerprint: string;
+	    selectedAction: string;
+	    aowHandle: number;
+	    aowItemID: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairApplyTarget(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.issueID = source["issueID"];
+	        this.key = this.convertValues(source["key"], core.IssueKey);
+	        this.fingerprint = source["fingerprint"];
+	        this.selectedAction = source["selectedAction"];
+	        this.aowHandle = source["aowHandle"];
+	        this.aowItemID = source["aowItemID"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RepairCapacityRequirement {
+	    resource: string;
+	    needed: number;
+	    available: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairCapacityRequirement(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.resource = source["resource"];
+	        this.needed = source["needed"];
+	        this.available = source["available"];
+	    }
+	}
+	export class RepairIssueAction {
+	    id: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairIssueAction(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.label = source["label"];
+	    }
+	}
+	export class RepairIssueRecord {
+	    scope: string;
+	    row: number;
+	    handle: number;
+	    itemId: number;
+	    name: string;
+	    category: string;
+	    quantity: number;
+	    currentUpgrade: number;
+	    infusionName: string;
+	    unknown: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairIssueRecord(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.row = source["row"];
+	        this.handle = source["handle"];
+	        this.itemId = source["itemId"];
+	        this.name = source["name"];
+	        this.category = source["category"];
+	        this.quantity = source["quantity"];
+	        this.currentUpgrade = source["currentUpgrade"];
+	        this.infusionName = source["infusionName"];
+	        this.unknown = source["unknown"];
+	    }
+	}
+	export class RepairIssueDTO {
+	    issueID: string;
+	    debugKey: string;
+	    fingerprint: string;
+	    key: core.IssueKey;
+	    description: string;
+	    severity: string;
+	    actions: RepairIssueAction[];
+	    defaultAction: string;
+	    record?: RepairIssueRecord;
+	    capacity?: RepairCapacityRequirement;
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairIssueDTO(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.issueID = source["issueID"];
+	        this.debugKey = source["debugKey"];
+	        this.fingerprint = source["fingerprint"];
+	        this.key = this.convertValues(source["key"], core.IssueKey);
+	        this.description = source["description"];
+	        this.severity = source["severity"];
+	        this.actions = this.convertValues(source["actions"], RepairIssueAction);
+	        this.defaultAction = source["defaultAction"];
+	        this.record = this.convertValues(source["record"], RepairIssueRecord);
+	        this.capacity = this.convertValues(source["capacity"], RepairCapacityRequirement);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class RepairIssueReport {
+	    slotIndex: number;
+	    charName: string;
+	    issues: RepairIssueDTO[];
+	    hasIssues: boolean;
+	    coverage: core.ValidationCoverage;
+	
+	    static createFrom(source: any = {}) {
+	        return new RepairIssueReport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slotIndex = source["slotIndex"];
+	        this.charName = source["charName"];
+	        this.issues = this.convertValues(source["issues"], RepairIssueDTO);
+	        this.hasIssues = source["hasIssues"];
+	        this.coverage = this.convertValues(source["coverage"], core.ValidationCoverage);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class RepairReport {
 	    fixed: string[];
@@ -1985,6 +2361,22 @@ export namespace main {
 	        this.active = source["active"];
 	        this.residual = source["residual"];
 	        this.empty = source["empty"];
+	    }
+	}
+	
+	
+	export class WorkspaceRepairSpec {
+	    uid: string;
+	    code: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceRepairSpec(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uid = source["uid"];
+	        this.code = source["code"];
 	    }
 	}
 

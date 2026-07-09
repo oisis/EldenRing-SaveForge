@@ -1,4 +1,4 @@
-import {useState, useEffect, useCallback} from 'react';
+import {useState, useEffect, useCallback, useRef} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
 import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion} from '../wailsjs/go/main/App';
@@ -8,6 +8,7 @@ import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
 import {SettingsTab} from './components/SettingsTab';
 import {DiagnosticsModal} from './components/DiagnosticsModal';
+import {InventoryIssuesModal} from './components/InventoryIssuesModal';
 import {DatabaseTab} from './components/DatabaseTab';
 import {AppearanceTab} from './components/AppearanceTab';
 import {PvPTab} from './components/PvPTab';
@@ -18,6 +19,7 @@ import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
 import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
 import {db} from '../wailsjs/go/models';
+import { scanRepairIssuesLoaded, shouldAutoOpenOnLoad, type RepairIssueReport } from './lib/repairIssues';
 
 type Theme = 'light' | 'dark' | 'golden';
 
@@ -53,6 +55,9 @@ function App() {
     const [platform, setPlatform] = useState<string | null>(null);
     const [activeSlots, setActiveSlots] = useState<boolean[]>([]);
     const [postLoadDiagReport, setPostLoadDiagReport] = useState<main.DiagnosticsReport | null>(null);
+    const [inventoryIssuesModal, setInventoryIssuesModal] = useState<{ reports: RepairIssueReport[] } | null>(null);
+    // Tracks "saveLoadKey:charIdx" combos already shown to avoid re-triggering.
+    const scannedKeys = useRef(new Set<string>());
     const [charNames, setCharacterNames] = useState<string[]>([]);
     const [slotStates, setSlotStates] = useState<main.SlotState[]>([]);
     const [selectedChar, setSelectedChar] = useState<number>(0);
@@ -131,6 +136,21 @@ function App() {
     }, [refreshUndoDepth]);
 
     useEffect(() => { refreshUndoDepth(); }, [refreshUndoDepth, inventoryVersion]);
+
+    // On-load inventory issues scan — triggers when file loads or character switches.
+    useEffect(() => {
+        if (!platform || integrityBlocking) {
+            if (!platform) scannedKeys.current.clear();
+            return;
+        }
+        const key = `${saveLoadKey}:${selectedChar}`;
+        if (scannedKeys.current.has(key)) return;
+        scannedKeys.current.add(key);
+        scanRepairIssuesLoaded(selectedChar)
+            .then(report => { if (shouldAutoOpenOnLoad(report)) setInventoryIssuesModal({ reports: [report] }); })
+            .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [platform, selectedChar, saveLoadKey, integrityBlocking]);
 
     const tabs = platform
         ? ['character', 'inventory', 'world', 'advanced', 'tools']
@@ -876,10 +896,21 @@ function App() {
         )}
         {postLoadDiagReport && (
             <DiagnosticsModal
-                charIndex={selectedChar}
-                platform={platform}
                 initialReport={postLoadDiagReport}
                 onClose={() => setPostLoadDiagReport(null)}
+            />
+        )}
+        {inventoryIssuesModal && (
+            <InventoryIssuesModal
+                reports={inventoryIssuesModal.reports}
+                charIndex={selectedChar}
+                onClose={() => setInventoryIssuesModal(null)}
+                onSaved={() => {
+                    setInventoryIssuesModal(null);
+                    setInventoryVersion(v => v + 1);
+                    setSaveDataRevision(v => v + 1);
+                    refreshUndoDepth();
+                }}
             />
         )}
         <ToastBar sidebarWidth={256} />

@@ -33,7 +33,9 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     GetItemListChunk: vi.fn(),
     GetInfuseTypes: vi.fn(),
     AddItemsToCharacter: vi.fn(),
+    AddItemsToCharacterWithGameLimits: vi.fn(),
     GetCharacter: vi.fn(),
+    GetBellBearings: vi.fn(),
 }));
 
 vi.mock('../lib/toast', () => {
@@ -52,11 +54,48 @@ vi.mock('../state/favorites', () => ({
 }));
 
 import * as App from '../../wailsjs/go/main/App';
-import { DatabaseTab } from './DatabaseTab';
+import { DatabaseTab, effectiveCap } from './DatabaseTab';
 
 const mocks = App as unknown as Record<string, ReturnType<typeof vi.fn>>;
 
 const BAN_ITEM_ID = 0x2000;
+
+describe('effectiveCap', () => {
+    const pebble = db.ItemEntry.createFrom({
+        id: 0x40000FA0,
+        name: 'Glintstone Pebble',
+        category: 'sorceries',
+        maxInventory: 1,
+        maxStorage: 0,
+        gameMaxInventory: 99,
+        gameMaxStorage: 600,
+        gameMaxInventoryKnown: true,
+        gameMaxStorageKnown: true,
+        maxUpgrade: 0,
+        iconPath: '',
+        flags: [],
+    });
+
+    it('keeps conservative caps in Normal Mode', () => {
+        expect(effectiveCap(pebble, 'inv', 0, false)).toBe(1);
+        expect(effectiveCap(pebble, 'storage', 0, false)).toBe(0);
+    });
+
+    it('uses technical game caps in Full Chaos Mode', () => {
+        expect(effectiveCap(pebble, 'inv', 0, true)).toBe(99);
+        expect(effectiveCap(pebble, 'storage', 0, true)).toBe(600);
+    });
+
+    it('falls back to conservative caps when game limits are unknown', () => {
+        const unknown = db.ItemEntry.createFrom({
+            ...pebble,
+            gameMaxInventoryKnown: false,
+            gameMaxStorageKnown: false,
+        });
+        expect(effectiveCap(unknown, 'inv', 0, true)).toBe(1);
+        expect(effectiveCap(unknown, 'storage', 0, true)).toBe(0);
+    });
+});
 
 function makeBanRiskItem(): db.ItemEntry {
     return db.ItemEntry.createFrom({
@@ -111,9 +150,14 @@ beforeEach(() => {
     localStorage.clear();
     mocks.GetInfuseTypes.mockResolvedValue([]);
     mocks.GetCharacter.mockResolvedValue({ inventory: [], storage: [], clearCount: 0 });
+    mocks.GetBellBearings.mockResolvedValue([]);
     mocks.GetItemList.mockResolvedValue([makeBanRiskItem()]);
     mocks.GetItemListChunk.mockResolvedValue([]);
     mocks.AddItemsToCharacter.mockResolvedValue({
+        added: 1, requested: 1, trimmed: [], capHit: '',
+        freeInv: 0, freeStore: 0, neededInv: 0, neededStore: 0,
+    });
+    mocks.AddItemsToCharacterWithGameLimits.mockResolvedValue({
         added: 1, requested: 1, trimmed: [], capHit: '',
         freeInv: 0, freeStore: 0, neededInv: 0, neededStore: 0,
     });
@@ -239,6 +283,34 @@ describe('DatabaseTab', () => {
 
         // Closing is UI-only: no second mutation triggered.
         expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1);
+    });
+
+    it('Full Chaos Mode routes adds through the game-limit endpoint', async () => {
+        localStorage.setItem('setting:fullChaosMode', 'true');
+        const pebble = db.ItemEntry.createFrom({
+            id: 0x40000FA0,
+            name: 'Glintstone Pebble',
+            category: 'sorceries',
+            maxInventory: 1,
+            maxStorage: 0,
+            gameMaxInventory: 99,
+            gameMaxStorage: 600,
+            gameMaxInventoryKnown: true,
+            gameMaxStorageKnown: true,
+            maxUpgrade: 0,
+            iconPath: '',
+            flags: [],
+        });
+        mocks.GetItemList.mockResolvedValue([pebble]);
+
+        renderTab({category: 'sorceries'});
+        fireEvent.click(await screen.findByRole('button', {name: /Add Favorites/i}));
+        expect(await screen.findByText(/technical game caps/i)).toBeInTheDocument();
+        fireEvent.click(screen.getByRole('button', {name: /^Add$/}));
+
+        await waitFor(() =>
+            expect(mocks.AddItemsToCharacterWithGameLimits).toHaveBeenCalledTimes(1));
+        expect(mocks.AddItemsToCharacter).not.toHaveBeenCalled();
     });
 
     // NOTE: the legacy "Repair & Retry" prompt that fired on a duplicate

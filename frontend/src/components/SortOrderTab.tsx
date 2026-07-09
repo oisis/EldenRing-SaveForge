@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { GetItemList } from '../../wailsjs/go/main/App';
+import { GetItemList, RepairInventoryWorkspaceItems } from '../../wailsjs/go/main/App';
 import { db, editor, main } from '../../wailsjs/go/models';
 import toast from '../lib/toast';
 import { useInventoryWorkspace, ContainerKind } from '../hooks/useInventoryWorkspace';
@@ -544,7 +544,11 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
 
                 {/* ── Validation issues panel (collapsible — only when present) ── */}
                 {(errorCount > 0 || warningCount > 0) && (
-                    <ValidationPanel validation={validation!} />
+                    <ValidationPanel
+                        validation={validation!}
+                        sessionID={sessionID}
+                        onRepaired={snap => workspace.replaceSnapshot(snap)}
+                    />
                 )}
 
                 {loading && (
@@ -1005,21 +1009,63 @@ function ConfirmModal({ title, body, confirmLabel, confirmTone, onConfirm, onCan
 }
 
 // ── Validation panel ──────────────────────────────────────────────────────────
-function ValidationPanel({ validation }: { validation: editor.WorkspaceValidationReport }) {
+const WORKSPACE_AUTO_REPAIR_CODES = new Set(['upgrade_out_of_range', 'pending_aow_unknown', 'pending_aow_conflict']);
+
+function ValidationPanel({
+    validation,
+    sessionID,
+    onRepaired,
+}: {
+    validation: editor.WorkspaceValidationReport;
+    sessionID: string;
+    onRepaired: (snap: editor.InventoryWorkspaceSnapshot) => void;
+}) {
     const [open, setOpen] = useState(true);
+    const [repairing, setRepairing] = useState(false);
+
     const issues = [
         ...validation.errors.map(i => ({ ...i, severity: 'error' as const })),
         ...validation.warnings.map(i => ({ ...i, severity: 'warning' as const })),
     ];
+
+    const repairableSpecs = issues
+        .filter(i => WORKSPACE_AUTO_REPAIR_CODES.has(i.code) && i.uid)
+        .map(i => main.WorkspaceRepairSpec.createFrom({ uid: i.uid, code: i.code }));
+
+    const handleRepairAll = async () => {
+        if (!sessionID || repairing || repairableSpecs.length === 0) return;
+        setRepairing(true);
+        try {
+            const snap = await RepairInventoryWorkspaceItems(sessionID, repairableSpecs);
+            onRepaired(snap);
+            toast.success(`Repaired ${repairableSpecs.length} issue(s) successfully.`);
+        } catch (e) {
+            toast.error(`Repair failed: ${String(e)}`);
+        } finally {
+            setRepairing(false);
+        }
+    };
+
     if (issues.length === 0) return null;
     return (
         <div className="shrink-0 rounded border border-border/40 bg-background/30">
-            <button
-                onClick={() => setOpen(o => !o)}
-                className="w-full px-3 py-1.5 text-left text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all"
-            >
-                {open ? '▼' : '▶'} Validation ({validation.errors.length} error · {validation.warnings.length} warn)
-            </button>
+            <div className="flex items-center">
+                <button
+                    onClick={() => setOpen(o => !o)}
+                    className="flex-1 px-3 py-1.5 text-left text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all"
+                >
+                    {open ? '▼' : '▶'} Validation ({validation.errors.length} error · {validation.warnings.length} warn)
+                </button>
+                {repairableSpecs.length > 0 && (
+                    <button
+                        onClick={handleRepairAll}
+                        disabled={repairing || !sessionID}
+                        className="mr-2 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest rounded bg-primary/20 text-primary border border-primary/30 hover:bg-primary/30 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                    >
+                        {repairing ? '…' : `Repair auto-fixable (${repairableSpecs.length})`}
+                    </button>
+                )}
+            </div>
             {open && (
                 <ul className="max-h-48 overflow-y-auto text-xs divide-y divide-border/40">
                     {issues.map((i, idx) => (

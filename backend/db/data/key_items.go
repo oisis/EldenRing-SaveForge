@@ -33,6 +33,7 @@ var KeyItems = map[uint32]ItemData{
 	0x401EA3CE: {Name: "Secret Rite Scroll", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/secret_rite_scroll.png", Flags: []string{"dlc"}},
 	0x401EA3D7: {Name: "Keep Wall Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/keep_wall_key.png", Flags: []string{"cut_content", "ban_risk", "dlc"}},
 	0x401EA3E4: {Name: "Prayer Room Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/prayer_room_key.png", Flags: []string{"dlc"}},
+	0x40001FAD: {Name: "Academy Glintstone Key (Variant)", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/academy_glintstone_key.png", Flags: []string{"no_database"}}, // technical variant GoodsParam row
 	0x40001FEE: {Name: "Academy Glintstone Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/academy_glintstone_key.png"},
 	0x4000218E: {Name: "Whetstone Knife", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/whetstone_knife.png"},
 	0x4000230D: {Name: "Glintstone Whetblade", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/glintstone_whetblade.png", Flags: []string{"no_database"}},
@@ -110,6 +111,7 @@ var KeyItems = map[uint32]ItemData{
 	0x40001FF8: {Name: "Mending Rune of the Fell Curse", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/mending_rune_of_the_fell_curse.png"},
 	// Larval Tear: 18 base + 6 DLC = 24 per playthrough; scales_with_ng.
 	0x40001FF9: {Name: "Larval Tear", Category: "key_items", MaxInventory: 24, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/larval_tear.png", Flags: []string{"stackable", "scales_with_ng"}},
+	0x40001FD2: {Name: "Miniature Ranni (Variant)", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/miniature_ranni.png", Flags: []string{"no_database"}}, // technical variant GoodsParam row
 	0x40001FFB: {Name: "Miniature Ranni", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/miniature_ranni.png"},
 	0x40001FFC: {Name: "Golden Tailoring Tools", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/golden_tailoring_tools.png"},
 	0x40001FFD: {Name: "Iji's Confession", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/ijis_confession.png", Flags: []string{"cut_content", "ban_risk"}},
@@ -135,13 +137,20 @@ var KeyItems = map[uint32]ItemData{
 	0x40002313: {Name: "Beast Eye", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/beast_eye.png"},
 	0x40002AF8: {Name: "Crimsonspill Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/crimsonspill_crystal_tear.png"},
 	0x40002AF9: {Name: "Greenspill Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/greenspill_crystal_tear.png"},
+	// Technical left-side variants: real GoodsParam rows (base ID − 1) the game
+	// stores for the same tear. Identical params (maxNum=1, isDeposit=0), so they
+	// reuse the base entry's data. no_database keeps them out of the item picker
+	// while still resolving in the scanner instead of firing unknown_item_id.
+	0x40002AFA: {Name: "Crimson Crystal Tear (Variant)", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/crimson_crystal_tear.png", Flags: []string{"no_database"}},
 	0x40002AFB: {Name: "Crimson Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/crimson_crystal_tear.png"},
+	0x40002AFC: {Name: "Cerulean Crystal Tear (Variant)", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/cerulean_crystal_tear.png", Flags: []string{"no_database"}},
 	0x40002AFD: {Name: "Cerulean Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/cerulean_crystal_tear.png"},
 	0x40002B01: {Name: "Crimsonburst Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/crimsonburst_crystal_tear.png"},
 	0x40002B02: {Name: "Greenburst Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/greenburst_crystal_tear.png"},
 	0x40002B04: {Name: "Winged Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/winged_crystal_tear.png"},
 	0x40002B05: {Name: "Thorny Cracked Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/thorny_cracked_tear.png"},
 	0x40002B07: {Name: "Windy Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/windy_crystal_tear.png"},
+	0x40002B08: {Name: "Ruptured Crystal Tear (Variant)", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/ruptured_crystal_tear.png", Flags: []string{"no_database"}}, // technical left-side variant
 	0x40002B09: {Name: "Ruptured Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/ruptured_crystal_tear.png"},
 	0x40002B0D: {Name: "Strength-knot Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/strength_knot_crystal_tear.png"},
 	0x40002B0E: {Name: "Dexterity-knot Crystal Tear", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/dexterity_knot_crystal_tear.png"},

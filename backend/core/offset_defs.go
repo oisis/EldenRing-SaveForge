@@ -334,10 +334,12 @@ const (
 	DlcEntryFlagByte = 1                                    // byte index within DLC section for SotE entry flag
 )
 
-// InvEquipReservedMax is the highest CSGaItemIns index reserved for equipment slots (0-432).
-// Inventory items added via save editor must have Index > InvEquipReservedMax.
-// If next_acquisition_sort_id from the save is ≤ InvEquipReservedMax or overlaps an existing
-// item's index, the game dereferences the wrong CSGaItemIns entry → EXCEPTION_ACCESS_VIOLATION.
+// InvEquipReservedMax is a conservative lower bound for SaveForge-generated
+// fresh indices. New records written by the editor should stay above this floor
+// and above existing indices to avoid collisions with game-managed entries.
+//
+// This is not a validation rule for existing records: genuine saves can contain
+// game-created inventory/storage records with Index <= InvEquipReservedMax.
 const InvEquipReservedMax = 432
 
 // GaItem entry counts by slot version.

@@ -53,16 +53,16 @@ func savableSnap() *InventoryWorkspaceSnapshot {
 	}
 }
 
-func baselineFor(snap *InventoryWorkspaceSnapshot) map[uint32]ContainerKind {
-	b := map[uint32]ContainerKind{}
+func baselineFor(snap *InventoryWorkspaceSnapshot) map[string]ContainerKind {
+	b := map[string]ContainerKind{}
 	for _, it := range snap.InventoryItems {
 		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
-			b[it.OriginalHandle] = ContainerInventory
+			b[it.UID] = ContainerInventory
 		}
 	}
 	for _, it := range snap.StorageItems {
 		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
-			b[it.OriginalHandle] = ContainerStorage
+			b[it.UID] = ContainerStorage
 		}
 	}
 	return b
@@ -230,22 +230,22 @@ func TestDetectRemovedEditableHandles_DetectsRemoveFromInventory(t *testing.T) {
 	snap := savableSnap()
 	baseline := baselineFor(snap)
 	// Drop the inventory item — should be reported as removed.
-	removedHandle := snap.InventoryItems[0].OriginalHandle
+	removedUID := snap.InventoryItems[0].UID
 	snap.InventoryItems = nil
 	got := detectRemovedEditableHandles(snap, baseline)
-	if len(got) != 1 || got[0] != removedHandle {
-		t.Errorf("got %v, want [0x%08X]", got, removedHandle)
+	if len(got) != 1 || got[0] != removedUID {
+		t.Errorf("got %v, want [%s]", got, removedUID)
 	}
 }
 
 func TestDetectRemovedEditableHandles_DetectsRemoveFromStorage(t *testing.T) {
 	snap := savableSnap()
 	baseline := baselineFor(snap)
-	removedHandle := snap.StorageItems[0].OriginalHandle
+	removedUID := snap.StorageItems[0].UID
 	snap.StorageItems = nil
 	got := detectRemovedEditableHandles(snap, baseline)
-	if len(got) != 1 || got[0] != removedHandle {
-		t.Errorf("got %v, want [0x%08X]", got, removedHandle)
+	if len(got) != 1 || got[0] != removedUID {
+		t.Errorf("got %v, want [%s]", got, removedUID)
 	}
 }
 
@@ -298,13 +298,13 @@ func TestDetectTransferredEditableItems_DetectsInventoryToStorage(t *testing.T) 
 	snap := savableSnap()
 	baseline := baselineFor(snap)
 	moved := snap.InventoryItems[0]
-	movedHandle := moved.OriginalHandle
+	movedUID := moved.UID
 	moved.Container = ContainerStorage
 	snap.InventoryItems = nil
 	snap.StorageItems = append(snap.StorageItems, moved)
 	got := detectTransferredEditableItems(snap, baseline)
-	if got[movedHandle] != ContainerStorage {
-		t.Errorf("got %v, want [0x%08X → storage]", got, movedHandle)
+	if got[movedUID] != ContainerStorage {
+		t.Errorf("got %v, want [%s → storage]", got, movedUID)
 	}
 }
 
@@ -312,13 +312,13 @@ func TestDetectTransferredEditableItems_DetectsStorageToInventory(t *testing.T) 
 	snap := savableSnap()
 	baseline := baselineFor(snap)
 	moved := snap.StorageItems[0]
-	movedHandle := moved.OriginalHandle
+	movedUID := moved.UID
 	moved.Container = ContainerInventory
 	snap.StorageItems = nil
 	snap.InventoryItems = append(snap.InventoryItems, moved)
 	got := detectTransferredEditableItems(snap, baseline)
-	if got[movedHandle] != ContainerInventory {
-		t.Errorf("got %v, want [0x%08X → inventory]", got, movedHandle)
+	if got[movedUID] != ContainerInventory {
+		t.Errorf("got %v, want [%s → inventory]", got, movedUID)
 	}
 }
 
@@ -331,7 +331,7 @@ func TestDetectTransferredEditableItems_ReorderInsideContainerNotTransfer(t *tes
 		Container:      ContainerInventory,
 		OriginalHandle: 0x80800003,
 	})
-	baseline[0x80800003] = ContainerInventory
+	baseline["hnd:0x80800003"] = ContainerInventory
 	// Swap positions — pure reorder.
 	snap.InventoryItems[0], snap.InventoryItems[1] = snap.InventoryItems[1], snap.InventoryItems[0]
 	if got := detectTransferredEditableItems(snap, baseline); len(got) != 0 {
@@ -415,7 +415,7 @@ func TestValidatePassThroughIndices_DistinctOK(t *testing.T) {
 }
 
 func TestApplyWorkspaceSave_NilSlotOrSnapRejected(t *testing.T) {
-	if _, err := ApplyWorkspaceSave(nil, savableSnap(), map[uint32]ContainerKind{}); err == nil {
+	if _, err := ApplyWorkspaceSave(nil, savableSnap(), map[string]ContainerKind{}); err == nil {
 		t.Fatal("nil slot should error")
 	}
 	// Cannot easily construct a non-nil slot here without core import

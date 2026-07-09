@@ -18,22 +18,26 @@ var (
 
 // ItemEntry represents a single item from the game database.
 type ItemEntry struct {
-	ID               uint32            `json:"id"`
-	Name             string            `json:"name"`
-	Category         string            `json:"category"`
-	SubCategory      string            `json:"subCategory,omitempty"`
-	MaxInventory     uint32            `json:"maxInventory"`
-	MaxStorage       uint32            `json:"maxStorage"`
-	MaxUpgrade       uint32            `json:"maxUpgrade"`
-	IconPath         string            `json:"iconPath"`
-	Flags            []string          `json:"flags"`
-	Description      string            `json:"description,omitempty"`
-	Location         string            `json:"location,omitempty"`
-	Weight           float64           `json:"weight,omitempty"`
-	Weapon           *data.WeaponStats `json:"weapon,omitempty"`
-	Armor            *data.ArmorStats  `json:"armor,omitempty"`
-	Spell            *data.SpellStats  `json:"spell,omitempty"`
-	AoWCompatBitmask uint64            `json:"aowCompatBitmask,omitempty"`
+	ID                    uint32            `json:"id"`
+	Name                  string            `json:"name"`
+	Category              string            `json:"category"`
+	SubCategory           string            `json:"subCategory,omitempty"`
+	MaxInventory          uint32            `json:"maxInventory"`
+	MaxStorage            uint32            `json:"maxStorage"`
+	GameMaxInventory      uint32            `json:"gameMaxInventory"`
+	GameMaxStorage        uint32            `json:"gameMaxStorage"`
+	GameMaxInventoryKnown bool              `json:"gameMaxInventoryKnown"`
+	GameMaxStorageKnown   bool              `json:"gameMaxStorageKnown"`
+	MaxUpgrade            uint32            `json:"maxUpgrade"`
+	IconPath              string            `json:"iconPath"`
+	Flags                 []string          `json:"flags"`
+	Description           string            `json:"description,omitempty"`
+	Location              string            `json:"location,omitempty"`
+	Weight                float64           `json:"weight,omitempty"`
+	Weapon                *data.WeaponStats `json:"weapon,omitempty"`
+	Armor                 *data.ArmorStats  `json:"armor,omitempty"`
+	Spell                 *data.SpellStats  `json:"spell,omitempty"`
+	AoWCompatBitmask      uint64            `json:"aowCompatBitmask,omitempty"`
 	// Text is the generated Phase 3B.1 text payload (display + canonical
 	// name, caption, description, location, per-field provenance).
 	// Read-only for the frontend; nil when the item ID has no ItemTexts
@@ -242,6 +246,18 @@ func init() {
 			globalItemIndex[id] = entry
 		}
 	}
+	// Merge technical game limits generated from regulation.bin. These are
+	// intentionally separate from the conservative Normal Mode caps authored in
+	// the category maps.
+	for id, limits := range data.GameLimitsByItemID {
+		if entry, ok := globalItemIndex[id]; ok {
+			entry.GameMaxInventory = limits.MaxInventory
+			entry.GameMaxStorage = limits.MaxStorage
+			entry.GameMaxInventoryKnown = limits.InventoryKnown
+			entry.GameMaxStorageKnown = limits.StorageKnown
+			globalItemIndex[id] = entry
+		}
+	}
 }
 
 // GetItemData returns the full metadata of an item by its ID via the global index.
@@ -447,15 +463,19 @@ func GetItemEntryByID(id uint32) *ItemEntry {
 		return nil
 	}
 	entry := &ItemEntry{
-		ID:           id,
-		Name:         item.Name,
-		Category:     item.Category,
-		SubCategory:  GetItemSubCategory(id, item, item.Category),
-		MaxInventory: item.MaxInventory,
-		MaxStorage:   item.MaxStorage,
-		MaxUpgrade:   item.MaxUpgrade,
-		IconPath:     item.IconPath,
-		Flags:        item.Flags,
+		ID:                    id,
+		Name:                  item.Name,
+		Category:              item.Category,
+		SubCategory:           GetItemSubCategory(id, item, item.Category),
+		MaxInventory:          item.MaxInventory,
+		MaxStorage:            item.MaxStorage,
+		GameMaxInventory:      item.GameMaxInventory,
+		GameMaxStorage:        item.GameMaxStorage,
+		GameMaxInventoryKnown: item.GameMaxInventoryKnown,
+		GameMaxStorageKnown:   item.GameMaxStorageKnown,
+		MaxUpgrade:            item.MaxUpgrade,
+		IconPath:              item.IconPath,
+		Flags:                 item.Flags,
 	}
 	enrichItemEntry(entry)
 	return entry
@@ -840,6 +860,10 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 		}
 	}
 
+	for i := range items {
+		applyGameLimitsToEntry(&items[i])
+	}
+
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].Name < items[j].Name
 	})
@@ -848,6 +872,14 @@ func GetItemsByCategory(category, platform string) []ItemEntry {
 	itemCache[category] = items
 	itemCacheMu.Unlock()
 	return items
+}
+
+func applyGameLimitsToEntry(entry *ItemEntry) {
+	item, _ := GetItemDataFuzzy(entry.ID)
+	entry.GameMaxInventory = item.GameMaxInventory
+	entry.GameMaxStorage = item.GameMaxStorage
+	entry.GameMaxInventoryKnown = item.GameMaxInventoryKnown
+	entry.GameMaxStorageKnown = item.GameMaxStorageKnown
 }
 
 // GetItemSubCategory returns the granular category string for an item.

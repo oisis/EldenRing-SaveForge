@@ -510,6 +510,17 @@ func weaponCategorySupportsInfusion(category string) bool {
 // to fit the container cap without blocking the batch. Trimmed items are reported
 // in AddResult.Trimmed.
 func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int) (AddResult, error) {
+	return a.addItemsToCharacter(charIdx, itemIDs, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty, false)
+}
+
+// AddItemsToCharacterWithGameLimits is the Full Chaos Mode add path. It uses
+// regulation-derived technical game limits where known and falls back to the
+// conservative Normal Mode cap where game-limit data is unavailable.
+func (a *App) AddItemsToCharacterWithGameLimits(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int) (AddResult, error) {
+	return a.addItemsToCharacter(charIdx, itemIDs, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty, true)
+}
+
+func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int, useGameLimits bool) (AddResult, error) {
 	result := AddResult{Requested: len(itemIDs)}
 
 	a.saveMu.RLock()
@@ -595,7 +606,8 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 	containerCap := func(c uint32) int {
 		cData, _ := db.GetItemDataFuzzy(c)
-		return int(cData.MaxInventory)
+		maxInventory, _ := addItemCaps(cData, useGameLimits)
+		return int(maxInventory)
 	}
 
 	// Track containers touched by this batch (need auto-update of qty).
@@ -638,6 +650,7 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			id = db.ItemFlaskWondrousPhysickEmpty
 		}
 		itemData, _ := db.GetItemDataFuzzy(id)
+		maxInventory, maxStorage := addItemCaps(itemData, useGameLimits)
 		finalID := id
 		// Clamp the requested upgrade to the item's real MaxUpgrade so an add can
 		// never encode an out-of-range level (e.g. base+25 for a somber +10 weapon
@@ -657,8 +670,8 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			finalID = id + uint32(editor.ClampUpgrade(upgrade10, int(itemData.MaxUpgrade)))
 		}
 
-		actualInv := resolveQty(invQty, int(itemData.MaxInventory))
-		actualStorage := resolveQty(storageQty, int(itemData.MaxStorage))
+		actualInv := resolveQty(invQty, int(maxInventory))
+		actualStorage := resolveQty(storageQty, int(maxStorage))
 		if isPhysick {
 			actualStorage = 0
 			if hasPhysick {
@@ -678,12 +691,12 @@ func (a *App) AddItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 				actualInv = 0
 				actualStorage = 0
 			}
-			if actualInv > 0 && existingItemQty[id] >= int(itemData.MaxInventory) {
-				a.logInfo("already max inv qty %d/%d — skipping %s (0x%08X)", existingItemQty[id], itemData.MaxInventory, itemData.Name, id)
+			if actualInv > 0 && existingItemQty[id] >= int(maxInventory) {
+				a.logInfo("already max inv qty %d/%d — skipping %s (0x%08X)", existingItemQty[id], maxInventory, itemData.Name, id)
 				actualInv = 0
 			}
-			if actualStorage > 0 && existingStorageQty[id] >= int(itemData.MaxStorage) {
-				a.logInfo("already max storage qty %d/%d — skipping %s (0x%08X)", existingStorageQty[id], itemData.MaxStorage, itemData.Name, id)
+			if actualStorage > 0 && existingStorageQty[id] >= int(maxStorage) {
+				a.logInfo("already max storage qty %d/%d — skipping %s (0x%08X)", existingStorageQty[id], maxStorage, itemData.Name, id)
 				actualStorage = 0
 			}
 		}
@@ -1080,6 +1093,21 @@ func (a *App) MoveItemsBetweenInventoryAndStorage(charIdx int, handles []uint32,
 	return core.MoveItemsBetweenContainers(slot, handles, dir, &core.TransferOptions{DestCaps: caps})
 }
 
+func addItemCaps(item data.ItemData, useGameLimits bool) (inventory, storage uint32) {
+	inventory = item.MaxInventory
+	storage = item.MaxStorage
+	if !useGameLimits {
+		return inventory, storage
+	}
+	if item.GameMaxInventoryKnown {
+		inventory = item.GameMaxInventory
+	}
+	if item.GameMaxStorageKnown {
+		storage = item.GameMaxStorage
+	}
+	return inventory, storage
+}
+
 // resolveQty converts a qty directive into an actual quantity.
 // qty=0 → 0 (skip); qty=-1 → max; qty>0 → min(qty, max).
 func resolveQty(qty, max int) int {
@@ -1393,6 +1421,15 @@ func (a *App) SetSteamIDFromString(s string) error {
 // this helper neither acquires that lock nor takes a snapshot of the undo
 // stack itself — so it must not be called concurrently for the same idx.
 func (a *App) pushUndoLocked(idx int) {
+	a.pushUndoSnapshotLocked(idx, a.buildSlotSnapshotLocked(idx))
+}
+
+// buildSlotSnapshotLocked deep-copies the current state of slot[idx] into an
+// undo snapshot WITHOUT pushing it. The repair apply endpoint captures this
+// before a batch and only pushes it (via pushUndoSnapshotLocked) if at least
+// one action actually mutated — so a fully-rolled-back batch leaves no undo
+// entry. Same locking contract as pushUndoLocked.
+func (a *App) buildSlotSnapshotLocked(idx int) slotSnapshot {
 	slot := &a.save.Slots[idx]
 
 	// Deep copy Data
@@ -1438,6 +1475,12 @@ func (a *App) pushUndoLocked(idx int) {
 		PartGaItemHandle:   slot.PartGaItemHandle,
 	}
 
+	return snap
+}
+
+// pushUndoSnapshotLocked appends a pre-built undo snapshot onto the stack,
+// enforcing the depth cap. Same locking contract as pushUndoLocked.
+func (a *App) pushUndoSnapshotLocked(idx int, snap slotSnapshot) {
 	stack := a.undoStacks[idx]
 	if len(stack) >= maxUndoDepth {
 		stack = stack[1:] // drop oldest

@@ -419,16 +419,19 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 	sess.BaseRevision = editor.ComputeBaseRevision(slot)
 
 	// Regenerate baseline from the post-save state — subsequent edits
-	// in the same session detect transfer/remove relative to NOW.
-	sess.BaselineEditableHandles = make(map[uint32]editor.ContainerKind, len(fresh.InventoryItems)+len(fresh.StorageItems))
+	// in the same session detect transfer/remove relative to NOW. Keyed
+	// by record UID (not OriginalHandle): a handle alone does not
+	// identify a physical record — talisman (and other item-derived)
+	// handles are legitimately shared by several records at once.
+	sess.BaselineEditableHandles = make(map[string]editor.ContainerKind, len(fresh.InventoryItems)+len(fresh.StorageItems))
 	for _, it := range fresh.InventoryItems {
 		if it.Source == editor.ItemSourceOriginal && it.OriginalHandle != 0 {
-			sess.BaselineEditableHandles[it.OriginalHandle] = editor.ContainerInventory
+			sess.BaselineEditableHandles[it.UID] = editor.ContainerInventory
 		}
 	}
 	for _, it := range fresh.StorageItems {
 		if it.Source == editor.ItemSourceOriginal && it.OriginalHandle != 0 {
-			sess.BaselineEditableHandles[it.OriginalHandle] = editor.ContainerStorage
+			sess.BaselineEditableHandles[it.UID] = editor.ContainerStorage
 		}
 	}
 

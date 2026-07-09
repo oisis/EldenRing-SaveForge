@@ -119,15 +119,16 @@ func (d *SlotDiagnostics) checkGaItems(slot *SaveSlot) {
 		if ga.IsEmpty() {
 			continue
 		}
-		// Validate type prefix
-		prefix := ga.ItemID & GaHandleTypeMask
+		// Validate handle type prefix (upper nibble). ItemID uses different prefixes
+		// (0x0=weapon record, 0x1=armor record) and must not be checked here.
+		prefix := ga.Handle & GaHandleTypeMask
 		switch prefix {
 		case ItemTypeWeapon, ItemTypeArmor, ItemTypeAccessory, ItemTypeItem, ItemTypeAow:
 			// valid
 		default:
 			invalidHandles++
 			if invalidHandles <= 5 {
-				d.addWarning("gaitem", "GaItem[%d] has unknown type prefix 0x%X (itemID=0x%08X)", i, prefix, ga.ItemID)
+				d.addWarning("gaitem", "GaItem[%d] has unknown type prefix 0x%X (handle=0x%08X)", i, prefix, ga.Handle)
 			}
 		}
 	}
@@ -156,9 +157,10 @@ func (d *SlotDiagnostics) checkInventoryIndices(slot *SaveSlot) {
 			if item.GaItemHandle == 0 || item.GaItemHandle == GaHandleInvalid {
 				continue
 			}
-			if item.Index <= InvEquipReservedMax {
-				d.addWarning("inventory_reserved", "%s item handle 0x%08X has reserved Index=%d (<=432)", label, item.GaItemHandle, item.Index)
-			}
+			// A low Index is NOT corruption. Genuine game-created records use
+			// Index <= InvEquipReservedMax; that constant is only a conservative
+			// floor for newly generated editor indices, not a validation rule.
+			// Only duplicate indices are reported below.
 			indexMap[item.Index]++
 			if indexMap[item.Index] == 2 {
 				duplicates++

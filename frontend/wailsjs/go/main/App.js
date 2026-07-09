@@ -10,6 +10,10 @@ export function AddItemsToCharacter(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
   return window['go']['main']['App']['AddItemsToCharacter'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function AddItemsToCharacterWithGameLimits(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['main']['App']['AddItemsToCharacterWithGameLimits'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
 export function ApplyBuildTemplateFromLibrary(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyBuildTemplateFromLibrary'](arg1, arg2, arg3);
 }
@@ -44,6 +48,10 @@ export function ApplyPresetToCharacter(arg1, arg2) {
 
 export function ApplyPvPPreparation(arg1, arg2) {
   return window['go']['main']['App']['ApplyPvPPreparation'](arg1, arg2);
+}
+
+export function ApplyRepairsLoaded(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ApplyRepairsLoaded'](arg1, arg2, arg3);
 }
 
 export function AuditLoadedSaveIssues() {
@@ -330,10 +338,6 @@ export function MoveItemsBetweenInventoryAndStorage(arg1, arg2, arg3) {
   return window['go']['main']['App']['MoveItemsBetweenInventoryAndStorage'](arg1, arg2, arg3);
 }
 
-export function PickDiagnosticsFile() {
-  return window['go']['main']['App']['PickDiagnosticsFile']();
-}
-
 export function PrepareConversion() {
   return window['go']['main']['App']['PrepareConversion']();
 }
@@ -394,16 +398,20 @@ export function RepairAllLoadedSlots() {
   return window['go']['main']['App']['RepairAllLoadedSlots']();
 }
 
+export function RepairAllWeaponIssues(arg1) {
+  return window['go']['main']['App']['RepairAllWeaponIssues'](arg1);
+}
+
 export function RepairDuplicateInventoryIndices(arg1) {
   return window['go']['main']['App']['RepairDuplicateInventoryIndices'](arg1);
 }
 
-export function RepairExternal() {
-  return window['go']['main']['App']['RepairExternal']();
+export function RepairInventoryWorkspaceItem(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RepairInventoryWorkspaceItem'](arg1, arg2, arg3);
 }
 
-export function RepairLoadedSave(arg1) {
-  return window['go']['main']['App']['RepairLoadedSave'](arg1);
+export function RepairInventoryWorkspaceItems(arg1, arg2) {
+  return window['go']['main']['App']['RepairInventoryWorkspaceItems'](arg1, arg2);
 }
 
 export function ResetMapExploration(arg1) {
@@ -424,14 +432,6 @@ export function RevertSlot(arg1) {
 
 export function RunDiagnosticsAllLoaded() {
   return window['go']['main']['App']['RunDiagnosticsAllLoaded']();
-}
-
-export function RunDiagnosticsExternal(arg1) {
-  return window['go']['main']['App']['RunDiagnosticsExternal'](arg1);
-}
-
-export function RunDiagnosticsLoaded(arg1) {
-  return window['go']['main']['App']['RunDiagnosticsLoaded'](arg1);
 }
 
 export function SaveBuildTemplateToLibrary(arg1, arg2) {
@@ -458,8 +458,12 @@ export function SaveInventoryWorkspaceChanges(arg1) {
   return window['go']['main']['App']['SaveInventoryWorkspaceChanges'](arg1);
 }
 
-export function SaveRepairedExternal(arg1) {
-  return window['go']['main']['App']['SaveRepairedExternal'](arg1);
+export function ScanInventoryIssues(arg1) {
+  return window['go']['main']['App']['ScanInventoryIssues'](arg1);
+}
+
+export function ScanRepairIssuesLoaded(arg1) {
+  return window['go']['main']['App']['ScanRepairIssuesLoaded'](arg1);
 }
 
 export function SelectAndOpenSave() {

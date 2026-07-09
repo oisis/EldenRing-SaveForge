@@ -1,7 +1,7 @@
 import {useEffect, useState, useMemo, useRef, useDeferredValue} from 'react';
 import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, GetCharacter,
+import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, AddItemsToCharacterWithGameLimits, GetCharacter,
         SetCookbookUnlocked, SetWhetbladeUnlocked, SetBellBearingUnlocked, GetBellBearings,
         SetMapRegionFlags} from '../../wailsjs/go/main/App';
 import {db, vm} from '../../wailsjs/go/models';
@@ -52,13 +52,20 @@ interface DatabaseTabProps {
 }
 
 // Determine if ALL selected items are non-stackable (max qty == 1)
-function allNonStackable(items: db.ItemEntry[]): boolean {
-    return items.every(i => i.maxInventory <= 1 && i.maxStorage <= 1);
+function allNonStackable(items: db.ItemEntry[], clearCount: number, chaos: boolean): boolean {
+    return items.every(i =>
+        effectiveCap(i, 'inv', clearCount, chaos) <= 1 &&
+        effectiveCap(i, 'storage', clearCount, chaos) <= 1);
 }
 
-// Effective cap honors: chaos mode override, scales_with_ng flag (cap × (NG+1)).
-function effectiveCap(item: db.ItemEntry, kind: 'inv' | 'storage', clearCount: number, chaos: boolean): number {
-    if (chaos) return 999;
+// Normal Mode uses conservative authored caps (including NG+ scaling). Full
+// Chaos Mode uses regulation-derived technical game limits where known and
+// falls back to the conservative cap when the regulation limit is unavailable.
+export function effectiveCap(item: db.ItemEntry, kind: 'inv' | 'storage', clearCount: number, chaos: boolean): number {
+    if (chaos) {
+        if (kind === 'inv' && item.gameMaxInventoryKnown) return item.gameMaxInventory;
+        if (kind === 'storage' && item.gameMaxStorageKnown) return item.gameMaxStorage;
+    }
     const base = kind === 'inv' ? item.maxInventory : item.maxStorage;
     if (item.flags?.includes('scales_with_ng')) return base * (clearCount + 1);
     return base;
@@ -307,6 +314,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (!confirmModal || isSaving) return;
         setIsSaving(true);
         try {
+            const addItems = fullChaosMode ? AddItemsToCharacterWithGameLimits : AddItemsToCharacter;
             const baseIds = confirmModal.map(i => i.id);
             type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number };
             let lastResult: AddRes | null = null;
@@ -318,7 +326,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             if (modalNonStackable) {
                 const bothActive = addToInv && invQtyVal > 0 && addToStorage && storageQtyVal > 0;
                 if (bothActive && invQtyVal === 1 && storageQtyVal === 1) {
-                    const res = await AddItemsToCharacter(charIndex, baseIds, upgrade25, upgrade10, infuseOffset, upgradeAsh, 1, 1) as AddRes;
+                    const res = await addItems(charIndex, baseIds, upgrade25, upgrade10, infuseOffset, upgradeAsh, 1, 1) as AddRes;
                     lastResult = res;
                     totalAdded += res?.added ?? 0;
                     totalRequested += res?.requested ?? 0;
@@ -329,7 +337,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         const ids = invQtyVal > 1
                             ? confirmModal.flatMap(i => Array<number>(invQtyVal).fill(i.id))
                             : baseIds;
-                        const res = await AddItemsToCharacter(charIndex, ids, upgrade25, upgrade10, infuseOffset, upgradeAsh, 1, 0) as AddRes;
+                        const res = await addItems(charIndex, ids, upgrade25, upgrade10, infuseOffset, upgradeAsh, 1, 0) as AddRes;
                         lastResult = res;
                         totalAdded += res?.added ?? 0;
                         totalRequested += res?.requested ?? 0;
@@ -340,7 +348,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         const ids = storageQtyVal > 1
                             ? confirmModal.flatMap(i => Array<number>(storageQtyVal).fill(i.id))
                             : baseIds;
-                        const res = await AddItemsToCharacter(charIndex, ids, upgrade25, upgrade10, infuseOffset, upgradeAsh, 0, 1) as AddRes;
+                        const res = await addItems(charIndex, ids, upgrade25, upgrade10, infuseOffset, upgradeAsh, 0, 1) as AddRes;
                         lastResult = res;
                         totalAdded += res?.added ?? 0;
                         totalRequested += res?.requested ?? 0;
@@ -351,7 +359,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             } else {
                 const invQty = !addToInv ? 0 : invMax ? -1 : invQtyVal;
                 const storQty = !addToStorage ? 0 : storageMax ? -1 : storageQtyVal;
-                const res = await AddItemsToCharacter(charIndex, baseIds, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storQty) as AddRes;
+                const res = await addItems(charIndex, baseIds, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storQty) as AddRes;
                 lastResult = res;
                 totalAdded += res?.added ?? 0;
                 totalRequested += res?.requested ?? 0;
@@ -491,7 +499,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         + (showWeightColumn ? 1 : 0);
 
     // Whether the modal items are all non-stackable (weapons/armor/talismans)
-    const modalNonStackable = confirmModal ? allNonStackable(confirmModal) : true;
+    const modalNonStackable = confirmModal ? allNonStackable(confirmModal, clearCount, fullChaosMode) : true;
     // "Hi" caps = max effective cap in the selection. Used for input upper bounds and the Max checkbox label.
     // Backend clamps per item (resolveQty), so UI must expose the highest cap; ratcheting to the lowest
     // would prevent a Glovewort (cap 999) from receiving its full stack just because a Remembrance (cap 1)
@@ -500,7 +508,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const modalMaxStorageHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'storage', clearCount, fullChaosMode))) : 1;
     const modalAnyStorageAllowed = !!confirmModal && confirmModal.some(i => effectiveCap(i, 'storage', clearCount, fullChaosMode) > 0);
     const modalMixedMaxes = confirmModal && confirmModal.length > 1 && !modalNonStackable &&
-        (new Set(confirmModal.map(i => i.maxInventory)).size > 1 || new Set(confirmModal.map(i => i.maxStorage)).size > 1);
+        (new Set(confirmModal.map(i => effectiveCap(i, 'inv', clearCount, fullChaosMode))).size > 1 ||
+            new Set(confirmModal.map(i => effectiveCap(i, 'storage', clearCount, fullChaosMode))).size > 1);
+    const modalHasUnknownGameLimits = !!confirmModal && confirmModal.some(i =>
+        !i.gameMaxInventoryKnown || !i.gameMaxStorageKnown);
     // True if any selected item has scales_with_ng flag (drives tooltip rendering).
     const modalHasNgScaling = !!confirmModal && confirmModal.some(i => i.flags?.includes('scales_with_ng'));
     // Vanilla NG cap (clearCount=0) used to show "Vanilla NG: X / NG+Y: Z" tooltip.
@@ -568,7 +579,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         {/* Cap info banners */}
                         {fullChaosMode && (
                             <p className="text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 border border-red-500/30 rounded px-3 py-1.5">
-                                ⚠ Full Chaos Mode — caps bypassed (max 999)
+                                ⚠ Full Chaos Mode — technical game caps
+                                {modalHasUnknownGameLimits && ' · conservative fallback where unknown'}
                             </p>
                         )}
                         {!fullChaosMode && modalHasNgScaling && (

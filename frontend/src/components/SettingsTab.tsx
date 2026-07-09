@@ -11,8 +11,9 @@ import {deploy} from '../../wailsjs/go/models';
 import {useSafetyMode} from '../state/safetyMode';
 import {FavoritesManager} from './FavoritesManager';
 import {useFavorites} from '../state/favorites';
-import {DiagnosticsModal} from './DiagnosticsModal';
+import {InventoryIssuesModal} from './InventoryIssuesModal';
 import {SaveManagerModal} from './SaveManagerModal';
+import {scanRepairIssuesLoaded, type RepairIssueReport} from '../lib/repairIssues';
 
 interface SettingsTabProps {
     theme: 'light' | 'dark' | 'golden';
@@ -71,7 +72,24 @@ export function SettingsTab({
         window.dispatchEvent(new CustomEvent('fullChaosModeChanged', { detail: checked }));
     };
 
-    const [showDiagnostics, setShowDiagnostics] = useState(false);
+    const [scanning, setScanning] = useState(false);
+    const [inventoryIssuesModal, setInventoryIssuesModal] = useState<{ reports: RepairIssueReport[] } | null>(null);
+
+    // Diagnostics now scans only the loaded save directly — no choice modal.
+    // A manual scan always opens the issues modal, even with no issues, so the
+    // user sees the ValidationCoverage proving the scan ran.
+    const handleDiagnostics = async () => {
+        if (scanning) return; // prevent duplicate requests
+        setScanning(true);
+        try {
+            const report = await scanRepairIssuesLoaded(charIndex);
+            setInventoryIssuesModal({ reports: [report] });
+        } catch (e) {
+            toast.error('Diagnostics failed: ' + e);
+        } finally {
+            setScanning(false);
+        }
+    };
 
     // Conversion flow
     const [convStep, setConvStep] = useState<'idle' | 'selecting' | 'steamid' | 'converting'>('idle');
@@ -443,7 +461,7 @@ export function SettingsTab({
                                 <input type="checkbox" checked={fullChaosMode} onChange={e => handleChaosToggle(e.target.checked)} className="w-3.5 h-3.5 rounded border-red-500/40 text-red-500 focus:ring-red-500/20 shrink-0" />
                             </div>
                             <p className="text-[9px] text-muted-foreground leading-relaxed">
-                                <strong className="text-red-500/90">Bypasses all item caps.</strong> Strongly increases EAC ban risk. Offline / experimental saves only.
+                                <strong className="text-red-500/90">Uses technical game caps instead of conservative safety caps.</strong> Strongly increases EAC ban risk. Offline / experimental saves only.
                             </p>
                         </label>
                     </div>
@@ -473,13 +491,17 @@ export function SettingsTab({
                             Convert Format
                         </button>
                         <button
-                            onClick={() => setShowDiagnostics(true)}
-                            className="flex items-center gap-2 px-3 py-2 rounded bg-primary text-primary-foreground hover:brightness-110 transition-all text-[9px] font-black uppercase tracking-widest shadow-sm active:scale-95"
+                            onClick={handleDiagnostics}
+                            disabled={scanning || !platform}
+                            className="flex items-center gap-2 px-3 py-2 rounded bg-primary text-primary-foreground hover:brightness-110 transition-all text-[9px] font-black uppercase tracking-widest shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-                            </svg>
-                            Diagnostics
+                            {scanning
+                                ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                                </svg>
+                            }
+                            {scanning ? 'Scanning…' : 'Diagnostics'}
                         </button>
                         <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -492,11 +514,15 @@ export function SettingsTab({
             </section>
         </div>
 
-        {showDiagnostics && (
-            <DiagnosticsModal
+        {inventoryIssuesModal && (
+            <InventoryIssuesModal
+                reports={inventoryIssuesModal.reports}
                 charIndex={charIndex}
-                platform={platform}
-                onClose={() => setShowDiagnostics(false)}
+                onClose={() => setInventoryIssuesModal(null)}
+                onSaved={() => {
+                    setInventoryIssuesModal(null);
+                    onMutate?.();
+                }}
             />
         )}
         {showSaveManager && (

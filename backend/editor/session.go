@@ -21,11 +21,17 @@ var ErrSessionClosed = errors.New("inventory edit session is closed")
 // InventoryEditSession owns a single workspace snapshot for a character.
 //
 // The session is held in-memory on App and never persisted to disk.
-// BaselineEditableHandles captures the (handle → container) state at
+// BaselineEditableHandles captures the (record UID → container) state at
 // Start time and is consumed by ApplyWorkspaceSave to detect transfers
-// and removals against the original load. Phase 3B regenerates this
-// after every successful save so subsequent edits diff against the
-// freshly-reparsed state rather than the original load.
+// and removals against the original load. It is keyed by EditableItem.UID
+// rather than OriginalHandle: a handle alone does not identify a physical
+// record — talisman handles (and any other item-derived handle) are
+// legitimately shared by multiple records in the same container or split
+// across inventory/storage, and a handle-keyed map can only remember one
+// of them. UID (container+slot+handle) disambiguates every such record.
+// Phase 3B regenerates this after every successful save so subsequent
+// edits diff against the freshly-reparsed state rather than the original
+// load.
 //
 // Concurrency contract:
 //   - Lifecycle (insert/replace/delete in the App registry) is governed
@@ -42,7 +48,7 @@ type InventoryEditSession struct {
 	CreatedAt               time.Time                  `json:"createdAt"`
 	BaseRevision            string                     `json:"baseRevision"`
 	Workspace               InventoryWorkspaceSnapshot `json:"workspace"`
-	BaselineEditableHandles map[uint32]ContainerKind   `json:"-"`
+	BaselineEditableHandles map[string]ContainerKind   `json:"-"`
 
 	// mu serializes every read/write of the mutable session state
 	// (Workspace, BaselineEditableHandles, BaseRevision, closed). The
@@ -143,15 +149,15 @@ func StartSession(slot *core.SaveSlot, charIdx int) (*InventoryEditSession, erro
 	// Run validation immediately so the snapshot ships with a current
 	// report — callers that only Start without Validate still see issues.
 	snap.Validation = Validate(snap)
-	baseline := make(map[uint32]ContainerKind, len(snap.InventoryItems)+len(snap.StorageItems))
+	baseline := make(map[string]ContainerKind, len(snap.InventoryItems)+len(snap.StorageItems))
 	for _, it := range snap.InventoryItems {
 		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
-			baseline[it.OriginalHandle] = ContainerInventory
+			baseline[it.UID] = ContainerInventory
 		}
 	}
 	for _, it := range snap.StorageItems {
 		if it.Source == ItemSourceOriginal && it.OriginalHandle != 0 {
-			baseline[it.OriginalHandle] = ContainerStorage
+			baseline[it.UID] = ContainerStorage
 		}
 	}
 	sess := &InventoryEditSession{

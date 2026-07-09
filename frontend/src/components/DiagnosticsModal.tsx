@@ -1,32 +1,21 @@
 import {useState, useEffect} from 'react';
 import {createPortal} from 'react-dom';
-import {
-    PickDiagnosticsFile,
-    RunDiagnosticsLoaded,
-    RunDiagnosticsExternal,
-    RepairLoadedSave,
-    RepairAllLoadedSlots,
-    RepairExternal,
-    SaveRepairedExternal,
-    WriteSave,
-} from '../../wailsjs/go/main/App';
+import {RepairAllLoadedSlots} from '../../wailsjs/go/main/App';
 import {main} from '../../wailsjs/go/models';
 
-type Source = 'loaded' | 'all-loaded' | 'external';
-
+// DiagnosticsModal now serves a single responsibility: display the post-load
+// all-slots DiagnosticsReport that App.tsx produces via RunDiagnosticsAllLoaded
+// and let the user apply automated repairs to every loaded slot at once.
+// External-file scanning and the loaded/external choice screen were removed —
+// diagnostics operate only on the currently loaded save.
 type Mode =
-    | {step: 'choice'}
-    | {step: 'scanning'; source: Source; filePath?: string}
-    | {step: 'report'; report: main.DiagnosticsReport; filePath: string; source: Source}
-    | {step: 'repairing'; source: Source; filePath: string}
-    | {step: 'repair-report'; repairReport: main.RepairReport; source: Source; filePath: string}
-    | {step: 'saving'; source: Source; filePath: string};
+    | {step: 'report'}
+    | {step: 'repairing'}
+    | {step: 'repair-report'; repairReport: main.RepairReport};
 
 interface Props {
-    charIndex: number;
-    platform: string | null;
+    initialReport: main.DiagnosticsReport;
     onClose: () => void;
-    initialReport?: main.DiagnosticsReport; // when set: skip 'choice', open at 'report' for all loaded slots
 }
 
 const severityColor: Record<string, string> = {
@@ -60,12 +49,8 @@ const BtnPrimary = ({onClick, disabled, children}: {onClick: () => void; disable
     </button>
 );
 
-export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: Props) {
-    const [mode, setMode] = useState<Mode>(
-        initialReport
-            ? {step: 'report', report: initialReport, filePath: 'loaded', source: 'all-loaded'}
-            : {step: 'choice'}
-    );
+export function DiagnosticsModal({initialReport, onClose}: Props) {
+    const [mode, setMode] = useState<Mode>({step: 'report'});
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -74,101 +59,44 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
         return () => document.removeEventListener('keydown', onKey);
     }, [onClose]);
 
-    const handleScanLoaded = async () => {
-        setMode({step: 'scanning', source: 'loaded'});
+    const handleRepair = async () => {
+        setMode({step: 'repairing'});
         setError(null);
         try {
-            const report = await RunDiagnosticsLoaded(charIndex);
-            setMode({step: 'report', report, filePath: 'loaded', source: 'loaded'});
+            const repairReport = await RepairAllLoadedSlots();
+            setMode({step: 'repair-report', repairReport});
         } catch (e) {
             setError(String(e));
-            setMode({step: 'choice'});
+            setMode({step: 'report'});
         }
     };
 
-    const handleScanExternal = async () => {
-        setError(null);
-        try {
-            const path = await PickDiagnosticsFile();
-            if (!path) return;
-            setMode({step: 'scanning', source: 'external', filePath: path});
-            const report = await RunDiagnosticsExternal(path);
-            setMode({step: 'report', report, filePath: path, source: 'external'});
-        } catch (e) {
-            setError(String(e));
-            setMode({step: 'choice'});
-        }
-    };
+    const allIssues = initialReport.slots.flatMap(s => s.issues);
+    const displayedIssues = allIssues.filter(i => i.severity !== 'info');
+    const criticalCount = displayedIssues.filter(i => i.severity === 'critical').length;
+    const warningCount = displayedIssues.filter(i => i.severity === 'warning').length;
 
-    const handleRepair = async (report: main.DiagnosticsReport, filePath: string, source: Source) => {
-        setMode({step: 'repairing', source, filePath});
-        setError(null);
-        try {
-            const repairReport =
-                source === 'external' ? await RepairExternal() :
-                source === 'all-loaded' ? await RepairAllLoadedSlots() :
-                await RepairLoadedSave(charIndex);
-            setMode({step: 'repair-report', repairReport, source, filePath});
-        } catch (e) {
-            setError(String(e));
-            setMode({step: 'report', report, filePath, source});
-        }
-    };
-
-    const handleSave = async (source: Source, filePath: string) => {
-        setMode({step: 'saving', source, filePath});
-        setError(null);
-        try {
-            if (source === 'external') {
-                await SaveRepairedExternal(filePath);
-            } else {
-                await WriteSave();
-            }
-            onClose();
-        } catch (e) {
-            setError(String(e));
-            setMode({step: 'repair-report', repairReport: {fixed: [], skipped: []}, source, filePath});
-        }
-    };
-
-    const allIssues = mode.step === 'report' ? mode.report.slots.flatMap(s => s.issues) : [];
-    const criticalCount = allIssues.filter(i => i.severity === 'critical').length;
-    const warningCount = allIssues.filter(i => i.severity === 'warning').length;
-
-    // Footer buttons depend on current step
     const footer = (() => {
         if (mode.step === 'report') {
-            const {report, filePath, source} = mode;
             return (
                 <>
                     <BtnSecondary onClick={onClose}>Close</BtnSecondary>
-                    {report.canRepair && (
-                        <BtnPrimary onClick={() => handleRepair(report, filePath, source)}>Repair</BtnPrimary>
+                    {initialReport.canRepair && (
+                        <BtnPrimary onClick={handleRepair}>Repair</BtnPrimary>
                     )}
                 </>
             );
         }
         if (mode.step === 'repair-report') {
-            const {repairReport, source, filePath} = mode;
-            return (
-                <>
-                    <BtnSecondary onClick={onClose}>Close</BtnSecondary>
-                    {source === 'external' && (
-                        <BtnPrimary onClick={() => handleSave(source, filePath)} disabled={repairReport.fixed.length === 0}>Save</BtnPrimary>
-                    )}
-                </>
-            );
+            return <BtnSecondary onClick={onClose}>Close</BtnSecondary>;
         }
         return null;
     })();
 
     const subtitle = {
-        choice: 'Select save to scan',
-        scanning: 'Scanning…',
-        report: `${allIssues.length} issue(s) found`,
+        report: displayedIssues.length > 0 ? `${displayedIssues.length} issue(s) found` : 'No issues found',
         repairing: 'Repairing…',
         'repair-report': 'Repair complete',
-        saving: 'Saving…',
     }[mode.step];
 
     return createPortal(
@@ -209,90 +137,53 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
                         </div>
                     )}
 
-                    {/* CHOICE */}
-                    {mode.step === 'choice' && (
-                        <div className="flex flex-col gap-2 pb-2">
-                            <button
-                                onClick={handleScanLoaded}
-                                disabled={!platform}
-                                className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/40 transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed"
-                            >
-                                <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                                </svg>
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-foreground">Loaded save</p>
-                                    <p className="text-[9px] text-muted-foreground mt-0.5">
-                                        {platform ? `Scan character slot ${charIndex + 1}` : 'No save loaded'}
-                                    </p>
-                                </div>
-                            </button>
-                            <button
-                                onClick={handleScanExternal}
-                                className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/20 hover:bg-muted/40 transition-colors text-left"
-                            >
-                                <svg className="w-4 h-4 text-primary shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                                </svg>
-                                <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-foreground">External file</p>
-                                    <p className="text-[9px] text-muted-foreground mt-0.5">Pick a .sl2 / .dat file to scan</p>
-                                </div>
-                            </button>
-                        </div>
-                    )}
-
-                    {/* SCANNING / REPAIRING / SAVING */}
-                    {(mode.step === 'scanning' || mode.step === 'repairing' || mode.step === 'saving') && (
+                    {/* REPAIRING */}
+                    {mode.step === 'repairing' && (
                         <div className="flex flex-col items-center justify-center py-10 gap-3">
                             <svg className="w-8 h-8 text-primary animate-spin" fill="none" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                             </svg>
-                            <p className="text-[10px] text-muted-foreground uppercase tracking-widest">
-                                {mode.step === 'scanning' ? 'Scanning save file…' : mode.step === 'repairing' ? 'Applying repairs…' : 'Saving…'}
-                            </p>
+                            <p className="text-[10px] text-muted-foreground uppercase tracking-widest">Applying repairs…</p>
                         </div>
                     )}
 
                     {/* REPORT */}
                     {mode.step === 'report' && (
                         <div className="pb-2">
-                            {!mode.report.canRepair ? (
+                            {displayedIssues.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center py-8 gap-3 text-center">
                                     <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
-                                    <p className="text-[11px] font-black uppercase tracking-widest text-green-400">No repairable issues found</p>
+                                    <p className="text-[11px] font-black uppercase tracking-widest text-green-400">No issues found</p>
                                     <p className="text-[9px] text-muted-foreground max-w-xs">The save file is clean. Any remaining observations are informational and do not require action.</p>
                                 </div>
                             ) : (
                                 <>
-                                    {/* Summary badges */}
-                                    <div className="flex flex-wrap gap-2 mb-3">
-                                        {criticalCount > 0 && (
-                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-red-500/10 border border-red-500/30 text-red-400">
-                                                {criticalCount} critical
-                                            </span>
-                                        )}
-                                        {warningCount > 0 && (
-                                            <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-warning-foreground">
-                                                {warningCount} warning
-                                            </span>
-                                        )}
-                                    </div>
-                                    {/* Issue list — each slot */}
-                                    {mode.report.slots.map(slot =>
-                                        slot.issues.length > 0 ? (
+                                    {(criticalCount > 0 || warningCount > 0) && (
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                            {criticalCount > 0 && (
+                                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-red-500/10 border border-red-500/30 text-red-400">
+                                                    {criticalCount} critical
+                                                </span>
+                                            )}
+                                            {warningCount > 0 && (
+                                                <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-widest bg-yellow-500/10 border border-yellow-500/30 text-warning-foreground">
+                                                    {warningCount} warning
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+                                    {initialReport.slots.map(slot => {
+                                        const slotIssues = slot.issues.filter(iss => iss.severity !== 'info');
+                                        return slotIssues.length > 0 ? (
                                             <div key={slot.slotIndex} className="mb-3">
                                                 <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1.5">
                                                     Slot {slot.slotIndex + 1} — {slot.charName || '(unnamed)'}
                                                 </p>
                                                 <div className="space-y-1">
-                                                    {slot.issues.filter(iss => {
-                                                        const repairable = ['inventory','stats','dlc','gaitemdata','storage'];
-                                                        return iss.severity !== 'info' && repairable.includes(iss.category);
-                                                    }).map((iss, idx) => (
+                                                    {slotIssues.map((iss, idx) => (
                                                         <div key={idx} className={`flex items-start gap-2 p-2 rounded-lg border text-[9px] ${severityBg[iss.severity] ?? 'bg-muted/20 border-border'}`}>
                                                             <span className={`font-black uppercase shrink-0 ${severityColor[iss.severity] ?? 'text-muted-foreground'}`}>
                                                                 {iss.severity}
@@ -303,8 +194,8 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
                                                     ))}
                                                 </div>
                                             </div>
-                                        ) : null
-                                    )}
+                                        ) : null;
+                                    })}
                                 </>
                             )}
                         </div>
@@ -354,11 +245,6 @@ export function DiagnosticsModal({charIndex, platform, onClose, initialReport}: 
                 {footer && (
                     <div className="flex justify-end gap-2 px-6 py-4 shrink-0 border-t border-border">
                         {footer}
-                    </div>
-                )}
-                {!footer && (
-                    <div className="px-6 pb-5 pt-2 shrink-0 text-center">
-                        <p className="text-[8px] uppercase tracking-widest text-muted-foreground/40">Press Esc to close</p>
                     </div>
                 )}
             </div>
