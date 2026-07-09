@@ -92,6 +92,22 @@ func GetRequiredContainer(itemID uint32) (uint32, bool) {
 	return c, ok
 }
 
+// ContainerItemIDs is the set of key-item container IDs referenced as required
+// containers. Membership means "this item IS a container" — used to total the
+// owned container quantity that caps how many gated craftables may be carried.
+var ContainerItemIDs = map[uint32]struct{}{
+	CrackedPotKeyItemID:      {},
+	RitualPotKeyItemID:       {},
+	PerfumeBottleKeyItemID:   {},
+	HeftyCrackedPotKeyItemID: {},
+}
+
+// IsContainerItem reports whether itemID is one of the container key items.
+func IsContainerItem(itemID uint32) bool {
+	_, ok := ContainerItemIDs[itemID]
+	return ok
+}
+
 // CapDecision is the result of applying a container cap to one item add.
 type CapDecision struct {
 	EffectiveQty int // target stack qty actually used (after cap)

@@ -16,8 +16,8 @@ var technicalVariantIDs = map[uint32]string{
 
 // TestTechnicalVariantIDs_KnownInDB guards that each variant resolves to a
 // non-empty DB entry via both the exact and fuzzy lookups, carries the
-// key_items category, and inherits the regulation game caps (MaxStorage stays 0
-// because these goods have isDeposit=0).
+// key_items category, and inherits the regulation game caps. Storage cap tracks
+// maxRepositoryNum (1 for every variant), independent of isDeposit.
 func TestTechnicalVariantIDs_KnownInDB(t *testing.T) {
 	for id, wantName := range technicalVariantIDs {
 		exact := GetItemData(id)
@@ -30,8 +30,8 @@ func TestTechnicalVariantIDs_KnownInDB(t *testing.T) {
 		if !exact.GameMaxInventoryKnown || exact.GameMaxInventory != 1 {
 			t.Errorf("GetItemData(0x%08X) game inventory cap = %d (known=%v), want 1 (known)", id, exact.GameMaxInventory, exact.GameMaxInventoryKnown)
 		}
-		if !exact.GameMaxStorageKnown || exact.GameMaxStorage != 0 {
-			t.Errorf("GetItemData(0x%08X) game storage cap = %d (known=%v), want 0 (known)", id, exact.GameMaxStorage, exact.GameMaxStorageKnown)
+		if !exact.GameMaxStorageKnown || exact.GameMaxStorage != 1 {
+			t.Errorf("GetItemData(0x%08X) game storage cap = %d (known=%v), want 1 (known)", id, exact.GameMaxStorage, exact.GameMaxStorageKnown)
 		}
 
 		fuzzy, baseID := GetItemDataFuzzy(id)

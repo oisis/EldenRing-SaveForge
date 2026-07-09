@@ -76,7 +76,11 @@ func ClampInventoryQuantityAt(slot *SaveSlot, scope string, row int, fingerprint
 	if rec.Resolution != ResolutionKnownDB {
 		return zero, fmt.Errorf("ClampInventoryQuantityAt: %s row %d did not resolve to a DB entry (%s)", scope, row, rec.Resolution)
 	}
-	limit, applies := EffectiveQuantityCap(rec, slot.Player.ClearCount)
+	// Container-gated craftables are capped by the owned container count, so the
+	// clamp must resolve ownership from the same slot state the scanner saw.
+	// EffectiveQuantityCap is shared verbatim, so clamp and scanner never disagree.
+	containerOwned := containerOwnedQuantities(ResolveInventoryRecords(slot))
+	limit, applies := EffectiveQuantityCap(rec, containerOwned)
 	if !applies {
 		return zero, fmt.Errorf("ClampInventoryQuantityAt: %s row %d has no applicable cap", scope, row)
 	}

@@ -15,7 +15,7 @@ import (
 const smithingStoneHandle = uint32(0xB0002774)
 
 // physickHandleQty resolves KnownDB to the Flask of Wondrous Physick with
-// MaxInventory == 1 and MaxStorage == 0 (not permitted in storage).
+// MaxInventory == 1. Its storage cap follows regulation maxRepositoryNum.
 const physickHandleQty = uint32(0xB00000FA)
 
 // resolveRec is a tiny helper: resolve one record under a scope with an optional
@@ -51,6 +51,20 @@ func clearSlot(cc uint32) *SaveSlot {
 // Normal Mode MaxInventory 55 / MaxStorage 0, regulation-derived game limits
 // 99 / 600, flagged scales_with_ng for Normal Mode only.
 const stoneswordKeyHandle = uint32(0xB0001F40)
+
+// volcanoPotHandle resolves KnownDB to "Volcano Pot" (itemID 0x40000258), a
+// Throwing Pot gated by the Cracked Pot container (0x4000251C) in
+// data.RequiredContainer. Its inventory cap is the owned Cracked Pot count.
+const volcanoPotHandle = uint32(0xB0000258)
+
+// crackedPotHandle resolves KnownDB to the "Cracked Pot" container key item
+// (itemID 0x4000251C). Owning N of these caps every mapped Throwing Pot. Cracked
+// Pot itself has regulation maxRepositoryNum=0 (not storable).
+const crackedPotHandle = uint32(0xB000251C)
+
+// firePotHandle resolves KnownDB to "Fire Pot" (itemID 0x4000012C), another
+// Throwing Pot sharing the Cracked Pot container with Volcano Pot.
+const firePotHandle = uint32(0xB000012C)
 
 func TestScanQuantity_InventoryBoundary_NoIssue(t *testing.T) {
 	recs := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 999, nil)}
@@ -131,12 +145,13 @@ func TestScanQuantity_UnknownGameLimitIsNotZero(t *testing.T) {
 }
 
 func TestScanQuantity_ZeroStorageLimit_NotPermitted(t *testing.T) {
-	// Flask of Wondrous Physick: MaxStorage == 0 → not permitted in storage. This
-	// is a distinct defect (item_not_allowed_in_container), NOT quantity_above_max:
-	// clamping it would drive the quantity to zero.
-	recs := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, physickHandleQty, 1, nil)}
-	if recs[0].Resolution != ResolutionKnownDB || recs[0].MaxStorage != 0 {
-		t.Fatalf("fixture not KnownDB/MaxStorage 0: res=%q maxStor=%d", recs[0].Resolution, recs[0].MaxStorage)
+	// Cracked Pot: regulation maxRepositoryNum == 0 → GameMaxStorage 0 → genuinely
+	// not permitted in storage. This is a distinct defect
+	// (item_not_allowed_in_container), NOT quantity_above_max: clamping it would
+	// drive the quantity to zero.
+	recs := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, crackedPotHandle, 1, nil)}
+	if recs[0].Resolution != ResolutionKnownDB || !recs[0].GameMaxStorageKnown || recs[0].GameMaxStorage != 0 {
+		t.Fatalf("fixture not KnownDB/GameMaxStorage 0: res=%q gameStor=%d known=%v", recs[0].Resolution, recs[0].GameMaxStorage, recs[0].GameMaxStorageKnown)
 	}
 	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
 	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 1 {
@@ -399,6 +414,132 @@ func TestScanQuantity_DBResolutionSetsScalesWithNG(t *testing.T) {
 	}
 	if resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 1, nil).ScalesWithNG {
 		t.Error("Smithing Stone must resolve ScalesWithNG = false")
+	}
+}
+
+// ---- Container-gated pot / aromatic caps ------------------------------------
+
+// TestScanQuantity_PotWithinOwnedContainer_NoIssue is the primary regression:
+// Volcano Pot x20 with 20 Cracked Pots owned must NOT flag quantity_above_max.
+// Before the fix the scanner used raw maxNum (10) and reported a false positive.
+func TestScanQuantity_PotWithinOwnedContainer_NoIssue(t *testing.T) {
+	recs := []ResolvedRecord{
+		resolveRec(repairScopeInventoryCommon, 0, volcanoPotHandle, 20, nil),
+		resolveRec(repairScopeInventoryKey, 0, crackedPotHandle, 20, nil),
+	}
+	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("Volcano Pot x20 with 20 Cracked Pots must not flag quantity_above_max, got %d", got)
+	}
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 0 {
+		t.Errorf("must not flag item_not_allowed_in_container, got %d", got)
+	}
+	if got := countCode(issues, RepairCodeContainerOveruse); got != 0 {
+		t.Errorf("used == owned must not flag container_overuse, got %d", got)
+	}
+}
+
+func TestScanQuantity_PotOverOwnedContainer_Flags(t *testing.T) {
+	// Volcano Pot x21 with only 20 Cracked Pots exceeds the runtime container cap.
+	recs := []ResolvedRecord{
+		resolveRec(repairScopeInventoryCommon, 0, volcanoPotHandle, 21, nil),
+		resolveRec(repairScopeInventoryKey, 0, crackedPotHandle, 20, nil),
+	}
+	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 1 {
+		t.Fatalf("Volcano Pot x21 over container cap 20 must flag quantity_above_max once, got %d", got)
+	}
+	for _, i := range issues {
+		if i.Key.Code == RepairCodeQuantityAboveMax && !strings.Contains(i.Description, "max 20") {
+			t.Errorf("description must report container cap 20, got %q", i.Description)
+		}
+	}
+	if got := countCode(issues, RepairCodeContainerOveruse); got != 1 {
+		t.Errorf("aggregate overuse (21 > 20) must be reported once, got %d", got)
+	}
+}
+
+// TestScanQuantity_MultiPotAggregateOveruse covers the case only the aggregate
+// invariant catches: two pot types each within the owned count individually, but
+// together overflowing the shared container. Report-only, no mutating action.
+func TestScanQuantity_MultiPotAggregateOveruse(t *testing.T) {
+	recs := []ResolvedRecord{
+		resolveRec(repairScopeInventoryCommon, 0, volcanoPotHandle, 20, nil),
+		resolveRec(repairScopeInventoryCommon, 1, firePotHandle, 20, nil),
+		resolveRec(repairScopeInventoryKey, 0, crackedPotHandle, 20, nil),
+	}
+	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("each pot within owned container count must not flag per-record, got %d", got)
+	}
+	if got := countCode(issues, RepairCodeContainerOveruse); got != 1 {
+		t.Fatalf("aggregate overuse (40 > 20) must be reported once, got %d", got)
+	}
+	for _, i := range issues {
+		if i.Key.Code != RepairCodeContainerOveruse {
+			continue
+		}
+		if i.DefaultAction != RepairActionNoAction {
+			t.Errorf("container_overuse must be report-only (no_action default), got %q", i.DefaultAction)
+		}
+		if i.Key.Row != -1 {
+			t.Errorf("aggregate issue must not address a single row, got row %d", i.Key.Row)
+		}
+	}
+}
+
+func TestScanQuantity_PotMissingContainer_NotAllowed(t *testing.T) {
+	// Volcano Pot present but zero Cracked Pots owned → cap 0 → not permitted.
+	recs := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, volcanoPotHandle, 5, nil)}
+	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 1 {
+		t.Errorf("pot with no owned container (cap 0) must flag item_not_allowed_in_container, got %d", got)
+	}
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("zero-cap pot must NOT flag quantity_above_max, got %d", got)
+	}
+}
+
+func TestScanQuantity_PotStorageUsesRepositoryCap(t *testing.T) {
+	// Storage is never container-capped: Volcano Pot storage uses maxRepositoryNum=600.
+	ok := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, volcanoPotHandle, 600, nil)}
+	if got := countCode(ScanRepairIssuesFromRecords(0, bareSlot(), ok), RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("Volcano Pot x600 in storage must be allowed, got %d", got)
+	}
+	over := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, volcanoPotHandle, 601, nil)}
+	if got := countCode(ScanRepairIssuesFromRecords(0, bareSlot(), over), RepairCodeQuantityAboveMax); got != 1 {
+		t.Errorf("Volcano Pot x601 in storage must flag quantity_above_max, got %d", got)
+	}
+}
+
+// TestScanQuantity_FesteringBloodyFingerStorage is the second false-positive
+// regression: an isDeposit=0 good with maxRepositoryNum=99 must be storable.
+func TestScanQuantity_FesteringBloodyFingerStorage(t *testing.T) {
+	const festeringHandle = uint32(0xB000006F)
+	ok := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, festeringHandle, 99, nil)}
+	if ok[0].Resolution != ResolutionKnownDB || !ok[0].GameMaxStorageKnown || ok[0].GameMaxStorage != 99 {
+		t.Fatalf("fixture not KnownDB/GameMaxStorage 99: res=%q gameStor=%d", ok[0].Resolution, ok[0].GameMaxStorage)
+	}
+	issues := ScanRepairIssuesFromRecords(0, bareSlot(), ok)
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 0 {
+		t.Errorf("Festering Bloody Finger x99 in storage must be permitted, got %d item_not_allowed", got)
+	}
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("Festering Bloody Finger x99 in storage must not flag above max, got %d", got)
+	}
+
+	over := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, festeringHandle, 100, nil)}
+	oi := ScanRepairIssuesFromRecords(0, bareSlot(), over)
+	if got := countCode(oi, RepairCodeQuantityAboveMax); got != 1 {
+		t.Errorf("Festering Bloody Finger x100 storage must flag quantity_above_max, got %d", got)
+	}
+	if got := countCode(oi, RepairCodeItemNotAllowedInContainer); got != 0 {
+		t.Errorf("Festering Bloody Finger x100 storage must NOT be item_not_allowed, got %d", got)
+	}
+
+	inv := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, festeringHandle, 99, nil)}
+	if got := countCode(ScanRepairIssuesFromRecords(0, bareSlot(), inv), RepairCodeQuantityAboveMax); got != 0 {
+		t.Errorf("Festering Bloody Finger x99 in inventory must be allowed, got %d", got)
 	}
 }
 

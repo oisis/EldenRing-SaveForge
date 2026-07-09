@@ -124,8 +124,14 @@ Scanner oraz naprawa quantity używają wyłącznie `GameMax*`. Brak znanego lim
 oznacza pominięcie kontroli, a nie limit zero. Znane zero oznacza rzeczywisty
 zakaz kontenera.
 
-- Goods inventory: `EquipParamGoods.maxNum`.
-- Goods storage: `maxRepositoryNum` tylko gdy `isDeposit=1`.
+- Goods inventory: `EquipParamGoods.maxNum`. Rzucane garnki / aromaty z
+  `data.RequiredContainer` są limitowane liczbą posiadanych kontenerów (Cracked
+  Pot, Ritual Pot, Perfume Bottle, Hefty Cracked Pot), a nie surowym `maxNum`.
+  `container_overuse` (tylko raport) zgłasza, gdy suma przypisana do jednego
+  kontenera przekracza liczbę posiadanych sztuk.
+- Goods storage: `maxRepositoryNum` (niezależnie od `isDeposit`). `isDeposit`
+  steruje tylko promptem depozytu, nie jest invariantem integralności storage.
+  Znane `maxRepositoryNum=0` to rzeczywisty zakaz storage.
 - Ammunicja inventory: `EquipParamWeapon.maxArrowQuantity`; storage 600.
 - Aktywne rekordy Crimson/Cerulean flask mają techniczny limit 20. Quantity
   reprezentuje przydzielone użycia, np. 12 + 2. Gameplayowa suma 14 jest osobnym

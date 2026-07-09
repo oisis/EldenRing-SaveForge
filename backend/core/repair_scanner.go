@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // Issue code constants — match the codes used in backend/editor/validate.go
@@ -36,6 +38,14 @@ const (
 	RepairCodeCurrentAoWNonAoWCategory  = "current_aow_non_aow_category"
 	RepairCodeDuplicateAcquisitionIndex = "duplicate_acquisition_index"
 	RepairCodeStatsFormula              = "stats_formula"
+	// RepairCodeContainerOveruse is a REPORT-ONLY aggregate: the total quantity
+	// of pot/aromatic craftables mapped to one container (e.g. all Throwing Pots
+	// against Cracked Pot) exceeds the number of that container the slot owns.
+	// Per-record caps cannot see this — each individual pot stack may sit within
+	// the owned count while their sum overflows the shared container. It carries
+	// no mutating action (no safe generic auto-repair; the user chooses what to
+	// trim), so its default action is no_action.
+	RepairCodeContainerOveruse = "container_overuse"
 )
 
 // Repair action identifiers — proposed by the scanner, executed by the apply endpoint.
@@ -130,7 +140,7 @@ func ScanRepairIssuesWithCoverage(slotIndex int, slot *SaveSlot, records []Resol
 // the number of KnownDB records the container/quantity validator executed, so
 // callers can report honest structural and category coverage.
 func scanRepairIssuesFrom(slotIndex int, slot *SaveSlot, records []ResolvedRecord) ([]RepairIssue, int, int) {
-	inv, structuralChecked, categoryChecked := scanInventoryRepairIssues(slotIndex, slot.Player.ClearCount, records)
+	inv, structuralChecked, categoryChecked := scanInventoryRepairIssues(slotIndex, records)
 	var out []RepairIssue
 	out = append(out, inv...)
 	out = append(out, scanAoWRepairIssues(slotIndex, slot)...)
@@ -214,16 +224,21 @@ func mkIssue(key IssueKey, desc, severity string, actions []string, def, fp stri
 // technical placeholder) or one in an unrecognised scope. Callers must not
 // category-check or clamp such a record.
 //
-// For a KnownDB record, inventory scopes use GameMaxInventory and storage uses
-// GameMaxStorage. The corresponding Known flag must be true. This deliberately
-// does not use the conservative Normal Mode caps or scales_with_ng: editor
-// policy and single-playthrough availability are not save-integrity truths.
+// For a KnownDB record, storage uses GameMaxStorage. Inventory uses
+// GameMaxInventory EXCEPT for pot/aromatic craftables listed in
+// data.RequiredContainer: the game caps those by the runtime container limit,
+// not by their raw maxNum. For those, the inventory cap is how many of the
+// required container the slot currently owns (containerOwned[containerID]), which
+// is 0 when the container is missing. Storage is never container-capped.
 //
-// A known zero is a legitimate value (item not permitted in the container) and
-// still returns applies=true. The clearCount parameter is retained for API
-// compatibility with existing callers; technical game limits do not scale with
-// NG+.
-func EffectiveQuantityCap(rec ResolvedRecord, _ uint32) (limit uint64, applies bool) {
+// containerOwned maps containerItemID -> owned inventory quantity; pass nil when
+// no record in scope is container-gated (the map lookup then yields 0). This
+// deliberately does not use the conservative Normal Mode caps or scales_with_ng:
+// editor policy and single-playthrough availability are not save-integrity truths.
+//
+// A known zero is a legitimate value (item not permitted in the container, or no
+// container owned) and still returns applies=true.
+func EffectiveQuantityCap(rec ResolvedRecord, containerOwned map[uint32]uint64) (limit uint64, applies bool) {
 	if rec.Resolution != ResolutionKnownDB {
 		return 0, false
 	}
@@ -234,6 +249,9 @@ func EffectiveQuantityCap(rec ResolvedRecord, _ uint32) (limit uint64, applies b
 		}
 		return uint64(rec.GameMaxStorage), true
 	case repairScopeInventoryCommon, repairScopeInventoryKey:
+		if containerID, ok := data.GetRequiredContainer(rec.DisplayID); ok {
+			return containerOwned[containerID], true
+		}
 		if !rec.GameMaxInventoryKnown {
 			return 0, false
 		}
@@ -243,16 +261,57 @@ func EffectiveQuantityCap(rec ResolvedRecord, _ uint32) (limit uint64, applies b
 	}
 }
 
+// containerOwnedQuantities totals the owned INVENTORY quantity of every container
+// key item (Cracked Pot, Ritual Pot, Perfume Bottle, Hefty Cracked Pot) present
+// in the resolved records. Storage copies do not count toward carrying capacity.
+// The result feeds EffectiveQuantityCap so pot/aromatic caps track the container
+// count the character actually holds.
+func containerOwnedQuantities(records []ResolvedRecord) map[uint32]uint64 {
+	owned := make(map[uint32]uint64)
+	for _, r := range records {
+		if r.Scope == repairScopeStorageCommon {
+			continue
+		}
+		if data.IsContainerItem(r.DisplayID) {
+			owned[r.DisplayID] += uint64(r.Quantity & 0x7FFFFFFF)
+		}
+	}
+	return owned
+}
+
+// containerUsedQuantities totals the owned INVENTORY quantity of all craftables
+// mapped to each container. Compared against containerOwnedQuantities it reveals
+// aggregate container overuse (RepairCodeContainerOveruse) that per-record caps
+// cannot detect when several pot types share one container.
+func containerUsedQuantities(records []ResolvedRecord) map[uint32]uint64 {
+	used := make(map[uint32]uint64)
+	for _, r := range records {
+		if r.Scope == repairScopeStorageCommon {
+			continue
+		}
+		if containerID, ok := data.GetRequiredContainer(r.DisplayID); ok {
+			used[containerID] += uint64(r.Quantity & 0x7FFFFFFF)
+		}
+	}
+	return used
+}
+
 // ---- inventory scanner ------------------------------------------------------
 
 // scanInventoryRepairIssues emits per-record issues from a pre-resolved record
 // collection. Resolution status (known DB / technical placeholder / unknown) is
 // authoritative here — the scanner never re-derives item identity, guaranteeing
 // coverage and issues agree. Pass-through is no longer an aggregate issue.
-func scanInventoryRepairIssues(slotIndex int, clearCount uint32, records []ResolvedRecord) ([]RepairIssue, int, int) {
+func scanInventoryRepairIssues(slotIndex int, records []ResolvedRecord) ([]RepairIssue, int, int) {
 	var out []RepairIssue
 	seenHandles := make(map[uint32]bool)
 	seenIndices := make(map[uint32]bool) // shared across index-dedup scopes only
+
+	// Container ownership is resolved once for the whole slot: pot/aromatic caps
+	// depend on how many of the required container the character owns, not on the
+	// individual record. Shared verbatim with the clamp primitive via
+	// EffectiveQuantityCap so scanner and repair can never disagree.
+	containerOwned := containerOwnedQuantities(records)
 
 	structuralChecked := 0
 	categoryChecked := 0
@@ -348,7 +407,7 @@ func scanInventoryRepairIssues(slotIndex int, clearCount uint32, records []Resol
 		// technical placeholders carry no cap, so guessing a limit for them would
 		// fabricate a validation result. EffectiveQuantityCap is the single source
 		// of cap semantics, shared verbatim with the clamp repair primitive.
-		if limit, applies := EffectiveQuantityCap(r, clearCount); applies {
+		if limit, applies := EffectiveQuantityCap(r, containerOwned); applies {
 			categoryChecked++
 			// Preserve the high-bit quantity flag semantics by masking before the
 			// comparison.
@@ -385,7 +444,45 @@ func scanInventoryRepairIssues(slotIndex int, clearCount uint32, records []Resol
 		}
 	}
 
+	// Aggregate container overuse — REPORT ONLY. Emitted once per over-subscribed
+	// container, in ascending container-ID order for deterministic output. This is
+	// the true game rule (total pot units mapped to a container must not exceed the
+	// owned container count); per-record caps only catch a single stack exceeding
+	// the owned count, missing the case where several pot types individually fit
+	// but collectively overflow. No mutating action is offered — the user decides
+	// which stacks to trim — so it never manufactures a destructive default.
+	out = append(out, aggregateContainerIssues(slotIndex, records)...)
+
 	return out, structuralChecked, categoryChecked
+}
+
+// aggregateContainerIssues builds the report-only container_overuse issues for a
+// resolved record collection. Deterministic (sorted by container ID).
+func aggregateContainerIssues(slotIndex int, records []ResolvedRecord) []RepairIssue {
+	owned := containerOwnedQuantities(records)
+	used := containerUsedQuantities(records)
+	containers := make([]uint32, 0, len(used))
+	for cID := range used {
+		containers = append(containers, cID)
+	}
+	sort.Slice(containers, func(i, j int) bool { return containers[i] < containers[j] })
+
+	var out []RepairIssue
+	for _, cID := range containers {
+		have := owned[cID]
+		if used[cID] <= have {
+			continue
+		}
+		key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeContainerOveruse,
+			Scope: repairScopeInventoryCommon, Row: -1, Handle: cID,
+			Field: "container", Value: fmt.Sprintf("%d/%d", used[cID], have)}
+		out = append(out, mkIssue(key,
+			fmt.Sprintf("container 0x%08X holds %d pot/aromatic units but only %d container(s) are owned", cID, used[cID], have),
+			repairSeverityWarning,
+			[]string{RepairActionNoAction},
+			RepairActionNoAction, ""))
+	}
+	return out
 }
 
 // ---- AoW scanner ------------------------------------------------------------

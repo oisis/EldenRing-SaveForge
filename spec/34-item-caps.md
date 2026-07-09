@@ -121,9 +121,11 @@ The banner shows:
 ## Repair: safe quantity clamp (loaded save only)
 
 The integrity scanner reports records whose effective quantity exceeds their
-technical game container cap. `EffectiveQuantityCap(rec, clearCount)` in
+technical game container cap. `EffectiveQuantityCap(rec, containerOwned)` in
 `backend/core/repair_scanner.go` is the single source of cap semantics, shared
 verbatim by the scanner and the repair primitive, so the two can never disagree.
+`containerOwned` maps each container key item to the quantity the slot owns, so
+pot/aromatic craftables are capped by the owned container count.
 Unknown game limits are skipped rather than treated as zero. Known zero remains
 a real container prohibition.
 
@@ -149,9 +151,14 @@ Normal Mode continues to use the conservative caps and NG+ scaling.
 
 ### Regulation sources and flask semantics
 
-- Goods inventory: `EquipParamGoods.maxNum`.
-- Goods storage: `maxRepositoryNum` only when `isDeposit=1`; `isDeposit=0` is a
-  known storage prohibition.
+- Goods inventory: `EquipParamGoods.maxNum`. Pot/aromatic craftables in
+  `data.RequiredContainer` are instead capped by the owned container count
+  (Cracked Pot, Ritual Pot, Perfume Bottle, Hefty Cracked Pot) — the game reads
+  the runtime container limit, not raw `maxNum`. `container_overuse` reports (read
+  only) when the total mapped to one container exceeds the owned count.
+- Goods storage: `maxRepositoryNum` (independent of `isDeposit`). `isDeposit` only
+  toggles the deposit prompt; it is NOT a storage-integrity invariant. A known
+  `maxRepositoryNum=0` is the genuine storage prohibition.
 - Ammunition inventory: `EquipParamWeapon.maxArrowQuantity`; repository cap 600.
 - Full Crimson/Cerulean flask records have a technical per-record cap of 20.
   Their quantities represent allocated charges (for example 12 + 2). The normal

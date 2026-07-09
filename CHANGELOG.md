@@ -28,6 +28,19 @@
   mapping, and the UI label; writer semantics are unchanged.
 
 ### Fixed
+- Repair scanner no longer reports false-positive quantity/container issues for two classes:
+  - **Pot/aromatic craftables** (Volcano Pot, etc.) are now capped by the owned container
+    count (Cracked Pot, Ritual Pot, Perfume Bottle, Hefty Cracked Pot) rather than raw
+    `maxNum`, matching the game's runtime container limit. Volcano Pot ×20 with 20 Cracked
+    Pots no longer flags `quantity_above_max`. The scanner and clamp repair share the same
+    effective-cap logic. A new **report-only** `container_overuse` aggregate flags when the
+    total mapped to one container exceeds the owned count (e.g. two pot types overflowing a
+    shared container) — no auto-repair.
+  - **Goods storage** now uses regulation `maxRepositoryNum` regardless of `isDeposit`.
+    `isDeposit=0` is a deposit-prompt flag, not a storage prohibition, so items like
+    Festering Bloody Finger (`maxRepositoryNum=99`) are no longer falsely reported as
+    `item_not_allowed_in_container`. A known `maxRepositoryNum=0` remains a genuine
+    prohibition. Regenerated `game_limits_generated.go` accordingly.
 - Repair scanner no longer reports false-positive `unknown_item_id` for five legal technical
   variant GoodsParam rows (`0x40002AFA`, `0x40002AFC`, `0x40002B08`, `0x40001FAD`, `0x40001FD2`).
   These share their base item's params and are now registered in the item DB (flagged

@@ -9,9 +9,9 @@ func TestGeneratedGameLimits_KnownRegulationCases(t *testing.T) {
 		inventory uint32
 		storage   uint32
 	}{
-		{"Crimson flask +12 full", 0x40000401, 20, 0},
-		{"Cerulean flask +12 full", 0x40000433, 20, 0},
-		{"Festering Bloody Finger", 0x4000006F, 99, 0},
+		{"Crimson flask +12 full", 0x40000401, 20, 20},
+		{"Cerulean flask +12 full", 0x40000433, 20, 20},
+		{"Festering Bloody Finger", 0x4000006F, 99, 99},
 		{"Glintstone Pebble", 0x40000FA0, 99, 600},
 		{`Prattling Pate "Hello"`, 0x40000898, 1, 600},
 		{"Remembrance of the Starscourge", 0x40000B87, 99, 600},

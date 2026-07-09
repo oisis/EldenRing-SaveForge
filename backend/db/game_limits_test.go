@@ -8,8 +8,8 @@ func TestGetItemData_PreservesSafeCapsAndAddsGameCaps(t *testing.T) {
 		safeInventory, safeStorage uint32
 		gameInventory, gameStorage uint32
 	}{
-		{0x40000401, 1, 0, 20, 0},   // Flask of Crimson Tears +12
-		{0x4000006F, 1, 99, 99, 0},  // Festering Bloody Finger
+		{0x40000401, 1, 0, 20, 20},  // Flask of Crimson Tears +12 (maxRepositoryNum=20)
+		{0x4000006F, 1, 99, 99, 99}, // Festering Bloody Finger (maxRepositoryNum=99, isDeposit=0)
 		{0x40000FA0, 1, 0, 99, 600}, // Glintstone Pebble
 	}
 	for _, tt := range tests {

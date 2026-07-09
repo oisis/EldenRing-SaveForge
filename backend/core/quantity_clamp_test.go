@@ -240,10 +240,11 @@ func TestClampQuantity_TechnicalPlaceholder_Rejected(t *testing.T) {
 }
 
 func TestClampQuantity_ZeroCap_Rejected(t *testing.T) {
-	// Wondrous Physick GameMaxStorage 0 → not permitted in storage → clamp must refuse
-	// (removal is the correct repair; clamp must never drive quantity to zero).
+	// Cracked Pot GameMaxStorage 0 (maxRepositoryNum=0) → not permitted in storage
+	// → clamp must refuse (removal is the correct repair; clamp must never drive
+	// quantity to zero).
 	slot := buildStorageFixtureRecords(t, map[int]InventoryItem{
-		0: {GaItemHandle: physickHandleQty, Quantity: 5, Index: 700},
+		0: {GaItemHandle: crackedPotHandle, Quantity: 5, Index: 700},
 	})
 	before := append([]byte(nil), slot.Data...)
 	if _, err := ClampInventoryQuantityAt(slot, repairScopeStorageCommon, 0, fpAt(t, slot, repairScopeStorageCommon, 0)); err == nil {
@@ -251,6 +252,42 @@ func TestClampQuantity_ZeroCap_Rejected(t *testing.T) {
 	}
 	if !bytes.Equal(before, slot.Data) {
 		t.Fatal("zero-cap clamp mutated the slot")
+	}
+}
+
+func TestClampQuantity_PotWithinContainerCap_NoOp(t *testing.T) {
+	// Volcano Pot x20 with 20 Cracked Pots owned: exactly at the container cap.
+	// Clamp shares EffectiveQuantityCap with the scanner, so it must reject (no-op)
+	// just as the scanner reports no issue.
+	slot := buildInvFixtureNZ(t, []InventoryItem{
+		{GaItemHandle: volcanoPotHandle, Quantity: 20, Index: 500},
+		{GaItemHandle: crackedPotHandle, Quantity: 20, Index: 501},
+	})
+	before := append([]byte(nil), slot.Data...)
+	if _, err := ClampInventoryQuantityAt(slot, repairScopeInventoryCommon, 0, fpAt(t, slot, repairScopeInventoryCommon, 0)); err == nil {
+		t.Fatal("Volcano Pot x20 within owned container cap 20 must be rejected (no-op)")
+	}
+	if !bytes.Equal(before, slot.Data) {
+		t.Fatal("no-op clamp mutated the slot")
+	}
+}
+
+func TestClampQuantity_PotOverContainerCap_ClampsToOwned(t *testing.T) {
+	// Volcano Pot x21 with 20 Cracked Pots: clamp drives it down to the owned
+	// container count (20), never to raw maxNum (10).
+	slot := buildInvFixtureNZ(t, []InventoryItem{
+		{GaItemHandle: volcanoPotHandle, Quantity: 21, Index: 500},
+		{GaItemHandle: crackedPotHandle, Quantity: 20, Index: 501},
+	})
+	ch, err := ClampInventoryQuantityAt(slot, repairScopeInventoryCommon, 0, fpAt(t, slot, repairScopeInventoryCommon, 0))
+	if err != nil {
+		t.Fatalf("clamp: %v", err)
+	}
+	if ch.NewQuantity != 20 || ch.Cap != 20 {
+		t.Fatalf("clamp result = new %d / cap %d, want 20/20", ch.NewQuantity, ch.Cap)
+	}
+	if slot.Inventory.CommonItems[0].Quantity != 20 {
+		t.Errorf("in-memory Volcano Pot quantity = %d, want clamped 20", slot.Inventory.CommonItems[0].Quantity)
 	}
 }
 
@@ -273,25 +310,31 @@ func TestClampQuantity_OnlySelectedRowChanges(t *testing.T) {
 // ---- EffectiveQuantityCap direct tests --------------------------------------
 
 func TestEffectiveQuantityCap(t *testing.T) {
+	// crackedPot is the container for Volcano Pot (volcanoPotHandle); owning N of
+	// it caps the carried Volcano Pot stack at N.
+	const crackedPotID = uint32(0x4000251C)
 	cases := []struct {
-		name       string
-		rec        ResolvedRecord
-		clearCount uint32
-		wantLimit  uint64
-		wantApply  bool
+		name           string
+		rec            ResolvedRecord
+		containerOwned map[uint32]uint64
+		wantLimit      uint64
+		wantApply      bool
 	}{
-		{"known inventory", resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 1, nil), 0, 999, true},
-		{"known key inventory", resolveRec(repairScopeInventoryKey, 0, stoneswordKeyHandle, 1, nil), 0, 99, true},
-		{"known storage", resolveRec(repairScopeStorageCommon, 0, smithingStoneHandle, 1, nil), 0, 999, true},
-		{"NG+ does not scale game cap", resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 1, nil), 3, 99, true},
-		{"storage game cap", resolveRec(repairScopeStorageCommon, 0, stoneswordKeyHandle, 1, nil), 3, 600, true},
-		{"unknown record", resolveRec(repairScopeInventoryCommon, 0, 0x10000005, 1, nil), 0, 0, false},
-		{"technical placeholder", resolveRec(repairScopeStorageCommon, 0, nakedHeadHandle, 1, map[uint32]uint32{nakedHeadHandle: nakedHeadItemID}), 0, 0, false},
-		{"invalid scope", ResolvedRecord{Resolution: ResolutionKnownDB, Scope: "bogus"}, 0, 0, false},
+		{"known inventory", resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 1, nil), nil, 999, true},
+		{"known key inventory", resolveRec(repairScopeInventoryKey, 0, stoneswordKeyHandle, 1, nil), nil, 99, true},
+		{"known storage", resolveRec(repairScopeStorageCommon, 0, smithingStoneHandle, 1, nil), nil, 999, true},
+		{"game cap unchanged by container map", resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 1, nil), nil, 99, true},
+		{"storage game cap", resolveRec(repairScopeStorageCommon, 0, stoneswordKeyHandle, 1, nil), nil, 600, true},
+		{"pot capped by owned container", resolveRec(repairScopeInventoryCommon, 0, volcanoPotHandle, 1, nil), map[uint32]uint64{crackedPotID: 20}, 20, true},
+		{"pot with no container owned", resolveRec(repairScopeInventoryCommon, 0, volcanoPotHandle, 1, nil), nil, 0, true},
+		{"pot in storage uses repository cap not container", resolveRec(repairScopeStorageCommon, 0, volcanoPotHandle, 1, nil), nil, 600, true},
+		{"unknown record", resolveRec(repairScopeInventoryCommon, 0, 0x10000005, 1, nil), nil, 0, false},
+		{"technical placeholder", resolveRec(repairScopeStorageCommon, 0, nakedHeadHandle, 1, map[uint32]uint32{nakedHeadHandle: nakedHeadItemID}), nil, 0, false},
+		{"invalid scope", ResolvedRecord{Resolution: ResolutionKnownDB, Scope: "bogus"}, nil, 0, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			limit, applies := EffectiveQuantityCap(c.rec, c.clearCount)
+			limit, applies := EffectiveQuantityCap(c.rec, c.containerOwned)
 			if limit != c.wantLimit || applies != c.wantApply {
 				t.Errorf("EffectiveQuantityCap = (%d,%v), want (%d,%v)", limit, applies, c.wantLimit, c.wantApply)
 			}
