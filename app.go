@@ -681,9 +681,11 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			}
 		}
 
-		// Skip stackable items already at max qty.
+		// Skip stackable items already at max qty. Talismans (0xA0) are handle-encoded
+		// but NOT stackable: each copy is a distinct record, so they must bypass the
+		// "already at max qty" skip and the per-copy cap-to-1 collapse.
 		handlePrefix := db.ItemIDToHandlePrefix(finalID)
-		isStackable := handlePrefix == core.ItemTypeItem || handlePrefix == core.ItemTypeAccessory || db.IsArrowID(finalID)
+		isStackable := handlePrefix == core.ItemTypeItem || db.IsArrowID(finalID)
 		if isStackable {
 			if (actualInv > 0 || actualStorage > 0) && existingKeyItemQty[id] > 0 {
 				a.logInfo("already in Key Items — skipping %s (0x%08X)", itemData.Name, id)

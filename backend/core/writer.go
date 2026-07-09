@@ -270,12 +270,12 @@ func AddItemsToSlot(slot *SaveSlot, itemIDs []uint32, invQty, storageQty int, fo
 	// Phase 3: add to inventory/storage (offsets are now correct).
 	for _, p := range pending {
 		if p.invQty != 0 {
-			if err := addToInventory(slot, p.handle, p.invQty, false); err != nil {
+			if err := addToInventory(slot, p.handle, p.invQty, false, false); err != nil {
 				return err
 			}
 		}
 		if p.storageQty != 0 {
-			if err := addToInventory(slot, p.handle, p.storageQty, true); err != nil {
+			if err := addToInventory(slot, p.handle, p.storageQty, true, false); err != nil {
 				return err
 			}
 		}
@@ -292,6 +292,7 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 		handle     uint32
 		invQty     uint32
 		storageQty uint32
+		dup        bool // append a new physical record even if handle already exists (talismans)
 	}
 	var pending []pendingInv
 	gaModified := false
@@ -315,7 +316,24 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 
 	for _, item := range items {
 		handlePrefix := db.ItemIDToHandlePrefix(item.ItemID)
-		isStackable := handlePrefix == ItemTypeItem || handlePrefix == ItemTypeAccessory
+		isStackable := handlePrefix == ItemTypeItem
+
+		// Talismans (0xA0) are handle-encoded like stackables (no GaItem, handle =
+		// 0xA0|itemID) but are NOT fungible stacks: each copy is a distinct physical
+		// inventory record, qty 1. Merging by handle would collapse N copies into one.
+		// Verified against real saves (PC ER0000.sl2, PS4 .dat): talismans never appear
+		// in GaMap; N copies = N separate records sharing the id-derived handle.
+		if handlePrefix == ItemTypeAccessory && !item.ForceStackable {
+			handle := (item.ItemID & 0x0FFFFFFF) | handlePrefix
+			slot.GaMap[handle] = item.ItemID
+			for n := 0; n < item.InvQty; n++ {
+				pending = append(pending, pendingInv{handle: handle, invQty: 1, dup: true})
+			}
+			for n := 0; n < item.StorageQty; n++ {
+				pending = append(pending, pendingInv{handle: handle, storageQty: 1, dup: true})
+			}
+			continue
+		}
 
 		if isStackable || item.ForceStackable {
 			handle := uint32(0)
@@ -405,12 +423,12 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 
 	for _, p := range pending {
 		if p.invQty != 0 {
-			if err := addToInventory(slot, p.handle, p.invQty, false); err != nil {
+			if err := addToInventory(slot, p.handle, p.invQty, false, p.dup); err != nil {
 				return err
 			}
 		}
 		if p.storageQty != 0 {
-			if err := addToInventory(slot, p.handle, p.storageQty, true); err != nil {
+			if err := addToInventory(slot, p.handle, p.storageQty, true, p.dup); err != nil {
 				return err
 			}
 		}
@@ -771,7 +789,10 @@ func storageRecordOffset(slot *SaveSlot, startOffset int, handle uint32) (int, e
 	return 0, fmt.Errorf("storageRecordOffset: handle 0x%08X not found in storage CommonItems", handle)
 }
 
-func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) error {
+// allowDuplicate: when true, always append a NEW physical record even if a record
+// with the same handle already exists. Used for talismans, where N copies are N
+// separate records sharing the id-derived handle (not a merged quantity stack).
+func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, allowDuplicate bool) error {
 	sa := NewSlotAccessor(slot.Data)
 	var items *[]InventoryItem
 	var startOffset int
@@ -788,6 +809,9 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 	// SET quantity to the desired value (not ADD) — qty represents the target total,
 	// not a delta. Prevents 10 existing + 99 max = 109 instead of 99.
 	for i, item := range *items {
+		if allowDuplicate {
+			break
+		}
 		if item.GaItemHandle == handle {
 			(*items)[i].Quantity = qty
 			// Binary position: held inventory CommonItems is a full 2688-entry array

@@ -95,7 +95,7 @@ func TestNextEquipIndex_InvInsert(t *testing.T) {
 	acqBefore := slot.Inventory.NextAcquisitionSortId // 1000
 
 	const newHandle = uint32(0xB0ABCDEF)
-	if err := addToInventory(slot, newHandle, 99, false); err != nil {
+	if err := addToInventory(slot, newHandle, 99, false, false); err != nil {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
@@ -119,7 +119,7 @@ func TestNextEquipIndex_StorageInsert(t *testing.T) {
 	acqBefore := slot.Storage.NextAcquisitionSortId // 1000
 
 	const newHandle = uint32(0xB0ABCDEF)
-	if err := addToInventory(slot, newHandle, 99, true); err != nil {
+	if err := addToInventory(slot, newHandle, 99, true, false); err != nil {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
