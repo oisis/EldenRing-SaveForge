@@ -30,9 +30,9 @@ func TestTalismanMultiCopyNoMerge(t *testing.T) {
 		t.Skip("no active slot")
 	}
 
-	// Radagon's Scarseal 0x2000181D — pick an id-derived handle and count records for it.
-	talismanID := uint32(0x2000181D)
-	handle := (talismanID & 0x0FFFFFFF) | ItemTypeAccessory // 0xA000181D
+	// Radagon's Scarseal 0x2000041A — pick an id-derived handle and count records for it.
+	talismanID := uint32(0x2000041A)
+	handle := (talismanID & 0x0FFFFFFF) | ItemTypeAccessory // 0xA000041A
 
 	countRecords := func(items []InventoryItem) (n int, qtySum uint32) {
 		for _, it := range items {

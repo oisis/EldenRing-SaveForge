@@ -6,7 +6,7 @@ import (
 )
 
 // Radagon's Scarseal — a real talisman ID (prefix 0x20 → handle prefix 0xA0).
-const testTalismanID = uint32(0x2000181D)
+const testTalismanID = uint32(0x2000041A)
 
 // testTalismanHandle is the id-derived handle every copy shares.
 const testTalismanHandle = (testTalismanID & 0x0FFFFFFF) | ItemTypeAccessory

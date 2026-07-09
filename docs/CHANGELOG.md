@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0_beta2] - 2026-07-10
+
 ### fix(inventory): model talisman copies without GaItem capacity
 
 Adding talismans no longer falsely fails preflight as `gaitem_full`. Talismans are
