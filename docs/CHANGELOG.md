@@ -4,6 +4,62 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-09
+
+### feat(inventory): on-load validation modal, auto-repair engine, diagnostics integration
+
+Loading a save now automatically scans the selected character slot and shows an
+inventory issues modal: workspace errors/warnings grouped with checkboxes,
+per-issue Fix buttons, Fix-all per group, and a Repair Selected batch action.
+Skipping the modal shows a toast pointing to Tools → Diagnostic.
+
+New App endpoints back this: `ScanInventoryIssues` (unified scan combining the
+binary corruption check `core.DiagnoseSaveCorruption` with workspace semantic
+validation `editor.Validate`, returning per-issue repair metadata) and
+`RepairInventoryWorkspaceItem` / `RepairInventoryWorkspaceItems` (apply
+auto-repairs for `upgrade_out_of_range`, `pending_aow_unknown`,
+`pending_aow_conflict` and commit via `SaveInventoryWorkspaceChanges`). The
+reusable `editor.AutoRepairWorkspaceItem` engine drives both. Tools → Diagnostic
+now also surfaces weapon workspace issues alongside the binary scan results.
+
+### fix(db): register five legal technical variant item IDs
+
+Five real GoodsParam rows observed in live saves (`0x40002AFA`, `0x40002AFC`,
+`0x40002B08`, `0x40001FAD`, `0x40001FD2`) were missing from the item DB and so
+raised false-positive `unknown_item_id`. They share their base item's params and
+are now registered (flagged `no_database`, kept out of the item picker) so the
+scanner recognises them while the add-item UI stays clean.
+
+### fix(scanner): drop false-positive inventory_reserved rule for low acquisition indices
+
+Removed the corruption check that flagged any record with `AcquisitionIndex <=
+432`. Genuine game-created records legitimately use low indices (e.g. Memory of
+Grace at 432, Lordsworn weapons/shields). `InvEquipReservedMax` is retained
+purely as a conservative floor for newly generated editor indices — not a
+validation rule for existing records. Duplicate-index detection
+(`duplicate_acquisition_index`) is unaffected. Dropped the now-dead
+`RepairCodeInventoryReserved` constant, its app-layer action mapping, and the UI
+label; writer semantics are unchanged.
+
+### fix(scanner): cap pots by owned container; goods storage uses maxRepositoryNum
+
+Two remaining quantity/container false-positive classes fixed:
+
+- **Pot/aromatic craftables** (Volcano Pot, etc.) are now capped by the owned
+  container count (Cracked Pot, Ritual Pot, Perfume Bottle, Hefty Cracked Pot)
+  rather than raw `maxNum`, matching the game's runtime container limit. Volcano
+  Pot ×20 with 20 Cracked Pots no longer flags `quantity_above_max`. The scanner
+  and clamp repair share the same `EffectiveQuantityCap` logic. A new
+  **report-only** `container_overuse` aggregate flags when the total mapped to one
+  container exceeds the owned count (several pot types overflowing a shared
+  container) — no auto-repair.
+- **Goods storage** now uses regulation `maxRepositoryNum` regardless of
+  `isDeposit`. `isDeposit=0` is a deposit-prompt flag, not a storage prohibition,
+  so items like Festering Bloody Finger (`maxRepositoryNum=99`) are no longer
+  falsely reported as `item_not_allowed_in_container`. A known
+  `maxRepositoryNum=0` remains a genuine prohibition. `game_limits_generated.go`
+  was regenerated accordingly.
+
 ### fix(caps): separate conservative editor caps from game limits
 
 Added generated `GameMaxInventory` / `GameMaxStorage` metadata sourced from
@@ -12,11 +68,12 @@ scaling. Full Chaos Mode now uses technical game caps through a dedicated
 backend endpoint instead of the previous frontend-only `999` override.
 
 The loaded-save scanner and quantity clamp now use only known game limits.
-Unknown limits are skipped rather than treated as zero. Goods storage honors
-`isDeposit`; ammunition uses `maxArrowQuantity` and the 600-unit repository
-limit. This removes false positives for flask allocations, Festering Bloody
-Finger, duplicate spell quantities, Prattling Pates, and Remembrances in
-storage. Full Crimson/Cerulean flask records correctly use their regulation
+Unknown limits are skipped rather than treated as zero. Goods storage uses
+`maxRepositoryNum` (see the later "goods storage uses maxRepositoryNum" entry
+in this release, which supersedes the earlier `isDeposit` gating); ammunition
+uses `maxArrowQuantity` and the 600-unit repository limit. This removes false
+positives for flask allocations, Festering Bloody Finger, duplicate spell
+quantities, Prattling Pates, and Remembrances in storage. Full Crimson/Cerulean flask records correctly use their regulation
 per-record cap of 20; the normal combined allocation of 14 remains a separate
 aggregate rule.
 
