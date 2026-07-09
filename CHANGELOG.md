@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-09
+
 ### Added
 - **On-load inventory issues modal**: automatically scans the selected character slot on save load;
   shows workspace errors/warnings with grouped checkboxes, individual Fix buttons, Fix-all per group,
