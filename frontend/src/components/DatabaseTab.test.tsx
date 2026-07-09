@@ -36,6 +36,7 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     AddItemsToCharacterWithGameLimits: vi.fn(),
     GetCharacter: vi.fn(),
     GetBellBearings: vi.fn(),
+    GetSlotCapacity: vi.fn(),
 }));
 
 vi.mock('../lib/toast', () => {
@@ -151,6 +152,7 @@ beforeEach(() => {
     mocks.GetInfuseTypes.mockResolvedValue([]);
     mocks.GetCharacter.mockResolvedValue({ inventory: [], storage: [], clearCount: 0 });
     mocks.GetBellBearings.mockResolvedValue([]);
+    mocks.GetSlotCapacity.mockResolvedValue({ inventoryUsed: 0, inventoryMax: 2688, storageUsed: 0, storageMax: 1920 });
     mocks.GetItemList.mockResolvedValue([makeBanRiskItem()]);
     mocks.GetItemListChunk.mockResolvedValue([]);
     mocks.AddItemsToCharacter.mockResolvedValue({
@@ -173,6 +175,20 @@ describe('DatabaseTab', () => {
         renderTab();
         // Grid view renders items directly (no row virtualizer), so the item is
         // deterministically present in jsdom.
+        fireEvent.click(screen.getByTitle('Grid view'));
+        expect(await screen.findByText('Forbidden Trinket')).toBeInTheDocument();
+    });
+
+    it('hides risk-flagged items when showFlaggedItems is off and Chaos is off', async () => {
+        renderTab({ showFlaggedItems: false });
+        fireEvent.click(screen.getByTitle('Grid view'));
+        await waitFor(() => expect(mocks.GetItemList).toHaveBeenCalled());
+        expect(screen.queryByText('Forbidden Trinket')).not.toBeInTheDocument();
+    });
+
+    it('Chaos Mode reveals risk-flagged items even when showFlaggedItems is off', async () => {
+        localStorage.setItem('setting:fullChaosMode', 'true');
+        renderTab({ showFlaggedItems: false });
         fireEvent.click(screen.getByTitle('Grid view'));
         expect(await screen.findByText('Forbidden Trinket')).toBeInTheDocument();
     });

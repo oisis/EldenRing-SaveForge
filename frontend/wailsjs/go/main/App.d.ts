@@ -36,6 +36,8 @@ export function ApplyRepairsLoaded(arg1:number,arg2:Array<main.RepairApplyTarget
 
 export function AuditLoadedSaveIssues():Promise<Array<main.SaveIssue>>;
 
+export function BackupCurrentSave():Promise<string>;
+
 export function BulkSetBellBearings(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;
 
 export function BulkSetCookbooksUnlocked(arg1:number,arg2:Array<number>,arg3:boolean):Promise<void>;

@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(chaos): make Chaos Mode reach real game caps, reveal risk items, and warn before enabling
+
+Chaos Mode now behaves as intended end to end. The DB owned-count columns use the
+active mode's effective cap, so an item added to its regulation game limit (e.g.
+Ancient Dragon Smithing Stone at 999) reads `999 / 999` instead of the previous
+`999 / 18`. The artificial 99-copy ceiling on non-stackable items is removed in
+both Normal and Chaos Mode; the add-quantity input is now bounded by free
+inventory/storage slots (`GetSlotCapacity`), with `CheckAddCapacity` still the
+hard all-or-nothing guard. Chaos Mode reveals all risk-flagged items
+(`cut_content`, `ban_risk`, `pre_order`, `dlc_duplicate`) regardless of the "show
+flagged" toggle.
+
+Enabling Chaos Mode now shows a warning modal (OK / Cancel — Cancel does not
+enable) stating that edits are irreversible (restore-from-backup only) and that
+using it online is practically a guaranteed ban, with a default-on "create a
+backup first" checkbox wired to the new `BackupCurrentSave` endpoint. While
+active, the top navigation bar turns red with a pulsing "CHAOS MODE!!!" label.
+Renamed "Full Chaos Mode" to "Chaos Mode" and corrected the stale
+"bypasses all caps" comment.
+
 ## [1.1.0] - 2026-07-09
 
 ### feat(inventory): on-load validation modal, auto-repair engine, diagnostics integration

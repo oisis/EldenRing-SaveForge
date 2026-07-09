@@ -3,7 +3,7 @@ import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
 import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, AddItemsToCharacterWithGameLimits, GetCharacter,
         SetCookbookUnlocked, SetWhetbladeUnlocked, SetBellBearingUnlocked, GetBellBearings,
-        SetMapRegionFlags} from '../../wailsjs/go/main/App';
+        SetMapRegionFlags, GetSlotCapacity} from '../../wailsjs/go/main/App';
 import {db, vm} from '../../wailsjs/go/models';
 import type {AddSettings} from '../App';
 import {CategorySelect, CATEGORY_VALUES} from './CategorySelect';
@@ -58,9 +58,9 @@ function allNonStackable(items: db.ItemEntry[], clearCount: number, chaos: boole
         effectiveCap(i, 'storage', clearCount, chaos) <= 1);
 }
 
-// Normal Mode uses conservative authored caps (including NG+ scaling). Full
-// Chaos Mode uses regulation-derived technical game limits where known and
-// falls back to the conservative cap when the regulation limit is unavailable.
+// Normal Mode uses conservative authored caps (including NG+ scaling). Chaos
+// Mode uses regulation-derived technical game limits where known and falls back
+// to the conservative cap when the regulation limit is unavailable.
 export function effectiveCap(item: db.ItemEntry, kind: 'inv' | 'storage', clearCount: number, chaos: boolean): number {
     if (chaos) {
         if (kind === 'inv' && item.gameMaxInventoryKnown) return item.gameMaxInventory;
@@ -120,8 +120,14 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const [charInventory, setCharInventory] = useState<vm.ItemViewModel[]>([]);
     const [charStorage, setCharStorage] = useState<vm.ItemViewModel[]>([]);
     const [clearCount, setClearCount] = useState<number>(0);
+    // Free inventory/storage slots (Max - Used). Ceiling for how many copies of a
+    // non-stackable item can be added at once. Backend CheckAddCapacity is the hard
+    // guard (all-or-nothing); these just pre-bound the input.
+    const [freeInv, setFreeInv] = useState<number>(999);
+    const [freeStorage, setFreeStorage] = useState<number>(999);
 
-    // Full Chaos Mode bypasses all caps. Cross-component sync via custom event from SettingsTab.
+    // Chaos Mode swaps conservative caps for regulation game caps and reveals
+    // risk-flagged items. Cross-component sync via custom event from SettingsTab.
     const [fullChaosMode, setFullChaosMode] = useState<boolean>(() =>
         localStorage.getItem('setting:fullChaosMode') === 'true');
 
@@ -148,6 +154,12 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             setCharStorage([]);
             setClearCount(0);
         });
+        GetSlotCapacity(charIndex)
+            .then(cap => {
+                setFreeInv(Math.max(1, (cap?.inventoryMax ?? 0) - (cap?.inventoryUsed ?? 0)));
+                setFreeStorage(Math.max(1, (cap?.storageMax ?? 0) - (cap?.storageUsed ?? 0)));
+            })
+            .catch(() => { setFreeInv(999); setFreeStorage(999); });
     }, [charIndex, inventoryVersion]);
 
     useEffect(() => {
@@ -240,8 +252,9 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (showOnlyFavorites && !isFav(item.id)) return false;
         // "Cut & Ban-Risk" toggle hides only risky-flagged items, not informational flags
         // (dlc, stackable) which are now present on most entries.
+        // Chaos Mode reveals all risk-flagged items regardless of the toggle.
         const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
-        if (!showFlaggedItems && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
+        if (!showFlaggedItems && !fullChaosMode && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
         // "Talismans: highest only" toggle hides lower-tier variants of upgrade families.
         if (category === 'talismans' && addSettings.talismansHighestOnly && isLowerTierTalisman(item.id)) return false;
         const q = deferredSearch.toLowerCase();
@@ -263,7 +276,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
         return 0;
-    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, category, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
+    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, fullChaosMode, category, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
 
     const showWeightColumn = useMemo(() => filteredItems.some(i => i.weight !== undefined && i.weight > 0), [filteredItems]);
 
@@ -284,11 +297,11 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         dbItems.filter(item => {
             if (!isFav(item.id)) return false;
             const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
-            if (!showFlaggedItems && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
+            if (!showFlaggedItems && !fullChaosMode && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
             if (category === 'talismans' && addSettings.talismansHighestOnly && isLowerTierTalisman(item.id)) return false;
             return true;
         }),
-        [dbItems, isFav, showFlaggedItems, category, addSettings.talismansHighestOnly]);
+        [dbItems, isFav, showFlaggedItems, fullChaosMode, category, addSettings.talismansHighestOnly]);
 
     const showSubGroupColumn = category === 'all' || CATEGORIES_WITH_SUBGROUPS.has(category);
 
@@ -605,10 +618,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                 <input
                                     type="number"
                                     min={1}
-                                    max={modalNonStackable ? 99 : modalMaxInvHi}
+                                    max={modalNonStackable ? freeInv : modalMaxInvHi}
                                     value={invMax ? modalMaxInvHi : invQtyVal}
                                     disabled={!addToInv || invMax}
-                                    onChange={e => setInvQtyVal(Math.max(1, Math.min(modalNonStackable ? 99 : modalMaxInvHi, parseInt(e.target.value) || 1)))}
+                                    onChange={e => setInvQtyVal(Math.max(1, Math.min(modalNonStackable ? freeInv : modalMaxInvHi, parseInt(e.target.value) || 1)))}
                                     className="w-20 bg-background border border-border/50 rounded px-2 py-1 text-[10px] font-mono text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-40"
                                 />
                                 {modalNonStackable && (
@@ -641,10 +654,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                 <input
                                     type="number"
                                     min={1}
-                                    max={modalNonStackable ? 99 : modalMaxStorageHi}
+                                    max={modalNonStackable ? freeStorage : modalMaxStorageHi}
                                     value={!modalAnyStorageAllowed ? 0 : storageMax ? modalMaxStorageHi : storageQtyVal}
                                     disabled={!addToStorage || storageMax || !modalAnyStorageAllowed}
-                                    onChange={e => setStorageQtyVal(Math.max(1, Math.min(modalNonStackable ? 99 : modalMaxStorageHi, parseInt(e.target.value) || 1)))}
+                                    onChange={e => setStorageQtyVal(Math.max(1, Math.min(modalNonStackable ? freeStorage : modalMaxStorageHi, parseInt(e.target.value) || 1)))}
                                     className="w-20 bg-background border border-border/50 rounded px-2 py-1 text-[10px] font-mono text-center focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-40"
                                 />
                                 {!modalAnyStorageAllowed && (
@@ -976,13 +989,13 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                             return (
                                                 <>
                                                     <td className="p-4 text-center">
-                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.inv, item.maxInventory)}`}>
-                                                            {owned.inv} / {item.maxInventory}
+                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.inv, effectiveCap(item, 'inv', clearCount, fullChaosMode))}`}>
+                                                            {owned.inv} / {effectiveCap(item, 'inv', clearCount, fullChaosMode)}
                                                         </span>
                                                     </td>
                                                     <td className="p-4 text-center">
-                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.storage, item.maxStorage)}`}>
-                                                            {owned.storage} / {item.maxStorage}
+                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.storage, effectiveCap(item, 'storage', clearCount, fullChaosMode))}`}>
+                                                            {owned.storage} / {effectiveCap(item, 'storage', clearCount, fullChaosMode)}
                                                         </span>
                                                     </td>
                                                 </>
