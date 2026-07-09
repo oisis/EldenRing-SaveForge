@@ -12,6 +12,8 @@ export function AddInventoryWorkspaceItem(arg1:string,arg2:editor.AddItemSpec,ar
 
 export function AddItemsToCharacter(arg1:number,arg2:Array<number>,arg3:number,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<main.AddResult>;
 
+export function AddItemsToCharacterWithGameLimits(arg1:number,arg2:Array<number>,arg3:number,arg4:number,arg5:number,arg6:number,arg7:number,arg8:number):Promise<main.AddResult>;
+
 export function ApplyBuildTemplateFromLibrary(arg1:string,arg2:string,arg3:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
 
 export function ApplyBuildTemplateV2FromFileToCharacter(arg1:number,arg2:main.ApplyTemplateV2Options):Promise<main.ApplyTemplateV2Result>;

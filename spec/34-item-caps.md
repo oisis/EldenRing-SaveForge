@@ -2,7 +2,11 @@
 
 ## Purpose
 
-The `MaxInventory` / `MaxStorage` limit in the item database reflects the **actual number of pieces obtainable in a single playthrough**. For items that carry over to NG+ and respawn, the cap scales linearly with the NG+ cycle counter (`ClearCount`). A power-user can disable the whole mechanism in Settings (Full Chaos Mode).
+`MaxInventory` / `MaxStorage` are conservative **Normal Mode** editing limits,
+usually based on useful or single-playthrough availability. They are not
+save-integrity invariants. `GameMaxInventory` / `GameMaxStorage` are separate
+technical limits sourced from regulation data and are used by Full Chaos Mode,
+the loaded-save scanner, and quantity repair.
 
 **Primary goal:** reduce EAC detection risk by keeping item counts in a range statistically consistent with vanilla. Secondary: consistency with in-game UI (e.g. cookbook = 1 piece, physically impossible to have 2).
 
@@ -11,7 +15,8 @@ The `MaxInventory` / `MaxStorage` limit in the item database reflects the **actu
 ```
 effective_cap = MaxInventory × (ClearCount + 1)   if item.flags has "scales_with_ng"
 effective_cap = MaxInventory                      otherwise
-effective_cap = 999                               if Full Chaos Mode is ON
+effective_cap = GameMaxInventory                  if Full Chaos Mode is ON and known
+effective_cap = conservative cap                  if Full Chaos Mode is ON and game limit is unknown
 ```
 
 `ClearCount` (uint32, 0..7+) sits in the save in a dynamic offset chain after BloodStain — see `backend/core/structures.go:178` and `offset_defs.go:101`. Exposed to the frontend as `CharacterViewModel.clearCount` (`backend/vm/character_vm.go:44,72`).
@@ -74,16 +79,18 @@ Toggle in `SettingsTab.tsx` → Safety section (red-bordered, ban-risk copy):
 
 - `localStorage` persisted
 - Cross-component sync via `window` CustomEvent `'fullChaosModeChanged'` (detail: boolean)
-- When enabled: `effectiveCap` ignores `MaxInventory`/`scales_with_ng` and returns 999
+- When enabled: `effectiveCap` uses `GameMaxInventory` / `GameMaxStorage` where
+  known, with a conservative fallback where regulation data is unavailable.
 
-**UX**: when enabled, the modal in Database tab shows a red banner *"⚠ Full Chaos Mode — caps bypassed (max 999)"*.
+**UX**: when enabled, the modal shows a red *"technical game caps"* banner and
+states when any selected item uses a conservative fallback.
 
 ## UI implementation (`DatabaseTab.tsx`)
 
 Helper:
 ```typescript
 function effectiveCap(item, kind, clearCount, chaos): number {
-    if (chaos) return 999;
+    if (chaos && gameLimitKnown(item, kind)) return gameLimit(item, kind);
     const base = kind === 'inv' ? item.maxInventory : item.maxStorage;
     if (item.flags?.includes('scales_with_ng')) return base * (clearCount + 1);
     return base;
@@ -107,16 +114,18 @@ The banner shows:
 | `vm.MapParsedSlotToVM` | **No** changes — existing clamp in handleSetItemQty remains |
 | `vm.handleSetItemQty` | Clamp to `MaxInventory`/`MaxStorage` (legacy behavior) |
 | `frontend DatabaseTab modal` | **Primary enforcement site** — `min/max` on `<input>`, validation before `AddItemsToCharacter()` |
-| `Full Chaos Mode` | Clamp bypass in the UI only (vm clamp still works, but max 999 from the UI is effectively enough) |
+| `Full Chaos Mode` | Uses the dedicated `AddItemsToCharacterWithGameLimits` backend path and regulation-derived game caps |
 
 **Conscious decision**: the clamp at load/save **does NOT** modify values in an existing save. A player who has 999 Larval Tears (e.g. from another editor) keeps them on the load → save round-trip.
 
 ## Repair: safe quantity clamp (loaded save only)
 
 The integrity scanner reports records whose effective quantity exceeds their
-container cap. `EffectiveQuantityCap(rec, clearCount)` in
+technical game container cap. `EffectiveQuantityCap(rec, clearCount)` in
 `backend/core/repair_scanner.go` is the single source of cap semantics, shared
 verbatim by the scanner and the repair primitive, so the two can never disagree.
+Unknown game limits are skipped rather than treated as zero. Known zero remains
+a real container prohibition.
 
 - **Positive cap** → `quantity_above_max`. Offered actions: `clamp_quantity`
   (default) and `leave_unchanged`. `ClampInventoryQuantityAt`
@@ -135,8 +144,19 @@ rollback on failure, post-repair rescan, and a clamp-specific postcondition that
 rejects any result still leaving `quantity_above_max` or `quantity_zero` at the
 targeted row.
 
-**Full Chaos Mode** remains a frontend edit override only — it is irrelevant to
-integrity scanning and to this repair, both of which always use the vanilla cap.
+The scanner, repair primitive, and Full Chaos add path share `GameMax*` values.
+Normal Mode continues to use the conservative caps and NG+ scaling.
+
+### Regulation sources and flask semantics
+
+- Goods inventory: `EquipParamGoods.maxNum`.
+- Goods storage: `maxRepositoryNum` only when `isDeposit=1`; `isDeposit=0` is a
+  known storage prohibition.
+- Ammunition inventory: `EquipParamWeapon.maxArrowQuantity`; repository cap 600.
+- Full Crimson/Cerulean flask records have a technical per-record cap of 20.
+  Their quantities represent allocated charges (for example 12 + 2). The normal
+  gameplay total of 14 is a separate aggregate invariant and is not
+  automatically repaired by the per-record clamp.
 
 ## Verification
 

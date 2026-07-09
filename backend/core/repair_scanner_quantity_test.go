@@ -47,8 +47,9 @@ func clearSlot(cc uint32) *SaveSlot {
 	return &SaveSlot{GaMap: map[uint32]uint32{}, Player: PlayerGameData{ClearCount: cc}}
 }
 
-// stoneswordKeyHandle resolves KnownDB to "Stonesword Key": MaxInventory 55,
-// MaxStorage 0, flagged scales_with_ng.
+// stoneswordKeyHandle resolves KnownDB to "Stonesword Key": conservative
+// Normal Mode MaxInventory 55 / MaxStorage 0, regulation-derived game limits
+// 99 / 600, flagged scales_with_ng for Normal Mode only.
 const stoneswordKeyHandle = uint32(0xB0001F40)
 
 func TestScanQuantity_InventoryBoundary_NoIssue(t *testing.T) {
@@ -86,6 +87,46 @@ func TestScanQuantity_StorageAboveMax_Flags(t *testing.T) {
 	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
 	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 1 {
 		t.Errorf("qty above MaxStorage must flag once, got %d", got)
+	}
+}
+
+func TestScanQuantity_AcceptsReportedVanillaQuantities(t *testing.T) {
+	recs := []ResolvedRecord{
+		resolveRec(repairScopeInventoryCommon, 0, 0xB0000401, 12, nil), // Crimson +12
+		resolveRec(repairScopeInventoryCommon, 1, 0xB0000433, 2, nil),  // Cerulean +12
+		resolveRec(repairScopeInventoryCommon, 2, 0xB000006F, 4, nil),  // Festering Bloody Finger
+		resolveRec(repairScopeInventoryCommon, 3, 0xB0000FA0, 2, nil),  // Glintstone Pebble
+	}
+	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
+	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 0 {
+		t.Fatalf("vanilla quantities produced %d quantity_above_max issues", got)
+	}
+}
+
+func TestScanQuantity_AcceptsRegulationStorageCases(t *testing.T) {
+	recs := []ResolvedRecord{
+		resolveRec(repairScopeStorageCommon, 0, 0xB0000898, 1, nil), // Prattling Pate "Hello"
+		resolveRec(repairScopeStorageCommon, 1, 0xB0000B87, 1, nil), // Remembrance of the Starscourge
+	}
+	issues := ScanRepairIssuesFromRecords(0, bareSlot(), recs)
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 0 {
+		t.Fatalf("regulation-permitted storage records produced %d not-allowed issues", got)
+	}
+}
+
+func TestScanQuantity_UnknownGameLimitIsNotZero(t *testing.T) {
+	rec := ResolvedRecord{
+		Scope:      repairScopeInventoryCommon,
+		Handle:     0xA0000001,
+		Quantity:   50,
+		Resolution: ResolutionKnownDB,
+	}
+	issues, coverage := ScanRepairIssuesWithCoverage(0, bareSlot(), []ResolvedRecord{rec})
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 0 {
+		t.Fatalf("unknown limit was treated as zero: %d issues", got)
+	}
+	if coverage.CategoryChecksApplied != 0 {
+		t.Fatalf("CategoryChecksApplied = %d, want 0 for unknown game limit", coverage.CategoryChecksApplied)
 	}
 }
 
@@ -264,41 +305,40 @@ func TestScanQuantity_CategoryChecksApplied_CountsOnlyExecuted(t *testing.T) {
 	}
 }
 
-// ---- Prompt 14: NG+ scaling -------------------------------------------------
+// ---- Technical game limits vs conservative NG+ policy ----------------------
 
-func TestScanQuantity_NG_FlaggedUsesBaseInventory(t *testing.T) {
-	// ClearCount 0 (NG): Stonesword Key legitimate up to base 55; 56 exceeds.
-	ok := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 55, nil)}
+func TestScanQuantity_UsesGameLimitNotConservativeCap(t *testing.T) {
+	// The conservative editor cap remains 55, but scanner integrity truth is the
+	// regulation max 99.
+	ok := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 56, nil)}
 	if !ok[0].ScalesWithNG {
 		t.Fatalf("fixture must be scales_with_ng")
 	}
 	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(0), ok), RepairCodeQuantityAboveMax); got != 0 {
-		t.Errorf("qty 55 at NG must not flag (base 55), got %d", got)
+		t.Errorf("qty 56 must not flag below game max 99, got %d", got)
 	}
-	over := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 56, nil)}
+	over := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 100, nil)}
 	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(0), over), RepairCodeQuantityAboveMax); got != 1 {
-		t.Errorf("qty 56 at NG must flag (base 55), got %d", got)
+		t.Errorf("qty 100 must flag above game max 99, got %d", got)
 	}
 }
 
-func TestScanQuantity_NGPlus3_AcceptsScaledCap(t *testing.T) {
-	// ClearCount 3 (NG+3): effective cap = 55 × 4 = 220.
-	atCap := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 220, nil)}
+func TestScanQuantity_NGPlus3_DoesNotScaleGameCap(t *testing.T) {
+	atCap := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 99, nil)}
 	if got := countCode(ScanRepairIssuesFromRecords(0, clearSlot(3), atCap), RepairCodeQuantityAboveMax); got != 0 {
-		t.Errorf("qty 220 at NG+3 must not flag (55×4), got %d", got)
+		t.Errorf("qty 99 at NG+3 must not flag, got %d", got)
 	}
 }
 
-func TestScanQuantity_NGPlus3_AboveScaledCapFlagsOnceWithEffectiveLimit(t *testing.T) {
-	over := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 221, nil)}
+func TestScanQuantity_NGPlus3_AboveGameCapFlagsOnce(t *testing.T) {
+	over := []ResolvedRecord{resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 100, nil)}
 	issues := ScanRepairIssuesFromRecords(0, clearSlot(3), over)
 	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 1 {
-		t.Fatalf("qty 221 at NG+3 must flag exactly once (55×4=220), got %d", got)
+		t.Fatalf("qty 100 at NG+3 must flag exactly once (game max 99), got %d", got)
 	}
-	// Description must report the NG-aware effective limit actually used (220).
 	for _, i := range issues {
-		if i.Key.Code == RepairCodeQuantityAboveMax && !strings.Contains(i.Description, "max 220") {
-			t.Errorf("description must report effective limit 220, got %q", i.Description)
+		if i.Key.Code == RepairCodeQuantityAboveMax && !strings.Contains(i.Description, "max 99") {
+			t.Errorf("description must report game limit 99, got %q", i.Description)
 		}
 	}
 }
@@ -314,16 +354,14 @@ func TestScanQuantity_Unflagged_DoesNotScaleWithClearCount(t *testing.T) {
 	}
 }
 
-func TestScanQuantity_FlaggedInStorage_ZeroLimitStillFlags(t *testing.T) {
-	// Stonesword Key MaxStorage 0 — storage never scales, so even at NG+3 a
-	// single copy in storage is not permitted → item_not_allowed_in_container.
+func TestScanQuantity_StorageUsesGameLimitNotConservativeZero(t *testing.T) {
 	recs := []ResolvedRecord{resolveRec(repairScopeStorageCommon, 0, stoneswordKeyHandle, 1, nil)}
 	if recs[0].MaxStorage != 0 {
 		t.Fatalf("fixture MaxStorage = %d, want 0", recs[0].MaxStorage)
 	}
 	issues := ScanRepairIssuesFromRecords(0, clearSlot(3), recs)
-	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 1 {
-		t.Errorf("flagged item in zero-limit storage must flag item_not_allowed_in_container at any NG+, got %d", got)
+	if got := countCode(issues, RepairCodeItemNotAllowedInContainer); got != 0 {
+		t.Errorf("game storage max 600 must override conservative zero, got %d issues", got)
 	}
 	if got := countCode(issues, RepairCodeQuantityAboveMax); got != 0 {
 		t.Errorf("zero-limit storage must NOT flag quantity_above_max, got %d", got)

@@ -215,27 +215,30 @@ func mkIssue(key IssueKey, desc, severity string, actions []string, def, fp stri
 // technical placeholder) or one in an unrecognised scope. Callers must not
 // category-check or clamp such a record.
 //
-// For a KnownDB record: inventory_common / inventory_key use MaxInventory and
-// scale linearly with the NG+ cycle when the item is flagged scales_with_ng
-// (base × (ClearCount+1); see spec/34-item-caps.md). storage_common uses
-// MaxStorage and never scales. All arithmetic is uint64 so the multiplier and
-// comparison cannot overflow. A zero cap is a legitimate value (item not
-// permitted in the container) and still returns applies=true. Full Chaos Mode is
-// a frontend edit override, not save-integrity truth, and is intentionally
-// ignored.
-func EffectiveQuantityCap(rec ResolvedRecord, clearCount uint32) (limit uint64, applies bool) {
+// For a KnownDB record, inventory scopes use GameMaxInventory and storage uses
+// GameMaxStorage. The corresponding Known flag must be true. This deliberately
+// does not use the conservative Normal Mode caps or scales_with_ng: editor
+// policy and single-playthrough availability are not save-integrity truths.
+//
+// A known zero is a legitimate value (item not permitted in the container) and
+// still returns applies=true. The clearCount parameter is retained for API
+// compatibility with existing callers; technical game limits do not scale with
+// NG+.
+func EffectiveQuantityCap(rec ResolvedRecord, _ uint32) (limit uint64, applies bool) {
 	if rec.Resolution != ResolutionKnownDB {
 		return 0, false
 	}
 	switch rec.Scope {
 	case repairScopeStorageCommon:
-		return uint64(rec.MaxStorage), true
-	case repairScopeInventoryCommon, repairScopeInventoryKey:
-		limit = uint64(rec.MaxInventory)
-		if rec.ScalesWithNG {
-			limit *= uint64(clearCount) + 1
+		if !rec.GameMaxStorageKnown {
+			return 0, false
 		}
-		return limit, true
+		return uint64(rec.GameMaxStorage), true
+	case repairScopeInventoryCommon, repairScopeInventoryKey:
+		if !rec.GameMaxInventoryKnown {
+			return 0, false
+		}
+		return uint64(rec.GameMaxInventory), true
 	default:
 		return 0, false
 	}

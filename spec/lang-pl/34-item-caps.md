@@ -2,7 +2,11 @@
 
 ## Cel
 
-Limit `MaxInventory` / `MaxStorage` w bazie itemów odzwierciedla **realną liczbę sztuk osiągalnych w jednym przejściu gry** (single playthrough). Dla itemów które przenoszą się do NG+ i ponownie spawnują, cap skaluje się liniowo z licznikiem NG+ cyklu (`ClearCount`). Power-user może wyłączyć cały mechanizm w Settings (Full Chaos Mode).
+`MaxInventory` / `MaxStorage` są konserwatywnymi limitami edycji w **Normal
+Mode**, zwykle opartymi o użyteczność lub dostępność w jednym przejściu. Nie są
+invariantami integralności save. `GameMaxInventory` / `GameMaxStorage` to osobne
+limity techniczne pochodzące z regulation, używane przez Full Chaos Mode,
+scanner załadowanego save i naprawę quantity.
 
 **Główny cel:** ograniczenie ryzyka detekcji EAC poprzez utrzymanie ilości itemów w zakresie statystycznie zgodnym z vanilla. Drugoplanowy: spójność z UI gry (np. cookbook = 1 sztuka, fizycznie nie da się mieć 2).
 
@@ -11,7 +15,8 @@ Limit `MaxInventory` / `MaxStorage` w bazie itemów odzwierciedla **realną licz
 ```
 effective_cap = MaxInventory × (ClearCount + 1)   if item.flags has "scales_with_ng"
 effective_cap = MaxInventory                      otherwise
-effective_cap = 999                               if Full Chaos Mode is ON
+effective_cap = GameMaxInventory                  if Full Chaos Mode is ON and known
+effective_cap = conservative cap                  if Full Chaos Mode is ON and game limit is unknown
 ```
 
 `ClearCount` (uint32, 0..7+) leży w save w dynamicznym łańcuchu offsetów po BloodStain — patrz `backend/core/structures.go:178` i `offset_defs.go:101`. Eksponowany do frontendu jako `CharacterViewModel.clearCount` (`backend/vm/character_vm.go:44,72`).
@@ -74,16 +79,18 @@ Toggle w `SettingsTab.tsx` → Safety section (red-bordered, ban-risk copy):
 
 - `localStorage` persisted
 - Cross-component sync via `window` CustomEvent `'fullChaosModeChanged'` (detail: boolean)
-- Po włączeniu: `effectiveCap` ignoruje `MaxInventory`/`scales_with_ng` i zwraca 999
+- Po włączeniu: `effectiveCap` używa `GameMaxInventory` / `GameMaxStorage`, gdy
+  limit jest znany; w przeciwnym razie zachowuje konserwatywny fallback.
 
-**UX**: gdy włączony, modal w Database tab pokazuje czerwony banner *"⚠ Full Chaos Mode — caps bypassed (max 999)"*.
+**UX**: modal pokazuje czerwony banner *"technical game caps"* oraz informację,
+jeżeli część zaznaczonych itemów używa konserwatywnego fallbacku.
 
 ## Implementacja UI (`DatabaseTab.tsx`)
 
 Helper:
 ```typescript
 function effectiveCap(item, kind, clearCount, chaos): number {
-    if (chaos) return 999;
+    if (chaos && gameLimitKnown(item, kind)) return gameLimit(item, kind);
     const base = kind === 'inv' ? item.maxInventory : item.maxStorage;
     if (item.flags?.includes('scales_with_ng')) return base * (clearCount + 1);
     return base;
@@ -107,9 +114,23 @@ Banner pokazuje:
 | `vm.MapParsedSlotToVM` | **Brak** zmian — istniejący clamp w handleSetItemQty zostaje |
 | `vm.handleSetItemQty` | Clamp do `MaxInventory`/`MaxStorage` (legacy behavior) |
 | `frontend DatabaseTab modal` | **Główne miejsce enforcement** — `min/max` na `<input>`, walidacja przed `AddItemsToCharacter()` |
-| `Full Chaos Mode` | Bypass clamp w UI tylko (vm clamp nadal działa, ale max 999 z UI praktycznie wystarczy) |
+| `Full Chaos Mode` | Używa osobnego endpointu `AddItemsToCharacterWithGameLimits` i limitów regulation |
 
 **Świadoma decyzja**: clamp przy load/save **NIE** modyfikuje wartości w istniejącym save. Gracz który ma 999 Larval Tears (np. z innego edytora) zachowa je przy load → save round-tripie.
+
+## Limity gry i scanner
+
+Scanner oraz naprawa quantity używają wyłącznie `GameMax*`. Brak znanego limitu
+oznacza pominięcie kontroli, a nie limit zero. Znane zero oznacza rzeczywisty
+zakaz kontenera.
+
+- Goods inventory: `EquipParamGoods.maxNum`.
+- Goods storage: `maxRepositoryNum` tylko gdy `isDeposit=1`.
+- Ammunicja inventory: `EquipParamWeapon.maxArrowQuantity`; storage 600.
+- Aktywne rekordy Crimson/Cerulean flask mają techniczny limit 20. Quantity
+  reprezentuje przydzielone użycia, np. 12 + 2. Gameplayowa suma 14 jest osobnym
+  invariantem agregatowym i nie jest automatycznie naprawiana przez clamp
+  pojedynczego rekordu.
 
 ## Weryfikacja
 
@@ -118,7 +139,7 @@ Banner pokazuje:
 - Manual test plan:
   1. Save NG → Database → Stonesword Key → modal pokazuje cap **55**
   2. Save NG+3 → cap **220** (=55×4), tooltip *"Vanilla NG: 55 · NG+3: 220"*
-  3. Settings → Full Chaos Mode ON → cap **999**, czerwony banner widoczny
+  3. Settings → Full Chaos Mode ON → cap z `GameMax*`, czerwony banner widoczny
   4. Cookbook (Glintstone Craftsman's [1]) → cap **1**, próba dodania 2 zablokowana
   5. Painting → cap **1**, brak storage row
   6. Mohg's Great Rune wyświetla się w category Key Items, nieobecny w Bolstering

@@ -14,14 +14,18 @@ package data
 //     Golden Seed, Sacred Tear, Scadutree Fragment,
 //     Revered Spirit Ash. See spec/34-item-caps.md.
 type ItemData struct {
-	Name         string
-	Category     string
-	SubCategory  string // sub-category within Category (1:1 with in-game grouping); empty = no sub-grouping
-	MaxInventory uint32
-	MaxStorage   uint32
-	MaxUpgrade   uint32
-	IconPath     string
-	Flags        []string
+	Name                  string
+	Category              string
+	SubCategory           string // sub-category within Category (1:1 with in-game grouping); empty = no sub-grouping
+	MaxInventory          uint32 // conservative Normal Mode cap
+	MaxStorage            uint32 // conservative Normal Mode cap
+	GameMaxInventory      uint32 // technical game cap; meaningful only when GameMaxInventoryKnown
+	GameMaxStorage        uint32 // technical game cap; meaningful only when GameMaxStorageKnown
+	GameMaxInventoryKnown bool   // distinguishes an authoritative zero cap from missing data
+	GameMaxStorageKnown   bool   // distinguishes an authoritative zero cap from missing data
+	MaxUpgrade            uint32
+	IconPath              string
+	Flags                 []string
 	// Weapon AoW compatibility (populated from EquipParamWeapon via weapon_gem_mount.go):
 	//   0 = cannot mount AoW, 1 = special/unique AoW (somber), 2 = standard infusable
 	GemMountType uint8
@@ -31,6 +35,19 @@ type ItemData struct {
 	// Bit N = 1 means this AoW can be mounted on weapons whose wepType maps to bit N.
 	// Bit ordering: 0=Dagger, 1=StraightSword, 2=Greatsword, ... see data.CanMountWepNames.
 	AoWCompatBitmask uint64
+}
+
+// GameLimitData is generated from regulation parameter data. Known flags are
+// deliberately independent because some item families expose an authoritative
+// inventory limit without an equally authoritative repository limit.
+//
+// A known zero is a real prohibition. An unknown value must never be treated as
+// zero by editors, scanners, or repair primitives.
+type GameLimitData struct {
+	MaxInventory   uint32
+	MaxStorage     uint32
+	InventoryKnown bool
+	StorageKnown   bool
 }
 
 // WeaponStats holds base stats for a weapon (before upgrades/infusions).

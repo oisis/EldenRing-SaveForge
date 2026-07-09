@@ -73,27 +73,31 @@ const (
 // editor workspace. It is produced once per record by the resolver so all three
 // consumers see identical semantics.
 type ResolvedRecord struct {
-	Scope            string        // repairScope* — inventory_common / inventory_key / storage_common
-	Row              int           // compacted/action row within the scope — index into slot.*.CommonItems, addressed by repair primitives
-	PhysicalRow      int           // physical slot index in the raw binary array; differs from Row when storage has gaps (== Row for inventory / when raw data is unavailable)
-	IndexDedup       bool          // participates in duplicate_acquisition_index dedup (inventory, not storage)
-	Handle           uint32        // raw GaItemHandle as stored
-	HandleType       uint32        // handle & GaHandleTypeMask
-	ItemID           uint32        // raw itemID (GaMap, else db.HandleToItemID) — never rewritten
-	DisplayID        uint32        // normalized display itemID (Wondrous Physick raw→display alias)
-	BaseID           uint32        // DB base itemID (upgrade/infusion stripped) when resolved
-	Name             string        // DB name when resolved; placeholder name for naked armor
-	Category         string        // DB category when resolved
-	MaxInventory     uint32        // authoritative DB per-record cap in inventory_common/inventory_key (0 = not permitted); meaningful only when Resolution == KnownDB
-	MaxStorage       uint32        // authoritative DB per-record cap in storage_common (0 = not permitted); meaningful only when Resolution == KnownDB
-	ScalesWithNG     bool          // DB flag "scales_with_ng": MaxInventory cap scales linearly with the NG+ cycle (see spec/34-item-caps.md); MaxStorage never scales. Meaningful only when Resolution == KnownDB
-	Quantity         uint32        // record quantity as stored
-	AcquisitionIndex uint32        // record acquisition/sort index as stored
-	HasGaItem        bool          // a per-instance GaItem actually exists for this handle. slot.GaMap is built 1:1 from the non-empty slot.GaItems entries (structures.go scanGaItems), so GaMap membership is equivalent to GaItem existence — this is not a mere numeric coincidence.
-	Identity         IdentityClass // instance-backed / handle-encoded / stackable ammo / placeholder / unknown
-	Resolution       Resolution    // KnownDB / TechnicalPlaceholder / Unknown
-	UnknownReason    UnknownReason // set only when Resolution == Unknown
-	Fingerprint      string        // record-state fingerprint (handle+qty+index) for stale-checks
+	Scope                 string        // repairScope* — inventory_common / inventory_key / storage_common
+	Row                   int           // compacted/action row within the scope — index into slot.*.CommonItems, addressed by repair primitives
+	PhysicalRow           int           // physical slot index in the raw binary array; differs from Row when storage has gaps (== Row for inventory / when raw data is unavailable)
+	IndexDedup            bool          // participates in duplicate_acquisition_index dedup (inventory, not storage)
+	Handle                uint32        // raw GaItemHandle as stored
+	HandleType            uint32        // handle & GaHandleTypeMask
+	ItemID                uint32        // raw itemID (GaMap, else db.HandleToItemID) — never rewritten
+	DisplayID             uint32        // normalized display itemID (Wondrous Physick raw→display alias)
+	BaseID                uint32        // DB base itemID (upgrade/infusion stripped) when resolved
+	Name                  string        // DB name when resolved; placeholder name for naked armor
+	Category              string        // DB category when resolved
+	MaxInventory          uint32        // conservative Normal Mode DB cap; meaningful only when Resolution == KnownDB
+	MaxStorage            uint32        // conservative Normal Mode DB cap; meaningful only when Resolution == KnownDB
+	GameMaxInventory      uint32        // technical game cap; meaningful only when GameMaxInventoryKnown
+	GameMaxStorage        uint32        // technical game cap; meaningful only when GameMaxStorageKnown
+	GameMaxInventoryKnown bool          // distinguishes a known zero (prohibited) from missing limit data
+	GameMaxStorageKnown   bool          // distinguishes a known zero (prohibited) from missing limit data
+	ScalesWithNG          bool          // conservative Normal Mode flag; never used as save-integrity truth
+	Quantity              uint32        // record quantity as stored
+	AcquisitionIndex      uint32        // record acquisition/sort index as stored
+	HasGaItem             bool          // a per-instance GaItem actually exists for this handle. slot.GaMap is built 1:1 from the non-empty slot.GaItems entries (structures.go scanGaItems), so GaMap membership is equivalent to GaItem existence — this is not a mere numeric coincidence.
+	Identity              IdentityClass // instance-backed / handle-encoded / stackable ammo / placeholder / unknown
+	Resolution            Resolution    // KnownDB / TechnicalPlaceholder / Unknown
+	UnknownReason         UnknownReason // set only when Resolution == Unknown
+	Fingerprint           string        // record-state fingerprint (handle+qty+index) for stale-checks
 }
 
 // isKnownHandlePrefix reports whether prefix is one of the five GaItem type
@@ -214,6 +218,10 @@ func ResolveRecord(slot *SaveSlot, scope string, row int, handle, qty, acq uint3
 	rec.Category = itemData.Category
 	rec.MaxInventory = itemData.MaxInventory
 	rec.MaxStorage = itemData.MaxStorage
+	rec.GameMaxInventory = itemData.GameMaxInventory
+	rec.GameMaxStorage = itemData.GameMaxStorage
+	rec.GameMaxInventoryKnown = itemData.GameMaxInventoryKnown
+	rec.GameMaxStorageKnown = itemData.GameMaxStorageKnown
 	rec.ScalesWithNG = slices.Contains(itemData.Flags, "scales_with_ng")
 
 	if itemData.Name == "" {

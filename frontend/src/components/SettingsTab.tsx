@@ -461,7 +461,7 @@ export function SettingsTab({
                                 <input type="checkbox" checked={fullChaosMode} onChange={e => handleChaosToggle(e.target.checked)} className="w-3.5 h-3.5 rounded border-red-500/40 text-red-500 focus:ring-red-500/20 shrink-0" />
                             </div>
                             <p className="text-[9px] text-muted-foreground leading-relaxed">
-                                <strong className="text-red-500/90">Bypasses all item caps.</strong> Strongly increases EAC ban risk. Offline / experimental saves only.
+                                <strong className="text-red-500/90">Uses technical game caps instead of conservative safety caps.</strong> Strongly increases EAC ban risk. Offline / experimental saves only.
                             </p>
                         </label>
                     </div>

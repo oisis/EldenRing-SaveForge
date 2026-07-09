@@ -10,6 +10,10 @@ export function AddItemsToCharacter(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
   return window['go']['main']['App']['AddItemsToCharacter'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function AddItemsToCharacterWithGameLimits(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['main']['App']['AddItemsToCharacterWithGameLimits'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
 export function ApplyBuildTemplateFromLibrary(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyBuildTemplateFromLibrary'](arg1, arg2, arg3);
 }

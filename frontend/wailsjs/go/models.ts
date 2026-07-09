@@ -715,6 +715,10 @@ export namespace db {
 	    subCategory?: string;
 	    maxInventory: number;
 	    maxStorage: number;
+	    gameMaxInventory: number;
+	    gameMaxStorage: number;
+	    gameMaxInventoryKnown: boolean;
+	    gameMaxStorageKnown: boolean;
 	    maxUpgrade: number;
 	    iconPath: string;
 	    flags: string[];
@@ -742,6 +746,10 @@ export namespace db {
 	        this.subCategory = source["subCategory"];
 	        this.maxInventory = source["maxInventory"];
 	        this.maxStorage = source["maxStorage"];
+	        this.gameMaxInventory = source["gameMaxInventory"];
+	        this.gameMaxStorage = source["gameMaxStorage"];
+	        this.gameMaxInventoryKnown = source["gameMaxInventoryKnown"];
+	        this.gameMaxStorageKnown = source["gameMaxStorageKnown"];
 	        this.maxUpgrade = source["maxUpgrade"];
 	        this.iconPath = source["iconPath"];
 	        this.flags = source["flags"];

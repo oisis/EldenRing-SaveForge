@@ -44,6 +44,10 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.ApplyRepairsLoaded).toBe('function');
     });
 
+    it('exposes the regulation-backed Full Chaos add endpoint', () => {
+        expect(typeof App.AddItemsToCharacterWithGameLimits).toBe('function');
+    });
+
     it('keeps legacy repair endpoints while UI migrates to central repair flow', () => {
         expect(typeof App.RepairInventoryWorkspaceItem).toBe('function');
         expect(typeof App.RepairInventoryWorkspaceItems).toBe('function');

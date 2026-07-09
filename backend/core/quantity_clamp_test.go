@@ -40,7 +40,8 @@ func TestClampQuantity_InventoryCommon(t *testing.T) {
 }
 
 func TestClampQuantity_InventoryKey(t *testing.T) {
-	// Stonesword Key is a key item: MaxInventory 55. Put it in the key scope.
+	// Stonesword Key keeps the conservative Normal Mode cap 55, but regulation
+	// allows 99. Repair clamps only to the technical game cap.
 	keyStart := 16 + InvStartFromMagic + CommonItemCount*InvRecordLen + InvKeyCountHeader
 	slot := buildInvFixtureNZ(t, nil)
 	// Extend Data to cover the key block and place a record at key row 0.
@@ -56,11 +57,11 @@ func TestClampQuantity_InventoryKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("clamp: %v", err)
 	}
-	if ch.NewQuantity != 55 || slot.Inventory.KeyItems[0].Quantity != 55 {
-		t.Fatalf("key clamp: change=%+v inmem=%d, want 55", ch, slot.Inventory.KeyItems[0].Quantity)
+	if ch.NewQuantity != 99 || slot.Inventory.KeyItems[0].Quantity != 99 {
+		t.Fatalf("key clamp: change=%+v inmem=%d, want 99", ch, slot.Inventory.KeyItems[0].Quantity)
 	}
-	if got := binary.LittleEndian.Uint32(slot.Data[keyStart+4:]); got != 55 {
-		t.Errorf("raw key quantity = %d, want 55", got)
+	if got := binary.LittleEndian.Uint32(slot.Data[keyStart+4:]); got != 99 {
+		t.Errorf("raw key quantity = %d, want 99", got)
 	}
 }
 
@@ -108,16 +109,16 @@ func TestClampQuantity_PreservesHighBit(t *testing.T) {
 	}
 }
 
-func TestClampQuantity_ScalesWithNG(t *testing.T) {
+func TestClampQuantity_GameCapDoesNotScaleWithNG(t *testing.T) {
 	slot := buildInvFixtureNZ(t, []InventoryItem{{GaItemHandle: stoneswordKeyHandle, Quantity: 300, Index: 500}})
-	slot.Player.ClearCount = 3 // cap = 55 × 4 = 220
+	slot.Player.ClearCount = 3
 
 	ch, err := ClampInventoryQuantityAt(slot, repairScopeInventoryCommon, 0, fpAt(t, slot, repairScopeInventoryCommon, 0))
 	if err != nil {
 		t.Fatalf("clamp: %v", err)
 	}
-	if ch.Cap != 220 || ch.NewQuantity != 220 {
-		t.Fatalf("NG+3 clamp: change=%+v, want cap/new 220", ch)
+	if ch.Cap != 99 || ch.NewQuantity != 99 {
+		t.Fatalf("NG+3 clamp: change=%+v, want technical cap/new 99", ch)
 	}
 }
 
@@ -239,10 +240,10 @@ func TestClampQuantity_TechnicalPlaceholder_Rejected(t *testing.T) {
 }
 
 func TestClampQuantity_ZeroCap_Rejected(t *testing.T) {
-	// Stonesword Key MaxStorage 0 → not permitted in storage → clamp must refuse
+	// Wondrous Physick GameMaxStorage 0 → not permitted in storage → clamp must refuse
 	// (removal is the correct repair; clamp must never drive quantity to zero).
 	slot := buildStorageFixtureRecords(t, map[int]InventoryItem{
-		0: {GaItemHandle: stoneswordKeyHandle, Quantity: 5, Index: 700},
+		0: {GaItemHandle: physickHandleQty, Quantity: 5, Index: 700},
 	})
 	before := append([]byte(nil), slot.Data...)
 	if _, err := ClampInventoryQuantityAt(slot, repairScopeStorageCommon, 0, fpAt(t, slot, repairScopeStorageCommon, 0)); err == nil {
@@ -280,10 +281,10 @@ func TestEffectiveQuantityCap(t *testing.T) {
 		wantApply  bool
 	}{
 		{"known inventory", resolveRec(repairScopeInventoryCommon, 0, smithingStoneHandle, 1, nil), 0, 999, true},
-		{"known key inventory", resolveRec(repairScopeInventoryKey, 0, stoneswordKeyHandle, 1, nil), 0, 55, true},
+		{"known key inventory", resolveRec(repairScopeInventoryKey, 0, stoneswordKeyHandle, 1, nil), 0, 99, true},
 		{"known storage", resolveRec(repairScopeStorageCommon, 0, smithingStoneHandle, 1, nil), 0, 999, true},
-		{"NG+3 scaling", resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 1, nil), 3, 220, true},
-		{"storage never scales", resolveRec(repairScopeStorageCommon, 0, stoneswordKeyHandle, 1, nil), 3, 0, true},
+		{"NG+ does not scale game cap", resolveRec(repairScopeInventoryCommon, 0, stoneswordKeyHandle, 1, nil), 3, 99, true},
+		{"storage game cap", resolveRec(repairScopeStorageCommon, 0, stoneswordKeyHandle, 1, nil), 3, 600, true},
 		{"unknown record", resolveRec(repairScopeInventoryCommon, 0, 0x10000005, 1, nil), 0, 0, false},
 		{"technical placeholder", resolveRec(repairScopeStorageCommon, 0, nakedHeadHandle, 1, map[uint32]uint32{nakedHeadHandle: nakedHeadItemID}), 0, 0, false},
 		{"invalid scope", ResolvedRecord{Resolution: ResolutionKnownDB, Scope: "bogus"}, 0, 0, false},

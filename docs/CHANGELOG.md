@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(caps): separate conservative editor caps from game limits
+
+Added generated `GameMaxInventory` / `GameMaxStorage` metadata sourced from
+regulation data. Normal Mode keeps its existing conservative caps and NG+
+scaling. Full Chaos Mode now uses technical game caps through a dedicated
+backend endpoint instead of the previous frontend-only `999` override.
+
+The loaded-save scanner and quantity clamp now use only known game limits.
+Unknown limits are skipped rather than treated as zero. Goods storage honors
+`isDeposit`; ammunition uses `maxArrowQuantity` and the 600-unit repository
+limit. This removes false positives for flask allocations, Festering Bloody
+Finger, duplicate spell quantities, Prattling Pates, and Remembrances in
+storage. Full Crimson/Cerulean flask records correctly use their regulation
+per-record cap of 20; the normal combined allocation of 14 remains a separate
+aggregate rule.
+
 ### feat(repair): add safe quantity clamp action
 
 Loaded-save repair can now fix over-cap inventory/storage quantities. The
