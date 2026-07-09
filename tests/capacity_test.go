@@ -37,7 +37,7 @@ func TestPreFlightCapacity_Empty(t *testing.T) {
 	slot := &save.Slots[idx]
 
 	items := []core.ItemToAdd{
-		{ItemID: 0x40000064, InvQty: 1, StorageQty: 0, IsStackable: true},
+		{ItemID: 0x40000064, InvQty: 1, StorageQty: 0},
 	}
 	report := core.CheckAddCapacity(slot, items)
 	if !report.CanFitAll {
@@ -167,8 +167,8 @@ func TestBatchAdd_MixedStackableNonStackable(t *testing.T) {
 	slot := &save.Slots[idx]
 
 	items := []core.ItemToAdd{
-		{ItemID: 0x001E8480, InvQty: 1, StorageQty: 0, IsStackable: false},
-		{ItemID: 0x40000064, InvQty: 99, StorageQty: 0, IsStackable: true},
+		{ItemID: 0x001E8480, InvQty: 1, StorageQty: 0},
+		{ItemID: 0x40000064, InvQty: 99, StorageQty: 0},
 	}
 
 	err := core.AddItemsToSlotBatch(slot, items)
@@ -322,7 +322,7 @@ func TestRoundtrip_BatchAdd(t *testing.T) {
 	items := []core.ItemToAdd{
 		{ItemID: 0x001E8480, InvQty: 1, StorageQty: 0},
 		{ItemID: 0x003D0900, InvQty: 1, StorageQty: 0},
-		{ItemID: 0x40000064, InvQty: 99, StorageQty: 0, IsStackable: true},
+		{ItemID: 0x40000064, InvQty: 99, StorageQty: 0},
 	}
 
 	snap := core.SnapshotSlot(slot)

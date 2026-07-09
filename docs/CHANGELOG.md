@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(inventory): model talisman copies without GaItem capacity
+
+Adding talismans no longer falsely fails preflight as `gaitem_full`. Talismans are
+handle-encoded and allocate no serialized `GaItem`, yet each copy is a distinct
+quantity-1 physical inventory/storage record. A single shared classifier
+(`classifyItemAdd`) now drives both `CheckAddCapacity` and `AddItemsToSlotBatch`,
+so preflight counts N physical slots and zero `GaItem`s for N talismans — fixing
+both the false `gaitem_full` rejection and the inverse risk of under-counting
+physical slots for a single `ItemToAdd{InvQty: N}`. The redundant caller-provided
+`ItemToAdd.IsStackable` flag was removed; classification is now derived purely
+from the item ID (plus the explicit `ForceStackable` arrow override).
+
 ### fix(ci): stop publishing the standalone Linux AppImage as a release asset
 
 The Linux job still bundles the AppImage inside its release zip; it is no longer

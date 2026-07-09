@@ -59,13 +59,15 @@ func CountSlotUsage(slot *SaveSlot) SlotUsage {
 	return u
 }
 
-// ItemToAdd describes a single item intended for batch addition.
+// ItemToAdd describes a single item intended for batch addition. How it consumes
+// slot resources (merge vs per-copy records, GaItem or not) is derived from the
+// item ID via classifyItemAdd — callers must not pre-classify it. ForceStackable
+// is the one explicit override: it marks weapon-prefixed ammo (arrows) that stack.
 type ItemToAdd struct {
 	ItemID         uint32
 	InvQty         int
 	StorageQty     int
 	ForceStackable bool
-	IsStackable    bool
 }
 
 // CapacityReport describes why items don't fit.
@@ -128,9 +130,42 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 	seenNewStackableStorage := make(map[uint32]bool)
 
 	for _, item := range items {
-		isStackable := item.IsStackable || item.ForceStackable
+		switch classifyItemAdd(item.ItemID, item.ForceStackable) {
+		case addKindTalisman:
+			// Talismans: each copy is a distinct qty-1 physical record (see the
+			// writer talisman path) and allocates NO serialized GaItem. Counting a
+			// GaItem here caused false gaitem_full rejections; counting one slot for
+			// N copies would risk a false accept that overflows inventory/storage.
+			neededInvSlots += item.InvQty
+			neededStorageSlots += item.StorageQty
+			continue
+		case addKindGaItem:
+			// weapon/armor/AoW: each destination consumes its own GaItem record
+			// because sharing a handle between inv and storage corrupts the
+			// save (see writer.go::AddItemsToSlot non-stackable path).
+			if item.InvQty > 0 {
+				neededInvSlots++
+				neededGaItems++
+				if needsGaItemData(item.ItemID) && !existingGaItemData[item.ItemID] {
+					neededGaItemData++
+					existingGaItemData[item.ItemID] = true
+				}
+			}
+			if item.StorageQty > 0 {
+				neededStorageSlots++
+				neededGaItems++
+				if needsGaItemData(item.ItemID) && !existingGaItemData[item.ItemID] {
+					neededGaItemData++
+					existingGaItemData[item.ItemID] = true
+				}
+			}
+			continue
+		}
 
-		if isStackable {
+		// addKindStack / addKindArrow: fungible stack — at most one physical record
+		// per destination, no serialized GaItem counted (arrows preserve existing
+		// behavior: their lazy GaItem alloc is not reflected in preflight).
+		{
 			if stackableItemExistsInKeyItems(slot, item.ItemID) {
 				continue
 			}
@@ -180,26 +215,6 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 				if !alreadyInStorage && !seenNewStackableStorage[item.ItemID] {
 					neededStorageSlots++
 					seenNewStackableStorage[item.ItemID] = true
-				}
-			}
-		} else {
-			// Non-stackable: each destination consumes its own GaItem record
-			// because sharing a handle between inv and storage corrupts the
-			// save (see writer.go::AddItemsToSlot non-stackable path).
-			if item.InvQty > 0 {
-				neededInvSlots++
-				neededGaItems++
-				if needsGaItemData(item.ItemID) && !existingGaItemData[item.ItemID] {
-					neededGaItemData++
-					existingGaItemData[item.ItemID] = true
-				}
-			}
-			if item.StorageQty > 0 {
-				neededStorageSlots++
-				neededGaItems++
-				if needsGaItemData(item.ItemID) && !existingGaItemData[item.ItemID] {
-					neededGaItemData++
-					existingGaItemData[item.ItemID] = true
 				}
 			}
 		}

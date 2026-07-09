@@ -472,13 +472,9 @@ func PresetItemsToItemsToAdd(items []PresetItem, isInventory bool) ([]core.ItemT
 			qty = 1
 		}
 
-		handlePrefix := db.ItemIDToHandlePrefix(finalID)
-		isStackable := handlePrefix == core.ItemTypeItem || handlePrefix == core.ItemTypeAccessory
-
 		toAdd := core.ItemToAdd{
 			ItemID:         finalID,
 			ForceStackable: db.IsArrowID(finalID),
-			IsStackable:    isStackable,
 		}
 		if isInventory {
 			toAdd.InvQty = int(qty)

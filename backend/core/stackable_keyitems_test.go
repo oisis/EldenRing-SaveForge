@@ -56,9 +56,8 @@ func TestCheckAddCapacity_SkipsStackableAlreadyInKeyItems(t *testing.T) {
 	}
 
 	report := CheckAddCapacity(slot, []ItemToAdd{{
-		ItemID:      godskinPrayerbookID,
-		InvQty:      1,
-		IsStackable: true,
+		ItemID: godskinPrayerbookID,
+		InvQty: 1,
 	}})
 	if !report.CanFitAll {
 		t.Fatalf("CanFitAll = false, CapHit=%q; item already in KeyItems should be a no-op", report.CapHit)

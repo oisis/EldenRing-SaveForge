@@ -316,14 +316,16 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 
 	for _, item := range items {
 		handlePrefix := db.ItemIDToHandlePrefix(item.ItemID)
-		isStackable := handlePrefix == ItemTypeItem
+		kind := classifyItemAdd(item.ItemID, item.ForceStackable)
+		isStackable := kind == addKindStack
 
-		// Talismans (0xA0) are handle-encoded like stackables (no GaItem, handle =
-		// 0xA0|itemID) but are NOT fungible stacks: each copy is a distinct physical
-		// inventory record, qty 1. Merging by handle would collapse N copies into one.
-		// Verified against real saves (PC ER0000.sl2, PS4 .dat): talismans never appear
-		// in GaMap; N copies = N separate records sharing the id-derived handle.
-		if handlePrefix == ItemTypeAccessory && !item.ForceStackable {
+		// Talismans (0xA0) are handle-encoded like stackables (no serialized GaItem,
+		// handle = 0xA0|itemID) but are NOT fungible stacks: each copy is a distinct
+		// physical inventory record, qty 1. Merging by handle would collapse N copies
+		// into one. Verified against real saves (PC ER0000.sl2, PS4 .dat): talismans
+		// have no serialized GaItem record; they DO get an in-memory GaMap entry (the
+		// id-derived handle below) so RebuildSlotFull can resolve the records.
+		if kind == addKindTalisman {
 			handle := (item.ItemID & 0x0FFFFFFF) | handlePrefix
 			slot.GaMap[handle] = item.ItemID
 			for n := 0; n < item.InvQty; n++ {
@@ -335,7 +337,7 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 			continue
 		}
 
-		if isStackable || item.ForceStackable {
+		if kind == addKindStack || kind == addKindArrow {
 			handle := uint32(0)
 			for h, id := range slot.GaMap {
 				if id == item.ItemID {

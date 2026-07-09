@@ -638,7 +638,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		actualInv      int
 		actualStorage  int
 		forceStackable bool
-		isStackable    bool
 	}
 	var prepared []preparedItem
 	var trimmed []SkippedAdd
@@ -725,7 +724,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			actualInv:      actualInv,
 			actualStorage:  actualStorage,
 			forceStackable: forceStackable,
-			isStackable:    isStackable || forceStackable,
 		})
 	}
 
@@ -740,7 +738,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			InvQty:         p.actualInv,
 			StorageQty:     p.actualStorage,
 			ForceStackable: p.forceStackable,
-			IsStackable:    p.isStackable,
 		})
 	}
 	if len(capacityItems) == 0 {
