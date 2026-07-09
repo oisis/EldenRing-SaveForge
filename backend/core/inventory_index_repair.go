@@ -153,7 +153,8 @@ func RepairDuplicateInventoryIndices(slot *SaveSlot) (InventoryIndexRepairReport
 // AssignFreshInventoryIndex assigns a new, safe acquisition index to exactly
 // one inventory record identified by scope + row. The new index is:
 //   - greater than all existing indices across inventory_common and inventory_key;
-//   - greater than InvEquipReservedMax;
+//   - greater than InvEquipReservedMax, as a conservative floor for newly
+//     generated editor indices;
 //   - unique within the combined index space.
 //
 // Both the in-memory InventoryItem and the raw slot.Data bytes are updated.
@@ -162,8 +163,8 @@ func RepairDuplicateInventoryIndices(slot *SaveSlot) (InventoryIndexRepairReport
 //
 // Scope must be "inventory_common" or "inventory_key".
 // This primitive is the building block for both duplicate-index repair and
-// reserved-range repair; the batch RepairDuplicateInventoryIndices uses its
-// own counter loop for efficiency.
+// single-record index repair; the batch RepairDuplicateInventoryIndices uses
+// its own counter loop for efficiency.
 func AssignFreshInventoryIndex(slot *SaveSlot, scope string, row int) (InventoryIndexRepairChange, error) {
 	var zero InventoryIndexRepairChange
 	if slot == nil {

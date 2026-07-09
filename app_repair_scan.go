@@ -124,7 +124,6 @@ func repairActionsForCode(code string) ([]RepairIssueAction, string) {
 		core.RepairCodeQuantityAboveMax:          {[]string{core.RepairActionClampQuantity, RepairActionLeaveUnchanged}, core.RepairActionClampQuantity},
 		core.RepairCodeItemNotAllowedInContainer: {[]string{core.RepairActionRemoveRecord, RepairActionLeaveUnchanged}, RepairActionLeaveUnchanged},
 		core.RepairCodePassThroughRecords:        {[]string{core.RepairActionNoAction}, core.RepairActionNoAction},
-		core.RepairCodeInventoryReserved:         {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},
 		core.RepairCodeDuplicateAcquisitionIndex: {[]string{core.RepairActionRepairIndex, RepairActionLeaveUnchanged}, core.RepairActionRepairIndex},
 		core.RepairCodeCurrentAoWMissing:         {[]string{core.RepairActionClearAoW, core.RepairActionPickAoW, RepairActionLeaveUnchanged}, core.RepairActionClearAoW},
 		core.RepairCodeCurrentAoWShared:          {[]string{core.RepairActionCreateCopy, core.RepairActionClearAoW, RepairActionLeaveUnchanged}, core.RepairActionCreateCopy},

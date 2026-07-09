@@ -325,6 +325,59 @@ func TestScanRepairIssues_CleanSlot(t *testing.T) {
 	}
 }
 
+// ---- low acquisition index is legal -----------------------------------------
+
+// TestScanRepairIssues_LowAcquisitionIndexNotReserved proves a low acquisition
+// index is not itself a defect. Genuine game-created records (e.g. Memory of
+// Grace at 432, Lordsworn weapons at very low indices) legitimately sit at or
+// below InvEquipReservedMax; the scanner must not flag them. InvEquipReservedMax
+// is only a conservative floor for freshly generated editor indices.
+func TestScanRepairIssues_LowAcquisitionIndexNotReserved(t *testing.T) {
+	for _, idx := range []uint32{2, 100, InvEquipReservedMax} {
+		slot := &SaveSlot{
+			GaMap: map[uint32]uint32{},
+			Inventory: EquipInventoryData{
+				CommonItems: []InventoryItem{
+					{GaItemHandle: testHandleSmithingStone, Quantity: 1, Index: idx},
+				},
+			},
+		}
+		issues := ScanRepairIssues(0, slot)
+		if len(issues) != 0 {
+			t.Errorf("Index=%d: expected 0 issues from a legal low index, got %d:", idx, len(issues))
+			for _, iss := range issues {
+				t.Logf("  code=%q desc=%q", iss.Key.Code, iss.Description)
+			}
+		}
+	}
+}
+
+// TestScanRepairIssues_LowDuplicateIndexStillDetected confirms that accepting
+// low indices did not weaken duplicate detection: two records sharing a low
+// acquisition index are still suspicious and must report
+// duplicate_acquisition_index.
+func TestScanRepairIssues_LowDuplicateIndexStillDetected(t *testing.T) {
+	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{},
+		Inventory: EquipInventoryData{
+			CommonItems: []InventoryItem{
+				{GaItemHandle: testHandleSmithingStone, Quantity: 1, Index: 2},
+				{GaItemHandle: 0xB0002775, Quantity: 1, Index: 2}, // different item, same low index
+			},
+		},
+	}
+
+	found := false
+	for _, iss := range ScanRepairIssues(0, slot) {
+		if iss.Key.Code == RepairCodeDuplicateAcquisitionIndex {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("duplicate low acquisition index must still report duplicate_acquisition_index")
+	}
+}
+
 // ---- determinism ------------------------------------------------------------
 
 // TestScanRepairIssues_IssueIDDeterministic confirms issueID is stable across runs.

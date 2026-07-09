@@ -45,7 +45,6 @@ function codeLabel(code: string): string {
         case 'quantity_above_max': return 'Quantity above max';
         case 'item_not_allowed_in_container': return 'Item not allowed in container';
         case 'pass_through_records': return 'Pass-through records';
-        case 'inventory_reserved': return 'Reserved acquisition index';
         case 'duplicate_acquisition_index': return 'Duplicate acquisition index';
         case 'current_aow_missing': return 'Current AoW missing';
         case 'current_aow_shared': return 'Shared current AoW';

@@ -835,7 +835,8 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool) e
 		}
 
 		// Use next_equip_index as the Index value (matching Rust ER-Save-Editor behavior).
-		// Clamp to be > InvEquipReservedMax and > max existing index to prevent collisions.
+		// For newly generated records only, stay above InvEquipReservedMax and max existing
+		// indices to avoid collisions. Existing low indices are not inherently corrupt.
 		nextListId := slot.Storage.NextEquipIndex
 		if nextListId <= InvEquipReservedMax {
 			nextListId = InvEquipReservedMax + 1

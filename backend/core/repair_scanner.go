@@ -34,7 +34,6 @@ const (
 	RepairCodeCurrentAoWMissing         = "current_aow_missing"
 	RepairCodeCurrentAoWShared          = "current_aow_shared"
 	RepairCodeCurrentAoWNonAoWCategory  = "current_aow_non_aow_category"
-	RepairCodeInventoryReserved         = "inventory_reserved"
 	RepairCodeDuplicateAcquisitionIndex = "duplicate_acquisition_index"
 	RepairCodeStatsFormula              = "stats_formula"
 )
@@ -324,17 +323,12 @@ func scanInventoryRepairIssues(slotIndex int, clearCount uint32, records []Resol
 				RepairActionRemoveRecord, r.Fingerprint))
 		}
 
-		if r.AcquisitionIndex > 0 && r.AcquisitionIndex <= 432 {
-			key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeInventoryReserved,
-				Scope: r.Scope, Row: r.Row, Handle: h,
-				Field: "index", Value: fmt.Sprintf("%d", r.AcquisitionIndex)}
-			out = append(out, mkIssue(key,
-				fmt.Sprintf("item 0x%08X has reserved acquisition index %d (≤432)", h, r.AcquisitionIndex),
-				repairSeverityWarning,
-				[]string{RepairActionRepairIndex},
-				RepairActionRepairIndex, r.Fingerprint))
-		}
-
+		// A low acquisition index is NOT corruption: genuine game-created
+		// records legitimately use Index <= InvEquipReservedMax (e.g. Memory of
+		// Grace at 432, Lordsworn weapons/shields). InvEquipReservedMax is a
+		// conservative floor for newly generated editor indices only, not a
+		// validation rule for existing records. Duplicate indices remain
+		// suspicious and are still reported below.
 		if r.IndexDedup && r.AcquisitionIndex > 0 {
 			if seenIndices[r.AcquisitionIndex] {
 				key := IssueKey{Slot: slotIndex, Domain: repairDomainInventory, Code: RepairCodeDuplicateAcquisitionIndex,

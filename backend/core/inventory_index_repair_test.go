@@ -359,16 +359,17 @@ func TestAssignFreshInventoryIndex_EmptyHandle(t *testing.T) {
 	}
 }
 
-// TestAssignFreshInventoryIndex_ReservedRange is the required spec test:
-// an item whose index is <= InvEquipReservedMax (432) must receive a new index
-// that is strictly greater than both InvEquipReservedMax and all existing indices.
-func TestAssignFreshInventoryIndex_ReservedRange(t *testing.T) {
-	const reservedIdx = uint32(100) // <= 432 — reserved range
-	const highIdx = uint32(600)     // existing high-watermark item
+// TestAssignFreshInventoryIndex_LowIndexGetsFreshEditorIndex verifies that when
+// the editor explicitly reassigns one record, the fresh index stays above both
+// InvEquipReservedMax and all existing indices. This does not imply that
+// pre-existing low indices are corrupt.
+func TestAssignFreshInventoryIndex_LowIndexGetsFreshEditorIndex(t *testing.T) {
+	const lowIdx = uint32(100)  // legal existing low index, but not reused for a fresh editor index
+	const highIdx = uint32(600) // existing high-watermark item
 
 	slot := buildRepairFixture(t, []InventoryItem{
-		{GaItemHandle: 0xB0000001, Quantity: 1, Index: reservedIdx}, // target: in reserved range
-		{GaItemHandle: 0xB0000002, Quantity: 1, Index: highIdx},     // unrelated high item
+		{GaItemHandle: 0xB0000001, Quantity: 1, Index: lowIdx},  // target: assign a fresh editor index
+		{GaItemHandle: 0xB0000002, Quantity: 1, Index: highIdx}, // unrelated high item
 	}, nil)
 	preEquip := slot.Inventory.NextEquipIndex
 
@@ -376,8 +377,8 @@ func TestAssignFreshInventoryIndex_ReservedRange(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if change.OldIndex != reservedIdx {
-		t.Errorf("OldIndex = %d, want %d", change.OldIndex, reservedIdx)
+	if change.OldIndex != lowIdx {
+		t.Errorf("OldIndex = %d, want %d", change.OldIndex, lowIdx)
 	}
 	if change.NewIndex <= InvEquipReservedMax {
 		t.Errorf("NewIndex %d must be > InvEquipReservedMax (%d)", change.NewIndex, InvEquipReservedMax)
