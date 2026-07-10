@@ -8,8 +8,6 @@ import "testing"
 // prior to this change.
 //
 // Out of scope for Phase 2B.4 (deferred to dedicated investigation):
-//   - Scorpion Stew / Gourmet Scorpion Stew Set A 0x401E8930/31 (Set B
-//     already present in tools.go, ambiguous A/B canonical choice).
 //   - 5 Miquella questline phrases 0x401EA7A8–AC (already exposed via
 //     gestures.go under same canonical IDs).
 func TestPhase2B4BlackSyrupPresent(t *testing.T) {
@@ -84,27 +82,28 @@ func TestPhase2B4BlackSyrupNoDuplicateAcrossMaps(t *testing.T) {
 	}
 }
 
-// TestPhase2B4ScorpionStewUntouched confirms Phase 2B.4 left both Scorpion Stew
-// variants (Set B in tools.go, Set A NOT in app) unchanged. The Set A/B
-// canonical choice is deferred to a dedicated investigation.
-func TestPhase2B4ScorpionStewUntouched(t *testing.T) {
-	if _, ok := KeyItems[0x401E8930]; ok {
-		t.Errorf("KeyItems[0x401E8930] present — Scorpion Stew Set A must remain out " +
-			"of app pending Set A/B canonical investigation")
+// TestPhase2B4ScorpionStewRows confirms the save-audit outcome (issue 5): both
+// real Scorpion Stew rows (0x401E8930 and 0x401E8932) are visible Tools
+// consumables, Gourmet Scorpion Stew keeps its single real row (0x401E8933), and
+// the never-observed 0x401E8931 candidate stays out of the app entirely.
+// Derived from a local save audit.
+func TestPhase2B4ScorpionStewRows(t *testing.T) {
+	for _, id := range []uint32{0x401E8930, 0x401E8932} {
+		stew := Tools[id]
+		if stew.Name != "Scorpion Stew" {
+			t.Errorf("Tools[0x%08X] name = %q, want %q", id, stew.Name, "Scorpion Stew")
+		}
+	}
+	gourmet := Tools[0x401E8933]
+	if gourmet.Name != "Gourmet Scorpion Stew" {
+		t.Errorf("Tools[0x401E8933] name = %q, want %q", gourmet.Name, "Gourmet Scorpion Stew")
+	}
+	// 0x401E8931 is never observed in saves, so it must not exist in any DB map.
+	if _, ok := Tools[0x401E8931]; ok {
+		t.Errorf("Tools[0x401E8931] present; Gourmet Scorpion Stew candidate must stay out (0 save occurrences)")
 	}
 	if _, ok := KeyItems[0x401E8931]; ok {
-		t.Errorf("KeyItems[0x401E8931] present — Gourmet Scorpion Stew Set A must " +
-			"remain out of app pending Set A/B canonical investigation")
-	}
-	setB := Tools[0x401E8932]
-	if setB.Name != "Scorpion Stew" {
-		t.Errorf("Tools[0x401E8932] name = %q, want %q (Set B canonical kept intact)",
-			setB.Name, "Scorpion Stew")
-	}
-	gourmetB := Tools[0x401E8933]
-	if gourmetB.Name != "Gourmet Scorpion Stew" {
-		t.Errorf("Tools[0x401E8933] name = %q, want %q (Set B canonical kept intact)",
-			gourmetB.Name, "Gourmet Scorpion Stew")
+		t.Errorf("KeyItems[0x401E8931] present; 0x401E8931 must stay out of the app")
 	}
 }
 

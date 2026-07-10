@@ -51,12 +51,12 @@ var Tools = map[uint32]ItemData{
 
 	0x401E90D8: {Name: "Surging Frenzied Flame", Category: "tools", SubCategory: SubcatToolsThrowables, MaxInventory: 10, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/surging_frenzied_flame.png", Flags: []string{"dlc", "stackable"}},
 	0x401E9100: {Name: "Glinting Nail", Category: "tools", SubCategory: SubcatToolsThrowables, MaxInventory: 10, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/glinting_nail.png", Flags: []string{"dlc", "stackable"}},
-	// TODO: er-save-manager DLCConsumables.txt lists 4 Stew variants (2001200..2001203) —
-	// duplicate names with separate IDs (likely base vs reward / NG+ variants). We have
-	// only the first two (0x401E8932 = 2001200, 0x401E8933 = 2001201). Missing:
-	//   0x401E8934 = 2001202 "Scorpion Stew"
-	//   0x401E8935 = 2001203 "Gourmet Scorpion Stew"
-	// User reports 3 visible in-game; needs in-game verification of which IDs actually drop.
+	// Scorpion Stew ships under two real GoodsParam rows (0x401E8930 and 0x401E8932),
+	// both observed in a local save audit of genuine saves. Both are
+	// visible normal consumables, not aliased. Gourmet Scorpion Stew has a single
+	// real row (0x401E8933); the 0x401E8931 candidate never appears in saves and is
+	// intentionally omitted.
+	0x401E8930: {Name: "Scorpion Stew", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/tools/scorpion_stew.png", Flags: []string{"dlc"}},
 	0x401E8932: {Name: "Scorpion Stew", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/tools/scorpion_stew.png", Flags: []string{"dlc"}},
 	0x401E8933: {Name: "Gourmet Scorpion Stew", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/tools/gourmet_scorpion_stew.png", Flags: []string{"dlc"}},
 	0x40000334: {Name: "Boiled Crab", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/boiled_crab.png", Flags: []string{"stackable"}},
