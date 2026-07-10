@@ -590,9 +590,13 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		existingStorageQty[sBaseID] += int(item.Quantity & 0x7FFFFFFF)
 	}
 
-	// Existing container key item qtys (so we don't lower them).
+	// Existing container key item qtys (so we don't lower them). existingKeyItemRow
+	// records the physical KeyItems row per base ID so a stackable already-owned
+	// key item (Larval Tear, Lost Ashes of War) can have its stack bumped in place
+	// for Full Chaos / Game Max instead of being skipped (issue 7).
 	existingKeyItemQty := make(map[uint32]int)
-	for _, item := range slot.Inventory.KeyItems {
+	existingKeyItemRow := make(map[uint32]int)
+	for i, item := range slot.Inventory.KeyItems {
 		if item.GaItemHandle == 0 || item.GaItemHandle == 0xFFFFFFFF {
 			continue
 		}
@@ -602,6 +606,7 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			continue // ponytail: item in both sections — CommonItems is canonical, skip double-count
 		}
 		existingKeyItemQty[keyBaseID] = int(item.Quantity & 0x7FFFFFFF)
+		existingKeyItemRow[keyBaseID] = i
 	}
 
 	containerCap := func(c uint32) int {
@@ -638,6 +643,8 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		actualInv      int
 		actualStorage  int
 		forceStackable bool
+		keyRow         int // KeyItems row to bump in place (issue 7), -1 if none
+		keyTargetQty   int // target stack qty for that row, 0 if no update
 	}
 	var prepared []preparedItem
 	var trimmed []SkippedAdd
@@ -685,10 +692,22 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		// "already at max qty" skip and the per-copy cap-to-1 collapse.
 		handlePrefix := db.ItemIDToHandlePrefix(finalID)
 		isStackable := handlePrefix == core.ItemTypeItem || db.IsArrowID(finalID)
+		keyRow := -1
+		keyTargetQty := 0
 		if isStackable {
 			if (actualInv > 0 || actualStorage > 0) && existingKeyItemQty[id] > 0 {
-				a.logInfo("already in Key Items — skipping %s (0x%08X)", itemData.Name, id)
-				skippedExisting = append(skippedExisting, SkippedAdd{ItemID: id})
+				// Item already lives in the game-managed KeyItems section. If the
+				// requested target exceeds the current stack, bump that existing row
+				// in place (issue 7: Full Chaos / Game Max on stackable key items like
+				// Larval Tear or Lost Ashes of War). Otherwise keep the historical
+				// skip. Never route into CommonItems; that duplicates the record.
+				if actualInv > existingKeyItemQty[id] {
+					keyRow = existingKeyItemRow[id]
+					keyTargetQty = actualInv
+				} else {
+					a.logInfo("already in Key Items — skipping %s (0x%08X)", itemData.Name, id)
+					skippedExisting = append(skippedExisting, SkippedAdd{ItemID: id})
+				}
 				actualInv = 0
 				actualStorage = 0
 			}
@@ -724,6 +743,8 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			actualInv:      actualInv,
 			actualStorage:  actualStorage,
 			forceStackable: forceStackable,
+			keyRow:         keyRow,
+			keyTargetQty:   keyTargetQty,
 		})
 	}
 
@@ -740,7 +761,17 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			ForceStackable: p.forceStackable,
 		})
 	}
-	if len(capacityItems) == 0 {
+	// In-place KeyItems stack bumps (issue 7) do not consume new slots, so they
+	// are work even when nothing routes through the batch adder.
+	hasKeyUpdates := false
+	for _, p := range prepared {
+		if p.keyTargetQty > 0 {
+			hasKeyUpdates = true
+			break
+		}
+	}
+
+	if len(capacityItems) == 0 && !hasKeyUpdates {
 		finalUsage := core.CountSlotUsage(slot)
 		result.Trimmed = trimmed
 		result.SkippedExisting = skippedExisting
@@ -749,16 +780,18 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		return result, nil
 	}
 
-	capReport := core.CheckAddCapacity(slot, capacityItems)
-	if !capReport.CanFitAll {
-		a.logError("[AddItems] %s: need inv=%d store=%d, free inv=%d store=%d, requested=%d",
-			capReport.CapHit, capReport.NeededInv, capReport.NeededStorage, capReport.FreeInv, capReport.FreeStorage, len(itemIDs))
-		result.CapHit = capReport.CapHit
-		result.FreeInv = capReport.FreeInv
-		result.FreeStore = capReport.FreeStorage
-		result.NeededInv = capReport.NeededInv
-		result.NeededStore = capReport.NeededStorage
-		return result, nil
+	if len(capacityItems) > 0 {
+		capReport := core.CheckAddCapacity(slot, capacityItems)
+		if !capReport.CanFitAll {
+			a.logError("[AddItems] %s: need inv=%d store=%d, free inv=%d store=%d, requested=%d",
+				capReport.CapHit, capReport.NeededInv, capReport.NeededStorage, capReport.FreeInv, capReport.FreeStorage, len(itemIDs))
+			result.CapHit = capReport.CapHit
+			result.FreeInv = capReport.FreeInv
+			result.FreeStore = capReport.FreeStorage
+			result.NeededInv = capReport.NeededInv
+			result.NeededStore = capReport.NeededStorage
+			return result, nil
+		}
 	}
 
 	// SNAPSHOT: deep copy slot state before mutation.
@@ -766,9 +799,25 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	snapshot := core.SnapshotSlot(slot)
 
 	// MUTATE: batch add all items (one RebuildSlotFull instead of N).
-	if err := core.AddItemsToSlotBatch(slot, capacityItems); err != nil {
-		core.RestoreSlot(slot, snapshot)
-		return result, fmt.Errorf("rollback after batch add: %w", err)
+	if len(capacityItems) > 0 {
+		if err := core.AddItemsToSlotBatch(slot, capacityItems); err != nil {
+			core.RestoreSlot(slot, snapshot)
+			return result, fmt.Errorf("rollback after batch add: %w", err)
+		}
+	}
+
+	// KEY-ITEM STACK BUMPS: raise already-owned stackable key item rows in place
+	// (issue 7). Runs after the batch add so it writes into the final slot.Data
+	// (RebuildSlotFull may have re-parsed the slot). The KeyItems section is not
+	// touched by the batch adder, so the recorded rows stay valid.
+	for _, p := range prepared {
+		if p.keyTargetQty <= 0 {
+			continue
+		}
+		if err := setInventoryKeyItemQuantity(slot, p.keyRow, uint32(p.keyTargetQty)); err != nil {
+			core.RestoreSlot(slot, snapshot)
+			return result, fmt.Errorf("rollback after key item qty update: %w", err)
+		}
 	}
 
 	// POST-FLAGS: event flags, tutorial IDs (safe to set after batch add).
@@ -883,7 +932,7 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	finalUsage := core.CountSlotUsage(slot)
 	added := 0
 	for _, p := range prepared {
-		if p.actualInv > 0 || p.actualStorage > 0 {
+		if p.actualInv > 0 || p.actualStorage > 0 || p.keyTargetQty > 0 {
 			added++
 		}
 	}
@@ -893,6 +942,26 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	result.FreeInv = finalUsage.InventoryMax - finalUsage.InventoryUsed
 	result.FreeStore = finalUsage.StorageMax - finalUsage.StorageUsed
 	return result, nil
+}
+
+// setInventoryKeyItemQuantity sets an existing KeyItems record's stack quantity
+// in memory and in the binary slot.Data. The held-inventory KeyItems section is a
+// full KeyItemCount array, so the slice row maps directly to the binary record at
+// row*InvRecordLen; the quantity field sits at +4 within that record. Mirrors the
+// stackable-update branch of core.addToInventory, which only covers CommonItems.
+func setInventoryKeyItemQuantity(slot *core.SaveSlot, row int, qty uint32) error {
+	if row < 0 || row >= len(slot.Inventory.KeyItems) {
+		return fmt.Errorf("setInventoryKeyItemQuantity: row %d out of range (%d key items)", row, len(slot.Inventory.KeyItems))
+	}
+	off := slot.MagicOffset + core.InvStartFromMagic +
+		core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader +
+		row*core.InvRecordLen + 4
+	if off < 4 || off+4 > len(slot.Data) {
+		return fmt.Errorf("setInventoryKeyItemQuantity: quantity offset %d out of bounds (data len %d)", off, len(slot.Data))
+	}
+	binary.LittleEndian.PutUint32(slot.Data[off:], qty)
+	slot.Inventory.KeyItems[row].Quantity = qty
+	return nil
 }
 
 // RemoveItemsFromCharacter removes items by handle from inventory, storage, or both.
