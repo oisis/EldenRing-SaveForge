@@ -180,9 +180,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         ),
     [dbItems, unlockedFlagIds]);
 
-    // Map BaseID → {inv, storage} owned counts.
+    // Map family/base ID → {inv, storage} owned counts.
     // Stackable items contribute their stack quantity; non-stackable contribute one per copy.
-    // Matching by BaseID groups all upgrade/infusion variants of the same weapon.
+    // BaseID groups weapon upgrade/infusion variants; familyId additionally groups
+    // Crimson/Cerulean flask upgrade levels (separate DB rows) under their +0 picker row.
     const ownedByBaseID = useMemo(() => {
         const m = new Map<number, {inv: number; storage: number}>();
         const bump = (baseId: number, key: 'inv' | 'storage', n: number) => {
@@ -192,11 +193,11 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         };
         charInventory.forEach(it => {
             const qty = it.maxInventory <= 1 && it.maxStorage <= 1 ? 1 : it.quantity;
-            bump(it.baseId || it.id, 'inv', qty);
+            bump(it.familyId || it.baseId || it.id, 'inv', qty);
         });
         charStorage.forEach(it => {
             const qty = it.maxInventory <= 1 && it.maxStorage <= 1 ? 1 : it.quantity;
-            bump(it.baseId || it.id, 'storage', qty);
+            bump(it.familyId || it.baseId || it.id, 'storage', qty);
         });
         return m;
     }, [charInventory, charStorage]);
