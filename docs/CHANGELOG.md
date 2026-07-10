@@ -4,6 +4,36 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0_beta3] - 2026-07-10
+
+### fix(core): preserve key item header on removal
+
+`RemoveItemFromSlot` located the Key Items section without skipping the 4-byte
+`key_count` header that sits between the common and key sections, so a removal
+wrote the zeroed record 4 bytes early — clobbering the header and neighbouring
+rows. The offset now includes `InvKeyCountHeader`, matching the parser.
+
+### fix(vm): preserve key item handles on character save
+
+Saving a character (`ApplyVMToParsedSlot`) wrote each Key Item's quantity onto
+its own handle field due to the same missing `key_count` header skip. On the
+next reload the corrupted handle no longer resolved, so Key Items appeared to
+vanish after switching views. The write now targets the correct quantity field.
+
+### fix(app): bump existing stackable key items
+
+Full Chaos / Game Max now raises stackable Key Items already present in
+`Inventory.KeyItems` (e.g. Lost Ashes of War, Larval Tear) to the requested
+quantity in place, instead of skipping them as already owned. Non-stackable
+owned items (cookbooks, prayerbooks) still skip; no duplicate `CommonItems`
+records are created.
+
+### fix(db): resolve technical item aliases, whetblade routing, scorpion stew
+
+Technical item ID aliases now resolve to their canonical entries, whetblades are
+exposed through unlock routing, the missing second Scorpion Stew row is added,
+and stimulating boluses are classified as consumables.
+
 ## [1.1.0_beta2] - 2026-07-10
 
 ### fix(inventory): model talisman copies without GaItem capacity
