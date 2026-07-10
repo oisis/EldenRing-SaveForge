@@ -55,6 +55,55 @@ func gameMaxInv(id uint32) int {
 	return int(inv)
 }
 
+// TestChaosKeyItem_Issue8Items locks the full reported issue-8 list: every one is
+// a goods/key item with a Game Max cap > 1, so an already-owned stack below target
+// must be bumped in place (issue 7 mechanism), not skipped, no duplicate
+// CommonItems record. Seedbed Curse is included deliberately despite carrying no
+// "stackable" DB flag: the add path keys stackability off the goods handle prefix,
+// not the flag, so it must still bump.
+func TestChaosKeyItem_Issue8Items(t *testing.T) {
+	cases := []struct {
+		name string
+		id   uint32
+	}{
+		{"Stonesword Key", 0x40001F40},
+		{"Lost Ashes of War", 0x40002756},
+		{"Larval Tear", 0x40001FF9},
+		{"Celestial Dew", 0x40000852},
+		{"Dragon Heart", 0x4000274C},
+		{"Seedbed Curse", 0x40002001}, // no "stackable" flag, must still bump
+		{"Deathroot", 0x4000082A},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			want := gameMaxInv(tc.id)
+			if want <= 1 {
+				t.Fatalf("%s Game Max inv = %d, expected > 1", tc.name, want)
+			}
+			handle := (tc.id & 0x0FFFFFFF) | 0xB0000000
+			app := keyItemFixture(handle, uint32(5000+i), 1)
+			slot := &app.save.Slots[0]
+
+			res, err := app.AddItemsToCharacterWithGameLimits(0, []uint32{tc.id}, 0, 0, 0, 0, -1, 0)
+			if err != nil {
+				t.Fatalf("AddItemsToCharacterWithGameLimits: %v", err)
+			}
+			if res.Added != 1 {
+				t.Errorf("Added = %d, want 1", res.Added)
+			}
+			if got := slot.Inventory.KeyItems[0].Quantity; got != uint32(want) {
+				t.Errorf("in-memory KeyItems qty = %d, want %d", got, want)
+			}
+			if got := keyItemBinQty(slot, 0); got != uint32(want) {
+				t.Errorf("binary KeyItems qty = %d, want %d", got, want)
+			}
+			if n := len(slot.Inventory.CommonItems); n != 0 {
+				t.Errorf("CommonItems len = %d, want 0 (no duplicate record)", n)
+			}
+		})
+	}
+}
+
 // TestChaosKeyItem_LostAshesOfWarBumped: an already-owned Lost Ashes of War stack
 // (KeyItems, qty 1) must be raised to the Game Max in place, not skipped, and no
 // duplicate CommonItems record may be created (issue 7).
