@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0_beta4] - 2026-07-10
+
+### feat(ui): add explicit safety profiles
+
+The editor now uses a single Safety Profile selector instead of separate
+Online Safety, Show Cut & Ban-Risk Items, and Chaos Mode toggles. The available
+profiles are Safe, Expanded Limits, and Chaos, with Safe as the default.
+
+Expanded Limits uses technical/game item caps for normal items while keeping
+cut-content and ban-risk items hidden. Chaos uses technical/game caps and
+reveals cut-content / ban-risk items behind the existing warning flow. The top
+bar now shows the active profile consistently as SAFE MODE, EXPANDED LIMITS, or
+CHAOS MODE, replacing the old global Online Safety banner.
+
 ## [1.1.0_beta3] - 2026-07-10
 
 ### fix(core): preserve key item header on removal
