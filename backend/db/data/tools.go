@@ -51,13 +51,16 @@ var Tools = map[uint32]ItemData{
 
 	0x401E90D8: {Name: "Surging Frenzied Flame", Category: "tools", SubCategory: SubcatToolsThrowables, MaxInventory: 10, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/surging_frenzied_flame.png", Flags: []string{"dlc", "stackable"}},
 	0x401E9100: {Name: "Glinting Nail", Category: "tools", SubCategory: SubcatToolsThrowables, MaxInventory: 10, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/glinting_nail.png", Flags: []string{"dlc", "stackable"}},
-	// Scorpion Stew ships under two real GoodsParam rows (0x401E8930 and 0x401E8932),
-	// both observed in a local save audit of genuine saves. Both are
-	// visible normal consumables, not aliased. Gourmet Scorpion Stew has a single
-	// real row (0x401E8933); the 0x401E8931 candidate never appears in saves and is
-	// intentionally omitted.
+	// Scorpion Stew (0x401E8930) and Gourmet Scorpion Stew (0x401E8933) are the
+	// canonical, FMG-named rows: their name, caption and description live under
+	// these IDs in item_text_generated.go / descriptions.go, so only these two
+	// are visible DB/picker items (with full item text). Each has a technical
+	// twin row that carries no FMG text and must not become a second picker
+	// entry: 0x401E8932 (Scorpion Stew) and 0x401E8931 (Gourmet Scorpion Stew).
+	// Both twins are resolver-only aliases (see item_aliases.go) so a genuine
+	// save carrying one - e.g. handle 0xB01E8931, reported as unknown - resolves
+	// to its canonical name instead of firing unknown_item_id.
 	0x401E8930: {Name: "Scorpion Stew", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/tools/scorpion_stew.png", Flags: []string{"dlc"}},
-	0x401E8932: {Name: "Scorpion Stew", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/tools/scorpion_stew.png", Flags: []string{"dlc"}},
 	0x401E8933: {Name: "Gourmet Scorpion Stew", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/tools/gourmet_scorpion_stew.png", Flags: []string{"dlc"}},
 	0x40000334: {Name: "Boiled Crab", Category: "tools", SubCategory: SubcatToolsConsumables, MaxInventory: 99, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/boiled_crab.png", Flags: []string{"stackable"}},
 	0x401E87A0: {Name: "Spirit Raisin", Category: "tools", SubCategory: SubcatToolsMisc, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/tools/spirit_raisin.png", Flags: []string{"dlc", "stackable"}},
