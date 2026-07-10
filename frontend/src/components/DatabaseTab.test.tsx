@@ -186,9 +186,20 @@ describe('DatabaseTab', () => {
         expect(screen.queryByText('Forbidden Trinket')).not.toBeInTheDocument();
     });
 
-    it('Chaos Mode reveals risk-flagged items even when showFlaggedItems is off', async () => {
-        localStorage.setItem('setting:fullChaosMode', 'true');
+    // Visibility is now decoupled from cap mode: expanded_limits raises caps but
+    // keeps cut/ban-risk items hidden. Only the chaos profile (which makes App
+    // pass showFlaggedItems=true) reveals them.
+    it('Expanded Limits keeps risk-flagged items hidden (visibility is prop-driven)', async () => {
+        localStorage.setItem('setting:safetyProfile', 'expanded_limits');
         renderTab({ showFlaggedItems: false });
+        fireEvent.click(screen.getByTitle('Grid view'));
+        await waitFor(() => expect(mocks.GetItemList).toHaveBeenCalled());
+        expect(screen.queryByText('Forbidden Trinket')).not.toBeInTheDocument();
+    });
+
+    it('Chaos reveals risk-flagged items via the showFlaggedItems prop', async () => {
+        localStorage.setItem('setting:safetyProfile', 'chaos');
+        renderTab({ showFlaggedItems: true });
         fireEvent.click(screen.getByTitle('Grid view'));
         expect(await screen.findByText('Forbidden Trinket')).toBeInTheDocument();
     });
@@ -301,9 +312,8 @@ describe('DatabaseTab', () => {
         expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1);
     });
 
-    it('Full Chaos Mode routes adds through the game-limit endpoint', async () => {
-        localStorage.setItem('setting:fullChaosMode', 'true');
-        const pebble = db.ItemEntry.createFrom({
+    function makePebble(): db.ItemEntry {
+        return db.ItemEntry.createFrom({
             id: 0x40000FA0,
             name: 'Glintstone Pebble',
             category: 'sorceries',
@@ -317,7 +327,11 @@ describe('DatabaseTab', () => {
             iconPath: '',
             flags: [],
         });
-        mocks.GetItemList.mockResolvedValue([pebble]);
+    }
+
+    it('Expanded Limits routes adds through the game-limit endpoint', async () => {
+        localStorage.setItem('setting:safetyProfile', 'expanded_limits');
+        mocks.GetItemList.mockResolvedValue([makePebble()]);
 
         renderTab({category: 'sorceries'});
         fireEvent.click(await screen.findByRole('button', {name: /Add Favorites/i}));
@@ -327,6 +341,32 @@ describe('DatabaseTab', () => {
         await waitFor(() =>
             expect(mocks.AddItemsToCharacterWithGameLimits).toHaveBeenCalledTimes(1));
         expect(mocks.AddItemsToCharacter).not.toHaveBeenCalled();
+    });
+
+    it('Chaos routes adds through the game-limit endpoint', async () => {
+        localStorage.setItem('setting:safetyProfile', 'chaos');
+        mocks.GetItemList.mockResolvedValue([makePebble()]);
+
+        renderTab({category: 'sorceries'});
+        fireEvent.click(await screen.findByRole('button', {name: /Add Favorites/i}));
+        fireEvent.click(await screen.findByRole('button', {name: /^Add$/}));
+
+        await waitFor(() =>
+            expect(mocks.AddItemsToCharacterWithGameLimits).toHaveBeenCalledTimes(1));
+        expect(mocks.AddItemsToCharacter).not.toHaveBeenCalled();
+    });
+
+    it('Safe profile routes adds through the standard endpoint', async () => {
+        // no safetyProfile set → defaults to safe
+        mocks.GetItemList.mockResolvedValue([makePebble()]);
+
+        renderTab({category: 'sorceries'});
+        fireEvent.click(await screen.findByRole('button', {name: /Add Favorites/i}));
+        fireEvent.click(await screen.findByRole('button', {name: /^Add$/}));
+
+        await waitFor(() =>
+            expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1));
+        expect(mocks.AddItemsToCharacterWithGameLimits).not.toHaveBeenCalled();
     });
 
     // NOTE: the legacy "Repair & Retry" prompt that fired on a duplicate

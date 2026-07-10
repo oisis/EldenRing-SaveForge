@@ -9,7 +9,7 @@ import {
     BackupCurrentSave,
 } from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
-import {useSafetyMode} from '../state/safetyMode';
+import {saveSafetyProfile, type SafetyProfile} from '../state/safetyProfile';
 import {FavoritesManager} from './FavoritesManager';
 import {useFavorites} from '../state/favorites';
 import {InventoryIssuesModal} from './InventoryIssuesModal';
@@ -22,8 +22,7 @@ interface SettingsTabProps {
     setTheme: (theme: 'light' | 'dark' | 'golden') => void;
     columnVisibility: { id: boolean; category: boolean };
     setColumnVisibility: (visibility: { id: boolean; category: boolean }) => void;
-    showFlaggedItems: boolean;
-    setShowFlaggedItems: (value: boolean) => void;
+    safetyProfile: SafetyProfile;
     debugMode: boolean;
     setDebugMode: (value: boolean) => void;
     platform: string | null;
@@ -51,13 +50,12 @@ const EMPTY_LOCAL_TARGET: deploy.Target = new deploy.Target({
 
 export function SettingsTab({
     theme, setTheme, columnVisibility, setColumnVisibility,
-    showFlaggedItems, setShowFlaggedItems, debugMode, setDebugMode,
+    safetyProfile, debugMode, setDebugMode,
     platform, charIndex,
     selectedDeployTarget: selectedTarget, setSelectedDeployTarget: setSelectedTarget,
     onAfterLoad,
     onComplete, onMutate,
 }: SettingsTabProps) {
-    const safetyMode = useSafetyMode();
     const {count: favCount} = useFavorites();
     const [view, setView] = useState<'overview' | 'favorites'>('overview');
 
@@ -66,18 +64,13 @@ export function SettingsTab({
     const [steamIdError, setSteamIdError] = useState('');
     const [steamIdApplying, setSteamIdApplying] = useState(false);
 
-    const [fullChaosMode, setFullChaosMode] = useState<boolean>(() =>
-        localStorage.getItem('setting:fullChaosMode') === 'true');
     const [chaosModalOpen, setChaosModalOpen] = useState(false);
-    const commitChaos = (value: boolean) => {
-        setFullChaosMode(value);
-        localStorage.setItem('setting:fullChaosMode', String(value));
-        window.dispatchEvent(new CustomEvent('fullChaosModeChanged', { detail: value }));
-    };
-    // Enabling requires an explicit warning + confirmation; disabling is immediate.
-    const handleChaosToggle = (checked: boolean) => {
-        if (checked) setChaosModalOpen(true);
-        else commitChaos(false);
+    // Switching into chaos is gated by the warning/backup modal; safe and
+    // expanded_limits apply immediately. Cancelling the modal keeps the previous
+    // profile (App owns safetyProfile and only updates on saveSafetyProfile).
+    const selectProfile = (profile: SafetyProfile) => {
+        if (profile === 'chaos') { setChaosModalOpen(true); return; }
+        saveSafetyProfile(profile);
     };
     const confirmChaos = async (autoBackup: boolean) => {
         if (autoBackup) {
@@ -90,7 +83,7 @@ export function SettingsTab({
             }
         }
         setChaosModalOpen(false);
-        commitChaos(true);
+        saveSafetyProfile('chaos');
     };
 
     const [scanning, setScanning] = useState(false);
@@ -457,34 +450,42 @@ export function SettingsTab({
             <section className="space-y-3">
                 <div className={sectionHdr}><div className={dot} /><h2 className={hdrText}>Safety</h2></div>
                 <div className="card px-4 py-3">
-                    <div className="flex gap-3">
-                        <label className="flex-1 flex flex-col gap-1.5 p-3 rounded bg-muted/20 border border-border/50 cursor-pointer hover:bg-muted/30 transition-all">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-foreground">Online Safety Mode</span>
-                                <input type="checkbox" checked={safetyMode.enabled} onChange={e => safetyMode.setEnabled(e.target.checked)} className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20 shrink-0" />
-                            </div>
-                            <p className="text-[9px] text-muted-foreground leading-relaxed">
-                                Tier 2 edits disabled; Tier 1 actions require confirmation. Recommended when playing online.
-                            </p>
-                        </label>
-                        <label className="flex-1 flex flex-col gap-1.5 p-3 rounded bg-muted/20 border border-border/50 cursor-pointer hover:bg-muted/30 transition-all">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-foreground">Show Cut &amp; Ban-Risk Items</span>
-                                <input type="checkbox" checked={showFlaggedItems} onChange={e => setShowFlaggedItems(e.target.checked)} className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary/20 shrink-0" />
-                            </div>
-                            <p className="text-[9px] text-muted-foreground leading-relaxed">
-                                Cut content and ban-risk items appear in lists with the ⚠ marker. Independent from Safety Mode.
-                            </p>
-                        </label>
-                        <label className="flex-1 flex flex-col gap-1.5 p-3 rounded bg-red-500/5 border border-red-500/30 cursor-pointer hover:bg-red-500/10 transition-all">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-black uppercase tracking-widest text-red-500">Chaos Mode</span>
-                                <input type="checkbox" checked={fullChaosMode} onChange={e => handleChaosToggle(e.target.checked)} className="w-3.5 h-3.5 rounded border-red-500/40 text-red-500 focus:ring-red-500/20 shrink-0" />
-                            </div>
-                            <p className="text-[9px] text-muted-foreground leading-relaxed">
-                                <strong className="text-red-500/90">Uses technical game caps and reveals risk-flagged items.</strong> Practically guarantees an EAC ban online. Offline / experimental saves only.
-                            </p>
-                        </label>
+                    <div role="radiogroup" aria-label="Safety profile" className="flex gap-3">
+                        {([
+                            {
+                                value: 'safe' as const, label: 'Safe',
+                                desc: 'Conservative vanilla caps, risk-flagged items hidden, online safety on. Recommended default.',
+                                active: 'bg-green-600/10 border-green-600/50', title: 'text-foreground',
+                            },
+                            {
+                                value: 'expanded_limits' as const, label: 'Expanded Limits',
+                                desc: 'Technical game caps for normal items — cut-content and ban-risk items stay hidden. Not Chaos Mode.',
+                                active: 'bg-amber-500/10 border-amber-500/50', title: 'text-amber-500',
+                            },
+                            {
+                                value: 'chaos' as const, label: 'Chaos',
+                                desc: 'Technical game caps and reveals risk-flagged (cut / ban-risk) items. Practically guarantees an EAC ban online.',
+                                active: 'bg-red-500/10 border-red-500/50', title: 'text-red-500',
+                            },
+                        ]).map(p => {
+                            const selected = safetyProfile === p.value;
+                            return (
+                                <button
+                                    key={p.value}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={selected}
+                                    onClick={() => selectProfile(p.value)}
+                                    className={`flex-1 flex flex-col gap-1.5 p-3 rounded border text-left transition-all cursor-pointer ${selected ? p.active : 'bg-muted/20 border-border/50 hover:bg-muted/30'}`}
+                                >
+                                    <div className="flex items-center justify-between gap-2">
+                                        <span className={`text-[10px] font-black uppercase tracking-widest ${p.title}`}>{p.label}</span>
+                                        <span className={`w-3.5 h-3.5 rounded-full border-2 shrink-0 ${selected ? 'border-current bg-current' : 'border-border'}`} />
+                                    </div>
+                                    <p className="text-[9px] text-muted-foreground leading-relaxed">{p.desc}</p>
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
             </section>

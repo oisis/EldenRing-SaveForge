@@ -16,6 +16,8 @@ import {SortOrderTab} from './components/SortOrderTab';
 
 import {ToastBar} from './components/ToastBar';
 import {SafetyModeBanner} from './components/SafetyModeBanner';
+import {useSafetyMode} from './state/safetyMode';
+import {loadSafetyProfile, onlineSafetyEnabled, revealsRiskyItems, SAFETY_PROFILE_EVENT, type SafetyProfile} from './state/safetyProfile';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
 import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
 import {db} from '../wailsjs/go/models';
@@ -62,10 +64,12 @@ function App() {
     const [slotStates, setSlotStates] = useState<main.SlotState[]>([]);
     const [selectedChar, setSelectedChar] = useState<number>(0);
     const [activeTab, setActiveTab] = useState('character');
-    // Chaos Mode active flag — drives the red danger styling on the top nav.
-    // Synced from SettingsTab via the fullChaosModeChanged custom event.
-    const [fullChaosMode, setFullChaosMode] = useState<boolean>(() =>
-        localStorage.getItem('setting:fullChaosMode') === 'true');
+    // Single safety profile drives caps, risky-item visibility and the top-bar
+    // indicator. Synced across components via the safetyProfileChanged event.
+    const [safetyProfile, setSafetyProfile] = useState<SafetyProfile>(() => loadSafetyProfile());
+    const showFlaggedItems = revealsRiskyItems(safetyProfile);
+    const chaosMode = safetyProfile === 'chaos';
+    const expandedMode = safetyProfile === 'expanded_limits';
     const [inventoryVersion, setInventoryVersion] = useState(0);
     const [saveLoadKey, setSaveLoadKey] = useState(0);
     const [theme, setTheme] = useState<Theme>(() => {
@@ -85,9 +89,6 @@ function App() {
             const saved = localStorage.getItem('setting:columnVisibility');
             return saved ? JSON.parse(saved) : { id: false, category: true };
         } catch { return { id: false, category: true }; }
-    });
-    const [showFlaggedItems, setShowFlaggedItems] = useState<boolean>(() => {
-        return localStorage.getItem('setting:showFlaggedItems') === 'true';
     });
     const [category, setCategory] = useState('all');
     const [charWarnings, setCharWarnings] = useState<string[]>([]);
@@ -163,12 +164,16 @@ function App() {
     useEffect(() => { localStorage.setItem('setting:theme', theme); }, [theme]);
     useEffect(() => { GetInfuseTypes().then(res => setInfuseTypes(res || [])); }, []);
     useEffect(() => {
-        const handler = (e: Event) => setFullChaosMode((e as CustomEvent<boolean>).detail);
-        window.addEventListener('fullChaosModeChanged', handler);
-        return () => window.removeEventListener('fullChaosModeChanged', handler);
+        const handler = (e: Event) => setSafetyProfile((e as CustomEvent<SafetyProfile>).detail);
+        window.addEventListener(SAFETY_PROFILE_EVENT, handler);
+        return () => window.removeEventListener(SAFETY_PROFILE_EVENT, handler);
     }, []);
+    // Online Safety Mode (Tier 1/2 edit gating) is enabled only in the safe
+    // profile; expanded_limits and chaos opt out of the confirmation gates.
+    const safetyMode = useSafetyMode();
+    const setOnlineSafety = safetyMode.setEnabled;
+    useEffect(() => { setOnlineSafety(onlineSafetyEnabled(safetyProfile)); }, [safetyProfile, setOnlineSafety]);
     useEffect(() => { localStorage.setItem('setting:columnVisibility', JSON.stringify(columnVisibility)); }, [columnVisibility]);
-    useEffect(() => { localStorage.setItem('setting:showFlaggedItems', String(showFlaggedItems)); }, [showFlaggedItems]);
     useEffect(() => { localStorage.setItem('setting:debugMode', String(debugMode)); }, [debugMode]);
     useEffect(() => { localStorage.setItem('selectedDeployTarget', selectedDeployTarget); }, [selectedDeployTarget]);
     useEffect(() => { localStorage.setItem('setting:charAddSettings', JSON.stringify(charAddSettings)); }, [charAddSettings]);
@@ -562,8 +567,8 @@ function App() {
 
             {/* Main Content */}
             <main className="flex-1 flex flex-col relative z-10 bg-background overflow-hidden">
-                <header className={`h-14 border-b flex items-center justify-between px-8 backdrop-blur-md sticky top-0 z-30 transition-colors ${fullChaosMode ? 'border-red-600 bg-red-600/15' : 'border-border bg-background/50'}`}>
-                    <nav className={`flex gap-1.5 p-1 rounded-lg border ${fullChaosMode ? 'bg-red-600/10 border-red-600/50' : 'bg-muted/30 border-border/50'}`}>
+                <header className={`h-14 border-b flex items-center justify-between px-8 backdrop-blur-md sticky top-0 z-30 transition-colors ${chaosMode ? 'border-red-600 bg-red-600/15' : expandedMode ? 'border-amber-500 bg-amber-500/10' : 'border-border bg-background/50'}`}>
+                    <nav className={`flex gap-1.5 p-1 rounded-lg border ${chaosMode ? 'bg-red-600/10 border-red-600/50' : expandedMode ? 'bg-amber-500/10 border-amber-500/40' : 'bg-muted/30 border-border/50'}`}>
                         {tabs.map(tab => (
                             <button
                                 key={tab}
@@ -573,20 +578,25 @@ function App() {
                                 }}
                                 className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${
                                     activeTab === tab
-                                        ? (fullChaosMode ? 'bg-red-600 shadow-sm text-white' : 'bg-green-700/80 shadow-sm text-white')
-                                        : (fullChaosMode ? (theme === 'light' ? 'text-black/80 hover:text-black' : 'text-white/90 hover:text-white') + ' hover:bg-red-600/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40')
+                                        ? (chaosMode ? 'bg-red-600 shadow-sm text-white' : 'bg-green-700/80 shadow-sm text-white')
+                                        : (chaosMode ? (theme === 'light' ? 'text-black/80 hover:text-black' : 'text-white/90 hover:text-white') + ' hover:bg-red-600/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40')
                                 }`}
                             >
                                 {tab}
                             </button>
                         ))}
                     </nav>
-                    {fullChaosMode && (
+                    {chaosMode && (
                         <span
                             style={{ WebkitTextStroke: '0.4px rgba(255,255,255,0.9)' }}
                             className="text-sm font-black uppercase tracking-[0.2em] text-red-600 animate-pulse select-none"
                         >
                             CHAOS MODE!!!
+                        </span>
+                    )}
+                    {expandedMode && (
+                        <span className="text-xs font-black uppercase tracking-[0.2em] text-amber-500 select-none">
+                            EXPANDED LIMITS
                         </span>
                     )}
                     <div className="flex items-center space-x-4">
@@ -612,8 +622,7 @@ function App() {
                                     setTheme={setTheme}
                                     columnVisibility={columnVisibility}
                                     setColumnVisibility={setColumnVisibility}
-                                    showFlaggedItems={showFlaggedItems}
-                                    setShowFlaggedItems={setShowFlaggedItems}
+                                    safetyProfile={safetyProfile}
                                     debugMode={debugMode}
                                     setDebugMode={setDebugMode}
                                     platform={platform}

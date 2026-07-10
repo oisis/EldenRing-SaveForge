@@ -10,6 +10,7 @@ import {CategorySelect, CATEGORY_VALUES} from './CategorySelect';
 import {RiskBadge} from './RiskBadge';
 import {isLowerTierTalisman} from '../lib/talismanFamilies';
 import {useFavorites} from '../state/favorites';
+import {loadSafetyProfile, usesTechnicalCaps, SAFETY_PROFILE_EVENT, type SafetyProfile} from '../state/safetyProfile';
 import {ItemDetailPanel} from './ItemDetailPanel';
 import {BanRiskWarningModal} from './database/BanRiskWarningModal';
 import {ErrorModal} from './database/ErrorModal';
@@ -126,18 +127,19 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const [freeInv, setFreeInv] = useState<number>(999);
     const [freeStorage, setFreeStorage] = useState<number>(999);
 
-    // Chaos Mode swaps conservative caps for regulation game caps and reveals
-    // risk-flagged items. Cross-component sync via custom event from SettingsTab.
-    const [fullChaosMode, setFullChaosMode] = useState<boolean>(() =>
-        localStorage.getItem('setting:fullChaosMode') === 'true');
+    // Safety profile drives cap mode + the add path. expanded_limits and chaos
+    // both use technical/game caps; risky-item visibility comes from the
+    // showFlaggedItems prop (chaos only). Cross-component sync via custom event.
+    const [safetyProfile, setSafetyProfile] = useState<SafetyProfile>(() => loadSafetyProfile());
+    const fullChaosMode = usesTechnicalCaps(safetyProfile);
 
     // Unlocked bell bearing flag IDs — used to show state in DB tab for flag-only items.
     const [unlockedFlagIds, setUnlockedFlagIds] = useState<Set<number>>(new Set());
 
     useEffect(() => {
-        const handler = (e: Event) => setFullChaosMode((e as CustomEvent<boolean>).detail);
-        window.addEventListener('fullChaosModeChanged', handler);
-        return () => window.removeEventListener('fullChaosModeChanged', handler);
+        const handler = (e: Event) => setSafetyProfile((e as CustomEvent<SafetyProfile>).detail);
+        window.addEventListener(SAFETY_PROFILE_EVENT, handler);
+        return () => window.removeEventListener(SAFETY_PROFILE_EVENT, handler);
     }, []);
 
     useEffect(() => {
@@ -252,9 +254,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (showOnlyFavorites && !isFav(item.id)) return false;
         // "Cut & Ban-Risk" toggle hides only risky-flagged items, not informational flags
         // (dlc, stackable) which are now present on most entries.
-        // Chaos Mode reveals all risk-flagged items regardless of the toggle.
+        // Risky-item visibility is the showFlaggedItems prop (revealed only in the
+        // chaos profile); expanded_limits keeps them hidden despite raised caps.
         const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
-        if (!showFlaggedItems && !fullChaosMode && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
+        if (!showFlaggedItems && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
         // "Talismans: highest only" toggle hides lower-tier variants of upgrade families.
         if (category === 'talismans' && addSettings.talismansHighestOnly && isLowerTierTalisman(item.id)) return false;
         const q = deferredSearch.toLowerCase();
@@ -297,7 +300,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         dbItems.filter(item => {
             if (!isFav(item.id)) return false;
             const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
-            if (!showFlaggedItems && !fullChaosMode && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
+            if (!showFlaggedItems && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
             if (category === 'talismans' && addSettings.talismansHighestOnly && isLowerTierTalisman(item.id)) return false;
             return true;
         }),

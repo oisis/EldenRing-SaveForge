@@ -31,6 +31,7 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     CloseAndDownload: vi.fn(),
     PrepareConversion: vi.fn(),
     ExecuteConversion: vi.fn(),
+    BackupCurrentSave: vi.fn().mockResolvedValue(undefined),
 }));
 
 // Stub the modal to a marker so we can assert it opened with the scan report.
@@ -44,6 +45,7 @@ vi.mock('./FavoritesManager', () => ({ FavoritesManager: () => null }));
 import { SettingsTab } from './SettingsTab';
 import { SafetyModeProvider } from '../state/safetyMode';
 import { FavoritesProvider } from '../state/favorites';
+import type { SafetyProfile } from '../state/safetyProfile';
 import toast from '../lib/toast';
 
 // jsdom here has no localStorage; SettingsTab reads it for the Full Chaos toggle.
@@ -68,14 +70,14 @@ function fakeReport(hasIssues: boolean): RepairIssueReport {
     };
 }
 
-function renderSettings(charIndex = 2) {
+function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe') {
     render(
         <SafetyModeProvider>
             <FavoritesProvider>
                 <SettingsTab
                     theme="dark" setTheme={vi.fn()}
                     columnVisibility={{ id: false, category: false }} setColumnVisibility={vi.fn()}
-                    showFlaggedItems={false} setShowFlaggedItems={vi.fn()}
+                    safetyProfile={safetyProfile}
                     debugMode={false} setDebugMode={vi.fn()}
                     platform="steam"
                     selectedDeployTarget="" setSelectedDeployTarget={vi.fn()}
@@ -139,5 +141,41 @@ describe('SettingsTab diagnostics', () => {
 
         await waitFor(() => expect(toast.error).toHaveBeenCalled());
         expect(screen.queryByTestId('inv-issues-modal')).not.toBeInTheDocument();
+    });
+});
+
+describe('SettingsTab safety profile selector', () => {
+    beforeEach(() => {
+        for (const k of Object.keys(lsStore)) delete lsStore[k];
+    });
+
+    it('marks the active profile as checked', () => {
+        renderSettings(2, 'expanded_limits');
+        expect(screen.getByRole('radio', { name: /Expanded Limits/i })).toHaveAttribute('aria-checked', 'true');
+        expect(screen.getByRole('radio', { name: /^Safe/i })).toHaveAttribute('aria-checked', 'false');
+    });
+
+    it('selecting Expanded Limits persists it without a Chaos warning', () => {
+        renderSettings(2, 'safe');
+        fireEvent.click(screen.getByRole('radio', { name: /Expanded Limits/i }));
+        expect(lsStore['setting:safetyProfile']).toBe('expanded_limits');
+        expect(screen.queryByRole('heading', { name: /Enable Chaos Mode/i })).not.toBeInTheDocument();
+    });
+
+    it('selecting Chaos opens the warning; cancel keeps the previous profile', () => {
+        renderSettings(2, 'safe');
+        fireEvent.click(screen.getByRole('radio', { name: /^Chaos/i }));
+        expect(screen.getByRole('heading', { name: /Enable Chaos Mode/i })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole('button', { name: /Cancel/i }));
+        expect(lsStore['setting:safetyProfile']).toBeUndefined();
+    });
+
+    it('confirming the Chaos warning persists chaos', async () => {
+        renderSettings(2, 'safe');
+        fireEvent.click(screen.getByRole('radio', { name: /^Chaos/i }));
+        fireEvent.click(screen.getByRole('button', { name: /^OK$/i }));
+
+        await waitFor(() => expect(lsStore['setting:safetyProfile']).toBe('chaos'));
     });
 });
