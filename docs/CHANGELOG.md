@@ -4,6 +4,52 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0_beta5] - 2026-07-11
+
+### fix(db): resolve scorpion stew item aliases
+
+Scorpion Stew now exposes exactly two canonical picker rows — `Scorpion Stew`
+(`0x401E8930`) and `Gourmet Scorpion Stew` (`0x401E8933`) — each carrying its FMG
+item text. The two technical twin rows without text alias to their canonical
+entries (`0x401E8932` → Scorpion Stew, `0x401E8931` → Gourmet Scorpion Stew) so a
+save carrying the reported handle `0xB01E8931` resolves instead of scanning as
+`unknown_item_id`, while the twins stay hidden from picker listings.
+
+### fix(db): group flask upgrades by family identity
+
+Upgraded Crimson/Cerulean Tears flasks keep their exact inventory identity (ID,
+name, and BaseID — e.g. `Flask of Crimson Tears +12` stays `0x40000401`) but now
+expose a `familyId` grouping key via `FlaskFamilyBaseID`, which collapses any
+level, its even technical alias, or its goods handle to the +0 picker base
+(`0x400003E9` / `0x4000041B`). The Database tab counts owned copies under
+`familyId || baseId || id`, so an upgraded flask registers against its +0 picker
+row instead of reading as unowned. Wondrous Physick is intentionally excluded;
+`GetItemDataFuzzy` still returns exact flask IDs.
+
+### fix(app): skip duplicate flask family adds
+
+Adding the +0 Crimson/Cerulean picker row is now skipped when the save already
+holds any level of that flask family in inventory or storage. The skip is
+reported through `SkippedExisting`, the existing upgraded flask row is left
+untouched, and capacity preflight is unaffected because skipped flasks never
+reach the capacity item set. Non-flask stackables, weapons, armor, talismans,
+key items, and Wondrous Physick are unaffected.
+
+### fix(editor): honor sort order add quantity
+
+Adding a record-based item (weapon, armor, talisman) with quantity greater than
+one now materializes that many separate records — each `Quantity=1` with a fresh
+collision-safe UID — inserted consecutively at the requested target position,
+instead of a single stacked row. Quantity `0` still normalizes to one item, and
+one-row stackable behavior is preserved for non-record categories.
+
+### fix(ui): paginate sort order grids
+
+The Sort Order grids page at 30 cells (5 columns × 6 rows); a full page spawns a
+trailing empty page. Inventory and storage paginate independently, drag/drop
+target positions account for the active page offset, and sort controls still
+operate on the full tab list rather than the current page.
+
 ## [1.1.0_beta4] - 2026-07-10
 
 ### feat(ui): add explicit safety profiles
