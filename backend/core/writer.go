@@ -654,7 +654,7 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 		}
 		for i, item := range slot.Inventory.KeyItems {
 			if item.GaItemHandle == handle {
-				keyStart := invStart + CommonItemCount*InvRecordLen
+				keyStart := invStart + CommonItemCount*InvRecordLen + InvKeyCountHeader
 				slot.Inventory.KeyItems[i] = InventoryItem{GaItemHandle: 0, Quantity: 0, Index: uint32(i)}
 				off := keyStart + i*InvRecordLen
 				if err := sa.CheckBounds(off, InvRecordLen, "RemoveItemFromSlot/key"); err != nil {
