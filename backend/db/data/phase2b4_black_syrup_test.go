@@ -82,28 +82,33 @@ func TestPhase2B4BlackSyrupNoDuplicateAcrossMaps(t *testing.T) {
 	}
 }
 
-// TestPhase2B4ScorpionStewRows confirms the save-audit outcome (issue 5): both
-// real Scorpion Stew rows (0x401E8930 and 0x401E8932) are visible Tools
-// consumables, Gourmet Scorpion Stew keeps its single real row (0x401E8933), and
-// the never-observed 0x401E8931 candidate stays out of the app entirely.
-// Derived from a local save audit.
+// TestPhase2B4ScorpionStewRows locks the canonical Scorpion Stew layout (issue
+// 5, superseded by the item-alias model): only the two FMG-bearing rows are real
+// Tools entries — Scorpion Stew (0x401E8930) and Gourmet Scorpion Stew
+// (0x401E8933). The technical twins carry no item text and are not standalone DB
+// rows; they resolve through TechnicalItemAliases (0x401E8932 -> 0x401E8930,
+// 0x401E8931 -> 0x401E8933, the latter the reported save handle 0xB01E8931).
 func TestPhase2B4ScorpionStewRows(t *testing.T) {
-	for _, id := range []uint32{0x401E8930, 0x401E8932} {
-		stew := Tools[id]
-		if stew.Name != "Scorpion Stew" {
-			t.Errorf("Tools[0x%08X] name = %q, want %q", id, stew.Name, "Scorpion Stew")
-		}
+	if stew := Tools[0x401E8930]; stew.Name != "Scorpion Stew" {
+		t.Errorf("Tools[0x401E8930] name = %q, want %q", stew.Name, "Scorpion Stew")
 	}
-	gourmet := Tools[0x401E8933]
-	if gourmet.Name != "Gourmet Scorpion Stew" {
+	if gourmet := Tools[0x401E8933]; gourmet.Name != "Gourmet Scorpion Stew" {
 		t.Errorf("Tools[0x401E8933] name = %q, want %q", gourmet.Name, "Gourmet Scorpion Stew")
 	}
-	// 0x401E8931 is never observed in saves, so it must not exist in any DB map.
-	if _, ok := Tools[0x401E8931]; ok {
-		t.Errorf("Tools[0x401E8931] present; Gourmet Scorpion Stew candidate must stay out (0 save occurrences)")
+	// The technical twins must stay out of every DB map — they only alias.
+	for _, id := range []uint32{0x401E8931, 0x401E8932} {
+		if _, ok := Tools[id]; ok {
+			t.Errorf("Tools[0x%08X] present; technical twin must stay an alias, not a DB row", id)
+		}
+		if _, ok := KeyItems[id]; ok {
+			t.Errorf("KeyItems[0x%08X] present; technical twin must stay out of the app", id)
+		}
 	}
-	if _, ok := KeyItems[0x401E8931]; ok {
-		t.Errorf("KeyItems[0x401E8931] present; 0x401E8931 must stay out of the app")
+	// …and resolve to their canonical FMG rows via the alias table.
+	for twin, want := range map[uint32]uint32{0x401E8932: 0x401E8930, 0x401E8931: 0x401E8933} {
+		if got := TechnicalItemAliases[twin]; got != want {
+			t.Errorf("TechnicalItemAliases[0x%08X] = 0x%08X, want 0x%08X", twin, got, want)
+		}
 	}
 }
 
