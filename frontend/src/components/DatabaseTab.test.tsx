@@ -335,7 +335,10 @@ describe('DatabaseTab', () => {
 
         renderTab({category: 'sorceries'});
         fireEvent.click(await screen.findByRole('button', {name: /Add Favorites/i}));
-        expect(await screen.findByText(/technical game caps/i)).toBeInTheDocument();
+        // Banner must read Expanded Limits, never Chaos.
+        expect(await screen.findByText(/Expanded Limits — technical game caps/i)).toBeInTheDocument();
+        expect(screen.queryByText(/Chaos Mode/i)).not.toBeInTheDocument();
+        expect(screen.queryByText(/Full Chaos Mode/i)).not.toBeInTheDocument();
         fireEvent.click(screen.getByRole('button', {name: /^Add$/}));
 
         await waitFor(() =>

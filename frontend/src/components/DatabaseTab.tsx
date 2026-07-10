@@ -131,7 +131,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     // both use technical/game caps; risky-item visibility comes from the
     // showFlaggedItems prop (chaos only). Cross-component sync via custom event.
     const [safetyProfile, setSafetyProfile] = useState<SafetyProfile>(() => loadSafetyProfile());
-    const fullChaosMode = usesTechnicalCaps(safetyProfile);
+    const useTechnicalCapsMode = usesTechnicalCaps(safetyProfile);
+    const isChaosProfile = safetyProfile === 'chaos';
 
     // Unlocked bell bearing flag IDs — used to show state in DB tab for flag-only items.
     const [unlockedFlagIds, setUnlockedFlagIds] = useState<Set<number>>(new Set());
@@ -279,7 +280,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
         return 0;
-    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, fullChaosMode, category, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
+    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, useTechnicalCapsMode, category, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
 
     const showWeightColumn = useMemo(() => filteredItems.some(i => i.weight !== undefined && i.weight > 0), [filteredItems]);
 
@@ -304,7 +305,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             if (category === 'talismans' && addSettings.talismansHighestOnly && isLowerTierTalisman(item.id)) return false;
             return true;
         }),
-        [dbItems, isFav, showFlaggedItems, fullChaosMode, category, addSettings.talismansHighestOnly]);
+        [dbItems, isFav, showFlaggedItems, useTechnicalCapsMode, category, addSettings.talismansHighestOnly]);
 
     const showSubGroupColumn = category === 'all' || CATEGORIES_WITH_SUBGROUPS.has(category);
 
@@ -330,7 +331,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         if (!confirmModal || isSaving) return;
         setIsSaving(true);
         try {
-            const addItems = fullChaosMode ? AddItemsToCharacterWithGameLimits : AddItemsToCharacter;
+            const addItems = useTechnicalCapsMode ? AddItemsToCharacterWithGameLimits : AddItemsToCharacter;
             const baseIds = confirmModal.map(i => i.id);
             type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number };
             let lastResult: AddRes | null = null;
@@ -457,7 +458,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         // Storage on by default if at least one selected item allows storage (>0 cap).
         // Backend skips items with cap 0 per-item, so it's safe to enable storage even
         // when the selection is mixed (e.g. Glovewort + Sacred Flask).
-        const anyStorageAllowed = items.some(i => effectiveCap(i, 'storage', clearCount, fullChaosMode) > 0);
+        const anyStorageAllowed = items.some(i => effectiveCap(i, 'storage', clearCount, useTechnicalCapsMode) > 0);
         setAddToStorage(anyStorageAllowed);
         setStorageMax(false);
         setStorageQtyVal(1);
@@ -515,17 +516,17 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         + (showWeightColumn ? 1 : 0);
 
     // Whether the modal items are all non-stackable (weapons/armor/talismans)
-    const modalNonStackable = confirmModal ? allNonStackable(confirmModal, clearCount, fullChaosMode) : true;
+    const modalNonStackable = confirmModal ? allNonStackable(confirmModal, clearCount, useTechnicalCapsMode) : true;
     // "Hi" caps = max effective cap in the selection. Used for input upper bounds and the Max checkbox label.
     // Backend clamps per item (resolveQty), so UI must expose the highest cap; ratcheting to the lowest
     // would prevent a Glovewort (cap 999) from receiving its full stack just because a Remembrance (cap 1)
     // is also selected. Items with cap 0 are skipped server-side.
-    const modalMaxInvHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'inv', clearCount, fullChaosMode))) : 1;
-    const modalMaxStorageHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'storage', clearCount, fullChaosMode))) : 1;
-    const modalAnyStorageAllowed = !!confirmModal && confirmModal.some(i => effectiveCap(i, 'storage', clearCount, fullChaosMode) > 0);
+    const modalMaxInvHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'inv', clearCount, useTechnicalCapsMode))) : 1;
+    const modalMaxStorageHi = confirmModal ? Math.max(...confirmModal.map(i => effectiveCap(i, 'storage', clearCount, useTechnicalCapsMode))) : 1;
+    const modalAnyStorageAllowed = !!confirmModal && confirmModal.some(i => effectiveCap(i, 'storage', clearCount, useTechnicalCapsMode) > 0);
     const modalMixedMaxes = confirmModal && confirmModal.length > 1 && !modalNonStackable &&
-        (new Set(confirmModal.map(i => effectiveCap(i, 'inv', clearCount, fullChaosMode))).size > 1 ||
-            new Set(confirmModal.map(i => effectiveCap(i, 'storage', clearCount, fullChaosMode))).size > 1);
+        (new Set(confirmModal.map(i => effectiveCap(i, 'inv', clearCount, useTechnicalCapsMode))).size > 1 ||
+            new Set(confirmModal.map(i => effectiveCap(i, 'storage', clearCount, useTechnicalCapsMode))).size > 1);
     const modalHasUnknownGameLimits = !!confirmModal && confirmModal.some(i =>
         !i.gameMaxInventoryKnown || !i.gameMaxStorageKnown);
     // True if any selected item has scales_with_ng flag (drives tooltip rendering).
@@ -593,13 +594,19 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         </div>
 
                         {/* Cap info banners */}
-                        {fullChaosMode && (
+                        {isChaosProfile && (
                             <p className="text-[9px] font-black uppercase tracking-widest text-red-500 bg-red-500/10 border border-red-500/30 rounded px-3 py-1.5">
-                                ⚠ Full Chaos Mode — technical game caps
+                                ⚠ Chaos Mode — technical game caps
                                 {modalHasUnknownGameLimits && ' · conservative fallback where unknown'}
                             </p>
                         )}
-                        {!fullChaosMode && modalHasNgScaling && (
+                        {useTechnicalCapsMode && !isChaosProfile && (
+                            <p className="text-[9px] font-black uppercase tracking-widest text-amber-500 bg-amber-500/10 border border-amber-500/30 rounded px-3 py-1.5">
+                                Expanded Limits — technical game caps
+                                {modalHasUnknownGameLimits && ' · conservative fallback where unknown'}
+                            </p>
+                        )}
+                        {!useTechnicalCapsMode && modalHasNgScaling && (
                             <p className="text-[9px] font-bold text-primary/90 bg-primary/5 border border-primary/20 rounded px-3 py-1.5 leading-relaxed">
                                 <span className="font-black uppercase tracking-widest">NG+ Scaling</span>
                                 {' · '}Vanilla NG: <strong>{modalVanillaInv}</strong>
@@ -992,13 +999,13 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                             return (
                                                 <>
                                                     <td className="p-4 text-center">
-                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.inv, effectiveCap(item, 'inv', clearCount, fullChaosMode))}`}>
-                                                            {owned.inv} / {effectiveCap(item, 'inv', clearCount, fullChaosMode)}
+                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.inv, effectiveCap(item, 'inv', clearCount, useTechnicalCapsMode))}`}>
+                                                            {owned.inv} / {effectiveCap(item, 'inv', clearCount, useTechnicalCapsMode)}
                                                         </span>
                                                     </td>
                                                     <td className="p-4 text-center">
-                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.storage, effectiveCap(item, 'storage', clearCount, fullChaosMode))}`}>
-                                                            {owned.storage} / {effectiveCap(item, 'storage', clearCount, fullChaosMode)}
+                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.storage, effectiveCap(item, 'storage', clearCount, useTechnicalCapsMode))}`}>
+                                                            {owned.storage} / {effectiveCap(item, 'storage', clearCount, useTechnicalCapsMode)}
                                                         </span>
                                                     </td>
                                                 </>
