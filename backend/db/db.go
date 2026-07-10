@@ -512,6 +512,20 @@ func GetItemDataFuzzy(id uint32) (data.ItemData, uint32) {
 		return exact, id
 	}
 
+	// Technical duplicate aliases (see data/item_aliases.go). An alias ID shares
+	// its canonical twin's metadata; resolving it here keeps the scanner from
+	// firing false-positive unknown_item_id. The raw id is preserved by the
+	// caller - only the metadata follows the alias, never the saved record.
+	aliasKey := id
+	if p := id & 0xF0000000; p == 0xA0000000 || p == 0xB0000000 {
+		aliasKey = HandleToItemID(id)
+	}
+	if canonical, ok := data.TechnicalItemAliases[aliasKey]; ok {
+		if entry := GetItemData(canonical); entry.Name != "" {
+			return entry, canonical
+		}
+	}
+
 	prefix := id & 0xF0000000
 
 	// Handle prefix → item ID prefix conversion for stackable items.
