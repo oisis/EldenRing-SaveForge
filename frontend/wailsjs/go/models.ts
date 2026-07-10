@@ -2749,6 +2749,7 @@ export namespace vm {
 	    handle: number;
 	    id: number;
 	    baseId: number;
+	    familyId: number;
 	    name: string;
 	    category: string;
 	    subCategory: string;
@@ -2775,6 +2776,7 @@ export namespace vm {
 	        this.handle = source["handle"];
 	        this.id = source["id"];
 	        this.baseId = source["baseId"];
+	        this.familyId = source["familyId"];
 	        this.name = source["name"];
 	        this.category = source["category"];
 	        this.subCategory = source["subCategory"];

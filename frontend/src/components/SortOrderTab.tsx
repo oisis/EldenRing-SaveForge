@@ -35,6 +35,7 @@ type FrameDropTarget = ContainerKind | null;
 const GRID_COLS = 5;
 const GRID_MIN_ROWS = 6;
 const GRID_MIN_CELLS = GRID_COLS * GRID_MIN_ROWS; // 30
+const GRID_PAGE_SIZE = GRID_MIN_CELLS;
 
 const CELL_PX = 96;
 const GAP_PX = 6;
@@ -45,6 +46,12 @@ const GRID_TEMPLATE_COLUMNS = `repeat(${GRID_COLS}, ${CELL_PX}px)`;
 
 type SortOrderTabKey = 'weapons' | 'talismans' | 'head' | 'chest' | 'arms' | 'legs';
 type SortMode = 'acquisition-asc' | 'acquisition-desc' | 'weight-asc' | 'weight-desc' | 'type-asc' | 'type-desc';
+
+function sortOrderPageCount(itemCount: number): number {
+    const filledPages = Math.ceil(itemCount / GRID_PAGE_SIZE);
+    const trailingEmptyPage = itemCount % GRID_PAGE_SIZE === 0 ? 1 : 0;
+    return Math.max(1, filledPages + trailingEmptyPage);
+}
 
 // Tab → category set. Mirrors backend inventoryOrderTabs in app_inventory_order.go.
 const TAB_CATEGORIES: Record<SortOrderTabKey, ReadonlySet<string>> = {
@@ -103,6 +110,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [invAnchorUID, setInvAnchorUID] = useState<string | null>(null);
     const [stoSelectedUIDs, setStoSelectedUIDs] = useState<Set<string>>(new Set());
     const [stoAnchorUID, setStoAnchorUID] = useState<string | null>(null);
+    const [inventoryPage, setInventoryPage] = useState(0);
+    const [storagePage, setStoragePage] = useState(0);
 
     // Weapon edit modal
     const [weaponEditor, setWeaponEditor] = useState<{ item: editor.EditableItem; source: ContainerKind } | null>(null);
@@ -135,6 +144,21 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         () => storageItems.filter(it => tabFilter(it, activeSortTab)),
         [storageItems, activeSortTab],
     );
+    const inventoryPageCount = sortOrderPageCount(inventoryView.length);
+    const storagePageCount = sortOrderPageCount(storageView.length);
+
+    useEffect(() => {
+        setInventoryPage(0);
+        setStoragePage(0);
+    }, [activeSortTab]);
+
+    useEffect(() => {
+        setInventoryPage(page => Math.min(page, inventoryPageCount - 1));
+    }, [inventoryPageCount]);
+
+    useEffect(() => {
+        setStoragePage(page => Math.min(page, storagePageCount - 1));
+    }, [storagePageCount]);
 
     // Clear stale selections when the active tab changes — selected UIDs may no
     // longer be visible, which would block keyboard / batch operations.
@@ -174,14 +198,16 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         container: ContainerKind,
         sourceUID: string,
         localTo: number,
+        pageStart: number,
     ): number => {
         const view = container === 'inventory' ? inventoryView : storageView;
         const fullList = container === 'inventory' ? inventoryItems : storageItems;
         const srcGlobal = globalIndexOf(container, sourceUID);
         if (srcGlobal < 0) return -1;
         let prePopTarget: number;
-        if (localTo < view.length) {
-            const targetItem = view[localTo];
+        const absoluteTo = pageStart + localTo;
+        if (absoluteTo < view.length) {
+            const targetItem = view[absoluteTo];
             if (targetItem.uid === sourceUID) return srcGlobal; // no-op
             prePopTarget = fullList.findIndex(it => it.uid === targetItem.uid);
         } else {
@@ -274,10 +300,10 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     };
 
     // ── DnD: reorder within container ─────────────────────────────────────────
-    const onTileDrop = (container: ContainerKind, localIdx: number) => {
+    const onTileDrop = (container: ContainerKind, localIdx: number, pageStart: number) => {
         if (dragSourceRef.current !== container) return;
         if (!dragFromUID) { onDragEnd(); return; }
-        const tgt = computeTargetPosition(container, dragFromUID, localIdx);
+        const tgt = computeTargetPosition(container, dragFromUID, localIdx, pageStart);
         if (tgt < 0) { onDragEnd(); return; }
         const srcGlobal = globalIndexOf(container, dragFromUID);
         if (srcGlobal === tgt) { onDragEnd(); return; }
@@ -369,13 +395,17 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         toast.success(`${container === 'inventory' ? 'Inventory' : 'Storage'} sorted.`);
     };
 
+    const inventoryPageStart = inventoryPage * GRID_PAGE_SIZE;
+    const storagePageStart = storagePage * GRID_PAGE_SIZE;
+    const inventoryPageItems = inventoryView.slice(inventoryPageStart, inventoryPageStart + GRID_PAGE_SIZE);
+    const storagePageItems = storageView.slice(storagePageStart, storagePageStart + GRID_PAGE_SIZE);
     const inventoryGridCells: (editor.EditableItem | null)[] = [
-        ...inventoryView,
-        ...Array<null>(Math.max(0, GRID_MIN_CELLS - inventoryView.length)).fill(null),
+        ...inventoryPageItems,
+        ...Array<null>(Math.max(0, GRID_PAGE_SIZE - inventoryPageItems.length)).fill(null),
     ];
     const storageGridCells: (editor.EditableItem | null)[] = [
-        ...storageView,
-        ...Array<null>(Math.max(0, GRID_MIN_CELLS - storageView.length)).fill(null),
+        ...storagePageItems,
+        ...Array<null>(Math.max(0, GRID_PAGE_SIZE - storagePageItems.length)).fill(null),
     ];
 
     return (
@@ -572,9 +602,12 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 label="Storage"
                                 count={storageView.length}
                                 selectedCount={stoSelectedHere.length}
-                            onAdd={() => { setAddContainer('storage'); setAddOpen(true); }}
-                            disabled={saving || loading}
-                        />
+                                page={storagePage}
+                                pageCount={storagePageCount}
+                                onPageChange={setStoragePage}
+                                onAdd={() => { setAddContainer('storage'); setAddOpen(true); }}
+                                disabled={saving || loading}
+                            />
                         <SortControls
                             container="storage"
                             disabled={saving || loading || storageView.length < 2}
@@ -615,7 +648,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                     : undefined}
                                                 onDragStart={() => onDragStart('storage', item)}
                                                 onDragOver={(e) => onTileDragOver(e, 'storage', localIdx)}
-                                                onDrop={() => onTileDrop('storage', localIdx)}
+                                                onDrop={() => onTileDrop('storage', localIdx, storagePageStart)}
                                                 onDragEnd={onDragEnd}
                                             />
                                         ) : (
@@ -634,9 +667,12 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 label="Inventory"
                                 count={inventoryView.length}
                                 selectedCount={invSelectedHere.length}
-                            onAdd={() => { setAddContainer('inventory'); setAddOpen(true); }}
-                            disabled={saving || loading}
-                        />
+                                page={inventoryPage}
+                                pageCount={inventoryPageCount}
+                                onPageChange={setInventoryPage}
+                                onAdd={() => { setAddContainer('inventory'); setAddOpen(true); }}
+                                disabled={saving || loading}
+                            />
                         <SortControls
                             container="inventory"
                             disabled={saving || loading || inventoryView.length < 2}
@@ -677,7 +713,7 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                                     : undefined}
                                                 onDragStart={() => onDragStart('inventory', item)}
                                                 onDragOver={(e) => onTileDragOver(e, 'inventory', localIdx)}
-                                                onDrop={() => onTileDrop('inventory', localIdx)}
+                                                onDrop={() => onTileDrop('inventory', localIdx, inventoryPageStart)}
                                                 onDragEnd={onDragEnd}
                                             />
                                         ) : (
@@ -703,11 +739,14 @@ interface ColumnHeaderProps {
     label: string;
     count: number;
     selectedCount: number;
+    page: number;
+    pageCount: number;
+    onPageChange: (page: number) => void;
     onAdd: () => void;
     disabled: boolean;
 }
 
-function ColumnHeader({ label, count, selectedCount, onAdd, disabled }: ColumnHeaderProps) {
+function ColumnHeader({ label, count, selectedCount, page, pageCount, onPageChange, onAdd, disabled }: ColumnHeaderProps) {
     return (
         <div className="flex items-center justify-between shrink-0 gap-2 min-h-7">
             <div className="flex items-baseline gap-2">
@@ -722,6 +761,33 @@ function ColumnHeader({ label, count, selectedCount, onAdd, disabled }: ColumnHe
                 )}
             </div>
             <div className="flex items-center gap-2">
+                {pageCount > 1 && (
+                    <div className="flex items-center gap-1">
+                        <button
+                            type="button"
+                            aria-label={`${label} previous page`}
+                            title="Previous page"
+                            disabled={disabled || page <= 0}
+                            onClick={() => onPageChange(Math.max(0, page - 1))}
+                            className="w-5 h-5 flex items-center justify-center rounded border border-border/40 text-[10px] font-black text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            &lt;
+                        </button>
+                        <span className="min-w-8 text-center text-[9px] font-black tabular-nums text-muted-foreground/80">
+                            {page + 1}/{pageCount}
+                        </span>
+                        <button
+                            type="button"
+                            aria-label={`${label} next page`}
+                            title="Next page"
+                            disabled={disabled || page >= pageCount - 1}
+                            onClick={() => onPageChange(Math.min(pageCount - 1, page + 1))}
+                            className="w-5 h-5 flex items-center justify-center rounded border border-border/40 text-[10px] font-black text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            &gt;
+                        </button>
+                    </div>
+                )}
                 <button
                     disabled={disabled}
                     onClick={onAdd}

@@ -33,6 +33,7 @@ type ItemViewModel struct {
 	Handle           uint32   `json:"handle"`
 	ID               uint32   `json:"id"`
 	BaseID           uint32   `json:"baseId"`
+	FamilyID         uint32   `json:"familyId"` // ownership/counting family override (Crimson/Cerulean flask +0 base); 0 = none
 	Name             string   `json:"name"`
 	Category         string   `json:"category"`    // broad type from handle prefix: "Weapon"/"Armor"/"Talisman"/"Item"/"Ash of War"
 	SubCategory      string   `json:"subCategory"` // main game tab: "tools", "key_items", "melee_armaments", ...
@@ -229,6 +230,12 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHa
 			itemData, baseID := db.GetItemDataFuzzy(displayID)
 			name := itemData.Name
 
+			// Crimson/Cerulean flask upgrade levels are separate DB rows, but the
+			// picker only exposes the +0 row. Expose the family base so the DB tab
+			// counts every level under it, without altering the exact ID/name shown
+			// in the inventory view. 0 for everything else (no override).
+			familyID, _ := db.FlaskFamilyBaseID(displayID)
+
 			// Strict filtering: skip items that are not in our database (Unknown)
 			// to avoid garbage data from misaligned offsets.
 			if name == "" {
@@ -270,6 +277,7 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHa
 				Handle:           item.GaItemHandle,
 				ID:               displayID,
 				BaseID:           baseID,
+				FamilyID:         familyID,
 				Name:             name,
 				Category:         category,
 				SubCategory:      db.GetItemSubCategory(displayID, itemData, category),

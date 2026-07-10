@@ -144,6 +144,42 @@ describe('SortOrderTab (workspace mode)', () => {
         });
     });
 
+    it('paginates inventory items in 5x6 pages', async () => {
+        const items = Array.from({ length: 31 }, (_, idx) =>
+            makeItem(`hnd:0x8080${idx.toString(16).padStart(4, '0')}`, 'inventory', idx),
+        );
+        await mount(makeSnapshot({ inventory: items }));
+
+        expect(screen.getByText('Sword 0')).toBeInTheDocument();
+        expect(screen.getByText('Sword 29')).toBeInTheDocument();
+        expect(screen.queryByText('Sword 30')).not.toBeInTheDocument();
+
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /Inventory next page/i }));
+        });
+
+        expect(screen.queryByText('Sword 0')).not.toBeInTheDocument();
+        expect(screen.getByText('Sword 30')).toBeInTheDocument();
+    });
+
+    it('keeps an empty destination page after a full 5x6 page', async () => {
+        const items = Array.from({ length: 30 }, (_, idx) =>
+            makeItem(`hnd:0x8081${idx.toString(16).padStart(4, '0')}`, 'inventory', idx),
+        );
+        await mount(makeSnapshot({ inventory: items }));
+
+        expect(screen.getByText('Sword 0')).toBeInTheDocument();
+        expect(screen.getByText('Sword 29')).toBeInTheDocument();
+
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /Inventory next page/i }));
+        });
+
+        expect(screen.queryByText('Sword 0')).not.toBeInTheDocument();
+        expect(screen.queryByText('Sword 29')).not.toBeInTheDocument();
+        expect(screen.getByText('30 items')).toBeInTheDocument();
+    });
+
     it('renders Save changes button disabled when not dirty', async () => {
         await mount(makeSnapshot({ inventory: [makeItem('hnd:0x80800001', 'inventory', 0)], dirty: false }));
         const save = screen.getByRole('button', { name: /Save changes/i });

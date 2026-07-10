@@ -88,8 +88,7 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 	level, infusion := decodeWeaponUpgradeInfusion(effectiveID, baseID)
 	sortKey := data.ItemSortKeys[baseID]
 	defaultAoWID, defaultAoWName := defaultAoWForBaseID(baseID)
-	item := EditableItem{
-		UID:              nextNewUID(snap),
+	baseItem := EditableItem{
 		Source:           ItemSourceAdded,
 		Container:        targetContainer,
 		OriginalHandle:   0,
@@ -113,16 +112,16 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 		DefaultAoWID:     defaultAoWID,
 		DefaultAoWName:   defaultAoWName,
 	}
-	item.OriginalSlotIndex = -1 // added items have no original physical slot
-	if item.IsWeapon {
+	baseItem.OriginalSlotIndex = -1 // added items have no original physical slot
+	if baseItem.IsWeapon {
 		// Mirror BuildSnapshot — added weapons must carry the same
 		// AoW-mounting metadata so the edit modal can compute
 		// compatibility without round-tripping through GetCharacter
 		// (added items have no save-side GaItemHandle yet). CurrentAoW*
 		// stays empty: Source=added items have no current AoW until the
 		// workspace is saved and re-loaded from the slot.
-		item.WepType = itemData.WepType
-		item.CanMountAoW = itemData.GemMountType == 2
+		baseItem.WepType = itemData.WepType
+		baseItem.CanMountAoW = itemData.GemMountType == 2
 	}
 
 	dst := sliceFor(snap, targetContainer)
@@ -132,8 +131,24 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 	if targetPosition > len(*dst) {
 		targetPosition = len(*dst)
 	}
-	tail := append([]EditableItem{item}, (*dst)[targetPosition:]...)
-	*dst = append((*dst)[:targetPosition], tail...)
+
+	copies := uint32(1)
+	itemQuantity := qty
+	if baseItem.IsWeapon || baseItem.IsArmor || baseItem.IsTalisman {
+		copies = qty
+		itemQuantity = 1
+	}
+	for i := uint32(0); i < copies; i++ {
+		item := baseItem
+		item.UID = nextNewUID(snap)
+		item.Quantity = itemQuantity
+		pos := targetPosition + int(i)
+		if pos > len(*dst) {
+			pos = len(*dst)
+		}
+		tail := append([]EditableItem{item}, (*dst)[pos:]...)
+		*dst = append((*dst)[:pos], tail...)
+	}
 
 	recomputePositions(snap.InventoryItems)
 	recomputePositions(snap.StorageItems)
