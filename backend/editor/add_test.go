@@ -127,6 +127,57 @@ func TestAddItem_QuantityZeroNormalizedToOne(t *testing.T) {
 	}
 }
 
+func TestAddItem_RecordQuantityCreatesSeparateCopies(t *testing.T) {
+	snap := mkSnap(0, 0)
+	if err := AddItem(snap, AddItemSpec{ItemID: idDagger, Quantity: 3}, ContainerInventory, 0); err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	if len(snap.InventoryItems) != 3 {
+		t.Fatalf("inv count = %d, want 3", len(snap.InventoryItems))
+	}
+	seenUIDs := make(map[string]bool)
+	for i, it := range snap.InventoryItems {
+		if it.ItemID != idDagger {
+			t.Errorf("item[%d].ItemID = 0x%08X, want Dagger", i, it.ItemID)
+		}
+		if it.Quantity != 1 {
+			t.Errorf("item[%d].Quantity = %d, want 1 per record", i, it.Quantity)
+		}
+		if it.UID == "" || seenUIDs[it.UID] {
+			t.Errorf("item[%d].UID = %q, want unique non-empty UID", i, it.UID)
+		}
+		seenUIDs[it.UID] = true
+		if it.Position != i {
+			t.Errorf("item[%d].Position = %d, want %d", i, it.Position, i)
+		}
+	}
+}
+
+func TestAddItem_RecordQuantityInsertsCopiesAtTargetPosition(t *testing.T) {
+	snap := mkSnap(2, 0)
+	if err := AddItem(snap, AddItemSpec{ItemID: idDagger, Quantity: 2}, ContainerInventory, 1); err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	if len(snap.InventoryItems) != 4 {
+		t.Fatalf("inv count = %d, want 4", len(snap.InventoryItems))
+	}
+	if snap.InventoryItems[0].UID != "inv:A" {
+		t.Errorf("item[0].UID = %q, want inv:A", snap.InventoryItems[0].UID)
+	}
+	if snap.InventoryItems[3].UID != "inv:B" {
+		t.Errorf("item[3].UID = %q, want inv:B", snap.InventoryItems[3].UID)
+	}
+	for i := 1; i <= 2; i++ {
+		if snap.InventoryItems[i].Source != ItemSourceAdded {
+			t.Errorf("item[%d].Source = %q, want added", i, snap.InventoryItems[i].Source)
+		}
+		if snap.InventoryItems[i].Quantity != 1 {
+			t.Errorf("item[%d].Quantity = %d, want 1", i, snap.InventoryItems[i].Quantity)
+		}
+	}
+	assertPositions(t, snap.InventoryItems, "inv")
+}
+
 func TestAddItem_NewUIDIncrements(t *testing.T) {
 	snap := mkSnap(0, 0)
 	if err := AddItem(snap, AddItemSpec{ItemID: idDagger}, ContainerInventory, 0); err != nil {
