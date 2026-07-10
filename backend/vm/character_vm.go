@@ -384,7 +384,10 @@ func updateItemsAndSync(vmItems []ItemViewModel, data *core.EquipInventoryData, 
 		}
 	}
 	if !isStorage {
-		keyStart := commonStart + 0xa80*12
+		// key_count header sits between the common and key sections (structures.go
+		// Read skips 4 bytes here); omitting it wrote qty onto the row's handle
+		// field and made Key Items vanish on reload (issue 10).
+		keyStart := commonStart + core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
 		for i := range data.KeyItems {
 			handle := data.KeyItems[i].GaItemHandle
 			if handle == 0 || handle == 0xFFFFFFFF {
@@ -429,7 +432,7 @@ func updateItemsAndSync(vmItems []ItemViewModel, data *core.EquipInventoryData, 
 	}
 
 	if !isStorage {
-		keyStart := commonStart + 0xa80*12
+		keyStart := commonStart + core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
 		for i := range data.KeyItems {
 			handle := data.KeyItems[i].GaItemHandle
 			if handle == 0 || handle == 0xFFFFFFFF {
