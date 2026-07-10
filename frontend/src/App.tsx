@@ -15,7 +15,6 @@ import {PvPTab} from './components/PvPTab';
 import {SortOrderTab} from './components/SortOrderTab';
 
 import {ToastBar} from './components/ToastBar';
-import {SafetyModeBanner} from './components/SafetyModeBanner';
 import {useSafetyMode} from './state/safetyMode';
 import {loadSafetyProfile, onlineSafetyEnabled, revealsRiskyItems, SAFETY_PROFILE_EVENT, type SafetyProfile} from './state/safetyProfile';
 import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrityModal';
@@ -70,6 +69,7 @@ function App() {
     const showFlaggedItems = revealsRiskyItems(safetyProfile);
     const chaosMode = safetyProfile === 'chaos';
     const expandedMode = safetyProfile === 'expanded_limits';
+    const safeMode = safetyProfile === 'safe';
     const [inventoryVersion, setInventoryVersion] = useState(0);
     const [saveLoadKey, setSaveLoadKey] = useState(0);
     const [theme, setTheme] = useState<Theme>(() => {
@@ -433,7 +433,6 @@ function App() {
 
     return (
         <div className="flex flex-col h-screen bg-background text-foreground overflow-hidden font-sans selection:bg-primary/30 transition-colors duration-300">
-            <SafetyModeBanner />
             <div className="flex flex-1 min-h-0">
             {/* Sidebar */}
             <aside className="w-64 border-r border-border bg-muted/5 flex flex-col z-20">
@@ -597,6 +596,11 @@ function App() {
                     {expandedMode && (
                         <span className="text-xs font-black uppercase tracking-[0.2em] text-amber-500 select-none">
                             EXPANDED LIMITS
+                        </span>
+                    )}
+                    {safeMode && (
+                        <span className="text-xs font-black uppercase tracking-[0.2em] text-green-600/80 select-none">
+                            SAFE MODE
                         </span>
                     )}
                     <div className="flex items-center space-x-4">
