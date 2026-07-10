@@ -560,6 +560,12 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	// - existingStorageQty: per-item stack qty in storage
 	existingItemQty := make(map[uint32]int)
 	existingByContainer := make(map[uint32]int)
+	// Crimson/Cerulean Tears flasks are one-per-family (MaxInventory 1) but every
+	// upgrade level is its own DB row, so existingItemQty keys a +12 flask under
+	// 0x40000401 — not the +0 picker row 0x400003E9. Track which flask families
+	// the save already holds (any level, inventory or storage) so adding the +0
+	// base can be skipped instead of creating a duplicate logical flask.
+	existingFlaskFamily := make(map[uint32]bool)
 	hasPhysick := false
 	for _, item := range slot.Inventory.CommonItems {
 		if item.GaItemHandle == 0 || item.GaItemHandle == 0xFFFFFFFF {
@@ -571,6 +577,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		}
 		if db.IsWondrousPhysick(invID) {
 			hasPhysick = true
+		}
+		if fam, ok := db.FlaskFamilyBaseID(invID); ok {
+			existingFlaskFamily[fam] = true
 		}
 		_, baseID := db.GetItemDataFuzzy(invID)
 		qty := int(item.Quantity & 0x7FFFFFFF)
@@ -588,6 +597,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		sID := db.HandleToItemID(item.GaItemHandle)
 		_, sBaseID := db.GetItemDataFuzzy(sID)
 		existingStorageQty[sBaseID] += int(item.Quantity & 0x7FFFFFFF)
+		if fam, ok := db.FlaskFamilyBaseID(sID); ok {
+			existingFlaskFamily[fam] = true
+		}
 	}
 
 	// Existing container key item qtys (so we don't lower them). existingKeyItemRow
@@ -656,6 +668,14 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			id = db.ItemFlaskWondrousPhysickEmpty
 		}
 		itemData, _ := db.GetItemDataFuzzy(id)
+		// A Crimson/Cerulean flask family the save already holds (any level) must
+		// not gain a second copy from the +0 picker row. Reuse the family key so
+		// there's no duplicated flask ID math; report it via the normal skip list.
+		if fam, ok := db.FlaskFamilyBaseID(id); ok && existingFlaskFamily[fam] {
+			a.logInfo("flask family already present — skipping %s (0x%08X)", itemData.Name, id)
+			skippedExisting = append(skippedExisting, SkippedAdd{ItemID: id})
+			continue
+		}
 		maxInventory, maxStorage := addItemCaps(itemData, useGameLimits)
 		finalID := id
 		// Clamp the requested upgrade to the item's real MaxUpgrade so an add can
