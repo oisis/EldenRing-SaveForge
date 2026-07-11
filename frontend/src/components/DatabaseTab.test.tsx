@@ -130,8 +130,8 @@ const DEFAULT_ADD_SETTINGS: AddSettings = {
     talismansHighestOnly: false, includeAshenCapital: false,
 };
 
-function renderTab(overrides: Partial<Parameters<typeof DatabaseTab>[0]> = {}) {
-    return render(
+function tabElement(overrides: Partial<Parameters<typeof DatabaseTab>[0]> = {}) {
+    return (
         <DatabaseTab
             columnVisibility={{ id: true, category: true }}
             platform="PC"
@@ -143,8 +143,27 @@ function renderTab(overrides: Partial<Parameters<typeof DatabaseTab>[0]> = {}) {
             category="key_items"
             setCategory={vi.fn()}
             {...overrides}
-        />,
+        />
     );
+}
+
+function renderTab(overrides: Partial<Parameters<typeof DatabaseTab>[0]> = {}) {
+    return render(tabElement(overrides));
+}
+
+// Two subcategories under 'tools' (Consumables x2, Great Runes x1) to exercise
+// the subcategory dropdown, filtering, select-all scope and the Owned count.
+function makeToolItems(): db.ItemEntry[] {
+    const base = { category: 'tools', maxInventory: 99, maxStorage: 600, maxUpgrade: 0, iconPath: '', flags: [] as string[] };
+    return [
+        db.ItemEntry.createFrom({ ...base, id: 0x11, name: 'Cured Meat', subCategory: 'Consumables' }),
+        db.ItemEntry.createFrom({ ...base, id: 0x12, name: 'Rowa Fruit', subCategory: 'Consumables' }),
+        db.ItemEntry.createFrom({ ...base, id: 0x13, name: 'Golden Rune', subCategory: 'Great Runes' }),
+    ];
+}
+
+function ownedVm(id: number, quantity: number) {
+    return { id, baseId: id, name: '', category: 'Item', subCategory: 'tools', quantity, maxInventory: 99, maxStorage: 600, flags: [] };
 }
 
 beforeEach(() => {
@@ -370,6 +389,107 @@ describe('DatabaseTab', () => {
         await waitFor(() =>
             expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1));
         expect(mocks.AddItemsToCharacterWithGameLimits).not.toHaveBeenCalled();
+    });
+
+    // --- Subcategory filter + toolbar cleanup (task 1) ---
+
+    it('resets the subcategory filter to All when the category changes', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems());
+        const { rerender } = render(tabElement({ category: 'tools' }));
+
+        const sub = await screen.findByLabelText('Subcategory') as HTMLSelectElement;
+        await waitFor(() => expect(sub.options.length).toBeGreaterThan(1));
+        fireEvent.change(sub, { target: { value: 'Great Runes' } });
+        expect(sub.value).toBe('Great Runes');
+
+        rerender(tabElement({ category: 'ashes' }));
+        await waitFor(() =>
+            expect((screen.getByLabelText('Subcategory') as HTMLSelectElement).value).toBe('all'));
+    });
+
+    it('filters the grid by the selected subcategory', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems());
+        renderTab({ category: 'tools' });
+        fireEvent.click(screen.getByTitle('Grid view'));
+
+        expect(await screen.findByText('Cured Meat')).toBeInTheDocument();
+        fireEvent.change(screen.getByLabelText('Subcategory'), { target: { value: 'Great Runes' } });
+
+        expect(screen.queryByText('Cured Meat')).not.toBeInTheDocument();
+        expect(screen.getByText('Golden Rune')).toBeInTheDocument();
+    });
+
+    it('Select all selects only the filtered visible items', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems());
+        renderTab({ category: 'tools' });
+
+        const sub = await screen.findByLabelText('Subcategory');
+        fireEvent.change(sub, { target: { value: 'Consumables' } });
+        fireEvent.click(screen.getByTitle('Select all'));
+
+        // 2 Consumables in scope → "Add Selected (2)", never the full 3.
+        expect(await screen.findByRole('button', { name: 'Add Selected (2)' })).toBeInTheDocument();
+    });
+
+    it('prunes hidden selected items when the subcategory changes', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems());
+        renderTab({ category: 'tools' });
+
+        await screen.findByLabelText('Subcategory');
+        fireEvent.click(screen.getByTitle('Select all'));
+        expect(await screen.findByRole('button', { name: 'Add Selected (3)' })).toBeInTheDocument();
+
+        fireEvent.change(screen.getByLabelText('Subcategory'), { target: { value: 'Great Runes' } });
+
+        await waitFor(() =>
+            expect(screen.getByRole('button', { name: 'Add Selected (1)' })).toBeInTheDocument());
+        expect(screen.queryByRole('button', { name: 'Add Selected (3)' })).not.toBeInTheDocument();
+    });
+
+    it('Add Favorites is scoped to the selected subcategory', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems());
+        renderTab({ category: 'tools' });
+
+        fireEvent.change(await screen.findByLabelText('Subcategory'), { target: { value: 'Great Runes' } });
+
+        const addFavorites = await screen.findByRole('button', { name: 'Add Favorites (1)' });
+        fireEvent.click(addFavorites);
+        fireEvent.click(await screen.findByRole('button', { name: /^Add$/ }));
+
+        await waitFor(() =>
+            expect(mocks.AddItemsToCharacter).toHaveBeenCalledWith(
+                0, [0x13], 0, 0, 0, 0, 1, 1));
+    });
+
+    it('Owned counts the whole category, then narrows to the subcategory', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems());
+        mocks.GetCharacter.mockResolvedValue({
+            inventory: [ownedVm(0x11, 5), ownedVm(0x13, 1)], // one Consumable + one Great Rune owned
+            storage: [], clearCount: 0,
+        });
+        renderTab({ category: 'tools' });
+
+        const badge = (await screen.findByText('Owned:')).parentElement!;
+        await waitFor(() => expect(badge).toHaveTextContent('Owned:2'));
+
+        fireEvent.change(await screen.findByLabelText('Subcategory'), { target: { value: 'Consumables' } });
+        await waitFor(() => expect(badge).toHaveTextContent('Owned:1'));
+    });
+
+    it('text search does not change the Owned count', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems());
+        mocks.GetCharacter.mockResolvedValue({
+            inventory: [ownedVm(0x11, 5), ownedVm(0x13, 1)],
+            storage: [], clearCount: 0,
+        });
+        renderTab({ category: 'tools' });
+
+        const badge = (await screen.findByText('Owned:')).parentElement!;
+        await waitFor(() => expect(badge).toHaveTextContent('Owned:2'));
+
+        fireEvent.change(screen.getByPlaceholderText('Search by name or ID...'), { target: { value: 'zzz-no-match' } });
+        // Search only affects the visible table, never the owned scope.
+        expect(badge).toHaveTextContent('Owned:2');
     });
 
     // NOTE: the legacy "Repair & Retry" prompt that fired on a duplicate
