@@ -1318,6 +1318,8 @@ export namespace main {
 	    freeStore: number;
 	    neededInv: number;
 	    neededStore: number;
+	    freeGaItems: number;
+	    neededGaItems: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new AddResult(source);
@@ -1334,6 +1336,8 @@ export namespace main {
 	        this.freeStore = source["freeStore"];
 	        this.neededInv = source["neededInv"];
 	        this.neededStore = source["neededStore"];
+	        this.freeGaItems = source["freeGaItems"];
+	        this.neededGaItems = source["neededGaItems"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

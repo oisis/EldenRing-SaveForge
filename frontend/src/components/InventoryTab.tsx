@@ -1,7 +1,7 @@
 import {useEffect, useState, useMemo, useRef, useDeferredValue} from 'react';
 import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {GetCharacter, SaveCharacter, RemoveItemsFromCharacter, GetItemList, GetItemDetail} from '../../wailsjs/go/main/App';
+import {GetCharacter, SaveCharacter, RemoveItemsFromCharacter, GetItemDetail} from '../../wailsjs/go/main/App';
 import {vm, db} from '../../wailsjs/go/models';
 import {CategorySelect} from './CategorySelect';
 import {RiskBadge} from './RiskBadge';
@@ -43,6 +43,7 @@ interface InventoryTabProps {
 export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, showFlaggedItems, category, setCategory, onMutate, showOnlyFavorites = false, onToggleFavorites }: InventoryTabProps) {
     const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
+    const [subCategory, setSubCategory] = useState('all');
     const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
     const [charInventory, setCharInventory] = useState<vm.ItemViewModel[]>([]);
     const [charStorage, setCharStorage] = useState<vm.ItemViewModel[]>([]);
@@ -298,6 +299,14 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
             } else if (sortCol === 'currentUpgrade') {
                 valA = a.currentUpgrade || 0;
                 valB = b.currentUpgrade || 0;
+            } else if (sortCol === 'invOwned') {
+                // Numeric ownership shown in the Inventory cell: non-stackable = 0/1
+                // presence, stackable = base quantity (edits don't re-sort mid-typing).
+                valA = a.nonStackable ? (a.inInventory ? 1 : 0) : a.invQty;
+                valB = b.nonStackable ? (b.inInventory ? 1 : 0) : b.invQty;
+            } else if (sortCol === 'storageOwned') {
+                valA = a.nonStackable ? (a.inStorage ? 1 : 0) : a.storageQty;
+                valB = b.nonStackable ? (b.inStorage ? 1 : 0) : b.storageQty;
             } else {
                 const rawA = a[sortCol as keyof MergedItem];
                 const rawB = b[sortCol as keyof MergedItem];
@@ -318,38 +327,47 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
 
     const deferredSearch = useDeferredValue(search);
 
+    // Reset the subcategory filter whenever the category changes.
+    useEffect(() => { setSubCategory('all'); }, [category]);
+
+    // Subcategories (item.subGroup) derived from the owned items in the active
+    // category scope — never a hardcoded list. Empty values are dropped.
+    const availableSubCategories = useMemo(() => {
+        const scope = category === 'all' ? mergedOwnedItems : mergedOwnedItems.filter(i => i.subCategory === category);
+        return Array.from(new Set(scope.map(i => i.subGroup).filter(Boolean))).sort();
+    }, [mergedOwnedItems, category]);
+    const hasSubCategories = availableSubCategories.length > 0;
+
     const filteredOwnedItems = useMemo(() => sortItems(mergedOwnedItems.filter(item => {
         if (showOnlyFavorites && !isFav(item.id)) return false;
         // "Cut & Ban-Risk" toggle hides only risky-flagged items, not informational flags
         // (dlc, stackable) which are now present on most entries.
         const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
         if (!showFlaggedItems && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
+        // Category (item.subCategory) then subcategory (item.subGroup) scope, before search.
+        if (category !== 'all' && item.subCategory !== category) return false;
+        if (subCategory !== 'all' && item.subGroup !== subCategory) return false;
         const q = deferredSearch.toLowerCase();
-        const matchesSearch = !q ||
+        return !q ||
             item.name.toLowerCase().includes(q) ||
             item.id.toString(16).toLowerCase().includes(q);
+    })), [mergedOwnedItems, deferredSearch, category, subCategory, sortCol, sortDir, showFlaggedItems, showOnlyFavorites, isFav]);
 
-        if (category === 'all') return matchesSearch;
-
-        return item.subCategory === category && matchesSearch;
-    })), [mergedOwnedItems, deferredSearch, category, sortCol, sortDir, showFlaggedItems, showOnlyFavorites, isFav]);
-
-    // Total items in selected category from the database (for the Owned/Total badge).
-    const [categoryTotal, setCategoryTotal] = useState<number>(0);
-    useEffect(() => {
-        let cancelled = false;
-        GetItemList(category).then(items => {
-            if (!cancelled) setCategoryTotal((items || []).length);
-        }).catch(() => { if (!cancelled) setCategoryTotal(0); });
-        return () => { cancelled = true; };
-    }, [category]);
-
-    const ownedCount = useMemo(() => {
-        if (category === 'all') return mergedOwnedItems.length;
-        return mergedOwnedItems.filter(i => i.subCategory === category).length;
-    }, [mergedOwnedItems, category]);
+    // Owned count scoped to the selected category/subcategory — derived from
+    // mergedOwnedItems (not filtered) so text search never affects it.
+    const ownedCount = useMemo(() =>
+        mergedOwnedItems.filter(i => {
+            if (category !== 'all' && i.subCategory !== category) return false;
+            if (subCategory !== 'all' && i.subGroup !== subCategory) return false;
+            return true;
+        }).length,
+    [mergedOwnedItems, category, subCategory]);
 
     const showSubGroupColumn = category === 'all' || CATEGORIES_WITH_SUBGROUPS.has(category);
+
+    // Combined upgrade/max-upgrade column — hidden when the whole current table
+    // has no upgradeable rows (avoids empty columns on consumables/armor).
+    const showUpgradeColumn = useMemo(() => filteredOwnedItems.some(i => i.maxUpgrade > 0), [filteredOwnedItems]);
 
     const SortIndicator = ({ col }: { col: string }) => {
         if (sortCol !== col) return <span className="ml-1 opacity-20">↕</span>;
@@ -442,15 +460,31 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
 
             {/* Top Bar: [Category] [Owned/Total badge] [Search] */}
             <div className="flex flex-col md:flex-row gap-4 shrink-0 items-center">
-                <CategorySelect value={category} onChange={setCategory} className="w-full md:w-56" />
+                <CategorySelect value={category} onChange={setCategory} className="w-full md:w-56 shrink-0" />
+
+                {/* Subcategory filter — disabled placeholder keeps the layout stable
+                    when the active category has no subcategories. */}
+                <div className="relative w-48 shrink-0">
+                    <select
+                        aria-label="Subcategory"
+                        value={subCategory}
+                        disabled={!hasSubCategories}
+                        onChange={e => setSubCategory(e.target.value)}
+                        className="w-full appearance-none bg-muted/30 border border-border rounded-md px-4 py-2.5 pr-10 text-[10px] font-black uppercase tracking-widest text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <option value="all">{hasSubCategories ? 'All Subcategories' : 'No Subcategories'}</option>
+                        {availableSubCategories.map(s => (
+                            <option key={s} value={s}>{s}</option>
+                        ))}
+                    </select>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
+                </div>
 
                 <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                        {category === 'all' ? 'Owned' : CATEGORY_LABEL[category] ?? category}
-                    </span>
-                    <span className="text-[10px] font-bold tabular-nums text-foreground">
-                        {ownedCount}/{categoryTotal}
-                    </span>
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Owned:</span>
+                    <span className="text-[10px] font-bold tabular-nums text-foreground">{ownedCount}</span>
                 </div>
 
                 {(Object.keys(editedInv).length > 0 || Object.keys(editedStorage).length > 0) && (
@@ -591,27 +625,42 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                 </th>
                                 <th className="px-2 py-4 w-8"></th>
                                 <th className="px-6 py-4 w-16">Icon</th>
-                                <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
+                                <th className="px-6 py-4 w-full cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
                                     Name <SortIndicator col="name" />
                                 </th>
                                 {columnVisibility.id && (
-                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('id')}>
+                                    <th className="px-3 py-4 whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('id')}>
                                         ID <SortIndicator col="id" />
                                     </th>
                                 )}
                                 {columnVisibility.category && showSubGroupColumn && (
-                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('subGroup')}>
+                                    <th className="px-3 py-4 whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('subGroup')}>
                                         Sub-Category <SortIndicator col="subGroup" />
                                     </th>
                                 )}
-                                <th className="px-6 py-4 text-center cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('currentUpgrade')}>
-                                    Upgrade <SortIndicator col="currentUpgrade" />
+                                {showUpgradeColumn && (
+                                    <th className="px-4 py-4 text-center whitespace-nowrap">
+                                        <span
+                                            onClick={() => handleSort('currentUpgrade')}
+                                            className="cursor-pointer hover:text-primary transition-colors"
+                                            title="Sort by current upgrade"
+                                            aria-label="Sort by current upgrade"
+                                        >Up<SortIndicator col="currentUpgrade" /></span>
+                                        <span className="mx-1 text-muted-foreground/40">/</span>
+                                        <span
+                                            onClick={() => handleSort('maxUpgrade')}
+                                            className="cursor-pointer hover:text-primary transition-colors"
+                                            title="Sort by max upgrade"
+                                            aria-label="Sort by max upgrade"
+                                        >MaxUp<SortIndicator col="maxUpgrade" /></span>
+                                    </th>
+                                )}
+                                <th className="px-3 py-4 text-center whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('invOwned')}>
+                                    Inventory <SortIndicator col="invOwned" />
                                 </th>
-                                <th className="px-6 py-4 text-center cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('maxUpgrade')}>
-                                    Max Up <SortIndicator col="maxUpgrade" />
+                                <th className="px-3 py-4 text-center whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('storageOwned')}>
+                                    Storage <SortIndicator col="storageOwned" />
                                 </th>
-                                <th className="px-6 py-4 text-center w-32">Inventory</th>
-                                <th className="px-6 py-4 text-center w-32">Storage</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border/30">
@@ -675,7 +724,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4">
+                                        <td className="px-6 py-4 w-full">
                                             <div className="flex flex-col gap-0.5">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     <span className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors cursor-pointer hover:underline decoration-primary/40 underline-offset-2" onClick={() => handleItemClick(item)}>{item.name}</span>
@@ -689,10 +738,10 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                             </div>
                                         </td>
                                         {columnVisibility.id && (
-                                            <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">0x{item.id.toString(16).toUpperCase()}</td>
+                                            <td className="px-3 py-4 font-mono text-[10px] text-muted-foreground whitespace-nowrap">0x{item.id.toString(16).toUpperCase()}</td>
                                         )}
                                         {columnVisibility.category && showSubGroupColumn && (
-                                            <td className="px-6 py-4">
+                                            <td className="px-3 py-4 whitespace-nowrap">
                                                 <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-muted/50 rounded border border-border/50 text-muted-foreground">
                                                     {category === 'all'
                                                         ? (CATEGORY_LABEL[item.subCategory] ?? item.subCategory.replace(/_/g, ' '))
@@ -700,17 +749,20 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                 </span>
                                             </td>
                                         )}
-                                        <td className="px-6 py-4 text-center">
-                                            <span className="text-[10px] font-black text-primary bg-primary/5 px-2 py-1 rounded border border-primary/10">
-                                                {item.maxUpgrade > 0 ? `+${item.currentUpgrade}` : '—'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
-                                            <span className="text-[10px] font-black text-muted-foreground bg-muted/20 px-2 py-1 rounded border border-border/30">
-                                                {item.maxUpgrade > 0 ? `+${item.maxUpgrade}` : '—'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4 text-center">
+                                        {showUpgradeColumn && (
+                                            <td className="px-4 py-4 text-center">
+                                                {item.maxUpgrade > 0 ? (
+                                                    <span className="text-[10px] font-black tabular-nums whitespace-nowrap bg-primary/5 px-2 py-1 rounded border border-primary/10" title={`Upgrade +${item.currentUpgrade} of max +${item.maxUpgrade}`}>
+                                                        <span className="text-primary">+{item.currentUpgrade}</span>
+                                                        <span className="text-muted-foreground/50 mx-0.5">/</span>
+                                                        <span className="text-muted-foreground">+{item.maxUpgrade}</span>
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-muted-foreground/50 text-[10px] font-black">—</span>
+                                                )}
+                                            </td>
+                                        )}
+                                        <td className="px-3 py-4 text-center whitespace-nowrap">
                                             {item.nonStackable || item.readOnly ? (
                                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${item.inInventory ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground/60'}`}>
                                                     {item.inInventory ? (item.nonStackable ? '✓' : item.invQty) : '—'}
@@ -725,13 +777,13 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                         onChange={e => handleQtyChange(item.invHandle, e.target.value, 'inv', item.maxInv)}
                                                         className={`w-16 bg-muted/20 border rounded px-2 py-1 text-center text-xs font-bold outline-none focus:ring-1 focus:ring-primary/30 transition-all ${editedInv[item.invHandle] !== undefined ? 'border-primary/50 text-primary bg-primary/5' : 'border-border/50 text-foreground'}`}
                                                     />
-                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter">/ {item.maxInv}</span>
+                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter whitespace-nowrap shrink-0">/ {item.maxInv}</span>
                                                 </div>
                                             ) : (
                                                 <span className="text-muted-foreground/60 text-[10px] font-black">—</span>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4 text-center">
+                                        <td className="px-3 py-4 text-center whitespace-nowrap">
                                             {item.nonStackable || item.readOnly ? (
                                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${item.inStorage ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground/60'}`}>
                                                     {item.inStorage ? (item.nonStackable ? '✓' : item.storageQty) : '—'}
@@ -746,7 +798,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                         onChange={e => handleQtyChange(item.storageHandle, e.target.value, 'storage', item.maxStorage)}
                                                         className={`w-16 bg-muted/20 border rounded px-2 py-1 text-center text-xs font-bold outline-none focus:ring-1 focus:ring-primary/30 transition-all ${editedStorage[item.storageHandle] !== undefined ? 'border-primary/50 text-primary bg-primary/5' : 'border-border/50 text-foreground'}`}
                                                     />
-                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter">/ {item.maxStorage}</span>
+                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter whitespace-nowrap shrink-0">/ {item.maxStorage}</span>
                                                 </div>
                                             ) : (
                                                 <span className="text-muted-foreground/60 text-[10px] font-black">—</span>

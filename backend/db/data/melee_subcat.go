@@ -49,7 +49,7 @@ var meleeGreatswords = setOf(
 	"Helphen's Steeple", "Blasphemous Blade", "Marais Executioner's Sword",
 	"Sword of Milos", "Golden Order Greatsword", "Claymore",
 	"Gargoyle's Greatsword", "Death's Poker", "Gargoyle's Blackblade",
-	"Sword Lance", "Lizard Greatsword", "Greatsword of Damnation",
+	"Lizard Greatsword", "Greatsword of Damnation",
 	"Greatsword of Solitude",
 )
 
@@ -79,7 +79,7 @@ var meleeThrustingSwords = setOf(
 // heavyThrustingSwords — heavier rapier/great rapier variants.
 var meleeHeavyThrustingSwords = setOf(
 	"Great Epee", "Helice", "Dragon King's Cragblade",
-	"Godskin Stitcher",
+	"Godskin Stitcher", "Sword Lance",
 )
 
 // curvedGreatswords — explicit list since some don't end with "Curved Greatsword".

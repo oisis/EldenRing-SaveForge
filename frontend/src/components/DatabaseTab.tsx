@@ -1,7 +1,7 @@
-import {useEffect, useState, useMemo, useRef, useDeferredValue} from 'react';
+import {useEffect, useState, useMemo, useRef, useDeferredValue, useCallback} from 'react';
 import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, AddItemsToCharacterWithGameLimits, GetCharacter,
+import {GetItemList, GetItemListChunk, AddItemsToCharacter, AddItemsToCharacterWithGameLimits, GetCharacter,
         SetCookbookUnlocked, SetWhetbladeUnlocked, SetBellBearingUnlocked, GetBellBearings,
         SetMapRegionFlags, GetSlotCapacity} from '../../wailsjs/go/main/App';
 import {db, vm} from '../../wailsjs/go/models';
@@ -76,10 +76,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const {upgrade25, upgrade10, infuseOffset, upgradeAsh} = addSettings;
     const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
+    const [subCategory, setSubCategory] = useState('all');
     const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
     const [dbItems, setDbItems] = useState<db.ItemEntry[]>([]);
     const [loading, setLoading] = useState(false);
-    const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
 
     // Sorting
     const [sortCol, setSortCol] = useState<string>('name');
@@ -144,10 +144,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     }, []);
 
     useEffect(() => {
-        GetInfuseTypes().then(res => setInfuseTypes(res || []));
-    }, []);
-
-    useEffect(() => {
         GetCharacter(charIndex).then(res => {
             setCharInventory(res?.inventory || []);
             setCharStorage(res?.storage || []);
@@ -202,6 +198,15 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         return m;
     }, [charInventory, charStorage]);
 
+    // Owned inv/storage counts for a row — flag-only bell bearings resolve to a
+    // 0/1 unlocked flag; everything else reads the family/base owned map. Shared
+    // by the Inventory/Storage cells and their numeric sort.
+    const resolveOwned = useCallback((item: db.ItemEntry) =>
+        item.unlockCategory === 'bell_bearing'
+            ? {inv: bellBearingOwnedIds.has(item.id) ? 1 : 0, storage: 0}
+            : ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0},
+    [ownedByBaseID, bellBearingOwnedIds]);
+
     // Progressive loading: for "all", fetch one category per IPC roundtrip and
     // append as chunks arrive — the UI stays responsive on a 5000-item dataset.
     // For a single category, fall back to the original blocking call.
@@ -252,7 +257,19 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
 
     const deferredSearch = useDeferredValue(search);
 
+    // Reset the subcategory filter whenever the category changes.
+    useEffect(() => { setSubCategory('all'); }, [category]);
+
+    // Subcategories derived from the currently loaded items in the active
+    // category scope — never a hardcoded list. Empty values are dropped.
+    const availableSubCategories = useMemo(() => {
+        const scope = category === 'all' ? dbItems : dbItems.filter(i => i.category === category);
+        return Array.from(new Set(scope.map(i => i.subCategory).filter(Boolean))).sort();
+    }, [dbItems, category]);
+    const hasSubCategories = availableSubCategories.length > 0;
+
     const filteredItems = useMemo(() => dbItems.filter(item => {
+        if (subCategory !== 'all' && item.subCategory !== subCategory) return false;
         if (showOnlyFavorites && !isFav(item.id)) return false;
         // "Cut & Ban-Risk" toggle hides only risky-flagged items, not informational flags
         // (dlc, stackable) which are now present on most entries.
@@ -276,44 +293,73 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             const diff = sortDir === 'asc' ? aW! - bW! : bW! - aW!;
             return diff !== 0 ? diff : a.name.localeCompare(b.name);
         }
+        // Numeric columns — sort by the value shown in the cell (max upgrade,
+        // owned inventory/storage), name as the stable tiebreak.
+        if (sortCol === 'maxUpgrade') {
+            const diff = sortDir === 'asc' ? a.maxUpgrade - b.maxUpgrade : b.maxUpgrade - a.maxUpgrade;
+            return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
+        if (sortCol === 'ownedInv' || sortCol === 'ownedStorage') {
+            const key = sortCol === 'ownedInv' ? 'inv' : 'storage';
+            const aV = resolveOwned(a)[key], bV = resolveOwned(b)[key];
+            const diff = sortDir === 'asc' ? aV - bV : bV - aV;
+            return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
         const aVal = a[sortCol as keyof db.ItemEntry] ?? '';
         const bVal = b[sortCol as keyof db.ItemEntry] ?? '';
         if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
         return 0;
-    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, useTechnicalCapsMode, category, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
+    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, useTechnicalCapsMode, category, subCategory, addSettings.talismansHighestOnly, showOnlyFavorites, isFav, resolveOwned]);
 
     const showWeightColumn = useMemo(() => filteredItems.some(i => i.weight !== undefined && i.weight > 0), [filteredItems]);
 
-    // Owned count: items with at least 1 in inventory or storage in current category.
+    // Owned count: items with at least 1 in inventory or storage in the current
+    // category/subcategory scope. Deliberately derived from dbItems (not
+    // filteredItems) so text search never affects it.
     const ownedCount = useMemo(() => {
-        const matching = category === 'all' ? dbItems : dbItems.filter(i => i.category === category);
+        const matching = (category === 'all' ? dbItems : dbItems.filter(i => i.category === category))
+            .filter(i => subCategory === 'all' || i.subCategory === subCategory);
         return matching.filter(i => {
             const o = ownedByBaseID.get(i.id);
             return !!o && (o.inv > 0 || o.storage > 0);
         }).length;
-    }, [dbItems, ownedByBaseID, category]);
-
-    const totalCount = useMemo(() =>
-        category === 'all' ? dbItems.length : dbItems.filter(i => i.category === category).length,
-        [dbItems, category]);
+    }, [dbItems, ownedByBaseID, category, subCategory]);
 
     const favoritesInView = useMemo(() =>
         dbItems.filter(item => {
+            if (subCategory !== 'all' && item.subCategory !== subCategory) return false;
             if (!isFav(item.id)) return false;
             const RISKY_FLAGS = ['cut_content', 'ban_risk', 'pre_order', 'dlc_duplicate'];
             if (!showFlaggedItems && item.flags?.some(f => RISKY_FLAGS.includes(f))) return false;
             if (category === 'talismans' && addSettings.talismansHighestOnly && isLowerTierTalisman(item.id)) return false;
             return true;
         }),
-        [dbItems, isFav, showFlaggedItems, useTechnicalCapsMode, category, addSettings.talismansHighestOnly]);
+        [dbItems, isFav, showFlaggedItems, useTechnicalCapsMode, category, subCategory, addSettings.talismansHighestOnly]);
 
-    const showSubGroupColumn = category === 'all' || CATEGORIES_WITH_SUBGROUPS.has(category);
+    // Sub-Category column: shown for grouped categories, but hidden when the
+    // whole current table has no subcategory value ('all' shows category labels).
+    const showSubGroupColumn = (category === 'all' || CATEGORIES_WITH_SUBGROUPS.has(category))
+        && (category === 'all' || filteredItems.some(i => i.subCategory));
 
     const handleSort = (col: string) => {
         if (sortCol === col) setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
         else { setSortCol(col); setSortDir('asc'); }
     };
+
+    const visibleItemIds = useMemo(() => new Set(filteredItems.map(i => i.id)), [filteredItems]);
+    const selectedVisibleItems = useMemo(
+        () => filteredItems.filter(i => selectedDbItems.has(i.id)),
+        [filteredItems, selectedDbItems],
+    );
+    const selectedVisibleCount = selectedVisibleItems.length;
+
+    useEffect(() => {
+        setSelectedDbItems(prev => {
+            const next = new Set([...prev].filter(id => visibleItemIds.has(id)));
+            return next.size === prev.size ? prev : next;
+        });
+    }, [visibleItemIds]);
 
     const toggleItem = (id: number) => {
         const next = new Set(selectedDbItems);
@@ -322,7 +368,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     };
 
     const toggleAll = () => {
-        if (selectedDbItems.size === filteredItems.length && filteredItems.length > 0)
+        const allVisibleSelected = filteredItems.length > 0 && filteredItems.every(i => selectedDbItems.has(i.id));
+        if (allVisibleSelected)
             setSelectedDbItems(new Set());
         else
             setSelectedDbItems(new Set(filteredItems.map(i => i.id)));
@@ -334,7 +381,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         try {
             const addItems = useTechnicalCapsMode ? AddItemsToCharacterWithGameLimits : AddItemsToCharacter;
             const baseIds = confirmModal.map(i => i.id);
-            type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number };
+            type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number; freeGaItems: number; neededGaItems: number };
             let lastResult: AddRes | null = null;
             let totalAdded = 0;
             let totalRequested = 0;
@@ -394,15 +441,18 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 };
                 const showInv = lastResult.neededInv > 0;
                 const showStore = lastResult.neededStore > 0;
+                const showGaItems = lastResult.capHit === 'gaitem_full' && lastResult.neededGaItems > 0;
                 const invOverflow = Math.max(0, lastResult.neededInv - lastResult.freeInv);
                 const storeOverflow = Math.max(0, lastResult.neededStore - lastResult.freeStore);
-                const overflow = lastResult.capHit === 'inventory_full' ? invOverflow
-                    : lastResult.capHit === 'storage_full' ? storeOverflow : 0;
+                const removals: string[] = [];
+                if (invOverflow > 0) removals.push(`${invOverflow} item(s) from Inventory`);
+                if (storeOverflow > 0) removals.push(`${storeOverflow} item(s) from Storage`);
 
                 const parts: string[] = [];
                 if (showInv) parts.push(`Inventory: need ${lastResult.neededInv}, free ${lastResult.freeInv}`);
                 if (showStore) parts.push(`Storage: need ${lastResult.neededStore}, free ${lastResult.freeStore}`);
-                if (overflow > 0) parts.push(`\nRemove at least ${overflow} item(s) to make room.`);
+                if (showGaItems) parts.push(`GaItem allocation: need ${lastResult.neededGaItems}, free ${lastResult.freeGaItems}`);
+                if (removals.length > 0) parts.push(`\nRemove at least ${removals.join(' and ')} to make room.`);
                 parts.push(`\n0 / ${lastResult.requested} items added.`);
 
                 setConfirmModal(null);
@@ -499,7 +549,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         setBrokenIcons(prev => new Set(prev).add(iconPath));
     };
 
-    const selectedInfuseName = infuseTypes.find(t => t.offset === infuseOffset)?.name ?? 'Standard';
+    // "Max Up" column shows each item's maximum allowed upgrade (item identity),
+    // independent of the add-modal's selected upgrade/infusion. Hidden when no
+    // visible item is upgradeable.
+    const showMaxUpColumn = useMemo(() => filteredItems.some(i => i.maxUpgrade > 0), [filteredItems]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const rowVirtualizer = useVirtualizer({
@@ -514,6 +567,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         + (readOnly ? 0 : 1)
         + (columnVisibility.id ? 1 : 0)
         + (columnVisibility.category && showSubGroupColumn ? 1 : 0)
+        + (showMaxUpColumn ? 1 : 0)
         + (showWeightColumn ? 1 : 0);
 
     // Whether the modal items are all non-stackable (weapons/armor/talismans)
@@ -710,36 +764,57 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 </div>
             )}
 
-            {/* Top Bar: [Category] [Owned/Total badge] [buttons] [spacer] [view toggle] [Search] */}
+            {/* Top Bar: [Category] [Subcategory] [Owned badge] [buttons] [spacer] [view toggle] [Search] */}
             <div className="flex items-center gap-4 bg-muted/10 rounded-xl backdrop-blur-sm sticky top-0 z-20">
                 <CategorySelect value={category} onChange={setCategory} className="w-56 shrink-0" />
 
-                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
-                        {category === 'all' ? 'Owned' : (CATEGORY_LABEL[category] ?? category)}
-                    </span>
-                    <span className="text-[10px] font-bold tabular-nums text-foreground">
-                        {ownedCount}/{totalCount}
-                    </span>
+                {/* Subcategory filter — disabled placeholder keeps the layout stable
+                    when the active category has no subcategories. */}
+                <div className="relative w-48 shrink-0">
+                    <select
+                        aria-label="Subcategory"
+                        value={subCategory}
+                        disabled={!hasSubCategories}
+                        onChange={e => setSubCategory(e.target.value)}
+                        className="w-full appearance-none bg-muted/30 border border-border rounded-md px-4 py-2.5 pr-10 text-[10px] font-black uppercase tracking-widest text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        <option value="all">{hasSubCategories ? 'All Subcategories' : 'No Subcategories'}</option>
+                        {availableSubCategories.map(s => (
+                            <option key={s} value={s}>{s}</option>
+                        ))}
+                    </select>
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7"></path></svg>
+                    </div>
                 </div>
 
-                {!readOnly && selectedDbItems.size > 0 && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-md bg-muted/20 border border-border/50">
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">Owned:</span>
+                    <span className="text-[10px] font-bold tabular-nums text-foreground">{ownedCount}</span>
+                </div>
+
+                {!readOnly && selectedVisibleCount > 0 && (
                     <button
-                        onClick={() => openModal(dbItems.filter(i => selectedDbItems.has(i.id)))}
+                        onClick={() => openModal(selectedVisibleItems)}
                         disabled={!platform}
-                        className="px-6 py-2 bg-primary text-primary-foreground rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
+                        aria-label={`Add Selected (${selectedVisibleCount})`}
+                        title={`Add Selected (${selectedVisibleCount})`}
+                        className="px-5 py-2 bg-primary text-primary-foreground rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
-                        Add Selected ({selectedDbItems.size})
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>
+                        Add ({selectedVisibleCount})
                     </button>
                 )}
-                {!readOnly && favoritesInView.length > 0 && selectedDbItems.size === 0 && (
+                {!readOnly && favoritesInView.length > 0 && selectedVisibleCount === 0 && (
                     <button
                         onClick={() => openModal(favoritesInView)}
                         disabled={!platform}
-                        className="px-6 py-2 bg-blue-900/80 text-white rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-blue-900/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
+                        aria-label={`Add Favorites (${favoritesInView.length})`}
+                        title={`Add Favorites (${favoritesInView.length})`}
+                        className="px-5 py-2 bg-blue-900/80 text-white rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-blue-900/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
                         <svg className="w-3 h-3 fill-amber-600" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
-                        Add Favorites ({favoritesInView.length})
+                        Add ({favoritesInView.length})
                     </button>
                 )}
 
@@ -807,9 +882,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         ) : (
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                                 {filteredItems.map(item => {
-                                    const owned = item.unlockCategory === 'bell_bearing'
-                                        ? {inv: bellBearingOwnedIds.has(item.id) ? 1 : 0, storage: 0}
-                                        : ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
+                                    const owned = resolveOwned(item);
                                     const hasOwned = owned.inv > 0 || owned.storage > 0;
                                     return (
                                         <div key={item.id}
@@ -862,9 +935,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         <thead className="bg-muted/30 text-[10px] font-black text-muted-foreground uppercase tracking-[0.2em] sticky top-0 z-20 backdrop-blur-md border-b border-border">
                             <tr>
                                 {!readOnly && (
-                                    <th className="px-4 py-4 w-10">
+                                    <th className="px-2 py-4 w-8">
                                         <div
                                             onClick={toggleAll}
+                                            title="Select all"
                                             className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${selectedDbItems.size === filteredItems.length && filteredItems.length > 0 ? 'bg-primary border-primary' : 'bg-muted/30 border-border hover:border-primary/50'}`}
                                         >
                                             {selectedDbItems.size === filteredItems.length && filteredItems.length > 0 &&
@@ -872,28 +946,37 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                         </div>
                                     </th>
                                 )}
-                                <th className="px-2 py-4 w-8"></th>
-                                <th className="px-6 py-4 w-16">Icon</th>
-                                <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
+                                <th className="px-1 py-4 w-8"></th>
+                                <th className="px-2 py-4 w-14">Icon</th>
+                                <th className="px-2 py-4 w-full cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
                                     Name {sortCol === 'name' && (sortDir === 'asc' ? '↑' : '↓')}
                                 </th>
                                 {columnVisibility.id && (
-                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('id')}>
+                                    <th className="px-3 py-4 cursor-pointer hover:text-primary transition-colors whitespace-nowrap" onClick={() => handleSort('id')}>
                                         ID {sortCol === 'id' && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
                                 {columnVisibility.category && showSubGroupColumn && (
-                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort(category === 'all' ? 'category' : 'subCategory')}>
+                                    <th className="px-3 py-4 cursor-pointer hover:text-primary transition-colors whitespace-nowrap" onClick={() => handleSort(category === 'all' ? 'category' : 'subCategory')}>
                                         Sub-Category {sortCol === (category === 'all' ? 'category' : 'subCategory') && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
+                                {showMaxUpColumn && (
+                                    <th className="px-3 py-4 text-center cursor-pointer hover:text-primary transition-colors whitespace-nowrap" onClick={() => handleSort('maxUpgrade')}>
+                                        Max Up {sortCol === 'maxUpgrade' && (sortDir === 'asc' ? '↑' : '↓')}
+                                    </th>
+                                )}
                                 {showWeightColumn && (
-                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors text-right w-20" onClick={() => handleSort('weight')}>
+                                    <th className="px-3 py-4 cursor-pointer hover:text-primary transition-colors text-right w-20" onClick={() => handleSort('weight')}>
                                         Weight {sortCol === 'weight' && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
-                                <th className="px-6 py-4 text-center w-32">Inventory</th>
-                                <th className="px-6 py-4 text-center w-32">Storage</th>
+                                <th className="px-3 py-4 text-center w-28 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('ownedInv')}>
+                                    Inventory {sortCol === 'ownedInv' && (sortDir === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th className="px-3 py-4 text-center w-28 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('ownedStorage')}>
+                                    Storage {sortCol === 'ownedStorage' && (sortDir === 'asc' ? '↑' : '↓')}
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border/30">
@@ -902,19 +985,11 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                             )}
                             {rowVirtualizer.getVirtualItems().map(virtualRow => {
                                 const item = filteredItems[virtualRow.index];
-                                const isUpgradeable = item.maxUpgrade > 0;
-                                const isAsh = item.category === 'ashes';
-                                const hasInfuse = item.maxUpgrade === 25 && infuseOffset !== 0;
-                                const levelVal = isAsh ? upgradeAsh : (item.maxUpgrade === 25 ? upgrade25 : item.maxUpgrade === 10 ? upgrade10 : 0);
-                                const showPreview = isUpgradeable && (levelVal > 0 || hasInfuse);
-                                const previewParts: string[] = [];
-                                if (hasInfuse) previewParts.push(selectedInfuseName);
-                                if (levelVal > 0) previewParts.push(`+${levelVal}`);
 
                                 return (
                                     <tr key={item.id} data-index={virtualRow.index} ref={node => { if (node) rowVirtualizer.measureElement(node); }} className={`group hover:bg-primary/[0.03] transition-colors ${selectedDbItems.has(item.id) ? 'bg-primary/[0.02]' : ''}`}>
                                         {!readOnly && (
-                                            <td className="p-4">
+                                            <td className="px-2 py-2">
                                                 <div
                                                     onClick={() => toggleItem(item.id)}
                                                     className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${selectedDbItems.has(item.id) ? 'bg-primary border-primary' : 'bg-muted/30 border-border group-hover:border-primary/50'}`}
@@ -924,14 +999,14 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                 </div>
                                             </td>
                                         )}
-                                        <td className="p-2 text-center">
+                                        <td className="px-1 py-2 text-center">
                                             <button onClick={e => { e.stopPropagation(); toggleFav(item.id); }} className="p-0.5 transition-all hover:scale-125">
                                                 <svg className={`w-4 h-4 ${isFav(item.id) ? 'text-amber-500 fill-amber-500' : 'text-muted-foreground/20 fill-none hover:text-amber-500/50'}`} stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                                                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
                                                 </svg>
                                             </button>
                                         </td>
-                                        <td className="px-4 py-0.5">
+                                        <td className="px-2 py-0.5">
                                             <div
                                                 className="w-12 h-12 bg-muted/20 rounded-lg border border-border/50 flex items-center justify-center overflow-hidden group-hover:border-primary/30 transition-all cursor-pointer"
                                                 onClick={() => onSelectItem ? onSelectItem(item) : setDetailItem(item)}
@@ -950,32 +1025,25 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="p-4">
-                                            <div className="flex flex-col gap-0.5">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span
-                                                        className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors cursor-pointer hover:underline decoration-primary/40 underline-offset-2"
-                                                        onClick={e => { e.stopPropagation(); onSelectItem ? onSelectItem(item) : setDetailItem(item); }}
-                                                    >{item.name}</span>
-                                                    {item.flags?.includes('cut_content') && (
-                                                        <RiskBadge flag="cut_content" />
-                                                    )}
-                                                    {item.flags?.includes('ban_risk') && (
-                                                        <RiskBadge flag="ban_risk" />
-                                                    )}
-                                                </div>
-                                                {showPreview && (
-                                                    <span className="text-[8px] font-mono font-bold text-primary/60 uppercase tracking-tight">
-                                                        {previewParts.join(' ')}
-                                                    </span>
+                                        <td className="px-2 py-2 w-full">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                <span
+                                                    className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors cursor-pointer hover:underline decoration-primary/40 underline-offset-2"
+                                                    onClick={e => { e.stopPropagation(); onSelectItem ? onSelectItem(item) : setDetailItem(item); }}
+                                                >{item.name}</span>
+                                                {item.flags?.includes('cut_content') && (
+                                                    <RiskBadge flag="cut_content" />
+                                                )}
+                                                {item.flags?.includes('ban_risk') && (
+                                                    <RiskBadge flag="ban_risk" />
                                                 )}
                                             </div>
                                         </td>
                                         {columnVisibility.id && (
-                                            <td className="p-4 text-[10px] font-mono text-muted-foreground">0x{item.id.toString(16).toUpperCase()}</td>
+                                            <td className="px-3 py-2 text-[10px] font-mono text-muted-foreground whitespace-nowrap">0x{item.id.toString(16).toUpperCase()}</td>
                                         )}
                                         {columnVisibility.category && showSubGroupColumn && (
-                                            <td className="p-4">
+                                            <td className="px-3 py-2 whitespace-nowrap">
                                                 <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-muted/30 rounded-md text-muted-foreground border border-border/20">
                                                     {category === 'all'
                                                         ? (CATEGORY_LABEL[item.category] ?? item.category.replace(/_/g, ' '))
@@ -983,15 +1051,20 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                 </span>
                                             </td>
                                         )}
+                                        {showMaxUpColumn && (
+                                            <td className="px-3 py-2 text-center whitespace-nowrap">
+                                                <span className="text-[10px] font-black tabular-nums text-muted-foreground bg-muted/20 px-2 py-1 rounded border border-border/30">
+                                                    {item.maxUpgrade > 0 ? `+${item.maxUpgrade}` : '—'}
+                                                </span>
+                                            </td>
+                                        )}
                                         {showWeightColumn && (
-                                            <td className="p-4 text-right text-[11px] font-mono text-muted-foreground tabular-nums w-20">
+                                            <td className="px-3 py-2 text-right text-[11px] font-mono text-muted-foreground tabular-nums w-20">
                                                 {item.weight !== undefined && item.weight > 0 ? item.weight.toFixed(1) : '—'}
                                             </td>
                                         )}
                                         {(() => {
-                                            const owned = item.unlockCategory === 'bell_bearing'
-                                                ? {inv: bellBearingOwnedIds.has(item.id) ? 1 : 0, storage: 0}
-                                                : ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
+                                            const owned = resolveOwned(item);
                                             const cellClass = (have: number, max: number): string => {
                                                 if (have === 0) return 'text-muted-foreground/50 bg-muted/20 border-border/30';
                                                 if (max > 0 && have >= max) return 'text-amber-500 bg-amber-500/10 border-amber-500/30';
@@ -999,13 +1072,13 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                             };
                                             return (
                                                 <>
-                                                    <td className="p-4 text-center">
-                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.inv, effectiveCap(item, 'inv', clearCount, useTechnicalCapsMode))}`}>
+                                                    <td className="px-3 py-2 text-center">
+                                                        <span className={`inline-block text-[10px] font-black tabular-nums whitespace-nowrap px-2 py-1 rounded border ${cellClass(owned.inv, effectiveCap(item, 'inv', clearCount, useTechnicalCapsMode))}`}>
                                                             {owned.inv} / {effectiveCap(item, 'inv', clearCount, useTechnicalCapsMode)}
                                                         </span>
                                                     </td>
-                                                    <td className="p-4 text-center">
-                                                        <span className={`inline-block text-[10px] font-black tabular-nums px-2 py-1 rounded border ${cellClass(owned.storage, effectiveCap(item, 'storage', clearCount, useTechnicalCapsMode))}`}>
+                                                    <td className="px-3 py-2 text-center">
+                                                        <span className={`inline-block text-[10px] font-black tabular-nums whitespace-nowrap px-2 py-1 rounded border ${cellClass(owned.storage, effectiveCap(item, 'storage', clearCount, useTechnicalCapsMode))}`}>
                                                             {owned.storage} / {effectiveCap(item, 'storage', clearCount, useTechnicalCapsMode)}
                                                         </span>
                                                     </td>
