@@ -502,16 +502,6 @@ export function SettingsTab({
                             </svg>
                             Favorite Items{favCount > 0 ? ` (${favCount})` : ''}
                         </button>
-                        <button onClick={handleConvertClick} disabled={converting}
-                            className="flex items-center gap-2 px-3 py-2 rounded bg-primary text-primary-foreground hover:brightness-110 transition-all text-[9px] font-black uppercase tracking-widest shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
-                            {converting
-                                ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                                </svg>
-                            }
-                            Convert Format
-                        </button>
                         <button
                             onClick={handleDiagnostics}
                             disabled={scanning || !platform}
@@ -531,6 +521,18 @@ export function SettingsTab({
                             </svg>
                             Save Comparison <span className="ml-1 text-[8px] opacity-60">(soon)</span>
                         </div>
+                        {/* PS4<->PC format conversion is disabled for now (kept, not removed).
+                            Rendered as an inert button so it can never invoke the conversion flow. */}
+                        <button
+                            type="button"
+                            disabled
+                            title="Format conversion is currently unavailable"
+                            className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                            </svg>
+                            Convert Format <span className="ml-1 text-[8px] opacity-60">(unavailable)</span>
+                        </button>
                     </div>
                 </div>
             </section>

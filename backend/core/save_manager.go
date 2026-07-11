@@ -117,22 +117,48 @@ func LoadSave(path string) (*SaveFile, error) {
 
 	save := &SaveFile{}
 
-	if bytes.HasPrefix(data, []byte("BND4")) {
+	// Strict, unambiguous container detection only. We accept a native PC
+	// container (raw BND4) or a native PS4 container (raw PS4 magic) and
+	// nothing else. Encrypted/unknown containers are NOT decrypted-and-guessed:
+	// treating AES→BND4 as PC would let a PS-origin file be opened and later
+	// written back in the wrong platform format. Reject instead — no platform
+	// is ever guessed on load.
+	switch ClassifyContainer(data) {
+	case PlatformPC:
 		save.Platform = PlatformPC
 		save.Encrypted = false
 		return loadPCSequential(NewReader(data), save)
+	case PlatformPS:
+		save.Platform = PlatformPS
+		return loadPSSequential(NewReader(data), save)
+	default:
+		return nil, ErrUnsupportedContainer
 	}
+}
 
-	decrypted, err := DecryptSave(data)
-	if err == nil && bytes.HasPrefix(decrypted, []byte("BND4")) {
-		save.Platform = PlatformPC
-		save.Encrypted = true
-		save.IV = data[:16]
-		return loadPCSequential(NewReader(decrypted), save)
+// UnsupportedContainerCode is a stable, machine-matchable discriminator prefixed
+// to ErrUnsupportedContainer's message so the frontend can reliably detect this
+// specific failure (and show a dedicated modal) without matching prose.
+const UnsupportedContainerCode = "ERR_UNSUPPORTED_CONTAINER"
+
+// ErrUnsupportedContainer is returned by LoadSave when the input container is
+// not an unambiguous native save (raw BND4 for PC, raw PS4 magic for PS4).
+// User-facing so the frontend can explain why the file was not opened.
+var ErrUnsupportedContainer = fmt.Errorf("%s: this file's save format could not be identified safely (not a native PC or PS4 save). It will not be opened, to avoid writing it back in the wrong platform format. Format conversion is currently unavailable", UnsupportedContainerCode)
+
+// ClassifyContainer returns the platform of an unambiguous native save
+// container, or "" when the container is ambiguous/unsupported. Detection is
+// purely by leading container magic — never by decryption, and never by
+// filename. An AES-encrypted PC save (no raw BND4 prefix) is intentionally
+// classified as unsupported.
+func ClassifyContainer(data []byte) Platform {
+	if bytes.HasPrefix(data, []byte("BND4")) {
+		return PlatformPC
 	}
-
-	save.Platform = PlatformPS
-	return loadPSSequential(NewReader(data), save)
+	if bytes.HasPrefix(data, ps4HeaderTemplate[:4]) {
+		return PlatformPS
+	}
+	return ""
 }
 
 func loadPCSequential(r *Reader, save *SaveFile) (*SaveFile, error) {
