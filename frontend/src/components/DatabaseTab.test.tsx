@@ -312,7 +312,7 @@ describe('DatabaseTab', () => {
         // returning capHit drives the Capacity Exceeded branch (not the throw path).
         mocks.AddItemsToCharacter.mockResolvedValue({
             added: 0, requested: 1, trimmed: [], capHit: 'inventory_full',
-            freeInv: 0, freeStore: 0, neededInv: 5, neededStore: 0,
+            freeInv: 0, freeStore: 1, neededInv: 5, neededStore: 3,
         });
 
         renderTab();
@@ -329,6 +329,8 @@ describe('DatabaseTab', () => {
         // message fragment (need/free line built in handleAdd).
         expect(await screen.findByText('Inventory Full')).toBeInTheDocument();
         expect(screen.getByText(/Inventory: need 5, free 0/)).toBeInTheDocument();
+        expect(screen.getByText(/Storage: need 3, free 1/)).toBeInTheDocument();
+        expect(screen.getByText(/Remove at least 5 item\(s\) from Inventory and 2 item\(s\) from Storage to make room/)).toBeInTheDocument();
 
         // OK is the only action; it closes the modal via setErrorModal(null).
         fireEvent.click(screen.getByRole('button', { name: 'OK' }));
@@ -337,6 +339,22 @@ describe('DatabaseTab', () => {
 
         // Closing is UI-only: no second mutation triggered.
         expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1);
+    });
+
+    it('error modal: GaItem cursor capacity shows the required and free allocation slots', async () => {
+        mocks.AddItemsToCharacter.mockResolvedValue({
+            added: 0, requested: 328, trimmed: [], capHit: 'gaitem_full',
+            freeInv: 566, freeStore: 493, neededInv: 328, neededStore: 328,
+            freeGaItems: 47, neededGaItems: 656,
+        });
+
+        renderTab();
+        fireEvent.click(await screen.findByRole('button', { name: /Add Favorites/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'Add Anyway' }));
+        fireEvent.click(await screen.findByRole('button', { name: /^Add$/ }));
+
+        expect(await screen.findByText('GaItem Slots Full')).toBeInTheDocument();
+        expect(screen.getByText(/GaItem allocation: need 656, free 47/)).toBeInTheDocument();
     });
 
     function makePebble(): db.ItemEntry {

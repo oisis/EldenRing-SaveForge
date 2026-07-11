@@ -381,7 +381,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         try {
             const addItems = useTechnicalCapsMode ? AddItemsToCharacterWithGameLimits : AddItemsToCharacter;
             const baseIds = confirmModal.map(i => i.id);
-            type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number };
+            type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number; freeGaItems: number; neededGaItems: number };
             let lastResult: AddRes | null = null;
             let totalAdded = 0;
             let totalRequested = 0;
@@ -441,15 +441,18 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 };
                 const showInv = lastResult.neededInv > 0;
                 const showStore = lastResult.neededStore > 0;
+                const showGaItems = lastResult.capHit === 'gaitem_full' && lastResult.neededGaItems > 0;
                 const invOverflow = Math.max(0, lastResult.neededInv - lastResult.freeInv);
                 const storeOverflow = Math.max(0, lastResult.neededStore - lastResult.freeStore);
-                const overflow = lastResult.capHit === 'inventory_full' ? invOverflow
-                    : lastResult.capHit === 'storage_full' ? storeOverflow : 0;
+                const removals: string[] = [];
+                if (invOverflow > 0) removals.push(`${invOverflow} item(s) from Inventory`);
+                if (storeOverflow > 0) removals.push(`${storeOverflow} item(s) from Storage`);
 
                 const parts: string[] = [];
                 if (showInv) parts.push(`Inventory: need ${lastResult.neededInv}, free ${lastResult.freeInv}`);
                 if (showStore) parts.push(`Storage: need ${lastResult.neededStore}, free ${lastResult.freeStore}`);
-                if (overflow > 0) parts.push(`\nRemove at least ${overflow} item(s) to make room.`);
+                if (showGaItems) parts.push(`GaItem allocation: need ${lastResult.neededGaItems}, free ${lastResult.freeGaItems}`);
+                if (removals.length > 0) parts.push(`\nRemove at least ${removals.join(' and ')} to make room.`);
                 parts.push(`\n0 / ${lastResult.requested} items added.`);
 
                 setConfirmModal(null);

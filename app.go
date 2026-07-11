@@ -437,6 +437,11 @@ type AddResult struct {
 	FreeStore       int          `json:"freeStore"`
 	NeededInv       int          `json:"neededInv"`
 	NeededStore     int          `json:"neededStore"`
+	// GaItem placement capacity (weapons/armor/AoW). FreeGaItems is the smaller
+	// of total empty records and allocator cursor room; NeededGaItems is how many
+	// the batch requires — surfaced so the UI can explain a gaitem_full failure.
+	FreeGaItems   int `json:"freeGaItems"`
+	NeededGaItems int `json:"neededGaItems"`
 }
 
 // SlotState is the frontend's single source of truth for character-slot
@@ -803,13 +808,20 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	if len(capacityItems) > 0 {
 		capReport := core.CheckAddCapacity(slot, capacityItems)
 		if !capReport.CanFitAll {
-			a.logError("[AddItems] %s: need inv=%d store=%d, free inv=%d store=%d, requested=%d",
-				capReport.CapHit, capReport.NeededInv, capReport.NeededStorage, capReport.FreeInv, capReport.FreeStorage, len(itemIDs))
+			freeGaItems := capReport.FreeGaItems
+			if capReport.FreeGaItemCursor < freeGaItems {
+				freeGaItems = capReport.FreeGaItemCursor
+			}
+			a.logError("[AddItems] %s: need inv=%d store=%d gaitem=%d, free inv=%d store=%d gaitem=%d (empty=%d cursor=%d), requested=%d",
+				capReport.CapHit, capReport.NeededInv, capReport.NeededStorage, capReport.NeededGaItems,
+				capReport.FreeInv, capReport.FreeStorage, freeGaItems, capReport.FreeGaItems, capReport.FreeGaItemCursor, len(itemIDs))
 			result.CapHit = capReport.CapHit
 			result.FreeInv = capReport.FreeInv
 			result.FreeStore = capReport.FreeStorage
 			result.NeededInv = capReport.NeededInv
 			result.NeededStore = capReport.NeededStorage
+			result.FreeGaItems = freeGaItems
+			result.NeededGaItems = capReport.NeededGaItems
 			return result, nil
 		}
 	}

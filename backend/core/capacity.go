@@ -77,6 +77,7 @@ type CapacityReport struct {
 	FreeInv          int
 	FreeStorage      int
 	FreeGaItems      int
+	FreeGaItemCursor int // allocator cursor room: len(GaItems) - NextArmamentIndex
 	FreeGaItemData   int
 	NeededInv        int
 	NeededStorage    int
@@ -89,11 +90,22 @@ type CapacityReport struct {
 func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 	usage := CountSlotUsage(slot)
 
+	// Weapon/armor/AoW records are placed at the allocator cursor
+	// (NextArmamentIndex) and the cursor only moves right — the writer never
+	// reuses empty holes below it (see writer.go::allocateGaItem). So a slot can
+	// have many physically-empty GaItems yet no room to place a new armament.
+	// The preflight must satisfy BOTH the total-empty count and the cursor room.
+	cursorRoom := len(slot.GaItems) - slot.NextArmamentIndex
+	if cursorRoom < 0 {
+		cursorRoom = 0
+	}
+
 	report := CapacityReport{
-		FreeInv:        usage.InventoryMax - usage.InventoryUsed,
-		FreeStorage:    usage.StorageMax - usage.StorageUsed,
-		FreeGaItems:    usage.GaItemsMax - usage.GaItemsUsed,
-		FreeGaItemData: usage.GaItemDataMax - usage.GaItemDataUsed,
+		FreeInv:          usage.InventoryMax - usage.InventoryUsed,
+		FreeStorage:      usage.StorageMax - usage.StorageUsed,
+		FreeGaItems:      usage.GaItemsMax - usage.GaItemsUsed,
+		FreeGaItemCursor: cursorRoom,
+		FreeGaItemData:   usage.GaItemDataMax - usage.GaItemDataUsed,
 	}
 
 	existingHandles := make(map[uint32]bool)
@@ -227,7 +239,9 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 
 	if neededGaItemData > report.FreeGaItemData {
 		report.CapHit = "gaitemdata_full"
-	} else if neededGaItems > report.FreeGaItems {
+	} else if neededGaItems > report.FreeGaItems || neededGaItems > report.FreeGaItemCursor {
+		// Reject if EITHER the total empty-record budget OR the allocator cursor
+		// room is insufficient — both must hold to place the armament batch.
 		report.CapHit = "gaitem_full"
 	} else if neededInvSlots > report.FreeInv {
 		report.CapHit = "inventory_full"

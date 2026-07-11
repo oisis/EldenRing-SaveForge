@@ -380,6 +380,11 @@ export function InventoryIssuesModal({ reports, charIndex, onClose, onSaved, app
                                                                 Compatible Ash of War selection needs a concrete AoW handle. Use Clear Ash of War or Create separate copy until the picker is wired.
                                                             </div>
                                                         )}
+                                                        {selected === 'remove_record' && issue.key.code === 'unknown_handle_type' && (
+                                                            <div className="mx-3 mb-3 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-[9px] text-red-400">
+                                                                Removing this corrupted record deletes it permanently — its original item identity cannot be recovered.
+                                                            </div>
+                                                        )}
                                                         {isExpanded && (
                                                             <div className="border-t border-border/40 bg-muted/10 p-3 text-[9px] text-muted-foreground space-y-2">
                                                                 <p className="text-foreground">{issue.description}</p>

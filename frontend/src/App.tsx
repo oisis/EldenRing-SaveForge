@@ -728,7 +728,6 @@ function App() {
                                                     {[
                                                         { label: 'Inventory', used: capacity.inventoryUsed, max: capacity.inventoryMax },
                                                         { label: 'Storage', used: capacity.storageUsed, max: capacity.storageMax },
-                                                        { label: 'All Items', used: capacity.gaItemsUsed, max: capacity.gaItemsMax },
                                                     ].map(({ label, used, max }) => {
                                                         const color = capacityColor(used, max);
                                                         return (
