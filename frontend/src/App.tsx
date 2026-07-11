@@ -21,6 +21,7 @@ import {InventoryIntegrityModal} from './components/integrity/InventoryIntegrity
 import {TemplatesShellModal} from './components/templates/TemplatesShellModal';
 import {db} from '../wailsjs/go/models';
 import { scanRepairIssuesLoaded, shouldAutoOpenOnLoad, type RepairIssueReport } from './lib/repairIssues';
+import { capacityColor } from './lib/capacityColor';
 
 type Theme = 'light' | 'dark' | 'golden';
 
@@ -723,17 +724,17 @@ function App() {
                                             </div>
 
                                             {invView !== 'sort_order' && capacity && (
-                                                <div className="flex items-center gap-5 px-4 py-1.5 rounded-lg border border-border/50 bg-muted/10 shrink-0">
+                                                <div className="flex items-center py-1.5 rounded-lg border border-border/50 bg-muted/10 shrink-0 divide-x divide-border/50">
                                                     {[
-                                                        { label: 'All Items', used: capacity.gaItemsUsed, max: capacity.gaItemsMax },
                                                         { label: 'Inventory', used: capacity.inventoryUsed, max: capacity.inventoryMax },
                                                         { label: 'Storage', used: capacity.storageUsed, max: capacity.storageMax },
+                                                        { label: 'All Items', used: capacity.gaItemsUsed, max: capacity.gaItemsMax },
                                                     ].map(({ label, used, max }) => {
-                                                        const pct = max > 0 ? (used / max) * 100 : 0;
+                                                        const color = capacityColor(used, max);
                                                         return (
-                                                            <div key={label} className="flex items-center gap-2">
+                                                            <div key={label} className="flex items-center gap-2 px-4">
                                                                 <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{label}</span>
-                                                                <span className={`text-[11px] font-bold tabular-nums whitespace-nowrap ${pct >= 95 ? 'text-red-400' : 'text-foreground'}`}>{used}/{max}</span>
+                                                                <span className={`text-[11px] font-bold tabular-nums whitespace-nowrap ${color}`}>{used}/{max}</span>
                                                             </div>
                                                         );
                                                     })}

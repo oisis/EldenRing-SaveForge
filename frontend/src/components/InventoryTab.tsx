@@ -625,16 +625,16 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                 </th>
                                 <th className="px-2 py-4 w-8"></th>
                                 <th className="px-6 py-4 w-16">Icon</th>
-                                <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
+                                <th className="px-6 py-4 w-full cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('name')}>
                                     Name <SortIndicator col="name" />
                                 </th>
                                 {columnVisibility.id && (
-                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('id')}>
+                                    <th className="px-3 py-4 whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('id')}>
                                         ID <SortIndicator col="id" />
                                     </th>
                                 )}
                                 {columnVisibility.category && showSubGroupColumn && (
-                                    <th className="px-6 py-4 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('subGroup')}>
+                                    <th className="px-3 py-4 whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('subGroup')}>
                                         Sub-Category <SortIndicator col="subGroup" />
                                     </th>
                                 )}
@@ -655,10 +655,10 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                         >MaxUp<SortIndicator col="maxUpgrade" /></span>
                                     </th>
                                 )}
-                                <th className="px-6 py-4 text-center w-32 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('invOwned')}>
+                                <th className="px-3 py-4 text-center whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('invOwned')}>
                                     Inventory <SortIndicator col="invOwned" />
                                 </th>
-                                <th className="px-6 py-4 text-center w-32 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('storageOwned')}>
+                                <th className="px-3 py-4 text-center whitespace-nowrap cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('storageOwned')}>
                                     Storage <SortIndicator col="storageOwned" />
                                 </th>
                             </tr>
@@ -724,7 +724,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                 )}
                                             </div>
                                         </td>
-                                        <td className="px-6 py-4">
+                                        <td className="px-6 py-4 w-full">
                                             <div className="flex flex-col gap-0.5">
                                                 <div className="flex items-center gap-1.5 flex-wrap">
                                                     <span className="text-[13px] font-semibold text-foreground group-hover:text-primary transition-colors cursor-pointer hover:underline decoration-primary/40 underline-offset-2" onClick={() => handleItemClick(item)}>{item.name}</span>
@@ -738,10 +738,10 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                             </div>
                                         </td>
                                         {columnVisibility.id && (
-                                            <td className="px-6 py-4 font-mono text-[10px] text-muted-foreground">0x{item.id.toString(16).toUpperCase()}</td>
+                                            <td className="px-3 py-4 font-mono text-[10px] text-muted-foreground whitespace-nowrap">0x{item.id.toString(16).toUpperCase()}</td>
                                         )}
                                         {columnVisibility.category && showSubGroupColumn && (
-                                            <td className="px-6 py-4">
+                                            <td className="px-3 py-4 whitespace-nowrap">
                                                 <span className="text-[8px] font-black uppercase tracking-widest px-2 py-1 bg-muted/50 rounded border border-border/50 text-muted-foreground">
                                                     {category === 'all'
                                                         ? (CATEGORY_LABEL[item.subCategory] ?? item.subCategory.replace(/_/g, ' '))
@@ -762,7 +762,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                 )}
                                             </td>
                                         )}
-                                        <td className="px-6 py-4 text-center">
+                                        <td className="px-3 py-4 text-center whitespace-nowrap">
                                             {item.nonStackable || item.readOnly ? (
                                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${item.inInventory ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground/60'}`}>
                                                     {item.inInventory ? (item.nonStackable ? '✓' : item.invQty) : '—'}
@@ -783,7 +783,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                 <span className="text-muted-foreground/60 text-[10px] font-black">—</span>
                                             )}
                                         </td>
-                                        <td className="px-6 py-4 text-center">
+                                        <td className="px-3 py-4 text-center whitespace-nowrap">
                                             {item.nonStackable || item.readOnly ? (
                                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2 py-1 rounded ${item.inStorage ? 'text-green-500 bg-green-500/10' : 'text-muted-foreground/60'}`}>
                                                     {item.inStorage ? (item.nonStackable ? '✓' : item.storageQty) : '—'}
