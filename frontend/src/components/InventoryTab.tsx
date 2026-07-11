@@ -725,7 +725,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                         onChange={e => handleQtyChange(item.invHandle, e.target.value, 'inv', item.maxInv)}
                                                         className={`w-16 bg-muted/20 border rounded px-2 py-1 text-center text-xs font-bold outline-none focus:ring-1 focus:ring-primary/30 transition-all ${editedInv[item.invHandle] !== undefined ? 'border-primary/50 text-primary bg-primary/5' : 'border-border/50 text-foreground'}`}
                                                     />
-                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter">/ {item.maxInv}</span>
+                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter whitespace-nowrap shrink-0">/ {item.maxInv}</span>
                                                 </div>
                                             ) : (
                                                 <span className="text-muted-foreground/60 text-[10px] font-black">—</span>
@@ -746,7 +746,7 @@ export function InventoryTab({ charIndex, inventoryVersion, columnVisibility, sh
                                                         onChange={e => handleQtyChange(item.storageHandle, e.target.value, 'storage', item.maxStorage)}
                                                         className={`w-16 bg-muted/20 border rounded px-2 py-1 text-center text-xs font-bold outline-none focus:ring-1 focus:ring-primary/30 transition-all ${editedStorage[item.storageHandle] !== undefined ? 'border-primary/50 text-primary bg-primary/5' : 'border-border/50 text-foreground'}`}
                                                     />
-                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter">/ {item.maxStorage}</span>
+                                                    <span className="text-[9px] font-bold text-muted-foreground/65 uppercase tracking-tighter whitespace-nowrap shrink-0">/ {item.maxStorage}</span>
                                                 </div>
                                             ) : (
                                                 <span className="text-muted-foreground/60 text-[10px] font-black">—</span>
