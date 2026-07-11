@@ -723,21 +723,17 @@ function App() {
                                             </div>
 
                                             {invView !== 'sort_order' && capacity && (
-                                                <div className="flex items-center gap-4">
+                                                <div className="flex items-center gap-5 px-4 py-1.5 rounded-lg border border-border/50 bg-muted/10 shrink-0">
                                                     {[
                                                         { label: 'All Items', used: capacity.gaItemsUsed, max: capacity.gaItemsMax },
                                                         { label: 'Inventory', used: capacity.inventoryUsed, max: capacity.inventoryMax },
                                                         { label: 'Storage', used: capacity.storageUsed, max: capacity.storageMax },
                                                     ].map(({ label, used, max }) => {
                                                         const pct = max > 0 ? (used / max) * 100 : 0;
-                                                        const color = pct >= 95 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-primary';
                                                         return (
                                                             <div key={label} className="flex items-center gap-2">
-                                                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{label}</span>
-                                                                <div className="w-16 h-3 bg-muted/30 rounded-full overflow-hidden">
-                                                                    <div className={`h-full ${color} rounded-full transition-all duration-500`} style={{ width: `${Math.min(pct, 100)}%` }} />
-                                                                </div>
-                                                                <span className={`text-[9px] font-bold tabular-nums ${pct >= 95 ? 'text-red-400' : 'text-muted-foreground'}`}>{used}/{max}</span>
+                                                                <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground whitespace-nowrap">{label}</span>
+                                                                <span className={`text-[11px] font-bold tabular-nums whitespace-nowrap ${pct >= 95 ? 'text-red-400' : 'text-foreground'}`}>{used}/{max}</span>
                                                             </div>
                                                         );
                                                     })}

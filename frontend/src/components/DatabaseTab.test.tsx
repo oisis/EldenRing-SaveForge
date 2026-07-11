@@ -162,6 +162,14 @@ function makeToolItems(): db.ItemEntry[] {
     ];
 }
 
+// Upgradeable weapon row — drives the Max Up column visibility/value.
+function makeWeapon(id: number, name: string, maxUpgrade: number): db.ItemEntry {
+    return db.ItemEntry.createFrom({
+        id, name, category: 'melee_armaments', subCategory: '',
+        maxInventory: 1, maxStorage: 0, maxUpgrade, iconPath: '', flags: [],
+    });
+}
+
 function ownedVm(id: number, quantity: number) {
     return { id, baseId: id, name: '', category: 'Item', subCategory: 'tools', quantity, maxInventory: 99, maxStorage: 600, flags: [] };
 }
@@ -490,6 +498,43 @@ describe('DatabaseTab', () => {
         fireEvent.change(screen.getByPlaceholderText('Search by name or ID...'), { target: { value: 'zzz-no-match' } });
         // Search only affects the visible table, never the owned scope.
         expect(badge).toHaveTextContent('Owned:2');
+    });
+
+    // --- Max Up column + numeric sorting (tasks 5) ---
+
+    it('shows a Max Up column for upgradeable items even with no add-modal upgrade selected', async () => {
+        // DEFAULT_ADD_SETTINGS has every upgrade/infuse at 0 — the old "Upgrade"
+        // preview column would have stayed hidden; "Max Up" is item identity so
+        // it must appear regardless.
+        mocks.GetItemList.mockResolvedValue([makeWeapon(0x201, 'Longsword', 25)]);
+        renderTab({ category: 'melee_armaments' });
+        expect(await screen.findByText(/^Max Up/)).toBeInTheDocument();
+    });
+
+    it('hides the Max Up column when no visible item is upgradeable', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems()); // all maxUpgrade 0
+        renderTab({ category: 'tools' });
+        await screen.findByLabelText('Subcategory'); // wait for load
+        expect(screen.queryByText(/^Max Up/)).not.toBeInTheDocument();
+    });
+
+    it('sorts the Item Database by owned Inventory count', async () => {
+        mocks.GetItemList.mockResolvedValue(makeToolItems());
+        mocks.GetCharacter.mockResolvedValue({
+            inventory: [ownedVm(0x11, 5), ownedVm(0x12, 1), ownedVm(0x13, 10)],
+            storage: [], clearCount: 0,
+        });
+        renderTab({ category: 'tools' });
+
+        // Click the Inventory header (table view) → ascending owned-inventory sort.
+        fireEvent.click(await screen.findByText(/^Inventory/));
+        // Read the resulting order from the grid (virtualized table rows don't
+        // render under jsdom; the grid shares the same sorted list).
+        fireEvent.click(screen.getByTitle('Grid view'));
+
+        await waitFor(() => expect(screen.getByText('Rowa Fruit')).toBeInTheDocument());
+        const order = screen.getAllByText(/Cured Meat|Rowa Fruit|Golden Rune/).map(e => e.textContent);
+        expect(order).toEqual(['Rowa Fruit', 'Cured Meat', 'Golden Rune']); // 1, 5, 10
     });
 
     // NOTE: the legacy "Repair & Retry" prompt that fired on a duplicate

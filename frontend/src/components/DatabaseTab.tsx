@@ -1,7 +1,7 @@
-import {useEffect, useState, useMemo, useRef, useDeferredValue} from 'react';
+import {useEffect, useState, useMemo, useRef, useDeferredValue, useCallback} from 'react';
 import toast from '../lib/toast';
 import {useVirtualizer} from '@tanstack/react-virtual';
-import {GetItemList, GetItemListChunk, GetInfuseTypes, AddItemsToCharacter, AddItemsToCharacterWithGameLimits, GetCharacter,
+import {GetItemList, GetItemListChunk, AddItemsToCharacter, AddItemsToCharacterWithGameLimits, GetCharacter,
         SetCookbookUnlocked, SetWhetbladeUnlocked, SetBellBearingUnlocked, GetBellBearings,
         SetMapRegionFlags, GetSlotCapacity} from '../../wailsjs/go/main/App';
 import {db, vm} from '../../wailsjs/go/models';
@@ -80,7 +80,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     const [viewMode, setViewMode] = useState<'table' | 'grid'>('table');
     const [dbItems, setDbItems] = useState<db.ItemEntry[]>([]);
     const [loading, setLoading] = useState(false);
-    const [infuseTypes, setInfuseTypes] = useState<db.InfuseType[]>([]);
 
     // Sorting
     const [sortCol, setSortCol] = useState<string>('name');
@@ -145,10 +144,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     }, []);
 
     useEffect(() => {
-        GetInfuseTypes().then(res => setInfuseTypes(res || []));
-    }, []);
-
-    useEffect(() => {
         GetCharacter(charIndex).then(res => {
             setCharInventory(res?.inventory || []);
             setCharStorage(res?.storage || []);
@@ -202,6 +197,15 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         });
         return m;
     }, [charInventory, charStorage]);
+
+    // Owned inv/storage counts for a row — flag-only bell bearings resolve to a
+    // 0/1 unlocked flag; everything else reads the family/base owned map. Shared
+    // by the Inventory/Storage cells and their numeric sort.
+    const resolveOwned = useCallback((item: db.ItemEntry) =>
+        item.unlockCategory === 'bell_bearing'
+            ? {inv: bellBearingOwnedIds.has(item.id) ? 1 : 0, storage: 0}
+            : ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0},
+    [ownedByBaseID, bellBearingOwnedIds]);
 
     // Progressive loading: for "all", fetch one category per IPC roundtrip and
     // append as chunks arrive — the UI stays responsive on a 5000-item dataset.
@@ -289,12 +293,24 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             const diff = sortDir === 'asc' ? aW! - bW! : bW! - aW!;
             return diff !== 0 ? diff : a.name.localeCompare(b.name);
         }
+        // Numeric columns — sort by the value shown in the cell (max upgrade,
+        // owned inventory/storage), name as the stable tiebreak.
+        if (sortCol === 'maxUpgrade') {
+            const diff = sortDir === 'asc' ? a.maxUpgrade - b.maxUpgrade : b.maxUpgrade - a.maxUpgrade;
+            return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
+        if (sortCol === 'ownedInv' || sortCol === 'ownedStorage') {
+            const key = sortCol === 'ownedInv' ? 'inv' : 'storage';
+            const aV = resolveOwned(a)[key], bV = resolveOwned(b)[key];
+            const diff = sortDir === 'asc' ? aV - bV : bV - aV;
+            return diff !== 0 ? diff : a.name.localeCompare(b.name);
+        }
         const aVal = a[sortCol as keyof db.ItemEntry] ?? '';
         const bVal = b[sortCol as keyof db.ItemEntry] ?? '';
         if (aVal < bVal) return sortDir === 'asc' ? -1 : 1;
         if (aVal > bVal) return sortDir === 'asc' ? 1 : -1;
         return 0;
-    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, useTechnicalCapsMode, category, subCategory, addSettings.talismansHighestOnly, showOnlyFavorites, isFav]);
+    }), [dbItems, deferredSearch, sortCol, sortDir, showFlaggedItems, useTechnicalCapsMode, category, subCategory, addSettings.talismansHighestOnly, showOnlyFavorites, isFav, resolveOwned]);
 
     const showWeightColumn = useMemo(() => filteredItems.some(i => i.weight !== undefined && i.weight > 0), [filteredItems]);
 
@@ -530,24 +546,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         setBrokenIcons(prev => new Set(prev).add(iconPath));
     };
 
-    const selectedInfuseName = infuseTypes.find(t => t.offset === infuseOffset)?.name ?? 'Standard';
-
-    // Upgrade/infusion preview string for a row given the current add settings.
-    // Empty when the item can't be upgraded or no level/infusion is selected.
-    const upgradePreview = (item: db.ItemEntry): string => {
-        if (item.maxUpgrade <= 0) return '';
-        const isAsh = item.category === 'ashes';
-        const hasInfuse = item.maxUpgrade === 25 && infuseOffset !== 0;
-        const levelVal = isAsh ? upgradeAsh : (item.maxUpgrade === 25 ? upgrade25 : item.maxUpgrade === 10 ? upgrade10 : 0);
-        if (levelVal <= 0 && !hasInfuse) return '';
-        const parts: string[] = [];
-        if (hasInfuse) parts.push(selectedInfuseName);
-        if (levelVal > 0) parts.push(`+${levelVal}`);
-        return parts.join(' ');
-    };
-    const showUpgradeColumn = useMemo(() => filteredItems.some(i => upgradePreview(i) !== ''),
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [filteredItems, upgrade25, upgrade10, upgradeAsh, infuseOffset, selectedInfuseName]);
+    // "Max Up" column shows each item's maximum allowed upgrade (item identity),
+    // independent of the add-modal's selected upgrade/infusion. Hidden when no
+    // visible item is upgradeable.
+    const showMaxUpColumn = useMemo(() => filteredItems.some(i => i.maxUpgrade > 0), [filteredItems]);
 
     const scrollRef = useRef<HTMLDivElement>(null);
     const rowVirtualizer = useVirtualizer({
@@ -562,7 +564,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         + (readOnly ? 0 : 1)
         + (columnVisibility.id ? 1 : 0)
         + (columnVisibility.category && showSubGroupColumn ? 1 : 0)
-        + (showUpgradeColumn ? 1 : 0)
+        + (showMaxUpColumn ? 1 : 0)
         + (showWeightColumn ? 1 : 0);
 
     // Whether the modal items are all non-stackable (weapons/armor/talismans)
@@ -877,9 +879,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                         ) : (
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
                                 {filteredItems.map(item => {
-                                    const owned = item.unlockCategory === 'bell_bearing'
-                                        ? {inv: bellBearingOwnedIds.has(item.id) ? 1 : 0, storage: 0}
-                                        : ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
+                                    const owned = resolveOwned(item);
                                     const hasOwned = owned.inv > 0 || owned.storage > 0;
                                     return (
                                         <div key={item.id}
@@ -958,16 +958,22 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                         Sub-Category {sortCol === (category === 'all' ? 'category' : 'subCategory') && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
-                                {showUpgradeColumn && (
-                                    <th className="px-3 py-4 whitespace-nowrap">Upgrade</th>
+                                {showMaxUpColumn && (
+                                    <th className="px-3 py-4 text-center cursor-pointer hover:text-primary transition-colors whitespace-nowrap" onClick={() => handleSort('maxUpgrade')}>
+                                        Max Up {sortCol === 'maxUpgrade' && (sortDir === 'asc' ? '↑' : '↓')}
+                                    </th>
                                 )}
                                 {showWeightColumn && (
                                     <th className="px-3 py-4 cursor-pointer hover:text-primary transition-colors text-right w-20" onClick={() => handleSort('weight')}>
                                         Weight {sortCol === 'weight' && (sortDir === 'asc' ? '↑' : '↓')}
                                     </th>
                                 )}
-                                <th className="px-3 py-4 text-center w-28">Inventory</th>
-                                <th className="px-3 py-4 text-center w-28">Storage</th>
+                                <th className="px-3 py-4 text-center w-28 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('ownedInv')}>
+                                    Inventory {sortCol === 'ownedInv' && (sortDir === 'asc' ? '↑' : '↓')}
+                                </th>
+                                <th className="px-3 py-4 text-center w-28 cursor-pointer hover:text-primary transition-colors" onClick={() => handleSort('ownedStorage')}>
+                                    Storage {sortCol === 'ownedStorage' && (sortDir === 'asc' ? '↑' : '↓')}
+                                </th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border/30">
@@ -976,7 +982,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                             )}
                             {rowVirtualizer.getVirtualItems().map(virtualRow => {
                                 const item = filteredItems[virtualRow.index];
-                                const previewText = upgradePreview(item);
 
                                 return (
                                     <tr key={item.id} data-index={virtualRow.index} ref={node => { if (node) rowVirtualizer.measureElement(node); }} className={`group hover:bg-primary/[0.03] transition-colors ${selectedDbItems.has(item.id) ? 'bg-primary/[0.02]' : ''}`}>
@@ -1043,9 +1048,11 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                 </span>
                                             </td>
                                         )}
-                                        {showUpgradeColumn && (
-                                            <td className="px-3 py-2 text-[10px] font-mono font-bold text-primary/70 uppercase tracking-tight whitespace-nowrap">
-                                                {previewText || '—'}
+                                        {showMaxUpColumn && (
+                                            <td className="px-3 py-2 text-center whitespace-nowrap">
+                                                <span className="text-[10px] font-black tabular-nums text-muted-foreground bg-muted/20 px-2 py-1 rounded border border-border/30">
+                                                    {item.maxUpgrade > 0 ? `+${item.maxUpgrade}` : '—'}
+                                                </span>
                                             </td>
                                         )}
                                         {showWeightColumn && (
@@ -1054,9 +1061,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                             </td>
                                         )}
                                         {(() => {
-                                            const owned = item.unlockCategory === 'bell_bearing'
-                                                ? {inv: bellBearingOwnedIds.has(item.id) ? 1 : 0, storage: 0}
-                                                : ownedByBaseID.get(item.id) ?? {inv: 0, storage: 0};
+                                            const owned = resolveOwned(item);
                                             const cellClass = (have: number, max: number): string => {
                                                 if (have === 0) return 'text-muted-foreground/50 bg-muted/20 border-border/30';
                                                 if (max > 0 && have >= max) return 'text-amber-500 bg-amber-500/10 border-amber-500/30';
