@@ -8,6 +8,7 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     GetInventoryEditSession: vi.fn(),
     ValidateInventoryWorkspace: vi.fn(),
     MoveInventoryWorkspaceItem: vi.fn(),
+    ReorderInventoryWorkspaceItems: vi.fn(),
     TransferInventoryWorkspaceItem: vi.fn(),
     AddInventoryWorkspaceItem: vi.fn(),
     UpdateInventoryWorkspaceWeapon: vi.fn(),
@@ -23,6 +24,7 @@ const mocks = App as unknown as {
     StartInventoryEditSession: ReturnType<typeof vi.fn>;
     ValidateInventoryWorkspace: ReturnType<typeof vi.fn>;
     MoveInventoryWorkspaceItem: ReturnType<typeof vi.fn>;
+    ReorderInventoryWorkspaceItems: ReturnType<typeof vi.fn>;
     TransferInventoryWorkspaceItem: ReturnType<typeof vi.fn>;
     AddInventoryWorkspaceItem: ReturnType<typeof vi.fn>;
     UpdateInventoryWorkspaceWeapon: ReturnType<typeof vi.fn>;
@@ -163,6 +165,45 @@ describe('useInventoryWorkspace', () => {
         expect(mocks.MoveInventoryWorkspaceItem).toHaveBeenCalledWith('ses-m', 'hnd:0x80800001', 'storage', 0);
         expect(result.current.storageItems).toHaveLength(1);
         expect(result.current.dirty).toBe(true);
+    });
+
+    it('reorderItems calls the binding once and applies the returned snapshot', async () => {
+        const a = makeItem('hnd:0x80800001', 'inventory', 0);
+        const b = makeItem('hnd:0x80800002', 'inventory', 1);
+        const startSnap = makeSnapshot({ sessionID: 'ses-ro', inventory: [a, b] });
+        const reordered = makeSnapshot({
+            sessionID: 'ses-ro',
+            inventory: [makeItem('hnd:0x80800002', 'inventory', 0), makeItem('hnd:0x80800001', 'inventory', 1)],
+            dirty: true,
+        });
+        mocks.StartInventoryEditSession.mockResolvedValue(startSnap);
+        mocks.ReorderInventoryWorkspaceItems.mockResolvedValue(reordered);
+
+        const { result } = renderHook(() => useInventoryWorkspace());
+        await act(async () => { await result.current.start(0); });
+        let ok = false;
+        await act(async () => {
+            ok = await result.current.reorderItems(['hnd:0x80800002', 'hnd:0x80800001'], []);
+        });
+
+        expect(ok).toBe(true);
+        expect(mocks.ReorderInventoryWorkspaceItems).toHaveBeenCalledTimes(1);
+        expect(mocks.ReorderInventoryWorkspaceItems).toHaveBeenCalledWith('ses-ro', ['hnd:0x80800002', 'hnd:0x80800001'], []);
+        expect(result.current.inventoryItems.map(it => it.uid)).toEqual(['hnd:0x80800002', 'hnd:0x80800001']);
+        expect(result.current.dirty).toBe(true);
+    });
+
+    it('reorderItems returns false and records lastError on backend failure', async () => {
+        mocks.StartInventoryEditSession.mockResolvedValue(makeSnapshot({ sessionID: 'ses-ro2' }));
+        mocks.ReorderInventoryWorkspaceItems.mockRejectedValue(new Error('bad permutation'));
+
+        const { result } = renderHook(() => useInventoryWorkspace());
+        await act(async () => { await result.current.start(0); });
+        let ok = true;
+        await act(async () => { ok = await result.current.reorderItems([], []); });
+
+        expect(ok).toBe(false);
+        expect(result.current.lastError).toMatch(/bad permutation/);
     });
 
     it('refuses to call backend when no session is active', async () => {

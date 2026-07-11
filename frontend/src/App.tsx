@@ -106,6 +106,7 @@ function App() {
     const [saving, setSaving] = useState(false);
     const [capacity, setCapacity] = useState<main.SlotCapacity | null>(null);
     const [saveIssuesModal, setSaveIssuesModal] = useState<main.SaveIssue[] | null>(null);
+    const [unsupportedSaveModal, setUnsupportedSaveModal] = useState(false);
     const [saveDataRevision, setSaveDataRevision] = useState(0);
     const [pvpOpts, setPvpOpts] = useState<PvPOptions>(DEFAULT_PVP_OPTIONS);
     // Load-time inventory integrity gate. When the loaded save contains
@@ -275,7 +276,14 @@ function App() {
             const plat = await SelectAndOpenSave();
             await finalizeLoadedSaveWithIntegrityCheck(plat);
         } catch (err) {
-            toast.error(String(err));
+            // Backend prefixes this specific failure with a stable discriminator
+            // (core.UnsupportedContainerCode) so we can show a dedicated blocking
+            // modal instead of a vague toast. Any other open error stays a toast.
+            if (String(err).includes('ERR_UNSUPPORTED_CONTAINER')) {
+                setUnsupportedSaveModal(true);
+            } else {
+                toast.error(String(err));
+            }
         }
     };
 
@@ -454,7 +462,7 @@ function App() {
                         onClick={handleOpenSave}
                         className="w-full bg-primary text-primary-foreground font-black py-3 rounded-lg text-[9px] uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all"
                     >
-                        {platform ? `Change Save (${platform})` : 'Open Save File'}
+                        {platform ? 'Open Save' : 'Open Save File'}
                     </button>
 
                     {platform && (
@@ -582,7 +590,7 @@ function App() {
                                         : (chaosMode ? (theme === 'light' ? 'text-black/80 hover:text-black' : 'text-white/90 hover:text-white') + ' hover:bg-red-600/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40')
                                 }`}
                             >
-                                {tab}
+                                {tab === 'inventory' ? 'Game Items' : tab}
                             </button>
                         ))}
                     </nav>
@@ -706,7 +714,7 @@ function App() {
                                             <div className="flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50 shrink-0">
                                                 {([
                                                     { id: 'database', label: 'Item Database' },
-                                                    { id: 'inventory', label: 'Equipment' },
+                                                    { id: 'inventory', label: 'Inventory' },
                                                     { id: 'sort_order', label: 'Weapons & Sort Order' },
                                                 ] as { id: 'database' | 'inventory' | 'sort_order'; label: string }[]).map(({ id, label }) => (
                                                     <button
@@ -870,6 +878,30 @@ function App() {
                             className="flex-1 py-2 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-all text-[9px] font-black uppercase tracking-widest"
                         >
                             Cancel &amp; Fix
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+        {unsupportedSaveModal && (
+            <div data-testid="unsupported-save-backdrop" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+                <div className="bg-background border border-border rounded-xl p-6 w-[30rem] max-w-[90vw] space-y-4 shadow-2xl">
+                    <div className="flex items-center space-x-2">
+                        <div className="w-1 h-4 bg-red-500 rounded-full" />
+                        <h3 className="text-[10px] font-black uppercase tracking-widest">Unsupported Save Format</h3>
+                    </div>
+                    <div className="space-y-2 text-[10px] text-muted-foreground leading-relaxed">
+                        <p>The file was <span className="text-foreground font-black">not opened</span>. Any save currently open remains unchanged.</p>
+                        <p>SaveForge will not rewrite it because the platform/container could not be identified safely.</p>
+                        <p>Format conversion is currently unavailable.</p>
+                        <p>Please use a native PC (BND4) save or a native PlayStation save file.</p>
+                    </div>
+                    <div className="flex justify-end">
+                        <button
+                            onClick={() => setUnsupportedSaveModal(false)}
+                            className="px-6 py-2 rounded-lg bg-primary/10 border border-primary/40 text-primary hover:bg-primary/20 transition-all text-[9px] font-black uppercase tracking-widest"
+                        >
+                            OK
                         </button>
                     </div>
                 </div>

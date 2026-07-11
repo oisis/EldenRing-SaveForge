@@ -262,6 +262,28 @@ func (a *App) TransferInventoryWorkspaceItem(sessionID, itemUID, targetContainer
 	return sess.Workspace, nil
 }
 
+// ReorderInventoryWorkspaceItems atomically replaces the ordering of both
+// editable containers from full desired UID lists. Each list must be an
+// exact permutation of the editable items currently in that container
+// (see editor.ReorderItems). A rejected request leaves the workspace
+// unchanged; a successful one recomputes positions, sets Dirty and
+// re-validates, all in RAM — slot.Data is not touched.
+//
+// This is the single-call replacement for the old per-item move loop the
+// shared Sort dropdown used: one operation, one returned snapshot, no
+// intermediate ordering committed to the UI.
+func (a *App) ReorderInventoryWorkspaceItems(sessionID string, inventoryUIDs, storageUIDs []string) (editor.InventoryWorkspaceSnapshot, error) {
+	sess, err := a.acquireSession(sessionID)
+	if err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
+	}
+	defer sess.Unlock()
+	if err := editor.ReorderItems(&sess.Workspace, inventoryUIDs, storageUIDs); err != nil {
+		return editor.InventoryWorkspaceSnapshot{}, err
+	}
+	return sess.Workspace, nil
+}
+
 // AddInventoryWorkspaceItem inserts a new editable item into the
 // session's workspace. The item carries Source=added, OriginalHandle=0,
 // HasGaItem=false — real handle/GaItem allocation happens at Save time

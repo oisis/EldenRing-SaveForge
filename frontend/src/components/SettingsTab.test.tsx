@@ -47,6 +47,7 @@ import { SafetyModeProvider } from '../state/safetyMode';
 import { FavoritesProvider } from '../state/favorites';
 import type { SafetyProfile } from '../state/safetyProfile';
 import toast from '../lib/toast';
+import { PrepareConversion } from '../../wailsjs/go/main/App';
 
 // jsdom here has no localStorage; SettingsTab reads it for the Full Chaos toggle.
 const lsStore: Record<string, string> = {};
@@ -141,6 +142,35 @@ describe('SettingsTab diagnostics', () => {
 
         await waitFor(() => expect(toast.error).toHaveBeenCalled());
         expect(screen.queryByTestId('inv-issues-modal')).not.toBeInTheDocument();
+    });
+});
+
+describe('SettingsTab Convert Format (disabled)', () => {
+    beforeEach(() => {
+        (PrepareConversion as ReturnType<typeof vi.fn>).mockReset();
+    });
+
+    it('renders Convert Format disabled with an unavailable tooltip', () => {
+        renderSettings();
+        const btn = screen.getByRole('button', { name: /Convert Format/i });
+        expect(btn).toBeDisabled();
+        expect(btn).toHaveAttribute('title', 'Format conversion is currently unavailable');
+    });
+
+    it('placed at the end of the Tools action list', () => {
+        renderSettings();
+        const convert = screen.getByRole('button', { name: /Convert Format/i });
+        // Convert Format comes after the other active tool buttons in the DOM.
+        for (const name of [/Favorite Items/i, /Diagnostics/i]) {
+            const other = screen.getByRole('button', { name });
+            expect(other.compareDocumentPosition(convert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        }
+    });
+
+    it('cannot invoke the conversion flow when clicked', () => {
+        renderSettings();
+        fireEvent.click(screen.getByRole('button', { name: /Convert Format/i }));
+        expect(PrepareConversion).not.toHaveBeenCalled();
     });
 });
 

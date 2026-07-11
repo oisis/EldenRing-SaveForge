@@ -34,23 +34,65 @@ type FrameDropTarget = ContainerKind | null;
 
 const GRID_COLS = 5;
 const GRID_MIN_ROWS = 6;
-const GRID_MIN_CELLS = GRID_COLS * GRID_MIN_ROWS; // 30
-const GRID_PAGE_SIZE = GRID_MIN_CELLS;
+const GRID_MIN_CELLS = GRID_COLS * GRID_MIN_ROWS; // 30 — one card
 
 const CELL_PX = 96;
 const GAP_PX = 6;
 const PAD_PX = 8;
+const BORDER_PX = 1; // frame border width; box-sizing is border-box (Tailwind preflight)
 const FRAME_WIDTH_PX = GRID_COLS * CELL_PX + (GRID_COLS - 1) * GAP_PX + 2 * PAD_PX;
-const FRAME_HEIGHT_PX = GRID_MIN_ROWS * CELL_PX + (GRID_MIN_ROWS - 1) * GAP_PX + 2 * PAD_PX;
+// One card is a fixed 5×6 grid; the frame shows exactly one card and scrolls
+// card-by-card. CARD_STEP is the scroll distance between consecutive card starts
+// (card height + the gap that separates stacked cards).
+const CARD_HEIGHT_PX = GRID_MIN_ROWS * CELL_PX + (GRID_MIN_ROWS - 1) * GAP_PX;
+const CARD_STEP_PX = CARD_HEIGHT_PX + GAP_PX;
+const AUTO_SCROLL_EDGE_PX = 44;
+const AUTO_SCROLL_INITIAL_DELAY_MS = 260;
+const AUTO_SCROLL_REPEAT_MS = 360;
+// Frame outer height. With border-box the top/bottom borders eat into the box,
+// so add them back: the interior (clientHeight) is then exactly one card and a
+// single-card frame has scrollHeight === clientHeight (no phantom scroll).
+const FRAME_HEIGHT_PX = CARD_HEIGHT_PX + 2 * BORDER_PX;
 const GRID_TEMPLATE_COLUMNS = `repeat(${GRID_COLS}, ${CELL_PX}px)`;
 
 type SortOrderTabKey = 'weapons' | 'talismans' | 'head' | 'chest' | 'arms' | 'legs';
 type SortMode = 'acquisition-asc' | 'acquisition-desc' | 'weight-asc' | 'weight-desc' | 'type-asc' | 'type-desc';
+type CardScrollDirection = -1 | 0 | 1;
 
-function sortOrderPageCount(itemCount: number): number {
-    const filledPages = Math.ceil(itemCount / GRID_PAGE_SIZE);
-    const trailingEmptyPage = itemCount % GRID_PAGE_SIZE === 0 ? 1 : 0;
-    return Math.max(1, filledPages + trailingEmptyPage);
+// Returns the requested card direction only when the pointer is inside a
+// frame edge zone and there is another card in that direction.
+export function getCardAutoScrollDirection(
+    pointerY: number,
+    frameTop: number,
+    frameBottom: number,
+    canScrollUp: boolean,
+    canScrollDown: boolean,
+): CardScrollDirection {
+    if (pointerY <= frameTop + AUTO_SCROLL_EDGE_PX && canScrollUp) return -1;
+    if (pointerY >= frameBottom - AUTO_SCROLL_EDGE_PX && canScrollDown) return 1;
+    return 0;
+}
+
+// Number of 30-cell cards needed to hold `itemCount` items. A full final card
+// always gets one extra empty card so there is a visible drop destination after
+// it; an empty list still yields one empty card.
+function sortOrderCardCount(itemCount: number): number {
+    const filled = Math.ceil(itemCount / GRID_MIN_CELLS);
+    const trailingEmpty = itemCount % GRID_MIN_CELLS === 0 ? 1 : 0;
+    return Math.max(1, filled + trailingEmpty);
+}
+
+// Split a flat item list into fixed 5×6 cards, each padded to exactly 30 cells
+// with nulls. Pure — the tab and its tests both consume this.
+export function buildSortOrderCards(
+    items: editor.EditableItem[],
+): (editor.EditableItem | null)[][] {
+    const cards: (editor.EditableItem | null)[][] = [];
+    for (let c = 0; c < sortOrderCardCount(items.length); c++) {
+        const slice = items.slice(c * GRID_MIN_CELLS, c * GRID_MIN_CELLS + GRID_MIN_CELLS);
+        cards.push([...slice, ...Array<null>(GRID_MIN_CELLS - slice.length).fill(null)]);
+    }
+    return cards;
 }
 
 // Tab → category set. Mirrors backend inventoryOrderTabs in app_inventory_order.go.
@@ -72,6 +114,15 @@ const SORT_TABS: { key: SortOrderTabKey; label: string }[] = [
     { key: 'legs', label: 'Legs' },
 ];
 
+const SORT_MODE_OPTIONS: { mode: SortMode; label: string }[] = [
+    { mode: 'acquisition-asc', label: 'Acquisition ↑' },
+    { mode: 'acquisition-desc', label: 'Acquisition ↓' },
+    { mode: 'weight-asc', label: 'Weight ↑' },
+    { mode: 'weight-desc', label: 'Weight ↓' },
+    { mode: 'type-asc', label: 'Type ↑' },
+    { mode: 'type-desc', label: 'Type ↓' },
+];
+
 // Unarmed placeholder — backend excludes it from legacy weapons tab, mirror that here.
 const UNARMED_BASE_ID = 0x0001ADB0;
 
@@ -89,6 +140,14 @@ function tabFilter(it: editor.EditableItem, tab: SortOrderTabKey): boolean {
 
 export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [activeSortTab, setActiveSortTab] = useState<SortOrderTabKey>('weapons');
+    // Shared sort dropdown: '' is the "Default" (no active choice) state. The
+    // label is persisted here so the select keeps showing the applied mode.
+    const [sortMode, setSortMode] = useState<SortMode | ''>('');
+    // Guards against overlapping shared-sort runs — a second dropdown change
+    // while the atomic reorder is still committing would race the snapshot.
+    // Ref = synchronous guard; state = visibly disable the Sort select.
+    const sortInFlightRef = useRef(false);
+    const [sortInFlight, setSortInFlight] = useState(false);
     const [helpOpen, setHelpOpen] = useState(false);
     const [confirmSaveOpen, setConfirmSaveOpen] = useState(false);
     const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
@@ -110,8 +169,6 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
     const [invAnchorUID, setInvAnchorUID] = useState<string | null>(null);
     const [stoSelectedUIDs, setStoSelectedUIDs] = useState<Set<string>>(new Set());
     const [stoAnchorUID, setStoAnchorUID] = useState<string | null>(null);
-    const [inventoryPage, setInventoryPage] = useState(0);
-    const [storagePage, setStoragePage] = useState(0);
 
     // Weapon edit modal
     const [weaponEditor, setWeaponEditor] = useState<{ item: editor.EditableItem; source: ContainerKind } | null>(null);
@@ -144,21 +201,8 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         () => storageItems.filter(it => tabFilter(it, activeSortTab)),
         [storageItems, activeSortTab],
     );
-    const inventoryPageCount = sortOrderPageCount(inventoryView.length);
-    const storagePageCount = sortOrderPageCount(storageView.length);
-
-    useEffect(() => {
-        setInventoryPage(0);
-        setStoragePage(0);
-    }, [activeSortTab]);
-
-    useEffect(() => {
-        setInventoryPage(page => Math.min(page, inventoryPageCount - 1));
-    }, [inventoryPageCount]);
-
-    useEffect(() => {
-        setStoragePage(page => Math.min(page, storagePageCount - 1));
-    }, [storagePageCount]);
+    const inventoryCards = useMemo(() => buildSortOrderCards(inventoryView), [inventoryView]);
+    const storageCards = useMemo(() => buildSortOrderCards(storageView), [storageView]);
 
     // Clear stale selections when the active tab changes — selected UIDs may no
     // longer be visible, which would block keyboard / batch operations.
@@ -366,47 +410,60 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         setStoSelectedUIDs(new Set());
     };
 
-    const sortContainer = async (container: ContainerKind, mode: SortMode) => {
-        if (saving || loading) return;
+    // Computes the full desired UID order for a container under the given
+    // sort mode, preserving the positions of items outside the active
+    // category exactly (only visible items are reshuffled among their own
+    // slots). Returns null when the container is a no-op: fewer than two
+    // visible items, or already in the target order.
+    const computeDesiredOrder = (container: ContainerKind, mode: SortMode): string[] | null => {
         const fullList = container === 'inventory' ? inventoryItems : storageItems;
         const view = container === 'inventory' ? inventoryView : storageView;
-        if (view.length < 2) return;
+        if (view.length < 2) return null;
 
         const sortedView = sortEditableItems(view, mode);
-        if (sortedView.every((it, idx) => it.uid === view[idx]?.uid)) return;
+        if (sortedView.every((it, idx) => it.uid === view[idx]?.uid)) return null;
 
-        const desired = [...fullList];
+        const desired = fullList.map(it => it.uid);
         const visiblePositions = view
             .map((it) => fullList.findIndex(candidate => candidate.uid === it.uid))
             .filter(idx => idx >= 0);
         visiblePositions.forEach((pos, idx) => {
-            desired[pos] = sortedView[idx];
+            desired[pos] = sortedView[idx].uid;
         });
-
-        const working = [...fullList];
-        for (let targetIdx = 0; targetIdx < desired.length; targetIdx++) {
-            if (working[targetIdx]?.uid === desired[targetIdx]?.uid) continue;
-            const fromIdx = working.findIndex(it => it.uid === desired[targetIdx].uid);
-            if (fromIdx < 0) continue;
-            const [moved] = working.splice(fromIdx, 1);
-            working.splice(targetIdx, 0, moved);
-            await workspace.moveItem(moved.uid, container, targetIdx);
-        }
-        toast.success(`${container === 'inventory' ? 'Inventory' : 'Storage'} sorted.`);
+        return desired;
     };
 
-    const inventoryPageStart = inventoryPage * GRID_PAGE_SIZE;
-    const storagePageStart = storagePage * GRID_PAGE_SIZE;
-    const inventoryPageItems = inventoryView.slice(inventoryPageStart, inventoryPageStart + GRID_PAGE_SIZE);
-    const storagePageItems = storageView.slice(storagePageStart, storagePageStart + GRID_PAGE_SIZE);
-    const inventoryGridCells: (editor.EditableItem | null)[] = [
-        ...inventoryPageItems,
-        ...Array<null>(Math.max(0, GRID_PAGE_SIZE - inventoryPageItems.length)).fill(null),
-    ];
-    const storageGridCells: (editor.EditableItem | null)[] = [
-        ...storagePageItems,
-        ...Array<null>(Math.max(0, GRID_PAGE_SIZE - storagePageItems.length)).fill(null),
-    ];
+    // Shared sort computes both desired UID orders and commits them in ONE
+    // atomic backend reorder call, so the UI applies a single final
+    // snapshot with no intermediate shuffling. A container that doesn't
+    // change keeps its current order (still a valid permutation). Fires one
+    // success toast; failures surface via workspace.lastError, no false toast.
+    const applySortBoth = async (mode: SortMode) => {
+        const invOrder = computeDesiredOrder('inventory', mode);
+        const stoOrder = computeDesiredOrder('storage', mode);
+        if (!invOrder && !stoOrder) return; // both no-op
+        const inventoryUIDs = invOrder ?? inventoryItems.map(it => it.uid);
+        const storageUIDs = stoOrder ?? storageItems.map(it => it.uid);
+        const ok = await workspace.reorderItems(inventoryUIDs, storageUIDs);
+        if (ok) toast.success('Inventory sorted.');
+    };
+
+    // Single entry point for the shared Sort select. Persists the chosen label,
+    // treats 'Default' ('') as no reorder, and blocks overlapping runs (ref for
+    // the synchronous guard, state to visibly disable the select while running).
+    const onSortModeChange = async (mode: SortMode | '') => {
+        if (sortInFlightRef.current) return; // ignore while a sort is committing
+        setSortMode(mode);
+        if (!mode) return; // Default — no active sort choice, no reorder
+        sortInFlightRef.current = true;
+        setSortInFlight(true);
+        try {
+            await applySortBoth(mode);
+        } finally {
+            sortInFlightRef.current = false;
+            setSortInFlight(false);
+        }
+    };
 
     return (
         <>
@@ -483,22 +540,37 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
             )}
 
             <div className="flex flex-col h-full min-h-0 gap-2">
-                {/* ── Top bar: tabs + session controls ──────────────────────────── */}
-                <div className="flex items-center gap-1 shrink-0 border-b border-border/30 pb-2">
-                    {SORT_TABS.map(({ key, label }) => (
-                        <button
-                            key={key}
+                {/* ── Shared toolbar: category + sort dropdowns + session controls ── */}
+                <div className="flex items-center gap-2 shrink-0 border-b border-border/30 pb-2">
+                    <label className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                        Category
+                        <select
+                            aria-label="Category"
+                            value={activeSortTab}
                             disabled={saving || loading}
-                            onClick={() => setActiveSortTab(key)}
-                            className={`px-3 py-1 text-[10px] font-black uppercase tracking-wider rounded transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                                activeSortTab === key
-                                    ? 'bg-primary/15 text-primary border border-primary/30'
-                                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/40 border border-transparent'
-                            }`}
+                            onChange={(e) => setActiveSortTab(e.target.value as SortOrderTabKey)}
+                            className="text-[10px] font-black uppercase tracking-wider bg-muted/30 border border-border/40 rounded px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-40 disabled:cursor-not-allowed"
                         >
-                            {label}
-                        </button>
-                    ))}
+                            {SORT_TABS.map(({ key, label }) => (
+                                <option key={key} value={key}>{label}</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                        Sort
+                        <select
+                            aria-label="Sort"
+                            value={sortMode}
+                            disabled={saving || loading || sortInFlight}
+                            onChange={(e) => { void onSortModeChange(e.target.value as SortMode | ''); }}
+                            className="text-[10px] font-black uppercase tracking-wider bg-muted/30 border border-border/40 rounded px-2 py-1 text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                            <option value="">Default</option>
+                            {SORT_MODE_OPTIONS.map(({ mode, label }) => (
+                                <option key={mode} value={mode}>{label}</option>
+                            ))}
+                        </select>
+                    </label>
                     <div className="ml-auto flex items-center gap-2">
                         {dirty && (
                             <span
@@ -602,18 +674,10 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 label="Storage"
                                 count={storageView.length}
                                 selectedCount={stoSelectedHere.length}
-                                page={storagePage}
-                                pageCount={storagePageCount}
-                                onPageChange={setStoragePage}
-                                onAdd={() => { setAddContainer('storage'); setAddOpen(true); }}
-                                disabled={saving || loading}
                             />
-                        <SortControls
-                            container="storage"
-                            disabled={saving || loading || storageView.length < 2}
-                            onSort={sortContainer}
-                        />
                         <Frame
+                                container="storage"
+                                dragSource={dragSource}
                                 isCrossDropTarget={frameDropTarget === 'storage'}
                                 onDragOver={(e) => {
                                     if (dragSourceRef.current === 'inventory') {
@@ -633,29 +697,38 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                     void onFrameDrop('storage');
                                 }}
                             >
-                                <Grid>
-                                    {storageGridCells.map((item, localIdx) =>
-                                        item != null ? (
-                                            <ItemTile
-                                                key={item.uid}
-                                                item={item}
-                                                isDragging={dragSource === 'storage' && dragFromUID === item.uid}
-                                                isDragOver={dragOverContainer === 'storage' && dragOverLocal === localIdx}
-                                                isSelected={stoSelectedUIDs.has(item.uid)}
-                                                onClick={(e) => onTileClick('storage', item, e)}
-                                                onEditClick={activeSortTab === 'weapons' && item.isWeapon
-                                                    ? (e) => { e.stopPropagation(); e.preventDefault(); setWeaponEditor({ item, source: 'storage' }); }
-                                                    : undefined}
-                                                onDragStart={() => onDragStart('storage', item)}
-                                                onDragOver={(e) => onTileDragOver(e, 'storage', localIdx)}
-                                                onDrop={() => onTileDrop('storage', localIdx, storagePageStart)}
-                                                onDragEnd={onDragEnd}
-                                            />
-                                        ) : (
-                                            <EmptyCell key={`s-empty-${localIdx}`} />
-                                        ),
-                                    )}
-                                </Grid>
+                                {storageCards.map((cells, cardIdx) => (
+                                    <Card key={cardIdx}>
+                                        {cells.map((item, localIdx) => {
+                                            const absIdx = cardIdx * GRID_MIN_CELLS + localIdx;
+                                            return item != null ? (
+                                                <ItemTile
+                                                    key={item.uid}
+                                                    item={item}
+                                                    isDragging={dragSource === 'storage' && dragFromUID === item.uid}
+                                                    isDragOver={dragOverContainer === 'storage' && dragOverLocal === absIdx}
+                                                    isSelected={stoSelectedUIDs.has(item.uid)}
+                                                    onClick={(e) => onTileClick('storage', item, e)}
+                                                    onEditClick={activeSortTab === 'weapons' && item.isWeapon
+                                                        ? (e) => { e.stopPropagation(); e.preventDefault(); setWeaponEditor({ item, source: 'storage' }); }
+                                                        : undefined}
+                                                    onDragStart={() => onDragStart('storage', item)}
+                                                    onDragOver={(e) => onTileDragOver(e, 'storage', absIdx)}
+                                                    onDrop={() => onTileDrop('storage', absIdx, 0)}
+                                                    onDragEnd={onDragEnd}
+                                                />
+                                            ) : (
+                                                <EmptyCell
+                                                    key={`s-empty-${absIdx}`}
+                                                    testId={`sto-empty-${absIdx}`}
+                                                    isDragOver={dragOverContainer === 'storage' && dragOverLocal === absIdx}
+                                                    onDragOver={(e) => onTileDragOver(e, 'storage', absIdx)}
+                                                    onDrop={() => onTileDrop('storage', absIdx, 0)}
+                                                />
+                                            );
+                                        })}
+                                    </Card>
+                                ))}
                             </Frame>
                         </section>
 
@@ -667,18 +740,10 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                 label="Inventory"
                                 count={inventoryView.length}
                                 selectedCount={invSelectedHere.length}
-                                page={inventoryPage}
-                                pageCount={inventoryPageCount}
-                                onPageChange={setInventoryPage}
-                                onAdd={() => { setAddContainer('inventory'); setAddOpen(true); }}
-                                disabled={saving || loading}
                             />
-                        <SortControls
-                            container="inventory"
-                            disabled={saving || loading || inventoryView.length < 2}
-                            onSort={sortContainer}
-                        />
                         <Frame
+                                container="inventory"
+                                dragSource={dragSource}
                                 isCrossDropTarget={frameDropTarget === 'inventory'}
                                 onDragOver={(e) => {
                                     if (dragSourceRef.current === 'storage') {
@@ -698,29 +763,38 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
                                     void onFrameDrop('inventory');
                                 }}
                             >
-                                <Grid>
-                                    {inventoryGridCells.map((item, localIdx) =>
-                                        item != null ? (
-                                            <ItemTile
-                                                key={item.uid}
-                                                item={item}
-                                                isDragging={dragSource === 'inventory' && dragFromUID === item.uid}
-                                                isDragOver={dragOverContainer === 'inventory' && dragOverLocal === localIdx}
-                                                isSelected={invSelectedUIDs.has(item.uid)}
-                                                onClick={(e) => onTileClick('inventory', item, e)}
-                                                onEditClick={activeSortTab === 'weapons' && item.isWeapon
-                                                    ? (e) => { e.stopPropagation(); e.preventDefault(); setWeaponEditor({ item, source: 'inventory' }); }
-                                                    : undefined}
-                                                onDragStart={() => onDragStart('inventory', item)}
-                                                onDragOver={(e) => onTileDragOver(e, 'inventory', localIdx)}
-                                                onDrop={() => onTileDrop('inventory', localIdx, inventoryPageStart)}
-                                                onDragEnd={onDragEnd}
-                                            />
-                                        ) : (
-                                            <EmptyCell key={`i-empty-${localIdx}`} />
-                                        ),
-                                    )}
-                                </Grid>
+                                {inventoryCards.map((cells, cardIdx) => (
+                                    <Card key={cardIdx}>
+                                        {cells.map((item, localIdx) => {
+                                            const absIdx = cardIdx * GRID_MIN_CELLS + localIdx;
+                                            return item != null ? (
+                                                <ItemTile
+                                                    key={item.uid}
+                                                    item={item}
+                                                    isDragging={dragSource === 'inventory' && dragFromUID === item.uid}
+                                                    isDragOver={dragOverContainer === 'inventory' && dragOverLocal === absIdx}
+                                                    isSelected={invSelectedUIDs.has(item.uid)}
+                                                    onClick={(e) => onTileClick('inventory', item, e)}
+                                                    onEditClick={activeSortTab === 'weapons' && item.isWeapon
+                                                        ? (e) => { e.stopPropagation(); e.preventDefault(); setWeaponEditor({ item, source: 'inventory' }); }
+                                                        : undefined}
+                                                    onDragStart={() => onDragStart('inventory', item)}
+                                                    onDragOver={(e) => onTileDragOver(e, 'inventory', absIdx)}
+                                                    onDrop={() => onTileDrop('inventory', absIdx, 0)}
+                                                    onDragEnd={onDragEnd}
+                                                />
+                                            ) : (
+                                                <EmptyCell
+                                                    key={`i-empty-${absIdx}`}
+                                                    testId={`inv-empty-${absIdx}`}
+                                                    isDragOver={dragOverContainer === 'inventory' && dragOverLocal === absIdx}
+                                                    onDragOver={(e) => onTileDragOver(e, 'inventory', absIdx)}
+                                                    onDrop={() => onTileDrop('inventory', absIdx, 0)}
+                                                />
+                                            );
+                                        })}
+                                    </Card>
+                                ))}
                             </Frame>
                         </section>
                     </div>
@@ -739,105 +813,26 @@ interface ColumnHeaderProps {
     label: string;
     count: number;
     selectedCount: number;
-    page: number;
-    pageCount: number;
-    onPageChange: (page: number) => void;
-    onAdd: () => void;
-    disabled: boolean;
 }
 
-function ColumnHeader({ label, count, selectedCount, page, pageCount, onPageChange, onAdd, disabled }: ColumnHeaderProps) {
+function ColumnHeader({ label, count, selectedCount }: ColumnHeaderProps) {
     return (
-        <div className="flex items-center justify-between shrink-0 gap-2 min-h-7">
-            <div className="flex items-baseline gap-2">
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{label}</h4>
-                <span className="text-xs font-bold text-blue-700 tabular-nums whitespace-nowrap">
-                    {count} item{count === 1 ? '' : 's'}
-                </span>
-                {selectedCount > 0 && (
-                    <span className="text-[9px] font-bold text-cyan-300/80 uppercase tracking-widest whitespace-nowrap">
-                        {selectedCount} selected
-                    </span>
-                )}
-            </div>
-            <div className="flex items-center gap-2">
-                {pageCount > 1 && (
-                    <div className="flex items-center gap-1">
-                        <button
-                            type="button"
-                            aria-label={`${label} previous page`}
-                            title="Previous page"
-                            disabled={disabled || page <= 0}
-                            onClick={() => onPageChange(Math.max(0, page - 1))}
-                            className="w-5 h-5 flex items-center justify-center rounded border border-border/40 text-[10px] font-black text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            &lt;
-                        </button>
-                        <span className="min-w-8 text-center text-[9px] font-black tabular-nums text-muted-foreground/80">
-                            {page + 1}/{pageCount}
-                        </span>
-                        <button
-                            type="button"
-                            aria-label={`${label} next page`}
-                            title="Next page"
-                            disabled={disabled || page >= pageCount - 1}
-                            onClick={() => onPageChange(Math.min(pageCount - 1, page + 1))}
-                            className="w-5 h-5 flex items-center justify-center rounded border border-border/40 text-[10px] font-black text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                        >
-                            &gt;
-                        </button>
-                    </div>
-                )}
-                <button
-                    disabled={disabled}
-                    onClick={onAdd}
-                    className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider rounded text-foreground/80 hover:text-foreground hover:bg-primary/15 border border-primary/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                    + Add
-                </button>
-            </div>
-        </div>
-    );
-}
-
-interface SortControlsProps {
-    container: ContainerKind;
-    disabled: boolean;
-    onSort: (container: ContainerKind, mode: SortMode) => void | Promise<void>;
-}
-
-function SortControls({ container, disabled, onSort }: SortControlsProps) {
-    const buttons: { mode: SortMode; label: string; title: string }[] = [
-        { mode: 'acquisition-asc', label: 'Acq ↑', title: 'Sort by acquisition order ascending' },
-        { mode: 'acquisition-desc', label: 'Acq ↓', title: 'Sort by acquisition order descending' },
-        { mode: 'weight-asc', label: 'Weight ↑', title: 'Sort by weight ascending' },
-        { mode: 'weight-desc', label: 'Weight ↓', title: 'Sort by weight descending' },
-        { mode: 'type-asc', label: 'Type ↑', title: 'Sort by item type ascending' },
-        { mode: 'type-desc', label: 'Type ↓', title: 'Sort by item type descending' },
-    ];
-
-    return (
-        <div className="flex items-center gap-1 flex-wrap shrink-0">
-            <span className="text-[8px] font-black uppercase tracking-widest text-muted-foreground/80 mr-1">
-                Sort
+        <div className="flex items-center shrink-0 gap-2 min-h-7">
+            <span className="text-xs font-bold text-blue-700 tabular-nums whitespace-nowrap">
+                {label}: {count} item{count === 1 ? '' : 's'}
             </span>
-            {buttons.map(({ mode, label, title }) => (
-                <button
-                    key={mode}
-                    type="button"
-                    disabled={disabled}
-                    title={title}
-                    onClick={() => { void onSort(container, mode); }}
-                    className="px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide rounded border border-border/40 text-muted-foreground hover:text-foreground hover:bg-muted/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                    {label}
-                </button>
-            ))}
+            {selectedCount > 0 && (
+                <span className="text-[9px] font-bold text-cyan-300/80 uppercase tracking-widest whitespace-nowrap">
+                    {selectedCount} selected
+                </span>
+            )}
         </div>
     );
 }
 
 interface FrameProps {
+    container: ContainerKind;
+    dragSource: ContainerKind | null;
     isCrossDropTarget: boolean;
     onDragOver: (e: React.DragEvent) => void;
     onDragLeave: (e: React.DragEvent) => void;
@@ -845,25 +840,175 @@ interface FrameProps {
     children: React.ReactNode;
 }
 
-function Frame({ isCrossDropTarget, onDragOver, onDragLeave, onDrop, children }: FrameProps) {
+function Frame({ container, dragSource, isCrossDropTarget, onDragOver, onDragLeave, onDrop, children }: FrameProps) {
+    const scrollRef = useRef<HTMLDivElement>(null);
+    // Guards against a single trackpad gesture (many wheel events) skipping
+    // multiple cards — we consume one card per notch, then ignore the burst.
+    const lockRef = useRef(false);
+    const autoScrollStartRef = useRef<number | null>(null);
+    const autoScrollRepeatRef = useRef<number | null>(null);
+    const autoScrollDirectionRef = useRef<CardScrollDirection>(0);
+    const [autoScrollDirection, setAutoScrollDirection] = useState<CardScrollDirection>(0);
+
+    const stopAutoScroll = useCallback(() => {
+        if (autoScrollStartRef.current !== null) {
+            window.clearTimeout(autoScrollStartRef.current);
+            autoScrollStartRef.current = null;
+        }
+        if (autoScrollRepeatRef.current !== null) {
+            window.clearInterval(autoScrollRepeatRef.current);
+            autoScrollRepeatRef.current = null;
+        }
+        autoScrollDirectionRef.current = 0;
+        setAutoScrollDirection(0);
+    }, []);
+
+    const scrollOneCard = useCallback((direction: CardScrollDirection): boolean => {
+        const el = scrollRef.current;
+        if (!el || direction === 0) return false;
+        const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+        const currentCard = Math.round(el.scrollTop / CARD_STEP_PX);
+        const targetTop = Math.max(0, Math.min(maxScroll, (currentCard + direction) * CARD_STEP_PX));
+        if (Math.abs(targetTop - el.scrollTop) <= 1) return false;
+        el.scrollTo({ top: targetTop, behavior: 'auto' });
+        return true;
+    }, []);
+
+    const armAutoScroll = useCallback((direction: CardScrollDirection) => {
+        if (direction === 0) {
+            stopAutoScroll();
+            return;
+        }
+        if (autoScrollDirectionRef.current === direction) return;
+
+        stopAutoScroll();
+        autoScrollDirectionRef.current = direction;
+        setAutoScrollDirection(direction);
+        autoScrollStartRef.current = window.setTimeout(() => {
+            autoScrollStartRef.current = null;
+            if (!scrollOneCard(direction)) {
+                stopAutoScroll();
+                return;
+            }
+            autoScrollRepeatRef.current = window.setInterval(() => {
+                if (!scrollOneCard(direction)) stopAutoScroll();
+            }, AUTO_SCROLL_REPEAT_MS);
+        }, AUTO_SCROLL_INITIAL_DELAY_MS);
+    }, [scrollOneCard, stopAutoScroll]);
+
+    useEffect(() => {
+        const el = scrollRef.current;
+        if (!el) return;
+        // Native non-passive listener: React's onWheel is passive, so
+        // preventDefault would be ignored there. scroll-snap (CSS below) is the
+        // safety fallback if this handler is bypassed.
+        const onWheel = (e: WheelEvent) => {
+            const maxScroll = el.scrollHeight - el.clientHeight;
+            if (maxScroll <= 0) return; // single card — nothing to page
+            const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0;
+            if (dir === 0) return;
+            const atTop = el.scrollTop <= 1;
+            const atBottom = el.scrollTop >= maxScroll - 1;
+            // At the ends, don't trap the user — let the outer page scroll.
+            if ((dir < 0 && atTop) || (dir > 0 && atBottom)) return;
+            e.preventDefault();
+            if (lockRef.current) return;
+            lockRef.current = true;
+            const current = Math.round(el.scrollTop / CARD_STEP_PX);
+            el.scrollTo({ top: (current + dir) * CARD_STEP_PX, behavior: 'smooth' });
+            window.setTimeout(() => { lockRef.current = false; }, 180);
+        };
+        el.addEventListener('wheel', onWheel, { passive: false });
+        return () => el.removeEventListener('wheel', onWheel);
+    }, []);
+
+    useEffect(() => () => {
+        if (autoScrollStartRef.current !== null) window.clearTimeout(autoScrollStartRef.current);
+        if (autoScrollRepeatRef.current !== null) window.clearInterval(autoScrollRepeatRef.current);
+    }, []);
+
+    const handleDragOver = (event: React.DragEvent) => {
+        onDragOver(event);
+        if (dragSource !== container) {
+            stopAutoScroll();
+            return;
+        }
+        // Keep receiving dragover events even while the pointer is over a card
+        // gap or frame padding rather than an individual tile.
+        event.preventDefault();
+        const el = scrollRef.current;
+        if (!el) return;
+        const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+        const rect = el.getBoundingClientRect();
+        const direction = getCardAutoScrollDirection(
+            event.clientY,
+            rect.top,
+            rect.bottom,
+            el.scrollTop > 1,
+            el.scrollTop < maxScroll - 1,
+        );
+        armAutoScroll(direction);
+    };
+
+    const handleDragLeave = (event: React.DragEvent) => {
+        const related = event.relatedTarget as Node | null;
+        if (!related || !event.currentTarget.contains(related)) stopAutoScroll();
+        onDragLeave(event);
+    };
+
+    const handleDrop = (event: React.DragEvent) => {
+        stopAutoScroll();
+        onDrop(event);
+    };
+
     return (
         <div
+            ref={scrollRef}
             className={`relative shrink-0 mx-auto rounded-xl border bg-background/40 overflow-y-auto transition-colors ${
                 isCrossDropTarget ? 'border-cyan-400/70 ring-2 ring-cyan-400/40' : 'border-border/50'
             }`}
-            style={{ width: FRAME_WIDTH_PX, height: FRAME_HEIGHT_PX, padding: PAD_PX }}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
+            style={{
+                width: FRAME_WIDTH_PX,
+                height: FRAME_HEIGHT_PX,
+                paddingLeft: PAD_PX,
+                paddingRight: PAD_PX,
+                scrollSnapType: 'y mandatory',
+            }}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onDragEnd={stopAutoScroll}
         >
-            {children}
+            {autoScrollDirection !== 0 && (
+                <div
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute inset-x-0 z-10 flex h-11 items-center justify-center bg-primary/10 text-primary ${
+                        autoScrollDirection < 0 ? 'top-0 border-b border-primary/30' : 'bottom-0 border-t border-primary/30'
+                    }`}
+                >
+                    <span className="text-xs font-black">{autoScrollDirection < 0 ? '↑' : '↓'}</span>
+                </div>
+            )}
+            <div className="flex flex-col" style={{ gap: GAP_PX }}>
+                {children}
+            </div>
         </div>
     );
 }
 
-function Grid({ children }: { children: React.ReactNode }) {
+// One card = a fixed 5×6 grid; its start edge is a scroll-snap point so the
+// frame always rests on a whole card.
+function Card({ children }: { children: React.ReactNode }) {
     return (
-        <div className="grid content-start" style={{ gridTemplateColumns: GRID_TEMPLATE_COLUMNS, gap: GAP_PX }}>
+        <div
+            className="grid content-start shrink-0"
+            style={{
+                gridTemplateColumns: GRID_TEMPLATE_COLUMNS,
+                gap: GAP_PX,
+                height: CARD_HEIGHT_PX,
+                scrollSnapAlign: 'start',
+            }}
+        >
             {children}
         </div>
     );
@@ -966,11 +1111,26 @@ function renderAoWBadge(item: editor.EditableItem): React.ReactNode {
     return null;
 }
 
-function EmptyCell() {
+interface EmptyCellProps {
+    isDragOver?: boolean;
+    onDragOver?: (e: React.DragEvent) => void;
+    onDrop?: () => void;
+    testId?: string;
+}
+
+// Empty cells are valid same-container reorder destinations (including on the
+// trailing empty card). The reorder path clamps an out-of-range index to "insert
+// after the last item", so dropping on any empty cell drops to the end.
+function EmptyCell({ isDragOver, onDragOver, onDrop, testId }: EmptyCellProps) {
     return (
         <div
             aria-hidden="true"
-            className="relative aspect-square rounded-md border border-dashed border-border/60 bg-card/40 opacity-75 pointer-events-none shadow-inner"
+            data-testid={testId}
+            onDragOver={onDragOver}
+            onDrop={onDrop}
+            className={`relative aspect-square rounded-md border border-dashed bg-card/40 shadow-inner transition-all ${
+                isDragOver ? 'border-primary ring-1 ring-primary/50 bg-primary/[0.06] opacity-100' : 'border-border/60 opacity-75'
+            }`}
             style={{
                 backgroundImage:
                     'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.018) 45%, rgba(0,0,0,0.10) 100%), radial-gradient(circle at 50% 42%, rgba(255,255,255,0.08), transparent 45%)',

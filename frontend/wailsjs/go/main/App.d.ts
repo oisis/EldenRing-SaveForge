@@ -202,6 +202,8 @@ export function RenameBuildTemplateInLibrary(arg1:string,arg2:string,arg3:string
 
 export function ReorderInventory(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
 
+export function ReorderInventoryWorkspaceItems(arg1:string,arg2:Array<string>,arg3:Array<string>):Promise<editor.InventoryWorkspaceSnapshot>;
+
 export function ReorderStorage(arg1:number,arg2:string,arg3:Array<number>):Promise<void>;
 
 export function ReorderWeaponInventory(arg1:number,arg2:Array<number>):Promise<void>;

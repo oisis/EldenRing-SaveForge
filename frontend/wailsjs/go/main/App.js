@@ -390,6 +390,10 @@ export function ReorderInventory(arg1, arg2, arg3) {
   return window['go']['main']['App']['ReorderInventory'](arg1, arg2, arg3);
 }
 
+export function ReorderInventoryWorkspaceItems(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReorderInventoryWorkspaceItems'](arg1, arg2, arg3);
+}
+
 export function ReorderStorage(arg1, arg2, arg3) {
   return window['go']['main']['App']['ReorderStorage'](arg1, arg2, arg3);
 }

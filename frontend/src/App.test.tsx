@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafetyProfile } from './state/safetyProfile';
 
@@ -29,7 +29,7 @@ vi.mock('../wailsjs/go/main/App', () => {
         GetCharacter: r(), RevertSlot: r(), GetUndoDepth: r(), GetInfuseTypes: r(),
         GetSlotCapacity: r(), AuditLoadedSaveIssues: r(), GetSaveInventoryIntegrityReport: r(),
         RepairDuplicateInventoryIndices: r(), CloseSave: r(), RunDiagnosticsAllLoaded: r(),
-        GetAppVersion: r(),
+        GetAppVersion: r(), ScanRepairIssuesLoaded: r(),
     };
 });
 
@@ -57,6 +57,8 @@ vi.mock('./components/ToastBar', () => ({ ToastBar: () => null }));
 
 import App from './App';
 import { SafetyModeProvider } from './state/safetyMode';
+import { SelectAndOpenSave, GetSaveInventoryIntegrityReport } from '../wailsjs/go/main/App';
+import toast from './lib/toast';
 
 function renderApp(profile: SafetyProfile) {
     localStorage.setItem('setting:safetyProfile', profile);
@@ -90,5 +92,104 @@ describe('App top-bar safety profile indicator', () => {
         renderApp('chaos');
         expect(screen.getByText('CHAOS MODE!!!')).toBeInTheDocument();
         expect(screen.queryByText('SAFE MODE')).not.toBeInTheDocument();
+    });
+});
+
+describe('App navigation wording', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    it('labels the top-level Game Items tab, not the legacy Inventory label', () => {
+        renderApp('safe');
+        expect(screen.getByRole('button', { name: 'Game Items' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /^Inventory$/ })).not.toBeInTheDocument();
+    });
+
+    it('names the equipment submenu view Inventory once a save is loaded', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        await new Promise(r => setTimeout(r, 0));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Game Items' }));
+        expect(await screen.findByRole('button', { name: 'Inventory' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Equipment' })).not.toBeInTheDocument();
+    });
+});
+
+describe('App open-save button wording', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    it('reads "Open Save File" before a save is loaded (no legacy "Change Save")', () => {
+        renderApp('safe');
+        expect(screen.getByRole('button', { name: /Open Save File/i })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Change Save/i })).not.toBeInTheDocument();
+    });
+
+    it('reads "Open Save" once a save is loaded', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+
+        // Let the async open→integrity→setPlatform chain settle before asserting.
+        await new Promise(r => setTimeout(r, 0));
+        expect(await screen.findByRole('button', { name: /^Open Save$/i })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Change Save/i })).not.toBeInTheDocument();
+    });
+});
+
+describe('App unsupported-container handling', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    it('opens a blocking modal with the safety explanation, not integrity scan', async () => {
+        vi.mocked(SelectAndOpenSave).mockRejectedValue(
+            new Error('ERR_UNSUPPORTED_CONTAINER: this file could not be identified safely'),
+        );
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+
+        expect(await screen.findByText('Unsupported Save Format')).toBeInTheDocument();
+        expect(screen.getByText(/not opened/i)).toBeInTheDocument();
+        expect(screen.getByText(/will not rewrite it/i)).toBeInTheDocument();
+        expect(screen.getByText(/conversion is currently unavailable/i)).toBeInTheDocument();
+        // A rejected open must never proceed to the integrity check.
+        expect(GetSaveInventoryIntegrityReport).not.toHaveBeenCalled();
+
+        fireEvent.click(screen.getByRole('button', { name: /^OK$/i }));
+        await new Promise(r => setTimeout(r, 0));
+        expect(screen.queryByText('Unsupported Save Format')).not.toBeInTheDocument();
+    });
+
+    it('is blocking: clicking the backdrop does not close the modal', async () => {
+        vi.mocked(SelectAndOpenSave).mockRejectedValue(
+            new Error('ERR_UNSUPPORTED_CONTAINER: this file could not be identified safely'),
+        );
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+
+        expect(await screen.findByText('Unsupported Save Format')).toBeInTheDocument();
+        fireEvent.click(screen.getByTestId('unsupported-save-backdrop'));
+        await new Promise(r => setTimeout(r, 0));
+        // Still open — only the OK button dismisses it.
+        expect(screen.getByText('Unsupported Save Format')).toBeInTheDocument();
+    });
+
+    it('keeps toast behavior for a generic open error (no modal)', async () => {
+        vi.mocked(SelectAndOpenSave).mockRejectedValue(new Error('some other failure'));
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+
+        await new Promise(r => setTimeout(r, 0));
+        expect(screen.queryByText('Unsupported Save Format')).not.toBeInTheDocument();
+        expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('some other failure'));
     });
 });
