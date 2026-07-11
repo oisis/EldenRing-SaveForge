@@ -81,7 +81,7 @@ var ArrowsAndBolts = map[uint32]ItemData{
 	// ─── Greatbolts ─────────────────────────────────────────────────────
 	0x0328B740: {Name: "Ballista Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 20, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/ballista_bolt.png", Flags: []string{"stackable"}},
 	0x0328DE50: {Name: "Lightning Greatbolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 20, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/lightning_greatbolt.png", Flags: []string{"stackable"}},
-	0x03290560: {Name: "Explosive Greatbolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/explosive_greatbolt.png", Flags: []string{"stackable"}},
+	0x03290560: {Name: "Explosive Greatbolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 20, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/explosive_greatbolt.png", Flags: []string{"stackable"}},
 	0x03292C70: {Name: "Bone Ballista Bolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 20, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/bone_ballista_bolt.png", Flags: []string{"stackable"}},
-	0x03305860: {Name: "Rabbath's Greatbolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 30, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/rabbaths_greatbolt.png", Flags: []string{"dlc", "stackable"}},
+	0x03305860: {Name: "Rabbath's Greatbolt", Category: "arrows_and_bolts", SubCategory: SubcatArrowsGreatbolts, MaxInventory: 20, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/arrows_and_bolts/rabbaths_greatbolt.png", Flags: []string{"dlc", "stackable"}},
 }
