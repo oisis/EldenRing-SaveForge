@@ -4,6 +4,35 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-11
+
+### feat(workspace): card-based item ordering and atomic shared sorting
+
+`Game Items → Weapon & Sort Order` now uses vertically scrolling 5×6 cards
+instead of pagination. A full card keeps a trailing empty card for placement,
+wheel movement advances a full card at a time, and same-container drag-and-drop
+auto-scrolls at the frame edges to reach other cards. Empty cells are valid
+reorder targets; Inventory↔Storage transfers still append to the destination.
+
+The shared sorting control now reorders Inventory and Storage through one atomic
+workspace operation. It validates complete UID permutations before mutation and
+returns one final snapshot, eliminating the visible intermediate shuffling from
+the former per-item move loop.
+
+### feat(ui): clarify game item navigation and workspace controls
+
+The top-level `Inventory` navigation is now `Game Items`; its former
+`Equipment` view is now `Inventory`. Weapon & Sort Order uses compact Category
+and Sort dropdowns, and its count headers identify `Storage` and `Inventory`.
+
+### fix(save): reject ambiguous save containers safely
+
+Opening a file now accepts only unambiguous native PC BND4 or native PlayStation
+containers. Ambiguous or encrypted containers are rejected before load, retain
+the currently open save, and show an `Unsupported Save Format` modal instead of
+silently assigning the wrong platform. Format conversion remains visibly
+disabled while it is unsupported.
+
 ## [1.2.0] - 2026-07-11
 
 ### feat(db): add subcategory filtering to the Item Database
