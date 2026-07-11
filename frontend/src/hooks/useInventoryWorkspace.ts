@@ -4,6 +4,7 @@ import {
     DiscardInventoryEditSession,
     MoveInventoryWorkspaceItem,
     RemoveInventoryWorkspaceItem,
+    ReorderInventoryWorkspaceItems,
     SaveInventoryWorkspaceChanges,
     StartInventoryEditSession,
     TransferInventoryWorkspaceItem,
@@ -28,6 +29,7 @@ export interface UseInventoryWorkspaceResult {
     start: (charIndex: number) => Promise<editor.InventoryWorkspaceSnapshot | null>;
     refresh: () => Promise<void>;
     moveItem: (uid: string, target: ContainerKind, targetPosition: number) => Promise<void>;
+    reorderItems: (inventoryUIDs: string[], storageUIDs: string[]) => Promise<boolean>;
     transferItem: (uid: string, target: ContainerKind) => Promise<void>;
     addItem: (spec: editor.AddItemSpec, target: ContainerKind, targetPosition: number) => Promise<editor.EditableItem | null>;
     removeItem: (uid: string) => Promise<void>;
@@ -158,6 +160,23 @@ export function useInventoryWorkspace(): UseInventoryWorkspaceResult {
         }
     }, [applySnapshot, handleError, requireSession]);
 
+    // reorderItems replaces both container orders atomically in a single
+    // backend call and applies the one returned snapshot. Returns true on
+    // success, false on failure (error surfaced via lastError). Used by the
+    // shared Sort dropdown instead of a per-item moveItem loop.
+    const reorderItems = useCallback(async (inventoryUIDs: string[], storageUIDs: string[]) => {
+        const id = requireSession('Reorder failed');
+        if (!id) return false;
+        try {
+            const next = await ReorderInventoryWorkspaceItems(id, inventoryUIDs, storageUIDs);
+            applySnapshot(next);
+            return true;
+        } catch (err) {
+            handleError('Reorder failed', err);
+            return false;
+        }
+    }, [applySnapshot, handleError, requireSession]);
+
     const transferItem = useCallback(async (uid: string, target: ContainerKind) => {
         const id = requireSession('Transfer failed');
         if (!id) return;
@@ -273,6 +292,7 @@ export function useInventoryWorkspace(): UseInventoryWorkspaceResult {
         start,
         refresh,
         moveItem,
+        reorderItems,
         transferItem,
         addItem,
         removeItem,
@@ -280,5 +300,5 @@ export function useInventoryWorkspace(): UseInventoryWorkspaceResult {
         save,
         discard,
         replaceSnapshot,
-    }), [snapshot, loading, saving, lastError, clearError, start, refresh, moveItem, transferItem, addItem, removeItem, updateWeapon, save, discard, replaceSnapshot]);
+    }), [snapshot, loading, saving, lastError, clearError, start, refresh, moveItem, reorderItems, transferItem, addItem, removeItem, updateWeapon, save, discard, replaceSnapshot]);
 }

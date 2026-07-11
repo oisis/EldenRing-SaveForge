@@ -21,6 +21,7 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.GetInventoryEditSession).toBe('function');
         expect(typeof App.ValidateInventoryWorkspace).toBe('function');
         expect(typeof App.MoveInventoryWorkspaceItem).toBe('function');
+        expect(typeof App.ReorderInventoryWorkspaceItems).toBe('function');
         expect(typeof App.TransferInventoryWorkspaceItem).toBe('function');
         expect(typeof App.AddInventoryWorkspaceItem).toBe('function');
         expect(typeof App.UpdateInventoryWorkspaceWeapon).toBe('function');

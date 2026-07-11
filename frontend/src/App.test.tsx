@@ -95,6 +95,30 @@ describe('App top-bar safety profile indicator', () => {
     });
 });
 
+describe('App navigation wording', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    it('labels the top-level Game Items tab, not the legacy Inventory label', () => {
+        renderApp('safe');
+        expect(screen.getByRole('button', { name: 'Game Items' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /^Inventory$/ })).not.toBeInTheDocument();
+    });
+
+    it('names the equipment submenu view Inventory once a save is loaded', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        await new Promise(r => setTimeout(r, 0));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Game Items' }));
+        expect(await screen.findByRole('button', { name: 'Inventory' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Equipment' })).not.toBeInTheDocument();
+    });
+});
+
 describe('App open-save button wording', () => {
     beforeEach(() => localStorage.clear());
     afterEach(() => vi.clearAllMocks());

@@ -590,7 +590,7 @@ function App() {
                                         : (chaosMode ? (theme === 'light' ? 'text-black/80 hover:text-black' : 'text-white/90 hover:text-white') + ' hover:bg-red-600/10' : 'text-muted-foreground hover:text-foreground hover:bg-muted/40')
                                 }`}
                             >
-                                {tab}
+                                {tab === 'inventory' ? 'Game Items' : tab}
                             </button>
                         ))}
                     </nav>
@@ -714,7 +714,7 @@ function App() {
                                             <div className="flex gap-1.5 p-1 bg-muted/30 rounded-lg border border-border/50 shrink-0">
                                                 {([
                                                     { id: 'database', label: 'Item Database' },
-                                                    { id: 'inventory', label: 'Equipment' },
+                                                    { id: 'inventory', label: 'Inventory' },
                                                     { id: 'sort_order', label: 'Weapons & Sort Order' },
                                                 ] as { id: 'database' | 'inventory' | 'sort_order'; label: string }[]).map(({ id, label }) => (
                                                     <button

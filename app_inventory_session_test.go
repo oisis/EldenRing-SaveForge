@@ -198,6 +198,77 @@ func TestMoveInventoryWorkspaceItem_InventoryToStorage(t *testing.T) {
 	}
 }
 
+func TestReorderInventoryWorkspaceItems_UpdatesSession(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	// Reverse the inventory order; storage is empty.
+	orig := make([]string, len(snap.InventoryItems))
+	for i, it := range snap.InventoryItems {
+		orig[i] = it.UID
+	}
+	reversed := make([]string, len(orig))
+	for i, uid := range orig {
+		reversed[len(orig)-1-i] = uid
+	}
+
+	updated, err := app.ReorderInventoryWorkspaceItems(snap.SessionID, reversed, []string{})
+	if err != nil {
+		t.Fatalf("Reorder: %v", err)
+	}
+	if !updated.Dirty {
+		t.Error("Dirty should be true after reorder")
+	}
+	for i, it := range updated.InventoryItems {
+		if it.UID != reversed[i] {
+			t.Fatalf("returned order = mismatch at %d: got %q want %q", i, it.UID, reversed[i])
+		}
+		if it.Position != i {
+			t.Errorf("position not recomputed at %d: %d", i, it.Position)
+		}
+	}
+	// The session must hold the same final order the call returned.
+	fresh, err := app.GetInventoryEditSession(snap.SessionID)
+	if err != nil {
+		t.Fatalf("GetInventoryEditSession: %v", err)
+	}
+	for i, it := range fresh.InventoryItems {
+		if it.UID != reversed[i] {
+			t.Fatalf("session order not persisted at %d: got %q want %q", i, it.UID, reversed[i])
+		}
+	}
+}
+
+func TestReorderInventoryWorkspaceItems_InvalidDoesNotMutate(t *testing.T) {
+	app := inventoryOrderFixture(testWeapons)
+	snap, err := app.StartInventoryEditSession(0)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	before := make([]string, len(snap.InventoryItems))
+	for i, it := range snap.InventoryItems {
+		before[i] = it.UID
+	}
+	// Wrong length (drops one) → rejected, workspace unchanged.
+	if _, err := app.ReorderInventoryWorkspaceItems(snap.SessionID, before[:len(before)-1], []string{}); err == nil {
+		t.Fatal("expected error for wrong-length inventory list")
+	}
+	fresh, err := app.GetInventoryEditSession(snap.SessionID)
+	if err != nil {
+		t.Fatalf("GetInventoryEditSession: %v", err)
+	}
+	if fresh.Dirty {
+		t.Error("workspace should stay clean after a rejected reorder")
+	}
+	for i, it := range fresh.InventoryItems {
+		if it.UID != before[i] {
+			t.Fatalf("workspace mutated by rejected reorder at %d: got %q want %q", i, it.UID, before[i])
+		}
+	}
+}
+
 func TestMoveInventoryWorkspaceItem_UnknownSession(t *testing.T) {
 	app := NewApp()
 	_, err := app.MoveInventoryWorkspaceItem("nope", "hnd:0x80800001", "inventory", 0)

@@ -59,6 +59,70 @@ func MoveItem(snap *InventoryWorkspaceSnapshot, uid string, targetContainer Cont
 	return nil
 }
 
+// ReorderItems atomically replaces the ordering of BOTH editable
+// containers from full desired UID lists.
+//
+// Each list must be an exact permutation of the editable items currently
+// in that container: same length, no duplicates, no missing UID, no
+// foreign UID, and no UID belonging to the other container. Both lists
+// are validated in full before anything is mutated, so a rejected request
+// leaves both containers byte-for-byte unchanged. Pass-through
+// (unsupported) records, quantities and item data are never touched.
+//
+// On success the editable Inventory and Storage slices are rebuilt in the
+// requested order, positions are recomputed, Dirty is set, and Validate
+// runs exactly once.
+func ReorderItems(snap *InventoryWorkspaceSnapshot, inventoryUIDs, storageUIDs []string) error {
+	if snap == nil {
+		return fmt.Errorf("ReorderItems: nil snapshot")
+	}
+	invOrder, err := reorderPermutation(snap.InventoryItems, inventoryUIDs, ContainerInventory)
+	if err != nil {
+		return err
+	}
+	stoOrder, err := reorderPermutation(snap.StorageItems, storageUIDs, ContainerStorage)
+	if err != nil {
+		return err
+	}
+
+	// Both lists validated — safe to mutate now.
+	snap.InventoryItems = invOrder
+	snap.StorageItems = stoOrder
+	recomputePositions(snap.InventoryItems)
+	recomputePositions(snap.StorageItems)
+
+	snap.Dirty = true
+	snap.Validation = Validate(*snap)
+	return nil
+}
+
+// reorderPermutation validates that wantUIDs is an exact permutation of
+// the UIDs in items and returns the reordered slice. It mutates nothing on
+// error so the caller can validate both containers before touching either.
+func reorderPermutation(items []EditableItem, wantUIDs []string, container ContainerKind) ([]EditableItem, error) {
+	if len(wantUIDs) != len(items) {
+		return nil, fmt.Errorf("ReorderItems: %s expects %d uids, got %d", container, len(items), len(wantUIDs))
+	}
+	byUID := make(map[string]EditableItem, len(items))
+	for _, it := range items {
+		byUID[it.UID] = it
+	}
+	out := make([]EditableItem, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, uid := range wantUIDs {
+		if seen[uid] {
+			return nil, fmt.Errorf("ReorderItems: %s has duplicate uid %q", container, uid)
+		}
+		it, ok := byUID[uid]
+		if !ok {
+			return nil, fmt.Errorf("ReorderItems: %s has unknown uid %q", container, uid)
+		}
+		seen[uid] = true
+		out = append(out, it)
+	}
+	return out, nil
+}
+
 // RemoveItem deletes an editable item from the workspace by UID.
 //
 // Pass-through records are never affected. Positions are recomputed for

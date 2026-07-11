@@ -7,6 +7,7 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     GetInventoryEditSession: vi.fn(),
     ValidateInventoryWorkspace: vi.fn(),
     MoveInventoryWorkspaceItem: vi.fn(),
+    ReorderInventoryWorkspaceItems: vi.fn(),
     TransferInventoryWorkspaceItem: vi.fn(),
     AddInventoryWorkspaceItem: vi.fn(),
     UpdateInventoryWorkspaceWeapon: vi.fn(),
@@ -24,7 +25,7 @@ vi.mock('../lib/toast', () => {
 });
 
 import * as App from '../../wailsjs/go/main/App';
-import { SortOrderTab } from './SortOrderTab';
+import { SortOrderTab, buildSortOrderCards, getCardAutoScrollDirection } from './SortOrderTab';
 
 const mocks = App as unknown as Record<string, ReturnType<typeof vi.fn>>;
 
@@ -111,73 +112,170 @@ describe('SortOrderTab (workspace mode)', () => {
         expect(screen.queryByRole('button', { name: /Apply Order/i })).not.toBeInTheDocument();
     });
 
-    it('sorts the visible inventory tab by weight descending', async () => {
-        const light = makeItem('hnd:0x80800001', 'inventory', 0, {
-            name: 'Light Sword',
-            weight: 1,
-        });
-        const heavy = makeItem('hnd:0x80800002', 'inventory', 1, {
-            name: 'Heavy Sword',
-            weight: 8,
-        });
-        const sortedSnap = makeSnapshot({ inventory: [heavy, light], dirty: true });
-        mocks.MoveInventoryWorkspaceItem.mockResolvedValue(sortedSnap);
+    it('the shared Sort dropdown starts on Default and keeps the chosen label', async () => {
+        await mount(makeSnapshot({ inventory: [makeItem('hnd:0x80800001', 'inventory', 0)] }));
+        const sort = screen.getByLabelText('Sort') as HTMLSelectElement;
 
-        await mount(makeSnapshot({ inventory: [light, heavy] }));
-
-        const sortButton = screen
-            .getAllByRole('button', { name: 'Weight ↓' })
-            .find(btn => !btn.hasAttribute('disabled'));
-        expect(sortButton).toBeTruthy();
+        // Initial option is Default (no active sort choice).
+        expect(screen.getByRole('option', { name: 'Default' })).toBeInTheDocument();
+        expect(sort.value).toBe('');
 
         await act(async () => {
-            fireEvent.click(sortButton!);
+            fireEvent.change(sort, { target: { value: 'weight-desc' } });
         });
 
+        // The label persists — it does not snap back to Default.
+        expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('weight-desc');
+    });
+
+    it('selecting Default performs no reorder operation', async () => {
+        await mount(makeSnapshot({
+            inventory: [makeItem('hnd:0x80800001', 'inventory', 0), makeItem('hnd:0x80800002', 'inventory', 1)],
+        }));
+
+        await act(async () => {
+            fireEvent.change(screen.getByLabelText('Sort'), { target: { value: '' } });
+        });
+
+        expect(mocks.ReorderInventoryWorkspaceItems).not.toHaveBeenCalled();
+    });
+
+    // Five out-of-order items per container so sorting is a real permutation.
+    // weight ascends with position, so weight-desc reverses each container.
+    function fiveByWeight(container: 'inventory' | 'storage', base: number, tag: string) {
+        // Deliberately scrambled input order; UIDs stay tied to weight.
+        const w = [3, 1, 5, 2, 4];
+        return w.map((weight, i) =>
+            makeItem(`hnd:0x${(base + i).toString(16).toUpperCase()}`, container, i, {
+                name: `${tag} ${weight}`, weight,
+            }),
+        );
+    }
+
+    it('shared Sort issues ONE atomic reorder and both grids render the final snapshot', async () => {
+        const inv = fiveByWeight('inventory', 0x80800001, 'Inv');
+        const sto = fiveByWeight('storage', 0x80800011, 'Sto');
+        const desc = (items: editor.EditableItem[]) => [...items].sort((a, b) => (b.weight ?? 0) - (a.weight ?? 0));
+        const finalSnap = makeSnapshot({ inventory: desc(inv), storage: desc(sto), dirty: true });
+        mocks.ReorderInventoryWorkspaceItems.mockResolvedValue(finalSnap);
+
+        await mount(makeSnapshot({ inventory: inv, storage: sto }));
+
+        await act(async () => {
+            fireEvent.change(screen.getByLabelText('Sort'), { target: { value: 'weight-desc' } });
+        });
+
+        // Exactly one atomic reorder call — no per-item MoveInventoryWorkspaceItem loop.
         await waitFor(() => {
-            expect(mocks.MoveInventoryWorkspaceItem).toHaveBeenCalledWith(
-                'ses-tab',
-                'hnd:0x80800002',
-                'inventory',
-                0,
-            );
+            expect(mocks.ReorderInventoryWorkspaceItems).toHaveBeenCalledTimes(1);
+        });
+        expect(mocks.MoveInventoryWorkspaceItem).not.toHaveBeenCalled();
+        const [sid, invUIDs, stoUIDs] = mocks.ReorderInventoryWorkspaceItems.mock.calls[0];
+        expect(sid).toBe('ses-tab');
+        expect(invUIDs).toEqual(desc(inv).map(it => it.uid));
+        expect(stoUIDs).toEqual(desc(sto).map(it => it.uid));
+
+        // Both rendered grids reflect the one final snapshot: heavy (5) before light (1).
+        await waitFor(() => {
+            const heavy = screen.getByText('Sto 5');
+            const light = screen.getByText('Sto 1');
+            expect(heavy.compareDocumentPosition(light) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        });
+        await waitFor(() => {
+            const heavy = screen.getByText('Inv 5');
+            const light = screen.getByText('Inv 1');
+            expect(heavy.compareDocumentPosition(light) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
         });
     });
 
-    it('paginates inventory items in 5x6 pages', async () => {
+    it('blocks an overlapping shared-sort request while one is running', async () => {
+        const inv = fiveByWeight('inventory', 0x80800001, 'Inv');
+        const sto = fiveByWeight('storage', 0x80800011, 'Sto');
+        // The reorder never resolves, so the shared sort stays in flight.
+        mocks.ReorderInventoryWorkspaceItems.mockReturnValue(new Promise<never>(() => {}));
+
+        await mount(makeSnapshot({ inventory: inv, storage: sto }));
+        const sort = screen.getByLabelText('Sort');
+
+        await act(async () => { fireEvent.change(sort, { target: { value: 'weight-desc' } }); });
+        // Second change arrives mid-flight and must be ignored.
+        await act(async () => { fireEvent.change(sort, { target: { value: 'weight-asc' } }); });
+
+        // The first mode's label stuck; the racing selection did not take over.
+        expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('weight-desc');
+        // Only one atomic reorder was issued; no interleaved second run.
+        expect(mocks.ReorderInventoryWorkspaceItems).toHaveBeenCalledTimes(1);
+    });
+
+    it('the Category dropdown switches the filtered view', async () => {
+        const weapon = makeItem('hnd:0x80800001', 'inventory', 0, { name: 'A Weapon' });
+        const talisman = makeItem('hnd:0x80800002', 'inventory', 1, {
+            name: 'A Talisman', category: 'talismans', isWeapon: false, isTalisman: true,
+        });
+        await mount(makeSnapshot({ inventory: [weapon, talisman] }));
+
+        // Default category is Weapons.
+        expect(screen.getByText('A Weapon')).toBeInTheDocument();
+        expect(screen.queryByText('A Talisman')).not.toBeInTheDocument();
+
+        await act(async () => {
+            fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'talismans' } });
+        });
+
+        expect(screen.getByText('A Talisman')).toBeInTheDocument();
+        expect(screen.queryByText('A Weapon')).not.toBeInTheDocument();
+    });
+
+    it('renders every item at once as stacked cards, with the simplified toolbar', async () => {
         const items = Array.from({ length: 31 }, (_, idx) =>
             makeItem(`hnd:0x8080${idx.toString(16).padStart(4, '0')}`, 'inventory', idx),
         );
         await mount(makeSnapshot({ inventory: items }));
 
+        // Card scrolling keeps all items mounted — the 31st spills onto card 2.
         expect(screen.getByText('Sword 0')).toBeInTheDocument();
         expect(screen.getByText('Sword 29')).toBeInTheDocument();
-        expect(screen.queryByText('Sword 30')).not.toBeInTheDocument();
-
-        await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: /Inventory next page/i }));
-        });
-
-        expect(screen.queryByText('Sword 0')).not.toBeInTheDocument();
         expect(screen.getByText('Sword 30')).toBeInTheDocument();
+
+        // Contextual labels precede each item count.
+        expect(screen.getByText('Storage: 0 items')).toBeInTheDocument();
+        expect(screen.getByText('Inventory: 31 items')).toBeInTheDocument();
+
+        // Shared toolbar dropdowns replace the tab-button row and per-column sort groups.
+        expect(screen.getByLabelText('Category')).toBeInTheDocument();
+        expect(screen.getByLabelText('Sort')).toBeInTheDocument();
+
+        // Gone: page controls, tab buttons, per-column sort buttons, per-column Add.
+        expect(screen.queryByRole('button', { name: /next page/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /previous page/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /^Weapons$/i })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Weight ↓/ })).not.toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /^\+ Add$/i })).not.toBeInTheDocument();
+        // The global Add item action remains.
+        expect(screen.getByRole('button', { name: /Add Item/i })).toBeInTheDocument();
     });
 
-    it('keeps an empty destination page after a full 5x6 page', async () => {
+    it('reorders an item onto an empty cell on the trailing card (drops to the end)', async () => {
+        // 30 items exactly fill card 1; card 2 is entirely empty (absIdx 30–59).
         const items = Array.from({ length: 30 }, (_, idx) =>
-            makeItem(`hnd:0x8081${idx.toString(16).padStart(4, '0')}`, 'inventory', idx),
+            makeItem(`hnd:0x8080${idx.toString(16).padStart(4, '0')}`, 'inventory', idx),
         );
+        mocks.MoveInventoryWorkspaceItem.mockResolvedValue(makeSnapshot({ inventory: items, dirty: true }));
         await mount(makeSnapshot({ inventory: items }));
 
-        expect(screen.getByText('Sword 0')).toBeInTheDocument();
-        expect(screen.getByText('Sword 29')).toBeInTheDocument();
+        const firstTile = screen.getByText('Sword 0').closest('[draggable="true"]')!;
+        const emptyCell = screen.getByTestId('inv-empty-30'); // first cell of the trailing card
 
-        await act(async () => {
-            fireEvent.click(screen.getByRole('button', { name: /Inventory next page/i }));
+        // Two acts so the drag-source state flushes before the drop reads it.
+        await act(async () => { fireEvent.dragStart(firstTile); });
+        await act(async () => { fireEvent.drop(emptyCell); });
+
+        // Dropping item 0 past the end reorders it to the last absolute position (29).
+        await waitFor(() => {
+            expect(mocks.MoveInventoryWorkspaceItem).toHaveBeenCalledWith(
+                'ses-tab', 'hnd:0x80800000', 'inventory', 29,
+            );
         });
-
-        expect(screen.queryByText('Sword 0')).not.toBeInTheDocument();
-        expect(screen.queryByText('Sword 29')).not.toBeInTheDocument();
-        expect(screen.getByText('30 items')).toBeInTheDocument();
     });
 
     it('renders Save changes button disabled when not dirty', async () => {
@@ -260,6 +358,76 @@ describe('SortOrderTab (workspace mode)', () => {
             // Second StartInventoryEditSession call to re-seed after discard.
             expect(mocks.StartInventoryEditSession).toHaveBeenCalledTimes(2);
         });
+    });
+});
+
+describe('buildSortOrderCards', () => {
+    const items = (n: number) =>
+        Array.from({ length: n }, (_, idx) => makeItem(`u${idx}`, 'inventory', idx));
+
+    it('empty list produces one empty 30-cell card', () => {
+        const cards = buildSortOrderCards([]);
+        expect(cards).toHaveLength(1);
+        expect(cards[0]).toHaveLength(30);
+        expect(cards[0].every(c => c === null)).toBe(true);
+    });
+
+    it('1–29 items produce a single 30-cell card', () => {
+        for (const n of [1, 15, 29]) {
+            const cards = buildSortOrderCards(items(n));
+            expect(cards).toHaveLength(1);
+            expect(cards[0]).toHaveLength(30);
+            expect(cards[0].filter(Boolean)).toHaveLength(n);
+        }
+    });
+
+    it('exactly 30 items produce two cards, the second empty', () => {
+        const cards = buildSortOrderCards(items(30));
+        expect(cards).toHaveLength(2);
+        expect(cards[0].filter(Boolean)).toHaveLength(30);
+        expect(cards[1]).toHaveLength(30);
+        expect(cards[1].every(c => c === null)).toBe(true);
+    });
+
+    it('31 items produce two cards', () => {
+        const cards = buildSortOrderCards(items(31));
+        expect(cards).toHaveLength(2);
+        expect(cards[1].filter(Boolean)).toHaveLength(1);
+    });
+
+    it('never omits or duplicates items across cards, order preserved', () => {
+        const list = items(47);
+        const flat = buildSortOrderCards(list).flat().filter(Boolean);
+        expect(flat).toHaveLength(47);
+        expect(new Set(flat.map(i => i!.uid)).size).toBe(47);
+        flat.forEach((it, idx) => expect(it!.uid).toBe(list[idx].uid));
+    });
+
+    it('pads every card to exactly 30 cells', () => {
+        for (const n of [0, 5, 30, 31, 60]) {
+            for (const card of buildSortOrderCards(items(n))) {
+                expect(card).toHaveLength(30);
+            }
+        }
+    });
+});
+
+describe('getCardAutoScrollDirection', () => {
+    const top = 100;
+    const bottom = 708;
+
+    it('arms previous-card scrolling only in the top edge zone', () => {
+        expect(getCardAutoScrollDirection(120, top, bottom, true, true)).toBe(-1);
+        expect(getCardAutoScrollDirection(120, top, bottom, false, true)).toBe(0);
+    });
+
+    it('arms next-card scrolling only in the bottom edge zone', () => {
+        expect(getCardAutoScrollDirection(690, top, bottom, true, true)).toBe(1);
+        expect(getCardAutoScrollDirection(690, top, bottom, true, false)).toBe(0);
+    });
+
+    it('does not arm auto-scroll in the middle of a frame', () => {
+        expect(getCardAutoScrollDirection(400, top, bottom, true, true)).toBe(0);
     });
 });
 
