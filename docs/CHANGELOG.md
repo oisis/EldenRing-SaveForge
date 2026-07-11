@@ -4,6 +4,38 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-11
+
+### feat(db): add subcategory filtering to the Item Database
+
+The Database tab now supports subcategory filtering with dynamic column widths,
+letting the name column flex to consume remaining space while numeric columns
+stay compact. Sword Lance (and its Flame Art variant) is reclassified under
+Heavy Thrusting Swords.
+
+### feat(inventory): capacity strip and equipment layout refinements
+
+The capacity strip is reordered to `INVENTORY | STORAGE`, drops the `ALL ITEMS`
+readout, and colours the `used/max` figure by threshold (white below 80%, orange
+80–95%, red above 95%) with subtle separators between entries. The Equipment
+table adopts the Item Database column model — flexible name column, compact
+no-wrap numeric columns.
+
+### fix(inventory): cursor-aware GaItem capacity preflight
+
+Add batches containing weapons/armor/AoW are now rejected before mutation when
+they cannot fit from the allocator cursor. Capacity accounts for both total empty
+GaItem records and remaining cursor room (`len(GaItems) - NextArmamentIndex`);
+holes below the cursor remain untouched (no compaction or reuse). The add-capacity
+result surfaces needed-vs-available GaItem counts for a clearer placement error.
+
+### fix(repair): manual removal for unknown_handle_type
+
+The Inventory Issues repair flow exposes the existing fingerprint-protected
+`remove_record` action for `unknown_handle_type` records (inventory, key items,
+and storage scopes). The default stays `leave_unchanged` and it is never
+auto-removed by "repair all"; the UI makes clear the removal is irrecoverable.
+
 ## [1.1.0] - 2026-07-11
 
 ### fix(db): resolve scorpion stew item aliases
