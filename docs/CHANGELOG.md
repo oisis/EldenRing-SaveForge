@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [1.1.0_beta5] - 2026-07-11
+## [1.1.0] - 2026-07-11
 
 ### fix(db): resolve scorpion stew item aliases
 
@@ -50,8 +50,6 @@ trailing empty page. Inventory and storage paginate independently, drag/drop
 target positions account for the active page offset, and sort controls still
 operate on the full tab list rather than the current page.
 
-## [1.1.0_beta4] - 2026-07-10
-
 ### feat(ui): add explicit safety profiles
 
 The editor now uses a single Safety Profile selector instead of separate
@@ -63,8 +61,6 @@ cut-content and ban-risk items hidden. Chaos uses technical/game caps and
 reveals cut-content / ban-risk items behind the existing warning flow. The top
 bar now shows the active profile consistently as SAFE MODE, EXPANDED LIMITS, or
 CHAOS MODE, replacing the old global Online Safety banner.
-
-## [1.1.0_beta3] - 2026-07-10
 
 ### fix(core): preserve key item header on removal
 
@@ -93,8 +89,6 @@ records are created.
 Technical item ID aliases now resolve to their canonical entries, whetblades are
 exposed through unlock routing, the missing second Scorpion Stew row is added,
 and stimulating boluses are classified as consumables.
-
-## [1.1.0_beta2] - 2026-07-10
 
 ### fix(inventory): model talisman copies without GaItem capacity
 
@@ -133,8 +127,6 @@ backup first" checkbox wired to the new `BackupCurrentSave` endpoint. While
 active, the top navigation bar turns red with a pulsing "CHAOS MODE!!!" label.
 Renamed "Full Chaos Mode" to "Chaos Mode" and corrected the stale
 "bypasses all caps" comment.
-
-## [1.1.0] - 2026-07-09
 
 ### feat(inventory): on-load validation modal, auto-repair engine, diagnostics integration
 
