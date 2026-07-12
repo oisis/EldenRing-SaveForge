@@ -198,8 +198,15 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         finally { setAddingPreset(null); }
     };
 
-    const handleApplyPreset = async (name: string) => {
+    const handleApplyPreset = async (name: string, bodyType: string) => {
         if (applyingPreset !== null) return;
+        // Type B can't be applied yet — the backend rejects it because the raw
+        // female model mapping is unverified. Block before the call and warn.
+        if (bodyType === 'Type B') {
+            toast.error('Type B (female) presets cannot be applied yet — raw model mapping is not verified.');
+            setTypeBWarning(name);
+            return;
+        }
         setApplyingPreset(name);
         try {
             await ApplyPresetToCharacter(charIndex, name);
@@ -539,9 +546,9 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                             <span className="text-[9px] text-muted-foreground font-medium uppercase tracking-widest">{p.bodyType}</span>
                                             <div className="flex gap-1">
                                                 <button
-                                                    onClick={() => handleApplyPreset(p.name)}
+                                                    onClick={() => handleApplyPreset(p.name, p.bodyType)}
                                                     disabled={!canApply || isApplying}
-                                                    title="Apply appearance to current character"
+                                                    title={p.bodyType === 'Type B' ? 'Type B cannot be applied yet' : 'Apply appearance to current character'}
                                                     className="px-2 py-0.5 border border-blue-700/50 text-blue-700 rounded text-[9px] font-black uppercase tracking-wider hover:bg-blue-700/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
                                                     {isApplying ? '…' : 'Apply'}
                                                 </button>
@@ -626,13 +633,14 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 </div>
             )}
             {typeBWarning && (
-                <WarningModal title="Cannot write to Mirror Favorites" onClose={() => setTypeBWarning(null)}>
+                <WarningModal title="Type B not supported yet" onClose={() => setTypeBWarning(null)}>
                     <p>
-                        <strong>Type B (female)</strong> presets cannot be written to Mirror Favorites.
-                        Writing them would leave Model IDs at zero — resulting in a bald, male-faced slot.
+                        <strong>Type B (female)</strong> presets can currently be neither applied
+                        directly nor added to Mirror Favorites — the raw female model mapping is not
+                        yet verified, so either operation would risk a scrambled look and a lost tattoo.
                     </p>
                     <p>Preset: <strong>{typeBWarning.split(',')[0].trim()}</strong></p>
-                    <p>Use <strong>Apply to Character</strong> instead, or create the preset directly in-game.</p>
+                    <p>Create the preset directly in-game instead.</p>
                 </WarningModal>
             )}
         </div>

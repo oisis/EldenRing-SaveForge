@@ -104,6 +104,13 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 		return fmt.Errorf("preset %q not found", presetName)
 	}
 
+	// Type B (BodyType == 0) cannot be applied directly yet: the raw female
+	// model mapping is unverified, so applying would risk a scrambled look and a
+	// lost tattoo. Reject before touching Undo or the slot.
+	if preset.BodyType == 0 {
+		return fmt.Errorf("preset %q is Type B and cannot be applied yet: verified raw model mapping is missing", presetName)
+	}
+
 	a.slotMu[charIndex].Lock()
 	defer a.slotMu[charIndex].Unlock()
 

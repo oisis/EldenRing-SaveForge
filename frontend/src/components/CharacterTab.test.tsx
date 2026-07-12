@@ -107,9 +107,45 @@ describe('CharacterTab — Undo last Mirror change', () => {
     });
 });
 
+describe('CharacterTab — Apply blocked for Type B', () => {
+    const PRESETS = [
+        { name: 'Geralt of Rivia', image: '', bodyType: 'Type A' },
+        { name: 'Ciri of Cintra', image: '', bodyType: 'Type B' },
+    ];
+
+    it('does not call ApplyPresetToCharacter for a Type B preset and shows a warning', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
+        renderTab();
+        await openAppearance();
+
+        const typeBApply = await screen.findByTitle('Type B cannot be applied yet');
+        fireEvent.click(typeBApply);
+
+        await waitFor(() => expect(screen.getByText(/Type B not supported yet/i)).toBeTruthy());
+        expect(mocks.ApplyPresetToCharacter).not.toHaveBeenCalled();
+    });
+
+    it('applies a Type A preset normally (not blocked)', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
+        mocks.ApplyPresetToCharacter.mockResolvedValue(undefined);
+        renderTab();
+        await openAppearance();
+
+        const typeAApply = await screen.findByTitle('Apply appearance to current character');
+        fireEvent.click(typeAApply);
+
+        await waitFor(() => expect(mocks.ApplyPresetToCharacter).toHaveBeenCalledWith(0, 'Geralt of Rivia'));
+    });
+});
+
 describe('CharacterTab — Mirror Favorites labels after reload', () => {
     it('labels a named slot with the preset name and an unnamed active slot as "In-game favorite" (never "N/A")', async () => {
         mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        // clearAllMocks keeps implementations, so reset the preset list a sibling
+        // test may have populated — otherwise its card duplicates the slot label.
+        mocks.ListAppearancePresets.mockResolvedValue([]);
         // After a save reload favSlotNames is empty (name ''), so slot 2 has no
         // session name; slot 5 was written this session and keeps its name.
         mocks.GetFavoritesStatus.mockResolvedValue([
