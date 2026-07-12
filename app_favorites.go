@@ -242,6 +242,11 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 				}
 				binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+(off*4):], uint32(val))
 			}
+			// FaceModel (index 0) was previously omitted entirely, so the
+			// first Model ID stayed 0 in every written slot regardless of the
+			// preset's non-zero FaceModel. Write it through the same UI->PartsId
+			// (UI-1) encoding as every other Type A model for consistency.
+			writeModel(0, preset.FaceModel)
 			// Hair: lookup table first, fallback to UI-1 for unmapped styles
 			if partsId, ok := data.LookupMaleHairPartsID(preset.HairModel); ok {
 				binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+1*4:], uint32(partsId))
