@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-07-12
+
+### fix(workspace): refine Sort Order navigation, scrolling, and default grouping
+
+`Game Items → Weapons & Sort Order` is renamed to `Game Items → Sort Order`.
+The Inventory and Storage grids now advance exactly one 5×6 card per wheel
+gesture instead of occasionally skipping two cards.
+
+Selecting `Default` in the shared Sort control now actively restores a grouped
+weapon order in both grids: melee armaments, shields, then ranged weapons and
+catalysts; known weapon classes remain contiguous within each section.
+
 ## [1.3.0] - 2026-07-11
 
 ### feat(workspace): card-based item ordering and atomic shared sorting
