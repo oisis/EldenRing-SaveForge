@@ -97,7 +97,7 @@ const WEAPON_SUBCATEGORY_ORDER: Record<string, number> = Object.fromEntries(
         'Halberds', 'Reapers', 'Whips', 'Fists', 'Hand-to-Hand', 'Claws', 'Beast Claws',
         'Colossal Weapons', 'Perfume Bottles',
         // shields
-        'Torches', 'Small Shields', 'Medium Shields', 'Greatshields',
+        'Torches', 'Small Shields', 'Medium Shields', 'Greatshields', 'Thrusting Shields',
         // ranged_and_catalysts
         'Bows', 'Light Bows', 'Greatbows', 'Crossbows', 'Ballistas', 'Glintstone Staffs', 'Sacred Seals',
     ].map((name, idx) => [name, idx]),
