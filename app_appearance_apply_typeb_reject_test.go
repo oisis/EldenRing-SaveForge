@@ -58,3 +58,37 @@ func TestApplyPresetToCharacter_TypeB_Rejected(t *testing.T) {
 		t.Errorf("undo depth = %d, want 0 (no snapshot on rejection)", d)
 	}
 }
+
+// TestSetCharacterGender_TypeB_Rejected verifies that switching a character to
+// Type B (female) is refused before any Undo snapshot or slot mutation, so the
+// unverified female model fallback can never reach the save (A4c). Switching to
+// Type A (male) is left untouched by this guard.
+func TestSetCharacterGender_TypeB_Rejected(t *testing.T) {
+	const charIdx = 0
+
+	app := &App{save: &core.SaveFile{}}
+	slotData := make([]byte, core.FaceDataBlobSize)
+	app.save.Slots[charIdx] = core.SaveSlot{
+		Data:           slotData,
+		FaceDataOffset: core.FaceDataBlobSize, // → FaceDataStart() == 0
+	}
+	app.save.Slots[charIdx].Player.Gender = 1 // Type A; must stay untouched
+
+	err := app.SetCharacterGender(charIdx, 0) // 0 = female / Type B
+	if err == nil {
+		t.Fatal("SetCharacterGender(female) = nil, want rejection error")
+	}
+	if !strings.Contains(err.Error(), "Type B") {
+		t.Errorf("error = %q, want mention of Type B", err)
+	}
+
+	if !bytes.Equal(app.save.Slots[charIdx].Data, make([]byte, core.FaceDataBlobSize)) {
+		t.Error("slot Data was modified by a rejected female gender switch")
+	}
+	if g := app.save.Slots[charIdx].Player.Gender; g != 1 {
+		t.Errorf("gender = %d, want 1 (unchanged)", g)
+	}
+	if d := len(app.undoStacks[charIdx]); d != 0 {
+		t.Errorf("undo depth = %d, want 0 (no snapshot on rejection)", d)
+	}
+}

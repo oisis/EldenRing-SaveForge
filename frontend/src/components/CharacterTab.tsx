@@ -139,6 +139,14 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
     const handleGenderChange = async (targetGender: number) => {
         if (!char) return;
+        // Type B (female) switch would write the unverified female model fallback —
+        // the backend rejects it. Block before the call and warn; the controlled
+        // select stays on the current body type because char.gender is unchanged.
+        if (targetGender === 0) {
+            toast.error('Type B (female) body type is not supported yet — raw model mapping is not verified.');
+            setTypeBWarning('body type');
+            return;
+        }
         try {
             await SetCharacterGender(charIndex, targetGender);
             const updated = await GetCharacter(charIndex);
@@ -635,11 +643,11 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
             {typeBWarning && (
                 <WarningModal title="Type B not supported yet" onClose={() => setTypeBWarning(null)}>
                     <p>
-                        <strong>Type B (female)</strong> presets can currently be neither applied
-                        directly nor added to Mirror Favorites — the raw female model mapping is not
-                        yet verified, so either operation would risk a scrambled look and a lost tattoo.
+                        <strong>Type B (female)</strong> is not supported yet — presets can be neither
+                        applied directly nor added to Mirror Favorites, and the body type cannot be
+                        switched to female. The raw female model mapping is not yet verified, so any of
+                        these would risk a scrambled look and a lost tattoo.
                     </p>
-                    <p>Preset: <strong>{typeBWarning.split(',')[0].trim()}</strong></p>
                     <p>Create the preset directly in-game instead.</p>
                 </WarningModal>
             )}

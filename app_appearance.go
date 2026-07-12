@@ -139,6 +139,12 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 	if targetGender > 1 {
 		return fmt.Errorf("invalid gender: 0=female, 1=male")
 	}
+	// Switching to Type B (female) would write the unverified female model
+	// fallback, producing a scrambled look — the same hazard A4a blocks in
+	// ApplyPresetToCharacter. Reject before touching Undo or the slot.
+	if targetGender == 0 {
+		return fmt.Errorf("switching to Type B (female) is not supported yet: verified raw model mapping is missing")
+	}
 	a.slotMu[charIndex].Lock()
 	defer a.slotMu[charIndex].Unlock()
 

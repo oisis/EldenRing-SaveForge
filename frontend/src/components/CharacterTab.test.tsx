@@ -140,6 +140,38 @@ describe('CharacterTab — Apply blocked for Type B', () => {
     });
 });
 
+describe('CharacterTab — Body Type switch blocked for Type B', () => {
+    function bodyTypeSelect() {
+        return screen.getByRole('option', { name: 'Type B (Female)' }).closest('select') as HTMLSelectElement;
+    }
+
+    it('does not call SetCharacterGender when switching to Type B and shows a warning', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        // Start on Type A so selecting Type B is an actual value change.
+        mocks.GetCharacter.mockResolvedValue({ ...MOCK_CHAR, gender: 1 });
+        renderTab();
+
+        fireEvent.click(await screen.findByText('Profile'));
+        fireEvent.change(bodyTypeSelect(), { target: { value: '0' } });
+
+        await waitFor(() => expect(screen.getByText(/Type B not supported yet/i)).toBeTruthy());
+        expect(mocks.SetCharacterGender).not.toHaveBeenCalled();
+    });
+
+    it('still switches to Type A (male) normally', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        // Start on Type B so selecting Type A is an actual value change.
+        mocks.GetCharacter.mockResolvedValue({ ...MOCK_CHAR, gender: 0 });
+        mocks.SetCharacterGender.mockResolvedValue(undefined);
+        renderTab();
+
+        fireEvent.click(await screen.findByText('Profile'));
+        fireEvent.change(bodyTypeSelect(), { target: { value: '1' } });
+
+        await waitFor(() => expect(mocks.SetCharacterGender).toHaveBeenCalledWith(0, 1));
+    });
+});
+
 describe('CharacterTab — Mirror Favorites labels after reload', () => {
     it('labels a named slot with the preset name and an unnamed active slot as "In-game favorite" (never "N/A")', async () => {
         mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
