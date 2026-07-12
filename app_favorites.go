@@ -65,15 +65,23 @@ func (a *App) RemoveFavoritePreset(slotIndex int) error {
 		return fmt.Errorf("slot offset out of bounds")
 	}
 
+	// Empty slot: removing it is a no-op, so it must NOT create an undo step
+	// (an empty snapshot would let a later Undo look like it did something).
+	if string(ud[off+core.FavOffMagic:off+core.FavOffMagic+4]) != "FACE" {
+		return nil
+	}
+
+	// Snapshot the pre-removal state (after all validations, right before the
+	// mutation) and push it so RemoveFavoritePreset is undoable too. The shared
+	// favUndoStack keeps Add and Remove chronological: Add→Remove→Undo restores
+	// the removed entry first, a second Undo reverts the earlier Add.
+	a.pushFavUndoLocked(a.buildFavSnapshotLocked())
+
 	// Zero out the entire slot
 	for i := 0; i < core.FavSlotSize; i++ {
 		ud[off+i] = 0
 	}
 	delete(a.favSlotNames, slotIndex)
-	// Removing a slot changes the favorites state out from under any pending
-	// Add-undo snapshot, so replaying that snapshot could resurrect this entry.
-	// Invalidate the undo stack; remove is not itself undoable here (Task A2).
-	a.favUndoStack = nil
 	return nil
 }
 

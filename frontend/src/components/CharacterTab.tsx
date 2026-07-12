@@ -86,10 +86,10 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         GetFavoritesUndoDepth().then(setFavUndoDepth).catch(() => {});
     };
 
-    const handleUndoMirrorAdd = async () => {
+    const handleUndoMirrorChange = async () => {
         try {
             await RevertFavorites();
-            toast.success('Undid last Mirror add');
+            toast.success('Undid last Mirror change');
             refreshFavStatus();
         } catch (e) { toast.error("" + e); }
     };
@@ -591,10 +591,10 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
                     {favUndoDepth > 0 && (
                         <div className="pt-3">
-                            <button onClick={handleUndoMirrorAdd}
+                            <button onClick={handleUndoMirrorChange}
                                 className="text-[10px] font-bold uppercase tracking-widest text-amber-400 hover:text-amber-300 transition-colors border border-amber-400/40 rounded-md px-3 py-1.5"
-                                title="Revert the last preset(s) added to Mirror Favorites">
-                                Undo last Mirror add ({favUndoDepth})
+                                title="Revert the last Mirror Favorites change (add or remove)">
+                                Undo last Mirror change ({favUndoDepth})
                             </button>
                         </div>
                     )}

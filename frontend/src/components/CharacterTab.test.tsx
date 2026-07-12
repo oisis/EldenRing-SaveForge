@@ -83,13 +83,13 @@ afterEach(() => {
     localStorage.clear();
 });
 
-describe('CharacterTab — Undo last Mirror add', () => {
+describe('CharacterTab — Undo last Mirror change', () => {
     it('hides the Undo button when favorites undo depth is 0', async () => {
         mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         renderTab();
         await openAppearance();
         await waitFor(() => expect(mocks.GetFavoritesUndoDepth).toHaveBeenCalled());
-        expect(screen.queryByText(/Undo last Mirror add/i)).toBeNull();
+        expect(screen.queryByText(/Undo last Mirror change/i)).toBeNull();
     });
 
     it('shows the Undo button with the depth count and calls RevertFavorites on click', async () => {
@@ -97,7 +97,7 @@ describe('CharacterTab — Undo last Mirror add', () => {
         renderTab();
         await openAppearance();
 
-        const btn = await screen.findByText(/Undo last Mirror add \(2\)/i);
+        const btn = await screen.findByText(/Undo last Mirror change \(2\)/i);
         expect(btn).toBeTruthy();
 
         fireEvent.click(btn);

@@ -87,13 +87,50 @@ func TestRevertFavorites_UndoesAdd(t *testing.T) {
 	}
 }
 
-// TestRemoveFavorite_InvalidatesAddUndo proves that removing a Mirror slot
-// invalidates a pending Add-undo snapshot: replaying it could otherwise
-// resurrect the removed entry. Remove itself is not undoable (Task A2).
-func TestRemoveFavorite_InvalidatesAddUndo(t *testing.T) {
+// TestRemoveFavorite_EmptySlotIsNoOp proves that removing an empty Mirror slot
+// changes nothing and creates no undo step.
+func TestRemoveFavorite_EmptySlotIsNoOp(t *testing.T) {
+	app, _ := realSaveAppForSave(t)
+
+	// Find an empty slot (no FACE magic).
+	favLen := core.FavSlotCount * core.FavSlotSize
+	ud := app.save.UserData10.Data
+	emptyIdx := -1
+	for s := 0; s < core.FavSlotCount; s++ {
+		off := core.FavBaseOffset + s*core.FavSlotSize
+		if string(ud[off+core.FavOffMagic:off+core.FavOffMagic+4]) != "FACE" {
+			emptyIdx = s
+			break
+		}
+	}
+	if emptyIdx < 0 {
+		t.Skip("no empty Mirror slot available in fixture")
+	}
+
+	before := make([]byte, favLen)
+	copy(before, ud[core.FavBaseOffset:core.FavBaseOffset+favLen])
+
+	if err := app.RemoveFavoritePreset(emptyIdx); err != nil {
+		t.Fatalf("RemoveFavoritePreset on empty slot: %v", err)
+	}
+
+	after := app.save.UserData10.Data[core.FavBaseOffset : core.FavBaseOffset+favLen]
+	if !bytes.Equal(before, after) {
+		t.Fatal("removing an empty slot changed the favorites bytes")
+	}
+	if got := app.GetFavoritesUndoDepth(); got != 0 {
+		t.Fatalf("undo depth = %d after empty-slot remove, want 0", got)
+	}
+}
+
+// TestRevertFavorites_AddRemoveIsChronological proves that Add and Remove share
+// one chronological undo history: Add→Remove→Undo restores the removed entry
+// (exact bytes + name), a second Undo reverts the earlier Add, and the stack
+// depth walks 0 → 1 → 2 → 1 → 0.
+func TestRevertFavorites_AddRemoveIsChronological(t *testing.T) {
 	app, idx := realSaveAppForSave(t)
 
-	const testName = "A2 Remove Invalidates Undo Preset"
+	const testName = "A2b Add-Remove Chronological Preset"
 
 	orig := data.Presets
 	data.Presets = append(append([]data.AppearancePreset{}, orig...), data.AppearancePreset{
@@ -103,6 +140,18 @@ func TestRemoveFavorite_InvalidatesAddUndo(t *testing.T) {
 	})
 	t.Cleanup(func() { data.Presets = orig })
 
+	favLen := core.FavSlotCount * core.FavSlotSize
+	region := func() []byte {
+		return app.save.UserData10.Data[core.FavBaseOffset : core.FavBaseOffset+favLen]
+	}
+
+	// State 0: before any change.
+	if got := app.GetFavoritesUndoDepth(); got != 0 {
+		t.Fatalf("undo depth = %d at start, want 0", got)
+	}
+	beforeAdd := append([]byte{}, region()...)
+
+	// Add → depth 1.
 	written, err := app.WriteSelectedToFavorites(idx, []string{testName})
 	if err != nil {
 		t.Fatalf("WriteSelectedToFavorites: %v", err)
@@ -111,10 +160,9 @@ func TestRemoveFavorite_InvalidatesAddUndo(t *testing.T) {
 		t.Fatalf("WriteSelectedToFavorites wrote %d presets, want 1", written)
 	}
 	if got := app.GetFavoritesUndoDepth(); got != 1 {
-		t.Fatalf("favorites undo depth = %d after Add, want 1", got)
+		t.Fatalf("undo depth = %d after Add, want 1", got)
 	}
 
-	// Locate and remove the slot the Add landed in.
 	slotIdx := -1
 	for i, name := range app.favSlotNames {
 		if name == testName {
@@ -125,25 +173,45 @@ func TestRemoveFavorite_InvalidatesAddUndo(t *testing.T) {
 	if slotIdx < 0 {
 		t.Fatal("written preset not found in favSlotNames")
 	}
+	afterAdd := append([]byte{}, region()...)
+
+	// Remove → depth 2.
 	if err := app.RemoveFavoritePreset(slotIdx); err != nil {
 		t.Fatalf("RemoveFavoritePreset: %v", err)
 	}
+	if got := app.GetFavoritesUndoDepth(); got != 2 {
+		t.Fatalf("undo depth = %d after Remove, want 2", got)
+	}
+	if _, ok := app.favSlotNames[slotIdx]; ok {
+		t.Fatal("name still present right after Remove")
+	}
 
-	// Remove must have invalidated the Add-undo snapshot.
+	// Undo #1 → restores the removed entry exactly; depth 1.
+	if err := app.RevertFavorites(); err != nil {
+		t.Fatalf("RevertFavorites #1: %v", err)
+	}
+	if got := app.GetFavoritesUndoDepth(); got != 1 {
+		t.Fatalf("undo depth = %d after Undo #1, want 1", got)
+	}
+	if !bytes.Equal(afterAdd, region()) {
+		t.Fatal("Undo #1 did not restore the exact pre-Remove bytes")
+	}
+	if app.favSlotNames[slotIdx] != testName {
+		t.Fatalf("Undo #1 did not restore the entry name: got %q", app.favSlotNames[slotIdx])
+	}
+
+	// Undo #2 → reverts the earlier Add; depth 0.
+	if err := app.RevertFavorites(); err != nil {
+		t.Fatalf("RevertFavorites #2: %v", err)
+	}
 	if got := app.GetFavoritesUndoDepth(); got != 0 {
-		t.Fatalf("favorites undo depth = %d after remove, want 0", got)
+		t.Fatalf("undo depth = %d after Undo #2, want 0", got)
 	}
-
-	// RevertFavorites must refuse — the removed entry stays removed.
-	err = app.RevertFavorites()
-	if err == nil {
-		t.Fatal("RevertFavorites succeeded after remove, want error")
+	if !bytes.Equal(beforeAdd, region()) {
+		t.Fatal("Undo #2 did not restore the pre-Add bytes")
 	}
-	if err.Error() != "nothing to undo for favorites" {
-		t.Fatalf("RevertFavorites error = %q, want %q", err.Error(), "nothing to undo for favorites")
-	}
-	if app.favSlotNames[slotIdx] == testName {
-		t.Fatal("removed entry was resurrected after failed undo")
+	if _, ok := app.favSlotNames[slotIdx]; ok {
+		t.Fatal("Undo #2 left the added name in place")
 	}
 }
 
