@@ -568,7 +568,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                 {usedSafeSlots.map(s => (
                                     <div key={s.index} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-1.5">
                                         <div className="flex flex-col leading-tight min-w-[40px]">
-                                            <span className="text-[10px] font-bold uppercase tracking-wider">{s.name ? s.name.split(',')[0].trim() : 'N/A'}</span>
+                                            <span className="text-[10px] font-bold uppercase tracking-wider">{s.name ? s.name.split(',')[0].trim() : 'In-game favorite'}</span>
                                             <span className="text-[9px] text-muted-foreground">Slot {s.index + 1}</span>
                                         </div>
                                         <button onClick={() => handleApplyFromMirror(s.index)}

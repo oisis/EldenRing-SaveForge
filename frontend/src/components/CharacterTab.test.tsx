@@ -106,3 +106,24 @@ describe('CharacterTab — Undo last Mirror change', () => {
         await waitFor(() => expect(mocks.GetFavoritesUndoDepth.mock.calls.length).toBeGreaterThan(1));
     });
 });
+
+describe('CharacterTab — Mirror Favorites labels after reload', () => {
+    it('labels a named slot with the preset name and an unnamed active slot as "In-game favorite" (never "N/A")', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        // After a save reload favSlotNames is empty (name ''), so slot 2 has no
+        // session name; slot 5 was written this session and keeps its name.
+        mocks.GetFavoritesStatus.mockResolvedValue([
+            { index: 2, active: true, safe: true, name: '' },
+            { index: 5, active: true, safe: true, name: 'Geralt of Rivia, the Witcher' },
+        ]);
+        renderTab();
+        await openAppearance();
+
+        // Unnamed active slot → honest fallback label, not "N/A".
+        expect(await screen.findByText('In-game favorite')).toBeTruthy();
+        expect(screen.queryByText('N/A')).toBeNull();
+
+        // Named slot keeps the real preset name (first segment before comma).
+        expect(screen.getByText('Geralt of Rivia')).toBeTruthy();
+    });
+});
