@@ -1035,6 +1035,7 @@ export namespace editor {
 	    baseItemID: number;
 	    name: string;
 	    category: string;
+	    subCategory?: string;
 	    quantity: number;
 	    acquisitionIndex: number;
 	    weight?: number;
@@ -1079,6 +1080,7 @@ export namespace editor {
 	        this.baseItemID = source["baseItemID"];
 	        this.name = source["name"];
 	        this.category = source["category"];
+	        this.subCategory = source["subCategory"];
 	        this.quantity = source["quantity"];
 	        this.acquisitionIndex = source["acquisitionIndex"];
 	        this.weight = source["weight"];

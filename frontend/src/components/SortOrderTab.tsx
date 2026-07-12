@@ -45,7 +45,15 @@ const FRAME_WIDTH_PX = GRID_COLS * CELL_PX + (GRID_COLS - 1) * GAP_PX + 2 * PAD_
 // card-by-card. CARD_STEP is the scroll distance between consecutive card starts
 // (card height + the gap that separates stacked cards).
 const CARD_HEIGHT_PX = GRID_MIN_ROWS * CELL_PX + (GRID_MIN_ROWS - 1) * GAP_PX;
-const CARD_STEP_PX = CARD_HEIGHT_PX + GAP_PX;
+export const CARD_STEP_PX = CARD_HEIGHT_PX + GAP_PX;
+// A physical wheel gesture fires a burst of events whose momentum tail can run
+// for hundreds of ms. WHEEL_IDLE_MS is the quiet gap that marks the gesture as
+// truly finished; it is reset by every event, so the tail keeps the lock held.
+const WHEEL_IDLE_MS = 140;
+// Fallback for engines that never emit `scrollend`: mark the smooth scroll
+// settled well after it would have finished. Release still waits for the idle
+// gap too, so this can never expire mid-scroll and cause a double-step.
+const WHEEL_SETTLE_FALLBACK_MS = 700;
 const AUTO_SCROLL_EDGE_PX = 44;
 const AUTO_SCROLL_INITIAL_DELAY_MS = 260;
 const AUTO_SCROLL_REPEAT_MS = 360;
@@ -56,8 +64,55 @@ const FRAME_HEIGHT_PX = CARD_HEIGHT_PX + 2 * BORDER_PX;
 const GRID_TEMPLATE_COLUMNS = `repeat(${GRID_COLS}, ${CELL_PX}px)`;
 
 type SortOrderTabKey = 'weapons' | 'talismans' | 'head' | 'chest' | 'arms' | 'legs';
-type SortMode = 'acquisition-asc' | 'acquisition-desc' | 'weight-asc' | 'weight-desc' | 'type-asc' | 'type-desc';
+// 'default' is an internal, non-dropdown mode: it reproduces the in-game
+// section hierarchy (see sortEditableItems) and is what the "Default" ('')
+// dropdown choice maps to. The user-selectable modes are in SORT_MODE_OPTIONS.
+type SortMode =
+    | 'default'
+    | 'acquisition-asc' | 'acquisition-desc'
+    | 'weight-asc' | 'weight-desc'
+    | 'type-asc' | 'type-desc';
 type CardScrollDirection = -1 | 0 | 1;
+
+// In-game Weapons Sort Order hierarchy. Top-level section order is fixed
+// (melee, then shields, then ranged/catalysts) and deliberately NOT the
+// CategorySelect order. Within a section, items group by the canonical DB
+// SubCategory order below, then by regulation sortGroupId/sortId.
+const WEAPON_CATEGORY_ORDER: Record<string, number> = {
+    melee_armaments: 0,
+    shields: 1,
+    ranged_and_catalysts: 2,
+};
+// Canonical sub-category order, mirroring backend/db/data/subcategories.go
+// declaration order. Each item's subCategory VALUE comes from the DB via the
+// workspace snapshot; only the ordering of the known groups lives here (we do
+// not infer subcategories from names in the frontend).
+const WEAPON_SUBCATEGORY_ORDER: Record<string, number> = Object.fromEntries(
+    [
+        // melee_armaments
+        'Daggers', 'Throwing Blades', 'Straight Swords', 'Light Greatswords', 'Greatswords',
+        'Colossal Swords', 'Thrusting Swords', 'Heavy Thrusting Swords', 'Curved Swords',
+        'Curved Greatswords', 'Backhand Blades', 'Katanas', 'Great Katanas', 'Twinblades',
+        'Axes', 'Greataxes', 'Hammers', 'Great Hammers', 'Flails', 'Spears', 'Great Spears',
+        'Halberds', 'Reapers', 'Whips', 'Fists', 'Hand-to-Hand', 'Claws', 'Beast Claws',
+        'Colossal Weapons', 'Perfume Bottles',
+        // shields
+        'Torches', 'Small Shields', 'Medium Shields', 'Greatshields',
+        // ranged_and_catalysts
+        'Bows', 'Light Bows', 'Greatbows', 'Crossbows', 'Ballistas', 'Glintstone Staffs', 'Sacred Seals',
+    ].map((name, idx) => [name, idx]),
+);
+// Unknown/missing category or subcategory sorts deterministically AFTER every
+// known group, never interleaved.
+const RANK_AFTER_KNOWN = Number.MAX_SAFE_INTEGER;
+
+function categoryRank(category: string): number {
+    return WEAPON_CATEGORY_ORDER[category] ?? RANK_AFTER_KNOWN;
+}
+function subCategoryRank(subCategory: string | undefined): number {
+    if (!subCategory) return RANK_AFTER_KNOWN;
+    return WEAPON_SUBCATEGORY_ORDER[subCategory] ?? RANK_AFTER_KNOWN;
+}
 
 // Returns the requested card direction only when the pointer is inside a
 // frame edge zone and there is another card in that direction.
@@ -448,17 +503,19 @@ export function SortOrderTab({ charIndex, inventoryVersion, onMutate }: Props) {
         if (ok) toast.success('Inventory sorted.');
     };
 
-    // Single entry point for the shared Sort select. Persists the chosen label,
-    // treats 'Default' ('') as no reorder, and blocks overlapping runs (ref for
-    // the synchronous guard, state to visibly disable the select while running).
+    // Single entry point for the shared Sort select. Persists the chosen label
+    // and blocks overlapping runs (ref for the synchronous guard, state to
+    // visibly disable the select while running). 'Default' ('') actively
+    // restores the in-game weapon section hierarchy via the 'default' sort
+    // (category → sub-category → regulation order), NOT acquisition/pickup
+    // order and NOT a flat regulation sort.
     const onSortModeChange = async (mode: SortMode | '') => {
         if (sortInFlightRef.current) return; // ignore while a sort is committing
         setSortMode(mode);
-        if (!mode) return; // Default — no active sort choice, no reorder
         sortInFlightRef.current = true;
         setSortInFlight(true);
         try {
-            await applySortBoth(mode);
+            await applySortBoth(mode === '' ? 'default' : mode);
         } finally {
             sortInFlightRef.current = false;
             setSortInFlight(false);
@@ -845,6 +902,11 @@ function Frame({ container, dragSource, isCrossDropTarget, onDragOver, onDragLea
     // Guards against a single trackpad gesture (many wheel events) skipping
     // multiple cards — we consume one card per notch, then ignore the burst.
     const lockRef = useRef(false);
+    // The card index the wheel is currently animating toward. While a smooth
+    // scroll is still settling, the next notch steps from this target instead
+    // of the mid-animation scrollTop — otherwise a half-finished scroll rounds
+    // to the target and the next step overshoots by a whole card.
+    const wheelTargetRef = useRef<number | null>(null);
     const autoScrollStartRef = useRef<number | null>(null);
     const autoScrollRepeatRef = useRef<number | null>(null);
     const autoScrollDirectionRef = useRef<CardScrollDirection>(0);
@@ -902,24 +964,62 @@ function Frame({ container, dragSource, isCrossDropTarget, onDragOver, onDragLea
         // Native non-passive listener: React's onWheel is passive, so
         // preventDefault would be ignored there. scroll-snap (CSS below) is the
         // safety fallback if this handler is bypassed.
+        // One physical gesture (momentum tail included) pages exactly one card.
+        // We lock on the leading event and only re-open once the smooth scroll
+        // has actually landed (scrollend) AND the momentum has gone quiet — never
+        // on a bare timeout, which can expire mid-scroll and let a late momentum
+        // event page a second card.
+        let settled = true;   // no scroll currently in flight
+        let idle = true;      // no recent wheel events
+        let idleTimer: number | null = null;
+        let settleFallback: number | null = null;
+        const clearSettleFallback = () => {
+            if (settleFallback !== null) { window.clearTimeout(settleFallback); settleFallback = null; }
+        };
+        const releaseIfDone = () => {
+            if (settled && idle) {
+                lockRef.current = false;
+                wheelTargetRef.current = null;
+            }
+        };
         const onWheel = (e: WheelEvent) => {
             const maxScroll = el.scrollHeight - el.clientHeight;
             if (maxScroll <= 0) return; // single card — nothing to page
             const dir = e.deltaY > 0 ? 1 : e.deltaY < 0 ? -1 : 0;
             if (dir === 0) return;
-            const atTop = el.scrollTop <= 1;
-            const atBottom = el.scrollTop >= maxScroll - 1;
+            const maxCard = Math.round(maxScroll / CARD_STEP_PX);
+            // Step from the in-flight target if a scroll is still settling, else
+            // from the current resting card.
+            const base = wheelTargetRef.current ?? Math.round(el.scrollTop / CARD_STEP_PX);
             // At the ends, don't trap the user — let the outer page scroll.
-            if ((dir < 0 && atTop) || (dir > 0 && atBottom)) return;
+            if ((dir < 0 && base <= 0) || (dir > 0 && base >= maxCard)) return;
             e.preventDefault();
-            if (lockRef.current) return;
+            // Every event (leading or momentum) keeps the gesture "active". The
+            // idle timer is what eventually re-opens the lock, and the momentum
+            // tail keeps resetting it, so it can never sneak in a second step.
+            idle = false;
+            if (idleTimer !== null) window.clearTimeout(idleTimer);
+            idleTimer = window.setTimeout(() => { idle = true; releaseIfDone(); }, WHEEL_IDLE_MS);
+            if (lockRef.current) return; // gesture already handled; swallow momentum
             lockRef.current = true;
-            const current = Math.round(el.scrollTop / CARD_STEP_PX);
-            el.scrollTo({ top: (current + dir) * CARD_STEP_PX, behavior: 'smooth' });
-            window.setTimeout(() => { lockRef.current = false; }, 180);
+            settled = false;
+            const next = Math.max(0, Math.min(maxCard, base + dir));
+            wheelTargetRef.current = next;
+            el.scrollTo({ top: next * CARD_STEP_PX, behavior: 'smooth' });
+            clearSettleFallback();
+            settleFallback = window.setTimeout(() => { settled = true; releaseIfDone(); }, WHEEL_SETTLE_FALLBACK_MS);
         };
+        // Smooth scroll landed — mark settled and try to re-open (still gated on
+        // the momentum having gone quiet).
+        const onScrollEnd = () => { settled = true; clearSettleFallback(); releaseIfDone(); };
         el.addEventListener('wheel', onWheel, { passive: false });
-        return () => el.removeEventListener('wheel', onWheel);
+        el.addEventListener('scrollend', onScrollEnd);
+        return () => {
+            el.removeEventListener('wheel', onWheel);
+            el.removeEventListener('scrollend', onScrollEnd);
+            if (idleTimer !== null) window.clearTimeout(idleTimer);
+            clearSettleFallback();
+        };
     }, []);
 
     useEffect(() => () => {
@@ -1164,19 +1264,16 @@ function sortEditableItems(items: editor.EditableItem[], mode: SortMode): editor
                 if (wb === 0) return -1;
                 return wb - wa || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
             });
+        case 'default':
+            // In-game section hierarchy: category (melee → shields → ranged),
+            // then canonical sub-category order, then regulation order within a
+            // sub-category. Unknown category/subcategory ranks sort after known.
+            return arr.sort((a, b) =>
+                categoryRank(a.category) - categoryRank(b.category)
+                || subCategoryRank(a.subCategory) - subCategoryRank(b.subCategory)
+                || compareByRegulation(a, b));
         case 'type-asc':
-            return arr.sort((a, b) => {
-                const ga = a.sortGroupId ?? 0;
-                const gb = b.sortGroupId ?? 0;
-                const sa = a.sortId ?? 0;
-                const sb = b.sortId ?? 0;
-                if (ga === 0 && gb === 0 && sa === 0 && sb === 0) {
-                    return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
-                }
-                if (ga === 0 && sa === 0) return 1;
-                if (gb === 0 && sb === 0) return -1;
-                return ga - gb || sa - sb || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
-            });
+            return arr.sort(compareByRegulation);
         case 'type-desc':
             return arr.sort((a, b) => {
                 const ga = a.sortGroupId ?? 0;
@@ -1197,6 +1294,22 @@ function sortEditableItems(items: editor.EditableItem[], mode: SortMode): editor
 
 function cmpName(a: editor.EditableItem, b: editor.EditableItem): number {
     return a.name.localeCompare(b.name);
+}
+
+// Regulation ordering shared by 'type-asc' and 'default': ascending sortGroupId
+// then sortId, with items lacking both keys pushed to the end, and name /
+// acquisitionIndex as deterministic final tie-breakers.
+function compareByRegulation(a: editor.EditableItem, b: editor.EditableItem): number {
+    const ga = a.sortGroupId ?? 0;
+    const gb = b.sortGroupId ?? 0;
+    const sa = a.sortId ?? 0;
+    const sb = b.sortId ?? 0;
+    if (ga === 0 && gb === 0 && sa === 0 && sb === 0) {
+        return cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
+    }
+    if (ga === 0 && sa === 0) return 1;
+    if (gb === 0 && sb === 0) return -1;
+    return ga - gb || sa - sb || cmpName(a, b) || a.acquisitionIndex - b.acquisitionIndex;
 }
 
 // ── Confirm modal ─────────────────────────────────────────────────────────────

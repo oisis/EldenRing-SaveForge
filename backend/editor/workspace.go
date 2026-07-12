@@ -119,6 +119,12 @@ type EditableItem struct {
 	BaseItemID       uint32        `json:"baseItemID"`
 	Name             string        `json:"name"`
 	Category         string        `json:"category"`
+	// SubCategory is the canonical in-game weapon-class grouping (e.g.
+	// "Daggers", "Small Shields", "Bows"), sourced 1:1 from the DB
+	// ItemData.SubCategory. Empty for categories without sub-grouping. The
+	// Sort Order "Default" sort uses it to reproduce the in-game section
+	// hierarchy; it is never inferred from item names in the frontend.
+	SubCategory      string        `json:"subCategory,omitempty"`
 	Quantity         uint32        `json:"quantity"`
 	AcquisitionIndex uint32        `json:"acquisitionIndex"`
 	Weight           float64       `json:"weight,omitempty"`
@@ -424,6 +430,7 @@ func classifyRecord(slot *core.SaveSlot, container ContainerKind, slotIdx int, h
 		BaseItemID:       baseID,
 		Name:             itemData.Name,
 		Category:         itemData.Category,
+		SubCategory:      itemData.SubCategory,
 		Quantity:         qty,
 		AcquisitionIndex: acq,
 		Weight:           data.ItemWeights[baseID],

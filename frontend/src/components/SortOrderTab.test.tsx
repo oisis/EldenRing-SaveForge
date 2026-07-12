@@ -25,7 +25,7 @@ vi.mock('../lib/toast', () => {
 });
 
 import * as App from '../../wailsjs/go/main/App';
-import { SortOrderTab, buildSortOrderCards, getCardAutoScrollDirection } from './SortOrderTab';
+import { SortOrderTab, buildSortOrderCards, getCardAutoScrollDirection, CARD_STEP_PX } from './SortOrderTab';
 
 const mocks = App as unknown as Record<string, ReturnType<typeof vi.fn>>;
 
@@ -128,16 +128,80 @@ describe('SortOrderTab (workspace mode)', () => {
         expect((screen.getByLabelText('Sort') as HTMLSelectElement).value).toBe('weight-desc');
     });
 
-    it('selecting Default performs no reorder operation', async () => {
-        await mount(makeSnapshot({
-            inventory: [makeItem('hnd:0x80800001', 'inventory', 0), makeItem('hnd:0x80800002', 'inventory', 1)],
-        }));
+    it('selecting a non-default sort then Default reproduces the in-game section hierarchy (category → subCategory → regulation), NOT acquisitionIndex or a flat sortGroupId sort', async () => {
+        // Every axis is deliberately in conflict:
+        //   - acquisitionIndex ascending  → ranged first, melee last
+        //   - flat sortGroupId ascending  → ranged, then shields, then melee
+        //   - category order (Default)    → melee, then shields, then ranged
+        // subCategory then orders within a category (Daggers before Straight
+        // Swords; Small before Medium Shields; Bows before Light Bows) and
+        // sortId breaks ties within a subCategory (DggB before DggA).
+        type Spec = { tok: string; cat: string; sub: string; grp: number; sid: number; acq: number };
+        const specs: Spec[] = [
+            { tok: 'DggA', cat: 'melee_armaments',      sub: 'Daggers',         grp: 200, sid: 20, acq: 6 },
+            { tok: 'DggB', cat: 'melee_armaments',      sub: 'Daggers',         grp: 200, sid: 10, acq: 7 },
+            { tok: 'SS',   cat: 'melee_armaments',      sub: 'Straight Swords', grp: 210, sid: 5,  acq: 5 },
+            { tok: 'SmS',  cat: 'shields',              sub: 'Small Shields',   grp: 50,  sid: 5,  acq: 3 },
+            { tok: 'MdS',  cat: 'shields',              sub: 'Medium Shields',  grp: 60,  sid: 5,  acq: 4 },
+            { tok: 'Bow',  cat: 'ranged_and_catalysts', sub: 'Bows',            grp: 5,   sid: 5,  acq: 1 },
+            { tok: 'LBow', cat: 'ranged_and_catalysts', sub: 'Light Bows',      grp: 6,   sid: 5,  acq: 2 },
+        ];
+        // Canonical Default result: melee (Daggers by sortId, then Straight
+        // Swords), then shields (Small, Medium), then ranged (Bows, Light Bows).
+        const desiredToks = ['DggB', 'DggA', 'SS', 'SmS', 'MdS', 'Bow', 'LBow'];
+
+        const build = (container: 'inventory' | 'storage', base: number, tag: string) =>
+            specs.map((s, i) =>
+                makeItem(`hnd:0x${(base + i).toString(16).toUpperCase()}`, container, i, {
+                    name: `${tag} ${s.tok}`, category: s.cat, subCategory: s.sub,
+                    sortGroupId: s.grp, sortId: s.sid, acquisitionIndex: s.acq,
+                    isWeapon: s.cat === 'melee_armaments',
+                }),
+            );
+        const byToks = (items: editor.EditableItem[], tag: string, toks: string[]) =>
+            toks.map(t => items.find(it => it.name === `${tag} ${t}`)!);
+        const acqOrder = (items: editor.EditableItem[]) => [...items].sort((a, b) => a.acquisitionIndex - b.acquisitionIndex);
+
+        const inv = build('inventory', 0x80800001, 'Inv');
+        const sto = build('storage', 0x80800011, 'Sto');
+        const invDesired = byToks(inv, 'Inv', desiredToks);
+        const stoDesired = byToks(sto, 'Sto', desiredToks);
+
+        // First: acquisition-asc moves away from the hierarchy. Second: Default restores it.
+        mocks.ReorderInventoryWorkspaceItems
+            .mockResolvedValueOnce(makeSnapshot({ inventory: acqOrder(inv), storage: acqOrder(sto), dirty: true }))
+            .mockResolvedValueOnce(makeSnapshot({ inventory: invDesired, storage: stoDesired, dirty: true }));
+
+        await mount(makeSnapshot({ inventory: inv, storage: sto }));
+
+        await act(async () => {
+            fireEvent.change(screen.getByLabelText('Sort'), { target: { value: 'acquisition-asc' } });
+        });
+        await waitFor(() => expect(mocks.ReorderInventoryWorkspaceItems).toHaveBeenCalledTimes(1));
 
         await act(async () => {
             fireEvent.change(screen.getByLabelText('Sort'), { target: { value: '' } });
         });
 
-        expect(mocks.ReorderInventoryWorkspaceItems).not.toHaveBeenCalled();
+        // Default is NOT a no-op: it issues a reorder into the section hierarchy.
+        await waitFor(() => expect(mocks.ReorderInventoryWorkspaceItems).toHaveBeenCalledTimes(2));
+        const [, invUIDs, stoUIDs] = mocks.ReorderInventoryWorkspaceItems.mock.calls[1];
+        expect(invUIDs).toEqual(invDesired.map(it => it.uid));
+        expect(stoUIDs).toEqual(stoDesired.map(it => it.uid));
+        // Explicitly neither acquisition order nor a flat sortGroupId sort.
+        expect(invUIDs).not.toEqual(acqOrder(inv).map(it => it.uid));
+        const flatByGroup = [...inv].sort((a, b) => (a.sortGroupId ?? 0) - (b.sortGroupId ?? 0));
+        expect(invUIDs).not.toEqual(flatByGroup.map(it => it.uid));
+
+        // Grid renders contiguous, correctly ordered sections in both containers.
+        const expectOrder = (tag: string) => {
+            const nodes = desiredToks.map(t => screen.getByText(`${tag} ${t}`));
+            for (let i = 0; i < nodes.length - 1; i++) {
+                expect(nodes[i].compareDocumentPosition(nodes[i + 1]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+            }
+        };
+        await waitFor(() => expectOrder('Inv'));
+        await waitFor(() => expectOrder('Sto'));
     });
 
     // Five out-of-order items per container so sorting is a real permutation.
@@ -253,6 +317,64 @@ describe('SortOrderTab (workspace mode)', () => {
         expect(screen.queryByRole('button', { name: /^\+ Add$/i })).not.toBeInTheDocument();
         // The global Add item action remains.
         expect(screen.getByRole('button', { name: /Add Item/i })).toBeInTheDocument();
+    });
+
+    // 90 items → 3 cards, so a card step is clamped at neither end. Returns the
+    // frame element with faked layout metrics and a scrollTo spy.
+    function mountPagedFrame(): { frame: HTMLElement; scrollTo: ReturnType<typeof vi.fn> } {
+        const frame = screen.getByText('Sword 0').closest('[class*="overflow-y-auto"]') as HTMLElement;
+        Object.defineProperty(frame, 'clientHeight', { value: 100, configurable: true });
+        Object.defineProperty(frame, 'scrollHeight', { value: 100 + 2 * CARD_STEP_PX, configurable: true });
+        frame.scrollTop = 0;
+        const scrollTo = vi.fn();
+        frame.scrollTo = scrollTo as unknown as typeof frame.scrollTo;
+        return { frame, scrollTo };
+    }
+
+    it('a single mouse-wheel notch pages the frame exactly one 30-cell card', async () => {
+        const items = Array.from({ length: 90 }, (_, idx) =>
+            makeItem(`hnd:0x8080${idx.toString(16).padStart(4, '0')}`, 'inventory', idx),
+        );
+        await mount(makeSnapshot({ inventory: items }));
+        const { frame, scrollTo } = mountPagedFrame();
+
+        // One physical notch fires a burst of wheel events; they must coalesce
+        // into a single one-card step, never a 60-item / two-card jump.
+        await act(async () => {
+            fireEvent.wheel(frame, { deltaY: 120 });
+            fireEvent.wheel(frame, { deltaY: 120 });
+            fireEvent.wheel(frame, { deltaY: 120 });
+        });
+
+        expect(scrollTo).toHaveBeenCalledTimes(1);
+        expect(scrollTo).toHaveBeenCalledWith({ top: CARD_STEP_PX, behavior: 'smooth' });
+    });
+
+    it('a momentum wheel event that arrives after the old 180 ms lock — while the scroll is still between cards — does not page a second card', async () => {
+        const items = Array.from({ length: 90 }, (_, idx) =>
+            makeItem(`hnd:0x8080${idx.toString(16).padStart(4, '0')}`, 'inventory', idx),
+        );
+        await mount(makeSnapshot({ inventory: items }));
+        const { frame, scrollTo } = mountPagedFrame();
+
+        vi.useFakeTimers();
+        try {
+            // Leading event of the gesture starts a smooth move toward card 1.
+            fireEvent.wheel(frame, { deltaY: 120 });
+            expect(scrollTo).toHaveBeenCalledTimes(1);
+            expect(scrollTo).toHaveBeenCalledWith({ top: CARD_STEP_PX, behavior: 'smooth' });
+
+            // Time passes the old 180 ms lock window WITHOUT a scrollend — the
+            // smooth scroll has not settled (scrollTop still 0, between cards).
+            vi.advanceTimersByTime(220);
+
+            // A late momentum event from the SAME gesture arrives. It must be
+            // swallowed, not scheduled as card 2 / 60 items.
+            fireEvent.wheel(frame, { deltaY: 120 });
+            expect(scrollTo).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('reorders an item onto an empty cell on the trailing card (drops to the end)', async () => {

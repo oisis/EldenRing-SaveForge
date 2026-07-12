@@ -715,7 +715,7 @@ function App() {
                                                 {([
                                                     { id: 'database', label: 'Item Database' },
                                                     { id: 'inventory', label: 'Inventory' },
-                                                    { id: 'sort_order', label: 'Weapons & Sort Order' },
+                                                    { id: 'sort_order', label: 'Sort Order' },
                                                 ] as { id: 'database' | 'inventory' | 'sort_order'; label: string }[]).map(({ id, label }) => (
                                                     <button
                                                         key={id}

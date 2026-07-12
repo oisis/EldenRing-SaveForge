@@ -117,6 +117,19 @@ describe('App navigation wording', () => {
         expect(await screen.findByRole('button', { name: 'Inventory' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Equipment' })).not.toBeInTheDocument();
     });
+
+    it('labels the sort submenu view "Sort Order", not the legacy "Weapons & Sort Order"', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        await new Promise(r => setTimeout(r, 0));
+
+        fireEvent.click(screen.getByRole('button', { name: 'Game Items' }));
+        expect(await screen.findByRole('button', { name: 'Sort Order' })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: /Weapons & Sort Order/ })).not.toBeInTheDocument();
+    });
 });
 
 describe('App open-save button wording', () => {

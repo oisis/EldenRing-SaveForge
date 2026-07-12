@@ -96,6 +96,7 @@ func AddItem(snap *InventoryWorkspaceSnapshot, spec AddItemSpec, targetContainer
 		BaseItemID:       baseID,
 		Name:             itemData.Name,
 		Category:         itemData.Category,
+		SubCategory:      itemData.SubCategory,
 		Quantity:         qty,
 		AcquisitionIndex: 0,
 		Weight:           data.ItemWeights[baseID],

@@ -48,6 +48,20 @@ func TestAddItem_WeaponToEmptyInventory(t *testing.T) {
 	}
 }
 
+func TestAddItem_PopulatesSubCategory(t *testing.T) {
+	// The workspace snapshot must carry the canonical DB SubCategory so the
+	// frontend "Default" sort can reproduce the in-game section hierarchy
+	// without inferring subcategories from item names.
+	snap := mkSnap(0, 0)
+	if err := AddItem(snap, AddItemSpec{ItemID: idDagger}, ContainerInventory, 0); err != nil {
+		t.Fatalf("AddItem: %v", err)
+	}
+	it := snap.InventoryItems[0]
+	if it.SubCategory != "Daggers" {
+		t.Errorf("SubCategory = %q, want Daggers", it.SubCategory)
+	}
+}
+
 func TestAddItem_ArmorToStorage(t *testing.T) {
 	snap := mkSnap(0, 0)
 	if err := AddItem(snap, AddItemSpec{ItemID: idIronKasa, Quantity: 1}, ContainerStorage, 0); err != nil {
