@@ -1,0 +1,108 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// jsdom under an opaque origin may leave localStorage undefined; AccordionSection
+// reads/writes it for expand persistence. Provide a minimal in-memory stub.
+if (typeof globalThis.localStorage === 'undefined') {
+    const store = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', {
+        configurable: true,
+        value: {
+            getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
+            setItem: (k: string, v: string) => { store.set(k, String(v)); },
+            removeItem: (k: string) => { store.delete(k); },
+            clear: () => { store.clear(); },
+            key: (i: number) => Array.from(store.keys())[i] ?? null,
+            get length() { return store.size; },
+        },
+    });
+}
+
+// Minimal character view model — just the fields CharacterTab reads during
+// render, so the component gets past its `if (!char)` guard and mounts the
+// Appearance Presets accordion.
+const MOCK_CHAR = {
+    name: 'Tarnished', class: 'Vagabond', gender: 0, level: 1,
+    souls: 0, soulMemory: 0, clearCount: 0, memoryStones: 0, talismanSlots: 0,
+    vigor: 10, mind: 10, endurance: 10, strength: 10,
+    dexterity: 10, intelligence: 10, faith: 10, arcane: 10,
+    classBaseStats: {},
+};
+
+vi.mock('../../wailsjs/go/main/App', () => ({
+    GetCharacter: vi.fn(() => Promise.resolve(MOCK_CHAR)),
+    SaveCharacter: vi.fn(),
+    ListAppearancePresets: vi.fn(() => Promise.resolve([])),
+    ApplyMirrorFavoriteToCharacter: vi.fn(),
+    WriteSelectedToFavorites: vi.fn(),
+    GetFavoritesStatus: vi.fn(() => Promise.resolve([])),
+    RemoveFavoritePreset: vi.fn(),
+    GetStartingClasses: vi.fn(() => Promise.resolve([])),
+    SetCharacterGender: vi.fn(),
+    ApplyPresetToCharacter: vi.fn(),
+    GetFavoritesUndoDepth: vi.fn(),
+    RevertFavorites: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('../lib/toast', () => {
+    const fn = vi.fn() as unknown as Record<string, unknown> & ((...args: unknown[]) => void);
+    fn.success = vi.fn();
+    fn.error = vi.fn();
+    return { default: fn };
+});
+
+vi.mock('../state/safetyMode', () => ({
+    useSafetyMode: () => ({ enabled: false, tier: 0, setEnabled: vi.fn() }),
+}));
+
+import * as App from '../../wailsjs/go/main/App';
+import { CharacterTab } from './CharacterTab';
+
+const mocks = App as unknown as Record<string, ReturnType<typeof vi.fn>>;
+
+function renderTab() {
+    return render(
+        <CharacterTab
+            charIndex={0}
+            onMutate={vi.fn()}
+            addSettings={{} as never}
+            onAddSettingsChange={vi.fn()}
+            infuseTypes={[]}
+        />,
+    );
+}
+
+// Open the Appearance Presets accordion so its children (incl. the Undo button)
+// render — AccordionSection only mounts children when expanded.
+async function openAppearance() {
+    fireEvent.click(await screen.findByText('Appearance Presets'));
+}
+
+afterEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+});
+
+describe('CharacterTab — Undo last Mirror add', () => {
+    it('hides the Undo button when favorites undo depth is 0', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        renderTab();
+        await openAppearance();
+        await waitFor(() => expect(mocks.GetFavoritesUndoDepth).toHaveBeenCalled());
+        expect(screen.queryByText(/Undo last Mirror add/i)).toBeNull();
+    });
+
+    it('shows the Undo button with the depth count and calls RevertFavorites on click', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(2);
+        renderTab();
+        await openAppearance();
+
+        const btn = await screen.findByText(/Undo last Mirror add \(2\)/i);
+        expect(btn).toBeTruthy();
+
+        fireEvent.click(btn);
+        await waitFor(() => expect(mocks.RevertFavorites).toHaveBeenCalledTimes(1));
+        // Undo triggers a status refresh (favorites + depth) afterwards.
+        await waitFor(() => expect(mocks.GetFavoritesUndoDepth.mock.calls.length).toBeGreaterThan(1));
+    });
+});

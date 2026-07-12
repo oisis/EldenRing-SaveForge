@@ -214,6 +214,10 @@ export function GetFavoritesStatus() {
   return window['go']['main']['App']['GetFavoritesStatus']();
 }
 
+export function GetFavoritesUndoDepth() {
+  return window['go']['main']['App']['GetFavoritesUndoDepth']();
+}
+
 export function GetGestures(arg1) {
   return window['go']['main']['App']['GetGestures'](arg1);
 }
@@ -432,6 +436,10 @@ export function ResetNetworkParams() {
 
 export function RevealAllMap(arg1) {
   return window['go']['main']['App']['RevealAllMap'](arg1);
+}
+
+export function RevertFavorites() {
+  return window['go']['main']['App']['RevertFavorites']();
 }
 
 export function RevertSlot(arg1) {

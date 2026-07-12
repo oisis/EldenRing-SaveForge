@@ -70,6 +70,10 @@ func (a *App) RemoveFavoritePreset(slotIndex int) error {
 		ud[off+i] = 0
 	}
 	delete(a.favSlotNames, slotIndex)
+	// Removing a slot changes the favorites state out from under any pending
+	// Add-undo snapshot, so replaying that snapshot could resurrect this entry.
+	// Invalidate the undo stack; remove is not itself undoable here (Task A2).
+	a.favUndoStack = nil
 	return nil
 }
 
@@ -183,6 +187,11 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 	ud := a.save.UserData10.Data
 	slot := &a.save.Slots[charIndex]
 
+	// Snapshot the favorites state BEFORE any mutation so the whole Add
+	// (even a multi-preset one) reverts as a single logical undo step.
+	// Pushed onto the stack only if we actually write ≥1 preset.
+	undoSnap := a.buildFavSnapshotLocked()
+
 	// Find available slots
 	var freeSlots []int
 	for s := 0; s < core.FavSlotCount; s++ {
@@ -271,5 +280,63 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 		written++
 	}
 
+	if written > 0 {
+		a.pushFavUndoLocked(undoSnap)
+	}
+
 	return written, nil
+}
+
+// buildFavSnapshotLocked deep-copies the current Mirror Favorites state.
+// Caller must hold favMu (and saveMu.RLock so a.save is stable).
+func (a *App) buildFavSnapshotLocked() favSnapshot {
+	dataCopy := make([]byte, len(a.save.UserData10.Data))
+	copy(dataCopy, a.save.UserData10.Data)
+	names := make(map[int]string, len(a.favSlotNames))
+	for k, v := range a.favSlotNames {
+		names[k] = v
+	}
+	return favSnapshot{Data: dataCopy, SlotNames: names}
+}
+
+// pushFavUndoLocked appends a snapshot, enforcing maxUndoDepth. Holds favMu.
+func (a *App) pushFavUndoLocked(snap favSnapshot) {
+	if len(a.favUndoStack) >= maxUndoDepth {
+		a.favUndoStack = a.favUndoStack[1:] // drop oldest
+	}
+	a.favUndoStack = append(a.favUndoStack, snap)
+}
+
+// RevertFavorites pops the last favorites snapshot and restores both the
+// UserData10 bytes and favSlotNames — undoing one WriteSelectedToFavorites Add.
+func (a *App) RevertFavorites() error {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return fmt.Errorf("no save loaded")
+	}
+	a.favMu.Lock()
+	defer a.favMu.Unlock()
+	if len(a.favUndoStack) == 0 {
+		return fmt.Errorf("nothing to undo for favorites")
+	}
+	snap := a.favUndoStack[len(a.favUndoStack)-1]
+	a.favUndoStack = a.favUndoStack[:len(a.favUndoStack)-1]
+	a.save.UserData10.Data = snap.Data
+	a.favSlotNames = snap.SlotNames
+	return nil
+}
+
+// GetFavoritesUndoDepth returns the number of favorites undo snapshots
+// available. Takes favMu.RLock only — safe within the saveMu → favMu → slotMu
+// order since it acquires no lower lock.
+func (a *App) GetFavoritesUndoDepth() int {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return 0
+	}
+	a.favMu.RLock()
+	defer a.favMu.RUnlock()
+	return len(a.favUndoStack)
 }

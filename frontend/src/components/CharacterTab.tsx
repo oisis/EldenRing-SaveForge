@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import toast from '../lib/toast';
-import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses, SetCharacterGender, ApplyPresetToCharacter} from '../../wailsjs/go/main/App';
+import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses, SetCharacterGender, ApplyPresetToCharacter, GetFavoritesUndoDepth, RevertFavorites} from '../../wailsjs/go/main/App';
 import {vm, main, db} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
@@ -54,6 +54,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const [addingPreset, setAddingPreset] = useState<string | null>(null);
     const [applyingPreset, setApplyingPreset] = useState<string | null>(null);
     const [favSlots, setFavSlots] = useState<main.FavoriteSlotInfo[]>([]);
+    const [favUndoDepth, setFavUndoDepth] = useState(0);
     const [zoomed, setZoomed] = useState<string | null>(null);
     const [typeBWarning, setTypeBWarning] = useState<string | null>(null);
     const [presetSearch, setPresetSearch] = useState('');
@@ -82,6 +83,15 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
     const refreshFavStatus = () => {
         GetFavoritesStatus().then(setFavSlots).catch(() => {});
+        GetFavoritesUndoDepth().then(setFavUndoDepth).catch(() => {});
+    };
+
+    const handleUndoMirrorAdd = async () => {
+        try {
+            await RevertFavorites();
+            toast.success('Undid last Mirror add');
+            refreshFavStatus();
+        } catch (e) { toast.error("" + e); }
     };
 
     const freeSlots = favSlots.filter(s => s.safe && !s.active).length;
@@ -576,6 +586,16 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    )}
+
+                    {favUndoDepth > 0 && (
+                        <div className="pt-3">
+                            <button onClick={handleUndoMirrorAdd}
+                                className="text-[10px] font-bold uppercase tracking-widest text-amber-400 hover:text-amber-300 transition-colors border border-amber-400/40 rounded-md px-3 py-1.5"
+                                title="Revert the last preset(s) added to Mirror Favorites">
+                                Undo last Mirror add ({favUndoDepth})
+                            </button>
                         </div>
                     )}
                 </div>
