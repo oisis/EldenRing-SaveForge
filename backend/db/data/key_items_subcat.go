@@ -19,12 +19,24 @@ package data
 
 import "strings"
 
-// crystalTearIDs — set of all Crystal Tear item IDs (base + DLC).
+// crystalTearIDs — every Flask of Wondrous Physick tear (base + DLC). Membership
+// is the canonical set EquipParamGoods.goodsType == 10 (Wondrous Physick tear),
+// restricted to the IDs defined in this editor's KeyItems map. Source of truth:
+// tmp/regulation-bin-dump/csv/EquipParamGoods.csv. Larval Tear and
+// "Asimi, Silver Tear" have goodsType != 10 and are intentionally excluded.
 var crystalTearIDs = map[uint32]struct{}{
-	0x40002AFE: {}, 0x40002AFF: {}, 0x40002B00: {}, 0x40002B03: {},
-	0x40002B0A: {}, 0x40002B0C: {}, 0x40002B11: {},
-	0x401EAF78: {}, 0x401EAF82: {}, 0x401EAFA0: {}, 0x401EAFBE: {},
-	0x401EAFAA: {}, 0x401EAFB4: {},
+	// Base game (0x40002AF8–0x40002B17)
+	0x40002AF8: {}, 0x40002AF9: {}, 0x40002AFA: {}, 0x40002AFB: {},
+	0x40002AFC: {}, 0x40002AFD: {}, 0x40002AFE: {}, 0x40002AFF: {},
+	0x40002B00: {}, 0x40002B01: {}, 0x40002B02: {}, 0x40002B03: {},
+	0x40002B04: {}, 0x40002B05: {}, 0x40002B06: {}, 0x40002B07: {},
+	0x40002B08: {}, 0x40002B09: {}, 0x40002B0A: {}, 0x40002B0B: {},
+	0x40002B0C: {}, 0x40002B0D: {}, 0x40002B0E: {}, 0x40002B0F: {},
+	0x40002B10: {}, 0x40002B11: {}, 0x40002B12: {}, 0x40002B13: {},
+	0x40002B14: {}, 0x40002B15: {}, 0x40002B16: {}, 0x40002B17: {},
+	// DLC (Shadow of the Erdtree)
+	0x401EAF78: {}, 0x401EAF82: {}, 0x401EAF8C: {}, 0x401EAF96: {},
+	0x401EAFA0: {}, 0x401EAFAA: {}, 0x401EAFB4: {}, 0x401EAFBE: {},
 }
 
 // containerNames — empty pots / bottles / slot upgrades.
@@ -39,19 +51,19 @@ var containerNames = map[string]struct{}{
 
 // larvalDeathrootNames — Larval Tears + Deathroot + Lost Ashes of War.
 var larvalDeathrootNames = map[string]struct{}{
-	"Larval Tear":        {},
-	"Deathroot":          {},
-	"Lost Ashes of War":  {},
+	"Larval Tear":       {},
+	"Deathroot":         {},
+	"Lost Ashes of War": {},
 }
 
 // cookbooksKeywords — substrings that identify a Cookbooks-group item.
 // "Cookbook" / "Whetblade" handle most, plus the curated set below.
 var cookbooksByName = map[string]struct{}{
-	"Crafting Kit":          {},
-	"Spirit Calling Bell":   {},
-	"Sewing Needle":         {},
-	"Gold Sewing Needle":    {},
-	"Tailoring Tools":       {},
+	"Crafting Kit":           {},
+	"Spirit Calling Bell":    {},
+	"Sewing Needle":          {},
+	"Gold Sewing Needle":     {},
+	"Tailoring Tools":        {},
 	"Golden Tailoring Tools": {},
 }
 
