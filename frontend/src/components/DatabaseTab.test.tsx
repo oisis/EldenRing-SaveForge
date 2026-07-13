@@ -268,6 +268,46 @@ describe('DatabaseTab', () => {
         expect(screen.getByText('S:600')).toBeInTheDocument();
     });
 
+    it('Expanded Limits shows actual Remembrance stack quantities despite Safe caps', async () => {
+        localStorage.setItem('setting:safetyProfile', 'expanded_limits');
+        const remembrance = db.ItemEntry.createFrom({
+            id: 0x40000B86,
+            name: 'Remembrance of the Grafted',
+            category: 'tools',
+            subCategory: 'Remembrances',
+            maxInventory: 1,
+            maxStorage: 0,
+            gameMaxInventory: 99,
+            gameMaxStorage: 600,
+            gameMaxInventoryKnown: true,
+            gameMaxStorageKnown: true,
+            maxUpgrade: 0,
+            iconPath: '',
+            flags: [],
+        });
+        mocks.GetItemList.mockResolvedValue([remembrance]);
+        mocks.GetCharacter.mockResolvedValue({
+            inventory: [{
+                id: remembrance.id, baseId: remembrance.id, name: remembrance.name,
+                category: 'Item', subCategory: 'tools', quantity: 99,
+                maxInventory: 1, maxStorage: 0, flags: [],
+            }],
+            storage: [{
+                id: remembrance.id, baseId: remembrance.id, name: remembrance.name,
+                category: 'Item', subCategory: 'tools', quantity: 600,
+                maxInventory: 1, maxStorage: 0, flags: [],
+            }],
+            clearCount: 0,
+        });
+
+        renderTab({ category: 'tools' });
+        fireEvent.click(screen.getByTitle('Grid view'));
+
+        expect(await screen.findByText('Remembrance of the Grafted')).toBeInTheDocument();
+        expect(screen.getByText('I:99')).toBeInTheDocument();
+        expect(screen.getByText('S:600')).toBeInTheDocument();
+    });
+
     // ban-risk warning: cancel must not mutate the save.
     it('ban-risk warning: Cancel aborts without calling AddItemsToCharacter', async () => {
         renderTab();

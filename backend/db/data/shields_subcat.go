@@ -7,20 +7,12 @@ package data
 //   2. Small Shields (bucklers, parry shields, light shields)
 //   3. Medium Shields (kite, heater, crest)
 //   4. Greatshields (towershields, full-block heavies)
+//   5. Thrusting Shields (DLC — wepType 90)
 //
-// Classification rules (highest priority first):
-//   1. Item name contains "Torch" or is "Torchpole" / "Lamenting Visage" → Torch
-//   2. Base name (without infusion prefix) is in shieldsSmall set       → Small
-//   3. Base name (without infusion prefix) is in shieldsGreatshield set → Greatshield
-//   4. Otherwise                                                        → Medium
-//
-// Infusion prefixes stripped before lookup: Heavy / Keen / Quality / Fire /
-// Flame Art / Lightning / Sacred / Magic / Cold / Poison / Blood / Occult /
-// Bloody / Cracked. Multi-word base names (e.g., "Black Steel Greatshield")
-// must appear verbatim in the lookup tables.
-//
-// To add a new shield in the future: only update one of the lookup sets —
-// init() rebuilds SubCategory from the source-of-truth Name field.
+// Classification is driven by canonical EquipParamWeapon.wepType
+// (shieldWepTypeSubcat: 65 Small, 67 Medium, 69 Greatshield, 87 Torch,
+// 90 Thrusting). The name-based classifyShield below is only a fallback for
+// items missing from the wepType table.
 
 import "strings"
 
@@ -51,40 +43,38 @@ var shieldsSmall = map[string]struct{}{
 	"Spiralhorn Shield":        {},
 	"Coil Shield":              {},
 	"Smithscript Shield":       {}, // DLC
-	"Dueling Shield":           {}, // DLC
-	"Carian Thrusting Shield":  {}, // DLC
 }
 
 // shieldsGreatshield — base names that classify as Greatshields.
 var shieldsGreatshield = map[string]struct{}{
-	"Dragon Towershield":           {},
-	"Distinguished Greatshield":    {},
-	"Crucible Hornshield":          {},
-	"Dragonclaw Shield":            {},
-	"Briar Greatshield":            {},
-	"Erdtree Greatshield":          {},
-	"Golden Beast Crest Shield":    {},
-	"Jellyfish Shield":             {},
-	"Fingerprint Stone Shield":     {},
-	"Icon Shield":                  {},
-	"One-Eyed Shield":              {},
-	"Visage Shield":                {},
-	"Spiked Palisade Shield":       {},
-	"Manor Towershield":            {},
-	"Crossed-Tree Towershield":     {},
-	"Inverted Hawk Towershield":    {},
-	"Redmane Greatshield":          {},
-	"Eclipse Crest Greatshield":    {},
-	"Cuckoo Greatshield":           {},
-	"Golden Greatshield":           {},
-	"Gilded Greatshield":           {},
-	"Haligtree Crest Greatshield":  {},
-	"Wooden Greatshield":           {},
-	"Lordsworn's Shield":           {},
-	"Black Steel Greatshield":      {}, // DLC
-	"Verdigris Greatshield":        {}, // DLC
-	"Great Turtle Shell":           {},
-	"Ant's Skull Plate":            {},
+	"Dragon Towershield":          {},
+	"Distinguished Greatshield":   {},
+	"Crucible Hornshield":         {},
+	"Dragonclaw Shield":           {},
+	"Briar Greatshield":           {},
+	"Erdtree Greatshield":         {},
+	"Golden Beast Crest Shield":   {},
+	"Jellyfish Shield":            {},
+	"Fingerprint Stone Shield":    {},
+	"Icon Shield":                 {},
+	"One-Eyed Shield":             {},
+	"Visage Shield":               {},
+	"Spiked Palisade Shield":      {},
+	"Manor Towershield":           {},
+	"Crossed-Tree Towershield":    {},
+	"Inverted Hawk Towershield":   {},
+	"Redmane Greatshield":         {},
+	"Eclipse Crest Greatshield":   {},
+	"Cuckoo Greatshield":          {},
+	"Golden Greatshield":          {},
+	"Gilded Greatshield":          {},
+	"Haligtree Crest Greatshield": {},
+	"Wooden Greatshield":          {},
+	"Lordsworn's Shield":          {},
+	"Black Steel Greatshield":     {}, // DLC
+	"Verdigris Greatshield":       {}, // DLC
+	"Great Turtle Shell":          {},
+	"Ant's Skull Plate":           {},
 }
 
 // stripShieldInfusionPrefix returns the base shield name with any leading
@@ -117,7 +107,12 @@ func init() {
 		if item.SubCategory != "" {
 			continue
 		}
-		item.SubCategory = classifyShield(item.Name)
+		// Canonical wepType wins; name heuristic is the fallback.
+		if sc, ok := wepTypeSubcat(id, shieldWepTypeSubcat); ok {
+			item.SubCategory = sc
+		} else {
+			item.SubCategory = classifyShield(item.Name)
+		}
 		Shields[id] = item
 	}
 }

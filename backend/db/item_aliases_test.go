@@ -21,7 +21,6 @@ var aliasCases = []struct {
 	{0x40001FDA, "Lord of Blood's Favor"},
 	{0x40002004, "Unalloyed Gold Needle"},
 	{0x4000230F, "Unalloyed Gold Needle"},
-	{0x401EA3E1, "Larval Tear"},
 	{0x40000400, "Flask of Crimson Tears +12"},
 	{0x40000432, "Flask of Cerulean Tears +12"},
 }

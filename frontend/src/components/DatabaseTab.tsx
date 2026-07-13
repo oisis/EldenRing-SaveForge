@@ -188,11 +188,15 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             m.set(baseId, cur);
         };
         charInventory.forEach(it => {
-            const qty = it.maxInventory <= 1 && it.maxStorage <= 1 ? 1 : it.quantity;
+            // Goods are always quantity stacks, even when Safe mode intentionally
+            // exposes a conservative 1/0 cap. Using the authored cap here would
+            // turn a legitimate Expanded Limits stack (e.g. 99 Remembrances)
+            // into a displayed count of 1.
+            const qty = it.category === 'Item' || it.maxInventory > 1 || it.maxStorage > 1 ? it.quantity : 1;
             bump(it.familyId || it.baseId || it.id, 'inv', qty);
         });
         charStorage.forEach(it => {
-            const qty = it.maxInventory <= 1 && it.maxStorage <= 1 ? 1 : it.quantity;
+            const qty = it.category === 'Item' || it.maxInventory > 1 || it.maxStorage > 1 ? it.quantity : 1;
             bump(it.familyId || it.baseId || it.id, 'storage', qty);
         });
         return m;

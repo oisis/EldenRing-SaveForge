@@ -9,19 +9,19 @@ package data
 
 // Tools (13 sub-groups, in-game order)
 const (
-	SubcatToolsFlasks         = "Sacred Flasks, Reusable Tools & FP Regenerators"
-	SubcatToolsConsumables    = "Consumables"
-	SubcatToolsThrowingPots   = "Throwing Pots"
-	SubcatToolsPerfumeArts    = "Perfume Arts"
-	SubcatToolsThrowables     = "Throwables"
-	SubcatToolsCatalystTools  = "Catalyst Tools"
-	SubcatToolsGrease         = "Grease"
-	SubcatToolsReusable       = "Reusable Tools"
-	SubcatToolsMisc           = "Miscellaneous Tools"
-	SubcatToolsQuest          = "Quest Tools"
-	SubcatToolsGoldenRunes    = "Golden Runes"
-	SubcatToolsRemembrances   = "Remembrances"
-	SubcatToolsMultiplayer    = "Multiplayer Items"
+	SubcatToolsFlasks        = "Flasks"
+	SubcatToolsConsumables   = "Consumables"
+	SubcatToolsThrowingPots  = "Throwing Pots"
+	SubcatToolsPerfumeArts   = "Perfume Arts"
+	SubcatToolsThrowables    = "Throwables"
+	SubcatToolsCatalystTools = "Catalyst Tools"
+	SubcatToolsGrease        = "Grease"
+	SubcatToolsReusable      = "Reusable Tools"
+	SubcatToolsMisc          = "Miscellaneous Tools"
+	SubcatToolsQuest         = "Quest Tools"
+	SubcatToolsGoldenRunes   = "Golden Runes"
+	SubcatToolsRemembrances  = "Remembrances"
+	SubcatToolsMultiplayer   = "Multiplayer Items"
 )
 
 // Bolstering Materials (6 sub-groups)
@@ -36,15 +36,15 @@ const (
 
 // Key Items (9 sub-groups, in-game order)
 const (
-	SubcatKeyActiveGreatRunes   = "Active Great Runes"
-	SubcatKeyCrystalTears       = "Crystal Tears"
-	SubcatKeyContainers         = "Containers + Slot Upgrades"
-	SubcatKeyInactiveRunesKeys  = "Inactive Great Runes + Keys + Medallions"
-	SubcatKeyDLCKeys            = "DLC Keys"
-	SubcatKeyLarvalDeathroot    = "Larval Tears + Deathroot + Lost Ashes of War"
-	SubcatKeyCookbooks          = "Cookbooks"
-	SubcatKeyWorldMaps          = "World Maps"
-	SubcatKeySpellScrolls       = "Sorcery Scrolls + Incantation Scrolls"
+	SubcatKeyActiveGreatRunes  = "Active Great Runes"
+	SubcatKeyCrystalTears      = "Crystal Tears"
+	SubcatKeyContainers        = "Containers + Slot Upgrades"
+	SubcatKeyInactiveRunesKeys = "Inactive Great Runes + Keys + Medallions"
+	SubcatKeyDLCKeys           = "DLC Keys"
+	SubcatKeyLarvalDeathroot   = "Larval Tears + Deathroot + Lost Ashes of War"
+	SubcatKeyCookbooks         = "Cookbooks"
+	SubcatKeyWorldMaps         = "World Maps"
+	SubcatKeySpellScrolls      = "Sorcery Scrolls + Incantation Scrolls"
 )
 
 // Melee Armaments (29 weapon classes — base + DLC interleaved)
@@ -83,13 +83,13 @@ const (
 
 // Ranged Weapons / Catalysts (7 sub-groups)
 const (
-	SubcatRangedBows           = "Bows"
-	SubcatRangedLightBows      = "Light Bows"
-	SubcatRangedGreatbows      = "Greatbows"
-	SubcatRangedCrossbows      = "Crossbows"
-	SubcatRangedBallistas      = "Ballistas"
+	SubcatRangedBows             = "Bows"
+	SubcatRangedLightBows        = "Light Bows"
+	SubcatRangedGreatbows        = "Greatbows"
+	SubcatRangedCrossbows        = "Crossbows"
+	SubcatRangedBallistas        = "Ballistas"
 	SubcatRangedGlintstoneStaffs = "Glintstone Staffs"
-	SubcatRangedSacredSeals    = "Sacred Seals"
+	SubcatRangedSacredSeals      = "Sacred Seals"
 )
 
 // Arrows / Bolts (4 sub-groups)
@@ -100,12 +100,14 @@ const (
 	SubcatArrowsGreatbolts  = "Greatbolts"
 )
 
-// Shields (4 sub-groups, Torches at top)
+// Shields (5 sub-groups, in-game sortGroupId order:
+// Torch=10, Small=20, Medium=30, Great=40, Thrusting=50)
 const (
 	SubcatShieldsTorches      = "Torches"
 	SubcatShieldsSmall        = "Small Shields"
 	SubcatShieldsMedium       = "Medium Shields"
 	SubcatShieldsGreatshields = "Greatshields"
+	SubcatShieldsThrusting    = "Thrusting Shields"
 )
 
 // Info (3 sub-groups)
