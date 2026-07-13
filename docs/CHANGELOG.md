@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(database): show expanded Remembrance stack quantities accurately
+
+In Expanded Limits, Remembrances now show their actual owned quantities in the
+Database tab (up to 99 in Inventory and 600 in Storage), rather than displaying
+each legitimate stack as one item because Safe-mode caps are conservative.
+
 ## [1.3.1] - 2026-07-12
 
 ### fix(workspace): refine Sort Order navigation, scrolling, and default grouping
