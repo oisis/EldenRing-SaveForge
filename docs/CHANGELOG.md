@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(ui): simplify the Flask subcategory label
+
+The Tools subcategory containing Flask of Wondrous Physick and the Crimson and
+Cerulean Flask variants is now labelled simply `Flasks`.
+
 ### fix(db): separate base-game and DLC Larval Tears
 
 Larval Tears now retain their distinct game records: the base-game item has a

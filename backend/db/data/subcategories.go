@@ -9,7 +9,7 @@ package data
 
 // Tools (13 sub-groups, in-game order)
 const (
-	SubcatToolsFlasks        = "Sacred Flasks, Reusable Tools & FP Regenerators"
+	SubcatToolsFlasks        = "Flasks"
 	SubcatToolsConsumables   = "Consumables"
 	SubcatToolsThrowingPots  = "Throwing Pots"
 	SubcatToolsPerfumeArts   = "Perfume Arts"
