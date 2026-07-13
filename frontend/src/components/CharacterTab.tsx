@@ -583,7 +583,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                     <div key={s.index} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-1.5">
                                         {s.image && (
                                             <img src={`presets/${s.image}`} alt={s.name}
-                                                className="w-8 h-10 object-cover object-top rounded" />
+                                                className="w-8 h-10 object-cover object-top rounded transition-transform duration-150 ease-out hover:relative hover:z-10 hover:scale-150 hover:shadow-lg" />
                                         )}
                                         <div className="flex flex-col leading-tight min-w-[40px]">
                                             <span className="text-[10px] font-bold uppercase tracking-wider">{s.name ? s.name.split(',')[0].trim() : 'In-game favorite'}</span>
