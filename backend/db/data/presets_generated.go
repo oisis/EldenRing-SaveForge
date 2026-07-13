@@ -39,14 +39,14 @@ var GeneratedPresets = []AppearancePreset{
 		Body: [7]uint8{138, 138, 108, 168, 128, 168, 128},
 		Skin: [91]uint8{235, 165, 125, 78, 0, 255, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 80, 0, 0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 60, 164, 118, 188, 0, 0, 0, 128, 0, 200, 0, 0, 0, 87, 171, 255, 200, 0, 0, 0, 0, 0, 0, 0, 128, 87, 171, 255, 200, 0, 0, 0, 0, 0, 0, 0, 128, 80, 60, 43, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 	},
-	{ // Kratos, God of War
-		Name: "Kratos, God of War", Image: "kratos-the-god-of-war.jpg",
-		BodyType: 1, VoiceType: 2,
-		FaceModel: 1, HairModel: 1, EyeModel: 0, EyebrowModel: 1,
-		BeardModel: 1, EyepatchModel: 1, DecalModel: 1, EyelashModel: 1,
-		FaceShape: [64]uint8{255, 0, 0, 0, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 0, 128, 128, 128, 128, 0, 128, 128, 0, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128},
-		Body: [7]uint8{128, 255, 128, 255, 255, 255, 255},
-		Skin: [91]uint8{143, 126, 119, 128, 255, 255, 128, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 128, 0, 0, 0, 128, 40, 20, 30, 128, 98, 80, 75, 0, 0, 0, 0, 100, 41, 41, 128, 0, 0, 0, 0, 0, 211, 126, 119, 200, 0, 100, 100, 100, 255, 255, 255, 128, 211, 126, 119, 200, 0, 100, 100, 100, 255, 255, 255, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 39, 28, 20, 0, 0, 0, 0, 0, 0, 60, 60, 60},
+	{ // Yennefer, Sorceress from the Witcher
+		Name: "Yennefer, Sorceress from the Witcher", Image: "yennefer-sorceress-from-the-witcher.jpg",
+		BodyType: 0, VoiceType: 2,
+		FaceModel: 6, HairModel: 22, EyeModel: 0, EyebrowModel: 15,
+		BeardModel: 1, EyepatchModel: 1, DecalModel: 9, EyelashModel: 4,
+		FaceShape: [64]uint8{200, 152, 0, 0, 150, 109, 130, 82, 148, 110, 130, 154, 160, 120, 124, 144, 127, 141, 103, 131, 129, 159, 96, 145, 65, 0, 100, 105, 70, 183, 0, 140, 181, 0, 144, 42, 109, 78, 214, 130, 130, 151, 204, 127, 118, 160, 157, 218, 127, 137, 90, 160, 124, 150, 133, 110, 111, 125, 150, 210, 164, 131, 141, 100},
+		Body: [7]uint8{150, 36, 56, 110, 146, 110, 146},
+		Skin: [91]uint8{250, 185, 180, 170, 255, 0, 57, 0, 0, 0, 75, 115, 26, 43, 57, 0, 0, 0, 205, 0, 0, 0, 150, 100, 102, 158, 110, 166, 35, 125, 78, 70, 128, 58, 0, 0, 0, 128, 0, 0, 0, 0, 0, 70, 52, 178, 240, 30, 0, 0, 0, 255, 255, 255, 115, 70, 52, 178, 240, 30, 0, 0, 0, 255, 255, 255, 115, 0, 0, 0, 200, 105, 0, 0, 0, 0, 200, 105, 0, 0, 0, 0, 0, 105, 0, 0, 0, 0, 0, 0, 0},
 	},
 	{ // Obi-Wan Kenobi, a Jedi Master
 		Name: "Obi-Wan Kenobi, a Jedi Master", Image: "obi-wan-kenobi-a-jedi-master.jpg",
@@ -93,14 +93,14 @@ var GeneratedPresets = []AppearancePreset{
 		Body: [7]uint8{255, 128, 128, 128, 128, 128, 128},
 		Skin: [91]uint8{189, 139, 123, 128, 255, 255, 128, 0, 0, 0, 128, 0, 0, 0, 128, 0, 0, 0, 128, 50, 25, 0, 128, 0, 25, 40, 128, 163, 132, 101, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 201, 196, 170, 71, 48, 24, 200, 128, 100, 100, 100, 255, 255, 255, 128, 71, 48, 24, 200, 128, 100, 100, 100, 255, 255, 255, 128, 201, 196, 170, 128, 128, 128, 184, 182, 172, 128, 128, 128, 208, 183, 167, 128, 128, 128, 30, 20, 5, 0, 0, 0},
 	},
-	{ // Yennefer, Sorceress from the Witcher
-		Name: "Yennefer, Sorceress from the Witcher", Image: "yennefer-sorceress-from-the-witcher.jpg",
-		BodyType: 0, VoiceType: 2,
-		FaceModel: 6, HairModel: 22, EyeModel: 0, EyebrowModel: 15,
-		BeardModel: 1, EyepatchModel: 1, DecalModel: 9, EyelashModel: 4,
-		FaceShape: [64]uint8{200, 152, 0, 0, 150, 109, 130, 82, 148, 110, 130, 154, 160, 120, 124, 144, 127, 141, 103, 131, 129, 159, 96, 145, 65, 0, 100, 105, 70, 183, 0, 140, 181, 0, 144, 42, 109, 78, 214, 130, 130, 151, 204, 127, 118, 160, 157, 218, 127, 137, 90, 160, 124, 150, 133, 110, 111, 125, 150, 210, 164, 131, 141, 100},
-		Body: [7]uint8{150, 36, 56, 110, 146, 110, 146},
-		Skin: [91]uint8{250, 185, 180, 170, 255, 0, 57, 0, 0, 0, 75, 115, 26, 43, 57, 0, 0, 0, 205, 0, 0, 0, 150, 100, 102, 158, 110, 166, 35, 125, 78, 70, 128, 58, 0, 0, 0, 128, 0, 0, 0, 0, 0, 70, 52, 178, 240, 30, 0, 0, 0, 255, 255, 255, 115, 70, 52, 178, 240, 30, 0, 0, 0, 255, 255, 255, 115, 0, 0, 0, 200, 105, 0, 0, 0, 0, 200, 105, 0, 0, 0, 0, 0, 105, 0, 0, 0, 0, 0, 0, 0},
+	{ // Kratos, God of War
+		Name: "Kratos, God of War", Image: "kratos-the-god-of-war.jpg",
+		BodyType: 1, VoiceType: 2,
+		FaceModel: 1, HairModel: 1, EyeModel: 0, EyebrowModel: 1,
+		BeardModel: 1, EyepatchModel: 1, DecalModel: 1, EyelashModel: 1,
+		FaceShape: [64]uint8{255, 0, 0, 0, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 0, 128, 128, 128, 128, 0, 128, 128, 0, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128, 128},
+		Body: [7]uint8{128, 255, 128, 255, 255, 255, 255},
+		Skin: [91]uint8{143, 126, 119, 128, 255, 255, 128, 0, 0, 0, 0, 0, 0, 0, 128, 0, 0, 0, 128, 0, 0, 0, 128, 40, 20, 30, 128, 98, 80, 75, 0, 0, 0, 0, 100, 41, 41, 128, 0, 0, 0, 0, 0, 211, 126, 119, 200, 0, 100, 100, 100, 255, 255, 255, 128, 211, 126, 119, 200, 0, 100, 100, 100, 255, 255, 255, 128, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 39, 28, 20, 0, 0, 0, 0, 0, 0, 60, 60, 60},
 	},
 	{ // Queen Marika, the God of Elden Ring
 		Name: "Queen Marika, the God of Elden Ring", Image: "queen-marika-the-god-of-elden-ring.jpg",
@@ -167,7 +167,7 @@ var GeneratedPresets = []AppearancePreset{
 	},
 	{ // Casca, Berserk's Band of the Falcon Commander
 		Name: "Casca, Berserk's Band of the Falcon Commander", Image: "casca-berserks-band-of-the-falcon-commander.jpg",
-		BodyType: 1, VoiceType: 0,
+		BodyType: 0, VoiceType: 0,
 		FaceModel: 3, HairModel: 6, EyeModel: 0, EyebrowModel: 3,
 		BeardModel: 1, EyepatchModel: 1, DecalModel: 1, EyelashModel: 4,
 		FaceShape: [64]uint8{0, 150, 0, 0, 255, 87, 217, 178, 91, 89, 163, 135, 139, 126, 130, 145, 112, 148, 107, 123, 114, 255, 54, 92, 9, 0, 172, 94, 151, 93, 0, 0, 15, 0, 129, 72, 0, 115, 118, 168, 29, 133, 138, 125, 118, 172, 217, 105, 181, 36, 99, 141, 74, 182, 88, 116, 86, 108, 65, 109, 56, 152, 137, 175},
@@ -176,7 +176,7 @@ var GeneratedPresets = []AppearancePreset{
 	},
 	{ // Fire Keeper, the Dark Souls 3 NPC
 		Name: "Fire Keeper, the Dark Souls 3 NPC", Image: "fire-keeper-the-dark-souls-3-npc.jpg",
-		BodyType: 1, VoiceType: 0,
+		BodyType: 0, VoiceType: 0,
 		FaceModel: 6, HairModel: 22, EyeModel: 0, EyebrowModel: 10,
 		BeardModel: 1, EyepatchModel: 1, DecalModel: 18, EyelashModel: 4,
 		FaceShape: [64]uint8{75, 165, 10, 0, 119, 127, 180, 121, 85, 100, 111, 132, 119, 111, 125, 103, 147, 136, 98, 157, 102, 243, 108, 129, 181, 0, 172, 58, 103, 75, 0, 94, 139, 0, 130, 68, 36, 105, 124, 118, 124, 153, 181, 105, 148, 200, 173, 211, 118, 170, 68, 156, 127, 100, 93, 135, 83, 166, 177, 98, 111, 109, 146, 175},

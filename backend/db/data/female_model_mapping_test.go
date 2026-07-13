@@ -51,3 +51,42 @@ func TestLookupFemaleModelIDs_MappedAndUnmapped(t *testing.T) {
 		t.Errorf("unmapped preset = (%v, %v), want (zero, false)", tuple, ok)
 	}
 }
+
+// TestLookupFemaleModelIDs_D1RealPresets pins the exact verified tuples for the
+// two presets converted to Type B in D1, against the real generated preset data.
+// The enabling mappings Hair 6→100, Eyebrow 3→2 and Decal 18→17 come from the
+// controlled save tmp/save/ER0000-apperence-test3.sl2 (character "fkr").
+func TestLookupFemaleModelIDs_D1RealPresets(t *testing.T) {
+	cases := []struct {
+		name string
+		want [8]uint8
+	}{
+		{"Casca, Berserk's Band of the Falcon Commander", [8]uint8{20, 100, 0, 2, 0, 0, 0, 3}},
+		{"Fire Keeper, the Dark Souls 3 NPC", [8]uint8{50, 106, 0, 9, 0, 0, 17, 3}},
+	}
+	for _, c := range cases {
+		p := presetByName(c.name)
+		if p == nil {
+			t.Fatalf("preset %q not found in data.Presets", c.name)
+		}
+		if p.BodyType != 0 {
+			t.Errorf("preset %q BodyType = %d, want 0 (Type B)", c.name, p.BodyType)
+		}
+		got, ok := LookupFemaleModelIDs(*p)
+		if !ok {
+			t.Fatalf("preset %q rejected by LookupFemaleModelIDs (no fallback)", c.name)
+		}
+		if got != c.want {
+			t.Errorf("preset %q tuple = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func presetByName(name string) *AppearancePreset {
+	for i := range Presets {
+		if Presets[i].Name == name {
+			return &Presets[i]
+		}
+	}
+	return nil
+}
