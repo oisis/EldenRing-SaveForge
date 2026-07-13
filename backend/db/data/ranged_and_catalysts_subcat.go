@@ -29,8 +29,8 @@ package data
 import "strings"
 
 var ballistasByName = map[string]struct{}{
-	"Hand Ballista":   {},
-	"Jar Cannon":      {},
+	"Hand Ballista":    {},
+	"Jar Cannon":       {},
 	"Rabbath's Cannon": {},
 }
 
@@ -61,7 +61,14 @@ func init() {
 		if item.SubCategory != "" {
 			continue
 		}
-		item.SubCategory = classifyRangedCatalyst(item.Name)
+		// Canonical wepType wins; name heuristic is the fallback. Cross-category
+		// source mislabels (e.g. Rotten Staff, wepType 41) are not in
+		// rangedWepTypeSubcat and stay on the name fallback by design.
+		if sc, ok := wepTypeSubcat(id, rangedWepTypeSubcat); ok {
+			item.SubCategory = sc
+		} else {
+			item.SubCategory = classifyRangedCatalyst(item.Name)
+		}
 		RangedAndCatalysts[id] = item
 	}
 }

@@ -73,7 +73,7 @@ var meleeThrustingSwords = setOf(
 	"Estoc", "Cleanrot Sword", "Antspur Rapier", "Frozen Needle",
 	"Noble's Estoc", "Rapier", "Rotten Crystal Estoc",
 	"Crystal Sword (Thrusting)", // hypothetical guard
-	"Rosus's Axe",                // (mislabeled? actually a Reaper — check)
+	"Rosus's Axe",               // (mislabeled? actually a Reaper — check)
 )
 
 // heavyThrustingSwords — heavier rapier/great rapier variants.
@@ -133,7 +133,7 @@ var meleeGreatHammers = setOf(
 	"Large Club", "Battle Hammer (Great)", "Greathorn Hammer",
 	"Cranial Vessel Candlestand", "Beastclaw Greathammer",
 	"Black Steel Greathammer", "Star Fist Greathammer", // verify
-	"Pest's Glaive",                                      // hypothetical
+	"Pest's Glaive", // hypothetical
 )
 
 // flails — flail-class.
@@ -145,7 +145,7 @@ var meleeFlails = setOf(
 // spears — single-handed spears/pikes.
 var meleeSpears = setOf(
 	"Spear", "Cross-Naginata", "Pike", "Crystal Spear", "Spear of the Impaler",
-	"Torchpole",            // wait Torchpole is a torch (shields). Skip.
+	"Torchpole",              // wait Torchpole is a torch (shields). Skip.
 	"Inquisitor's Girandole", // fictitious; check
 	"Cleanrot Spear", "Bloodthirsty Spear", "Mohgwyn's Sacred Spear",
 	"Treespear", "Death Ritual Spear", "Celebrant's Rib-Rake",
@@ -403,7 +403,13 @@ func init() {
 		if item.SubCategory != "" {
 			continue
 		}
-		item.SubCategory = classifyMelee(item.Name)
+		// Canonical wepType wins; name heuristic is the fallback for items
+		// missing from the wepType table (e.g. wepType 33 Unarmed).
+		if sc, ok := wepTypeSubcat(id, meleeWepTypeSubcat); ok {
+			item.SubCategory = sc
+		} else {
+			item.SubCategory = classifyMelee(item.Name)
+		}
 		Weapons[id] = item
 	}
 }

@@ -9,20 +9,10 @@ package data
 //   4. Greatshields (towershields, full-block heavies)
 //   5. Thrusting Shields (DLC — wepType 90)
 //
-// Classification rules (highest priority first):
-//   1. Item ID has canonical wepType == 90 (thrustingShieldIDs)         → Thrusting
-//   2. Item name contains "Torch" or is "Torchpole" / "Lamenting Visage" → Torch
-//   3. Base name (without infusion prefix) is in shieldsSmall set       → Small
-//   4. Base name (without infusion prefix) is in shieldsGreatshield set → Greatshield
-//   5. Otherwise                                                        → Medium
-//
-// Infusion prefixes stripped before lookup: Heavy / Keen / Quality / Fire /
-// Flame Art / Lightning / Sacred / Magic / Cold / Poison / Blood / Occult /
-// Bloody / Cracked. Multi-word base names (e.g., "Black Steel Greatshield")
-// must appear verbatim in the lookup tables.
-//
-// To add a new shield in the future: only update one of the lookup sets —
-// init() rebuilds SubCategory from the source-of-truth Name field.
+// Classification is driven by canonical EquipParamWeapon.wepType
+// (shieldWepTypeSubcat: 65 Small, 67 Medium, 69 Greatshield, 87 Torch,
+// 90 Thrusting). The name-based classifyShield below is only a fallback for
+// items missing from the wepType table.
 
 import "strings"
 
@@ -53,24 +43,6 @@ var shieldsSmall = map[string]struct{}{
 	"Spiralhorn Shield":        {},
 	"Coil Shield":              {},
 	"Smithscript Shield":       {}, // DLC
-}
-
-// thrustingShieldIDs — item IDs whose canonical EquipParamWeapon.wepType == 90
-// (DLCThrustingShield). Classified by ID, not by name: "Dueling Shield" is a
-// thrusting shield too but its name gives no hint. Source of truth:
-// tmp/regulation-bin-dump/csv/EquipParamWeapon.csv (wepType == 90). Covers the
-// Dueling Shield and Carian Thrusting Shield families (base + 12 infusions each).
-var thrustingShieldIDs = map[uint32]struct{}{
-	// Dueling Shield
-	0x03B9ACA0: {}, 0x03B9AD04: {}, 0x03B9AD68: {}, 0x03B9ADCC: {},
-	0x03B9AE30: {}, 0x03B9AE94: {}, 0x03B9AEF8: {}, 0x03B9AF5C: {},
-	0x03B9AFC0: {}, 0x03B9B024: {}, 0x03B9B088: {}, 0x03B9B0EC: {},
-	0x03B9B150: {},
-	// Carian Thrusting Shield
-	0x03B9D3B0: {}, 0x03B9D414: {}, 0x03B9D478: {}, 0x03B9D4DC: {},
-	0x03B9D540: {}, 0x03B9D5A4: {}, 0x03B9D608: {}, 0x03B9D66C: {},
-	0x03B9D6D0: {}, 0x03B9D734: {}, 0x03B9D798: {}, 0x03B9D7FC: {},
-	0x03B9D860: {},
 }
 
 // shieldsGreatshield — base names that classify as Greatshields.
@@ -116,12 +88,7 @@ func stripShieldInfusionPrefix(name string) string {
 	return name
 }
 
-func classifyShield(id uint32, name string) string {
-	// Thrusting Shields are identified by canonical wepType (== 90), not by
-	// name — "Dueling Shield" gives no textual hint.
-	if _, ok := thrustingShieldIDs[id]; ok {
-		return SubcatShieldsThrusting
-	}
+func classifyShield(name string) string {
 	if strings.Contains(name, "Torch") || name == "Torchpole" || name == "Lamenting Visage" {
 		return SubcatShieldsTorches
 	}
@@ -140,7 +107,12 @@ func init() {
 		if item.SubCategory != "" {
 			continue
 		}
-		item.SubCategory = classifyShield(id, item.Name)
+		// Canonical wepType wins; name heuristic is the fallback.
+		if sc, ok := wepTypeSubcat(id, shieldWepTypeSubcat); ok {
+			item.SubCategory = sc
+		} else {
+			item.SubCategory = classifyShield(item.Name)
+		}
 		Shields[id] = item
 	}
 }

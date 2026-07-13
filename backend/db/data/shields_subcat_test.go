@@ -3,24 +3,23 @@ package data
 import "testing"
 
 // Thrusting Shields (Issue #6) are classified by canonical wepType == 90, not
-// by name. The set thrustingShieldIDs mirrors EquipParamWeapon.csv (wepType 90)
-// and covers the Dueling Shield + Carian Thrusting Shield families.
+// by name (covers the Dueling Shield + Carian Thrusting Shield families).
 
-// 1. Every wepType == 90 variant resolves to the Thrusting Shields sub-group.
+// 1. Every wepType == 90 shield resolves to the Thrusting Shields sub-group.
 func TestThrustingShields_AllVariantsClassified(t *testing.T) {
-	for id := range thrustingShieldIDs {
-		item, ok := Shields[id]
-		if !ok {
-			t.Errorf("thrusting shield 0x%08X missing from Shields map", id)
+	count := 0
+	for id, item := range Shields {
+		if weaponWepType[id] != 90 {
 			continue
 		}
+		count++
 		if item.SubCategory != SubcatShieldsThrusting {
 			t.Errorf("%q (0x%08X): SubCategory = %q, want %q",
 				item.Name, id, item.SubCategory, SubcatShieldsThrusting)
 		}
 	}
-	if len(thrustingShieldIDs) != 26 {
-		t.Errorf("thrustingShieldIDs has %d entries, want 26 (13 Dueling + 13 Carian Thrusting)", len(thrustingShieldIDs))
+	if count != 26 {
+		t.Errorf("found %d wepType-90 shields, want 26 (13 Dueling + 13 Carian Thrusting)", count)
 	}
 }
 
@@ -56,9 +55,9 @@ func TestThrustingShields_NoForeignMembers(t *testing.T) {
 		if item.SubCategory != SubcatShieldsThrusting {
 			continue
 		}
-		if _, ok := thrustingShieldIDs[id]; !ok {
-			t.Errorf("%q (0x%08X) classified as Thrusting Shields but is not wepType 90",
-				item.Name, id)
+		if weaponWepType[id] != 90 {
+			t.Errorf("%q (0x%08X) classified as Thrusting Shields but wepType = %d",
+				item.Name, id, weaponWepType[id])
 		}
 	}
 }
