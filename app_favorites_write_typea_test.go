@@ -118,18 +118,29 @@ func TestWriteSelectedToFavorites_TypeA_InMemory(t *testing.T) {
 	}
 }
 
-// TestWriteSelectedToFavorites_RejectsTypeB_Atomic is the A4e regression: a mixed
-// batch of a Type A and a Type B preset must be rejected before any snapshot or
+// TestWriteSelectedToFavorites_RejectsUnmappedTypeB_Atomic is the A5 rejection
+// regression: a Type B preset with UI values OUTSIDE the verified mapping (and a
+// mixed Type A + unmapped-Type B batch) must be rejected before any snapshot or
 // mutation — no Type A entry written first, UserData10/favSlotNames/favUndoStack
-// all untouched. Uses two real generated presets (Geralt = Type A, Ciri = Type B).
-func TestWriteSelectedToFavorites_RejectsTypeB_Atomic(t *testing.T) {
+// all untouched. Uses a real Type A preset plus a deliberately injected unmapped
+// Type B preset (FaceModel 99 has no verified PartsId).
+func TestWriteSelectedToFavorites_RejectsUnmappedTypeB_Atomic(t *testing.T) {
 	const charIdx = 0
-	const typeAName = "Geralt of Rivia, the Witcher"           // BodyType 1
-	const typeBName = "Ciri, the Princess of Cintra (Witcher)" // BodyType 0
+	const typeAName = "Geralt of Rivia, the Witcher" // BodyType 1, mapped
+	const unmappedName = "A5 Unmapped Type B"
 
-	if p := findPresetByName(typeBName); p == nil || p.BodyType != 0 {
-		t.Fatalf("fixture assumption broken: %q must be a known Type B preset", typeBName)
+	unmapped := data.AppearancePreset{
+		Name: unmappedName, BodyType: 0,
+		FaceModel: 99, // outside the verified female Face table → no fallback
+		HairModel: 1, EyeModel: 0, EyebrowModel: 1,
+		BeardModel: 1, EyepatchModel: 1, DecalModel: 1, EyelashModel: 1,
 	}
+	if _, ok := data.LookupFemaleModelIDs(unmapped); ok {
+		t.Fatal("fixture assumption broken: injected preset must be unmapped")
+	}
+	orig := data.Presets
+	data.Presets = append(append([]data.AppearancePreset{}, orig...), unmapped)
+	t.Cleanup(func() { data.Presets = orig })
 
 	app := &App{save: &core.SaveFile{}, favSlotNames: make(map[int]string)}
 	app.save.UserData10.Data = make([]byte, 0x60000)
@@ -145,9 +156,9 @@ func TestWriteSelectedToFavorites_RejectsTypeB_Atomic(t *testing.T) {
 
 	before := append([]byte(nil), app.save.UserData10.Data...)
 
-	written, err := app.WriteSelectedToFavorites(charIdx, []string{typeAName, typeBName})
+	written, err := app.WriteSelectedToFavorites(charIdx, []string{typeAName, unmappedName})
 	if err == nil {
-		t.Fatal("WriteSelectedToFavorites accepted a Type B preset, want error")
+		t.Fatal("WriteSelectedToFavorites accepted an unmapped Type B preset, want error")
 	}
 	if written != 0 {
 		t.Errorf("written = %d, want 0", written)

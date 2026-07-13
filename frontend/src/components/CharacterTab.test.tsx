@@ -107,58 +107,74 @@ describe('CharacterTab — Undo last Mirror change', () => {
     });
 });
 
-describe('CharacterTab — Apply blocked for Type B', () => {
+describe('CharacterTab — Type B appearance enabled', () => {
     const PRESETS = [
         { name: 'Geralt of Rivia', image: '', bodyType: 'Type A' },
         { name: 'Ciri of Cintra', image: '', bodyType: 'Type B' },
     ];
 
-    it('does not call ApplyPresetToCharacter for a Type B preset and shows a warning', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
-        mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
-        renderTab();
-        await openAppearance();
-
-        const typeBApply = await screen.findByTitle('Type B cannot be applied yet');
-        fireEvent.click(typeBApply);
-
-        await waitFor(() => expect(screen.getByText(/Type B not supported yet/i)).toBeTruthy());
-        expect(mocks.ApplyPresetToCharacter).not.toHaveBeenCalled();
-    });
-
-    it('applies a Type A preset normally (not blocked)', async () => {
+    it('applies a Type B preset (calls ApplyPresetToCharacter)', async () => {
         mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
         mocks.ApplyPresetToCharacter.mockResolvedValue(undefined);
         renderTab();
         await openAppearance();
 
-        const typeAApply = await screen.findByTitle('Apply appearance to current character');
-        fireEvent.click(typeAApply);
+        // Both cards now share the same Apply title; the Type B card is second.
+        const applyButtons = await screen.findAllByTitle('Apply appearance to current character');
+        fireEvent.click(applyButtons[1]);
+
+        await waitFor(() => expect(mocks.ApplyPresetToCharacter).toHaveBeenCalledWith(0, 'Ciri of Cintra'));
+    });
+
+    it('applies a Type A preset normally', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
+        mocks.ApplyPresetToCharacter.mockResolvedValue(undefined);
+        renderTab();
+        await openAppearance();
+
+        const applyButtons = await screen.findAllByTitle('Apply appearance to current character');
+        fireEvent.click(applyButtons[0]);
 
         await waitFor(() => expect(mocks.ApplyPresetToCharacter).toHaveBeenCalledWith(0, 'Geralt of Rivia'));
     });
+
+    it('adds a Type B preset to Mirror (calls WriteSelectedToFavorites)', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
+        mocks.WriteSelectedToFavorites.mockResolvedValue(1);
+        // A free Mirror slot so the Add button is enabled.
+        mocks.GetFavoritesStatus.mockResolvedValue([{ index: 0, active: false, safe: true, name: '' }]);
+        renderTab();
+        await openAppearance();
+
+        const addButtons = await screen.findAllByText('Add');
+        fireEvent.click(addButtons[1]); // Ciri (Type B)
+
+        await waitFor(() => expect(mocks.WriteSelectedToFavorites).toHaveBeenCalledWith(0, ['Ciri of Cintra']));
+    });
 });
 
-describe('CharacterTab — Body Type switch blocked for Type B', () => {
+describe('CharacterTab — Body Type switch', () => {
     function bodyTypeSelect() {
         return screen.getByRole('option', { name: 'Type B (Female)' }).closest('select') as HTMLSelectElement;
     }
 
-    it('does not call SetCharacterGender when switching to Type B and shows a warning', async () => {
+    it('switches to Type B (calls SetCharacterGender)', async () => {
         mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         // Start on Type A so selecting Type B is an actual value change.
         mocks.GetCharacter.mockResolvedValue({ ...MOCK_CHAR, gender: 1 });
+        mocks.SetCharacterGender.mockResolvedValue(undefined);
         renderTab();
 
         fireEvent.click(await screen.findByText('Profile'));
         fireEvent.change(bodyTypeSelect(), { target: { value: '0' } });
 
-        await waitFor(() => expect(screen.getByText(/Type B not supported yet/i)).toBeTruthy());
-        expect(mocks.SetCharacterGender).not.toHaveBeenCalled();
+        await waitFor(() => expect(mocks.SetCharacterGender).toHaveBeenCalledWith(0, 0));
     });
 
-    it('still switches to Type A (male) normally', async () => {
+    it('switches to Type A (male) normally', async () => {
         mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         // Start on Type B so selecting Type A is an actual value change.
         mocks.GetCharacter.mockResolvedValue({ ...MOCK_CHAR, gender: 0 });

@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
-	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // FavoriteSlotInfo describes a single Favorites slot in the Mirror.
@@ -195,16 +194,21 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 	ud := a.save.UserData10.Data
 	slot := &a.save.Slots[charIndex]
 
-	// Reject any known Type B preset BEFORE snapshotting or mutating, so a mixed
-	// Type A + Type B batch fails atomically (no Type A entry written first).
-	// Type B Mirror writing is intentionally not enabled in this path yet — the
-	// shared Apply/Add implementation using the verified UI→PartsId mapping lands
-	// in a later task. Unknown names are left to the write loop, which skips them
-	// (preserving prior behavior).
-	for _, name := range presetNames {
-		if preset := findPresetByName(name); preset != nil && preset.BodyType == 0 {
-			return 0, fmt.Errorf("preset %q is Type B and cannot be written to Mirror Favorites yet: Type B Mirror writing is not enabled in this path yet", name)
+	// Pre-resolve every known preset through the shared appearance builder BEFORE
+	// snapshotting or mutating. An unmapped Type B preset (or a mixed batch that
+	// contains one) fails atomically here — nothing is written. Unknown names
+	// resolve to nil and are skipped by the write loop, preserving prior behavior.
+	resolved := make([]*resolvedAppearance, len(presetNames))
+	for i, name := range presetNames {
+		preset := findPresetByName(name)
+		if preset == nil {
+			continue
 		}
+		r, err := resolveAppearance(preset)
+		if err != nil {
+			return 0, err
+		}
+		resolved[i] = &r
 	}
 
 	// Snapshot the favorites state BEFORE any mutation so the whole Add
@@ -237,8 +241,8 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 
 	written := 0
 	for i, name := range presetNames {
-		preset := findPresetByName(name)
-		if preset == nil {
+		r := resolved[i]
+		if r == nil {
 			continue
 		}
 
@@ -251,7 +255,7 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 		binary.LittleEndian.PutUint16(buf[0x00:], core.FavHeaderMagicU16)
 		binary.LittleEndian.PutUint32(buf[0x04:], core.FavHeaderUnk)
 		buf[core.FavOffBodyFlag] = 1
-		if preset.BodyType == 1 {
+		if r.BodyType == 1 {
 			buf[core.FavOffBodyType] = 0 // male in Favorites
 		} else {
 			buf[core.FavOffBodyType] = 1 // female in Favorites
@@ -262,38 +266,17 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 		binary.LittleEndian.PutUint32(buf[core.FavOffAlignment:], 4)
 		binary.LittleEndian.PutUint32(buf[core.FavOffInnerSize:], 0x120)
 
-		// Model IDs — male only, female skipped (no mapping)
-		if preset.BodyType == 1 {
-			writeModel := func(off int, uiVal uint8) {
-				val := uiVal
-				if val > 0 {
-					val--
-				}
-				binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+(off*4):], uint32(val))
-			}
-			// FaceModel (index 0) was previously omitted entirely, so the
-			// first Model ID stayed 0 in every written slot regardless of the
-			// preset's non-zero FaceModel. Write it through the same UI->PartsId
-			// (UI-1) encoding as every other Type A model for consistency.
-			writeModel(0, preset.FaceModel)
-			// Hair: lookup table first, fallback to UI-1 for unmapped styles
-			if partsId, ok := data.LookupMaleHairPartsID(preset.HairModel); ok {
-				binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+1*4:], uint32(partsId))
-			} else if preset.HairModel > 0 {
-				binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+1*4:], uint32(preset.HairModel-1))
-			}
-			writeModel(2, preset.EyeModel)
-			writeModel(3, preset.EyebrowModel)
-			writeModel(4, preset.BeardModel)
-			writeModel(5, preset.EyepatchModel)
-			writeModel(6, preset.DecalModel)
-			writeModel(7, preset.EyelashModel)
+		// Eight resolved model IDs — shared with direct Apply so Add and Apply
+		// can never diverge. Type A = UI-1 + hair lookup, Type B = verified
+		// female mapping (incl. DecalModel).
+		for m, id := range r.Models {
+			binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+m*4:], uint32(id))
 		}
 
-		copy(buf[core.FavOffFaceShape:], preset.FaceShape[:])
+		copy(buf[core.FavOffFaceShape:], r.FaceShape[:])
 		copy(buf[core.FavOffUnkBlock:], unkBlock[:])
-		copy(buf[core.FavOffBody:], preset.Body[:])
-		copy(buf[core.FavOffSkin:], preset.Skin[:])
+		copy(buf[core.FavOffBody:], r.Body[:])
+		copy(buf[core.FavOffSkin:], r.Skin[:])
 
 		copy(ud[slotOff:], buf)
 		a.favSlotNames[safeIdx] = name

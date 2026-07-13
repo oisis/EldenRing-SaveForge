@@ -7,7 +7,6 @@ import {RiskInfoIcon} from './RiskInfoIcon';
 import {getRunesRiskKey} from '../data/riskInfo';
 import {useSafetyMode} from '../state/safetyMode';
 import type {AddSettings} from '../App';
-import {WarningModal} from './WarningModal';
 
 const RUNES_LEGAL_MAX = 999_999_999;
 
@@ -56,7 +55,6 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const [favSlots, setFavSlots] = useState<main.FavoriteSlotInfo[]>([]);
     const [favUndoDepth, setFavUndoDepth] = useState(0);
     const [zoomed, setZoomed] = useState<string | null>(null);
-    const [typeBWarning, setTypeBWarning] = useState<string | null>(null);
     const [presetSearch, setPresetSearch] = useState('');
     const [showMale, setShowMale] = useState(true);
     const [showFemale, setShowFemale] = useState(true);
@@ -139,14 +137,6 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
 
     const handleGenderChange = async (targetGender: number) => {
         if (!char) return;
-        // Type B (female) switch would write the unverified female model fallback —
-        // the backend rejects it. Block before the call and warn; the controlled
-        // select stays on the current body type because char.gender is unchanged.
-        if (targetGender === 0) {
-            toast.error('Type B (female) body type is not supported yet — raw model mapping is not verified.');
-            setTypeBWarning('body type');
-            return;
-        }
         try {
             await SetCharacterGender(charIndex, targetGender);
             const updated = await GetCharacter(charIndex);
@@ -187,16 +177,8 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     };
 
     // Appearance handlers
-    const handleAddPreset = async (name: string, bodyType: string) => {
+    const handleAddPreset = async (name: string) => {
         if (freeSlots === 0 || addingPreset !== null) return;
-        // Type B presets currently corrupt Mirror slots (Model IDs left at zero by
-        // WriteSelectedToFavorites — see spec/31). Block until presets.go is re-sourced
-        // as raw 0x130-byte blobs. Apply to Character still works for in-game presets.
-        if (bodyType === 'Type B') {
-            toast.error(`Type B (female) presets cannot be written to Mirror — would create bald, male-faced slot. Create the preset in-game instead.`);
-            setTypeBWarning(name);
-            return;
-        }
         setAddingPreset(name);
         try {
             await WriteSelectedToFavorites(charIndex, [name]);
@@ -206,15 +188,8 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         finally { setAddingPreset(null); }
     };
 
-    const handleApplyPreset = async (name: string, bodyType: string) => {
+    const handleApplyPreset = async (name: string) => {
         if (applyingPreset !== null) return;
-        // Type B can't be applied yet — the backend rejects it because the raw
-        // female model mapping is unverified. Block before the call and warn.
-        if (bodyType === 'Type B') {
-            toast.error('Type B (female) presets cannot be applied yet — raw model mapping is not verified.');
-            setTypeBWarning(name);
-            return;
-        }
         setApplyingPreset(name);
         try {
             await ApplyPresetToCharacter(charIndex, name);
@@ -554,14 +529,14 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                                             <span className="text-[9px] text-muted-foreground font-medium uppercase tracking-widest">{p.bodyType}</span>
                                             <div className="flex gap-1">
                                                 <button
-                                                    onClick={() => handleApplyPreset(p.name, p.bodyType)}
+                                                    onClick={() => handleApplyPreset(p.name)}
                                                     disabled={!canApply || isApplying}
-                                                    title={p.bodyType === 'Type B' ? 'Type B cannot be applied yet' : 'Apply appearance to current character'}
+                                                    title="Apply appearance to current character"
                                                     className="px-2 py-0.5 border border-blue-700/50 text-blue-700 rounded text-[9px] font-black uppercase tracking-wider hover:bg-blue-700/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
                                                     {isApplying ? '…' : 'Apply'}
                                                 </button>
                                                 <button
-                                                    onClick={() => handleAddPreset(p.name, p.bodyType)}
+                                                    onClick={() => handleAddPreset(p.name)}
                                                     disabled={!canAdd || isAdding}
                                                     title={freeSlots === 0 ? 'No free Mirror slots' : 'Add to Mirror Favorites'}
                                                     className="px-2 py-0.5 border border-primary/40 text-primary rounded text-[9px] font-black uppercase tracking-wider hover:bg-primary/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
@@ -639,17 +614,6 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                         </svg>
                     </button>
                 </div>
-            )}
-            {typeBWarning && (
-                <WarningModal title="Type B not supported yet" onClose={() => setTypeBWarning(null)}>
-                    <p>
-                        <strong>Type B (female)</strong> is not supported yet — presets can be neither
-                        applied directly nor added to Mirror Favorites, and the body type cannot be
-                        switched to female. The raw female model mapping is not yet verified, so any of
-                        these would risk a scrambled look and a lost tattoo.
-                    </p>
-                    <p>Create the preset directly in-game instead.</p>
-                </WarningModal>
             )}
         </div>
     );
