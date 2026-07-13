@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-07-13
+
 ### fix(ui): simplify the Flask subcategory label
 
 The Tools subcategory containing Flask of Wondrous Physick and the Crimson and
