@@ -25,7 +25,24 @@ type PresetInfo struct {
 // writePresetAppearance writes FaceShape, Body, Skin and Model IDs from preset into slot's
 // FaceData blob and sets slot.Player.Gender. fd must be the byte offset of the FaceData blob
 // start within slot.Data (i.e. slot.FaceDataStart()). The unk0x6c block is preserved.
-func writePresetAppearance(slot *core.SaveSlot, fd int, preset *data.AppearancePreset) {
+//
+// A Type B (female) preset whose UI model values fall outside the verified
+// UI→PartsId table is rejected up front: the function returns an error before
+// copying any appearance bytes or changing Gender/VoiceType, so a partial or
+// scrambled female appearance can never reach the slot. Type A always succeeds.
+func writePresetAppearance(slot *core.SaveSlot, fd int, preset *data.AppearancePreset) error {
+	// Resolve Type B model IDs BEFORE mutating anything so an unmapped value
+	// aborts with the slot untouched. All eight models — DecalModel included —
+	// are carried through; the tattoo is never zeroed as a fallback.
+	var femaleModels [8]uint8
+	if preset.BodyType == 0 {
+		var ok bool
+		femaleModels, ok = data.LookupFemaleModelIDs(*preset)
+		if !ok {
+			return fmt.Errorf("preset %q has Type B model values outside the verified UI→PartsId mapping", preset.Name)
+		}
+	}
+
 	copy(slot.Data[fd+core.FDOffFaceShape:fd+core.FDOffFaceShape+64], preset.FaceShape[:])
 	copy(slot.Data[fd+core.FDOffHead:fd+core.FDOffHead+7], preset.Body[:])
 	copy(slot.Data[fd+core.FDOffSkinR:fd+core.FDOffSkinR+91], preset.Skin[:])
@@ -55,17 +72,17 @@ func writePresetAppearance(slot *core.SaveSlot, fd int, preset *data.AppearanceP
 			writePartsID(core.FDOffHairModel, ui1(preset.HairModel))
 		}
 	} else {
-		// Female: UI-1 does NOT apply — female PartsId ranges differ entirely from male.
-		// Use empirically confirmed safe values (tmp/re-character/facedata_dump.txt).
-		f := data.FemaleModelIDs
-		writePartsID(core.FDOffFaceModel, f.FaceModel)
-		writePartsID(core.FDOffHairModel, f.HairModel)
-		writePartsID(core.FDOffEyeModel, f.EyeModel)
-		writePartsID(core.FDOffEyebrowModel, f.EyebrowModel)
-		writePartsID(core.FDOffBeardModel, f.BeardModel)
-		writePartsID(core.FDOffEyepatchModel, f.EyepatchModel)
-		writePartsID(core.FDOffDecalModel, f.DecalModel)
-		writePartsID(core.FDOffEyelashModel, f.EyelashModel)
+		// Female: UI-1 does NOT apply — female PartsId ranges differ entirely
+		// from male. Use the verified UI→PartsId tuple resolved above
+		// (Face, Hair, Eye, Eyebrow, Beard, Eyepatch, Decal, Eyelash).
+		writePartsID(core.FDOffFaceModel, femaleModels[0])
+		writePartsID(core.FDOffHairModel, femaleModels[1])
+		writePartsID(core.FDOffEyeModel, femaleModels[2])
+		writePartsID(core.FDOffEyebrowModel, femaleModels[3])
+		writePartsID(core.FDOffBeardModel, femaleModels[4])
+		writePartsID(core.FDOffEyepatchModel, femaleModels[5])
+		writePartsID(core.FDOffDecalModel, femaleModels[6])
+		writePartsID(core.FDOffEyelashModel, femaleModels[7])
 	}
 
 	// Zero trailing sex-flag bytes — game resets these on apply; leaving them
@@ -75,6 +92,7 @@ func writePresetAppearance(slot *core.SaveSlot, fd int, preset *data.AppearanceP
 
 	slot.Player.Gender = preset.BodyType
 	slot.Player.VoiceType = preset.VoiceType
+	return nil
 }
 
 // findPresetByName returns a pointer to the named preset or nil if not found.
@@ -104,11 +122,12 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 		return fmt.Errorf("preset %q not found", presetName)
 	}
 
-	// Type B (BodyType == 0) cannot be applied directly yet: the raw female
-	// model mapping is unverified, so applying would risk a scrambled look and a
-	// lost tattoo. Reject before touching Undo or the slot.
+	// Type B (BodyType == 0) is intentionally not enabled in this public Apply
+	// path yet: the shared Apply/Add implementation that uses the verified
+	// UI→PartsId mapping lands in a later task. Reject before touching Undo or
+	// the slot.
 	if preset.BodyType == 0 {
-		return fmt.Errorf("preset %q is Type B and cannot be applied yet: verified raw model mapping is missing", presetName)
+		return fmt.Errorf("preset %q is Type B and cannot be applied yet: Type B apply is not enabled in this path yet", presetName)
 	}
 
 	a.slotMu[charIndex].Lock()
@@ -121,8 +140,7 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 	}
 
 	a.pushUndoLocked(charIndex)
-	writePresetAppearance(slot, fd, preset)
-	return nil
+	return writePresetAppearance(slot, fd, preset)
 }
 
 // SetCharacterGender changes the body type of a character and applies the default appearance
@@ -139,11 +157,11 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 	if targetGender > 1 {
 		return fmt.Errorf("invalid gender: 0=female, 1=male")
 	}
-	// Switching to Type B (female) would write the unverified female model
-	// fallback, producing a scrambled look — the same hazard A4a blocks in
-	// ApplyPresetToCharacter. Reject before touching Undo or the slot.
+	// Switching to Type B (female) is intentionally not enabled in this public
+	// path yet — the same hazard A4a blocks in ApplyPresetToCharacter. Reject
+	// before touching Undo or the slot.
 	if targetGender == 0 {
-		return fmt.Errorf("switching to Type B (female) is not supported yet: verified raw model mapping is missing")
+		return fmt.Errorf("switching to Type B (female) is not supported yet: Type B body switching is not enabled in this path yet")
 	}
 	a.slotMu[charIndex].Lock()
 	defer a.slotMu[charIndex].Unlock()
@@ -167,8 +185,7 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 	}
 
 	a.pushUndoLocked(charIndex)
-	writePresetAppearance(slot, fd, preset)
-	return nil
+	return writePresetAppearance(slot, fd, preset)
 }
 
 // ListAppearancePresets returns the list of available character appearance presets.

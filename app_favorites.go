@@ -197,12 +197,13 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 
 	// Reject any known Type B preset BEFORE snapshotting or mutating, so a mixed
 	// Type A + Type B batch fails atomically (no Type A entry written first).
-	// The unverified raw female model mapping would produce a broken Mirror
-	// entry — the UI guard alone left this backend path open. Unknown names are
-	// left to the write loop, which skips them (preserving prior behavior).
+	// Type B Mirror writing is intentionally not enabled in this path yet — the
+	// shared Apply/Add implementation using the verified UI→PartsId mapping lands
+	// in a later task. Unknown names are left to the write loop, which skips them
+	// (preserving prior behavior).
 	for _, name := range presetNames {
 		if preset := findPresetByName(name); preset != nil && preset.BodyType == 0 {
-			return 0, fmt.Errorf("preset %q is Type B and cannot be written to Mirror Favorites yet: verified raw model mapping is not implemented yet", name)
+			return 0, fmt.Errorf("preset %q is Type B and cannot be written to Mirror Favorites yet: Type B Mirror writing is not enabled in this path yet", name)
 		}
 	}
 
