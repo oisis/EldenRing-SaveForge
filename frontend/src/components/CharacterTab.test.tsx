@@ -42,6 +42,7 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     ApplyPresetToCharacter: vi.fn(),
     GetFavoritesUndoDepth: vi.fn(),
     RevertFavorites: vi.fn(() => Promise.resolve()),
+    GetCharacterAppearancePreset: vi.fn(() => Promise.resolve(null)),
 }));
 
 vi.mock('../lib/toast', () => {
@@ -189,16 +190,17 @@ describe('CharacterTab — Body Type switch', () => {
 });
 
 describe('CharacterTab — Mirror Favorites labels after reload', () => {
-    it('labels a named slot with the preset name and an unnamed active slot as "In-game favorite" (never "N/A")', async () => {
+    it('labels a named slot with the preset name and an unnamed active slot as "In-game favorite" (never "N/A"), with no thumbnail when unmatched', async () => {
         mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         // clearAllMocks keeps implementations, so reset the preset list a sibling
         // test may have populated — otherwise its card duplicates the slot label.
         mocks.ListAppearancePresets.mockResolvedValue([]);
         // After a save reload favSlotNames is empty (name ''), so slot 2 has no
         // session name; slot 5 was written this session and keeps its name.
+        // Neither carries an image → the backend did not recognise them.
         mocks.GetFavoritesStatus.mockResolvedValue([
-            { index: 2, active: true, safe: true, name: '' },
-            { index: 5, active: true, safe: true, name: 'Geralt of Rivia, the Witcher' },
+            { index: 2, active: true, safe: true, name: '', image: '' },
+            { index: 5, active: true, safe: true, name: 'Geralt of Rivia, the Witcher', image: '' },
         ]);
         renderTab();
         await openAppearance();
@@ -209,5 +211,87 @@ describe('CharacterTab — Mirror Favorites labels after reload', () => {
 
         // Named slot keeps the real preset name (first segment before comma).
         expect(screen.getByText('Geralt of Rivia')).toBeTruthy();
+
+        // Unmatched entries (empty image) render no thumbnail.
+        expect(screen.queryByRole('img')).toBeNull();
+    });
+
+    it('renders the canonical name and thumbnail for an exact Mirror match after reload (no session name)', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        mocks.ListAppearancePresets.mockResolvedValue([]);
+        // Reloaded save: favSlotNames empty, but the backend matched the entry and
+        // filled canonical name + image directly from GetFavoritesStatus.
+        mocks.GetFavoritesStatus.mockResolvedValue([
+            { index: 3, active: true, safe: true, name: 'Casca, Berserk’s Band of the Falcon Commander', image: 'casca.jpg' },
+        ]);
+        renderTab();
+        await openAppearance();
+
+        expect(await screen.findByText('Casca')).toBeTruthy();
+        const thumb = screen.getByRole('img');
+        expect(thumb.getAttribute('src')).toBe('presets/casca.jpg');
+    });
+});
+
+describe('CharacterTab — matched appearance refresh after apply', () => {
+    it('re-queries GetCharacterAppearancePreset after a successful direct Apply', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        mocks.ListAppearancePresets.mockResolvedValue([
+            { name: 'Geralt of Rivia', image: '', bodyType: 'Type A' },
+        ]);
+        mocks.ApplyPresetToCharacter.mockResolvedValue(undefined);
+        renderTab();
+        await openAppearance();
+
+        await waitFor(() => expect(mocks.GetCharacterAppearancePreset).toHaveBeenCalled());
+        const before = mocks.GetCharacterAppearancePreset.mock.calls.length;
+
+        const applyButtons = await screen.findAllByTitle('Apply appearance to current character');
+        fireEvent.click(applyButtons[0]);
+
+        await waitFor(() => expect(mocks.ApplyPresetToCharacter).toHaveBeenCalled());
+        await waitFor(() =>
+            expect(mocks.GetCharacterAppearancePreset.mock.calls.length).toBeGreaterThan(before),
+        );
+    });
+
+    it('re-queries GetCharacterAppearancePreset after a successful Apply from Mirror', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        mocks.ListAppearancePresets.mockResolvedValue([]);
+        mocks.GetFavoritesStatus.mockResolvedValue([
+            { index: 0, active: true, safe: true, name: 'Geralt of Rivia', image: '' },
+        ]);
+        mocks.ApplyMirrorFavoriteToCharacter.mockResolvedValue(undefined);
+        renderTab();
+        await openAppearance();
+
+        await waitFor(() => expect(mocks.GetCharacterAppearancePreset).toHaveBeenCalled());
+        const before = mocks.GetCharacterAppearancePreset.mock.calls.length;
+
+        const applyBtn = await screen.findByTitle('Apply this preset to character');
+        fireEvent.click(applyBtn);
+
+        await waitFor(() => expect(mocks.ApplyMirrorFavoriteToCharacter).toHaveBeenCalled());
+        await waitFor(() =>
+            expect(mocks.GetCharacterAppearancePreset.mock.calls.length).toBeGreaterThan(before),
+        );
+    });
+});
+
+describe('CharacterTab — matched appearance card', () => {
+    it('renders the thumbnail and canonical name when the character exactly matches a Type B preset', async () => {
+        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
+        mocks.GetCharacterAppearancePreset.mockResolvedValue({
+            name: 'Casca, Berserk’s Band of the Falcon Commander', image: 'casca.jpg', bodyType: 'Type B',
+        });
+        renderTab();
+
+        // The matched card lives inside the Profile accordion.
+        fireEvent.click(await screen.findByText('Profile'));
+
+        expect(await screen.findByText('Matched appearance')).toBeTruthy();
+        expect(screen.getByText('Casca, Berserk’s Band of the Falcon Commander')).toBeTruthy();
+        const thumb = screen.getByAltText('Casca, Berserk’s Band of the Falcon Commander');
+        expect(thumb.getAttribute('src')).toBe('presets/casca.jpg');
     });
 });

@@ -130,17 +130,47 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 	return nil
 }
 
+// presetToInfo converts an appearance preset to its frontend PresetInfo shape.
+func presetToInfo(p *data.AppearancePreset) PresetInfo {
+	bt := "Type A"
+	if p.BodyType == 0 {
+		bt = "Type B"
+	}
+	return PresetInfo{Name: p.Name, Image: p.Image, BodyType: bt}
+}
+
 // ListAppearancePresets returns the list of available character appearance presets.
 func (a *App) ListAppearancePresets() []PresetInfo {
 	result := make([]PresetInfo, len(data.Presets))
-	for i, p := range data.Presets {
-		bt := "Type A"
-		if p.BodyType == 0 {
-			bt = "Type B"
-		}
-		result[i] = PresetInfo{Name: p.Name, Image: p.Image, BodyType: bt}
+	for i := range data.Presets {
+		result[i] = presetToInfo(&data.Presets[i])
 	}
 	return result
+}
+
+// GetCharacterAppearancePreset returns the canonical preset whose resolved
+// appearance the character at charIndex exactly matches, or (nil, nil) when
+// nothing matches. Uses only the exact matcher (matchCharacterAppearance) —
+// no fuzzy matching. Read-only: it takes saveMu.RLock + slotMu and never
+// mutates the slot.
+func (a *App) GetCharacterAppearancePreset(charIndex int) (*PresetInfo, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIndex < 0 || charIndex >= 10 {
+		return nil, fmt.Errorf("invalid character index")
+	}
+	a.slotMu[charIndex].Lock()
+	defer a.slotMu[charIndex].Unlock()
+
+	p := matchCharacterAppearance(&a.save.Slots[charIndex])
+	if p == nil {
+		return nil, nil
+	}
+	info := presetToInfo(p)
+	return &info, nil
 }
 
 // applyMemoryStonesToSlot sets the quantity of memory stones in a slot to the desired count,

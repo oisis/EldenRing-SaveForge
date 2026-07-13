@@ -1725,6 +1725,7 @@ export namespace main {
 	    active: boolean;
 	    safe: boolean;
 	    name: string;
+	    image: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new FavoriteSlotInfo(source);
@@ -1736,6 +1737,7 @@ export namespace main {
 	        this.active = source["active"];
 	        this.safe = source["safe"];
 	        this.name = source["name"];
+	        this.image = source["image"];
 	    }
 	}
 	export class InventoryIntegrityConflictItem {

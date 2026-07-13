@@ -1,6 +1,6 @@
 import {useEffect, useRef, useState} from 'react';
 import toast from '../lib/toast';
-import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses, SetCharacterGender, ApplyPresetToCharacter, GetFavoritesUndoDepth, RevertFavorites} from '../../wailsjs/go/main/App';
+import {GetCharacter, SaveCharacter, ListAppearancePresets, ApplyMirrorFavoriteToCharacter, WriteSelectedToFavorites, GetFavoritesStatus, RemoveFavoritePreset, GetStartingClasses, SetCharacterGender, ApplyPresetToCharacter, GetFavoritesUndoDepth, RevertFavorites, GetCharacterAppearancePreset} from '../../wailsjs/go/main/App';
 import {vm, main, db} from '../../wailsjs/go/models';
 import {AccordionSection} from './AccordionSection';
 import {RiskInfoIcon} from './RiskInfoIcon';
@@ -58,12 +58,21 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
     const [presetSearch, setPresetSearch] = useState('');
     const [showMale, setShowMale] = useState(true);
     const [showFemale, setShowFemale] = useState(true);
+    const [matchedPreset, setMatchedPreset] = useState<main.PresetInfo | null>(null);
+
+    const refreshMatch = () => {
+        GetCharacterAppearancePreset(charIndex).then(setMatchedPreset).catch(() => setMatchedPreset(null));
+    };
 
     useEffect(() => {
         ListAppearancePresets().then(setPresets).catch(e => toast.error("" + e));
         GetStartingClasses().then(setStartingClasses).catch(e => toast.error("" + e));
         refreshFavStatus();
     }, []);
+
+    // Refresh the exact appearance match on initial load, character change, and
+    // whenever a mutation bumps refreshKey (direct Apply, Apply from Mirror).
+    useEffect(() => { refreshMatch(); }, [charIndex, refreshKey]);
 
     useEffect(() => {
         const charChanged = prevCharIndex.current !== charIndex;
@@ -141,6 +150,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
             await SetCharacterGender(charIndex, targetGender);
             const updated = await GetCharacter(charIndex);
             setChar(updated);
+            refreshMatch();
             const label = targetGender === 1 ? 'Type A (Male) — Geralt defaults applied' : 'Type B (Female) — Ciri defaults applied';
             toast.success(label);
         } catch (e) {
@@ -196,6 +206,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
             const updated = await GetCharacter(charIndex);
             setChar(updated);
             toast.success(`Applied "${name.split(',')[0].trim()}" to character`);
+            refreshMatch();
             onMutate();
         } catch (e) { toast.error('Apply failed: ' + e); }
         finally { setApplyingPreset(null); }
@@ -213,6 +224,7 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
         try {
             await ApplyMirrorFavoriteToCharacter(charIndex, slotIndex);
             toast.success(`Applied Mirror slot ${slotIndex + 1} to character`);
+            refreshMatch();
             onMutate();
         } catch (e) { toast.error("" + e); }
     };
@@ -257,6 +269,18 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                 }
             >
                 <div className="space-y-4">
+                    {matchedPreset && (
+                        <div className="flex items-center gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2" data-testid="matched-appearance">
+                            {matchedPreset.image && (
+                                <img src={`presets/${matchedPreset.image}`} alt={matchedPreset.name}
+                                    className="w-10 h-12 object-cover object-top rounded" />
+                            )}
+                            <div className="flex flex-col leading-tight">
+                                <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Matched appearance</span>
+                                <span className="text-xs font-black text-primary">{matchedPreset.name}</span>
+                            </div>
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
                         <div className="space-y-1.5">
                             <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-tight ml-1">Character Name</label>
@@ -557,6 +581,10 @@ export function CharacterTab({charIndex, onNameChange, onMutate, refreshKey, add
                             <div className="flex flex-wrap gap-2">
                                 {usedSafeSlots.map(s => (
                                     <div key={s.index} className="flex items-center gap-2 bg-muted/30 rounded-md px-3 py-1.5">
+                                        {s.image && (
+                                            <img src={`presets/${s.image}`} alt={s.name}
+                                                className="w-8 h-10 object-cover object-top rounded" />
+                                        )}
                                         <div className="flex flex-col leading-tight min-w-[40px]">
                                             <span className="text-[10px] font-bold uppercase tracking-wider">{s.name ? s.name.split(',')[0].trim() : 'In-game favorite'}</span>
                                             <span className="text-[9px] text-muted-foreground">Slot {s.index + 1}</span>

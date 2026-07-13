@@ -12,7 +12,8 @@ type FavoriteSlotInfo struct {
 	Index  int    `json:"index"`  // absolute slot index (0-14)
 	Active bool   `json:"active"` // true if slot has FACE magic
 	Safe   bool   `json:"safe"`   // true if not colliding with ProfileSummary
-	Name   string `json:"name"`   // preset name if we wrote it, empty otherwise
+	Name   string `json:"name"`   // canonical preset name if matched, else session name, else empty
+	Image  string `json:"image"`  // preset image filename if the entry exactly matches a known preset
 }
 
 // GetFavoritesStatus returns the state of all 15 Favorites slots.
@@ -35,12 +36,23 @@ func (a *App) GetFavoritesStatus() []FavoriteSlotInfo {
 	for i := 0; i < core.FavSlotCount; i++ {
 		off := core.FavBaseOffset + i*core.FavSlotSize
 		active := off+core.FavOffAlignment <= len(ud) && string(ud[off+core.FavOffMagic:off+core.FavOffMagic+4]) == "FACE"
-		result[i] = FavoriteSlotInfo{
+		info := FavoriteSlotInfo{
 			Index:  i,
 			Active: active,
 			Safe:   true,
 			Name:   a.favSlotNames[i],
 		}
+		// Exact match wins over the session name and survives a reload (empty
+		// favSlotNames): read-only, so it cannot mutate UserData10. An active
+		// but unmatched slot keeps its session name (empty after reload → the
+		// frontend shows "In-game favorite").
+		if active && off+core.FavSlotSize <= len(ud) {
+			if p := matchMirrorAppearance(ud[off : off+core.FavSlotSize]); p != nil {
+				info.Name = p.Name
+				info.Image = p.Image
+			}
+		}
+		result[i] = info
 	}
 	return result
 }
