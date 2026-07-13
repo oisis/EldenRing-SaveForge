@@ -750,7 +750,7 @@ function App() {
                                         </div>
 
                                         {invView === 'inventory' ? (
-                                            <InventoryTab charIndex={selectedChar} inventoryVersion={inventoryVersion} columnVisibility={columnVisibility} showFlaggedItems={showFlaggedItems} category={category} setCategory={setCategory} onMutate={refreshUndoDepth} showOnlyFavorites={showOnlyFavorites} onToggleFavorites={() => setShowOnlyFavorites(v => !v)} />
+                                            <InventoryTab charIndex={selectedChar} inventoryVersion={inventoryVersion} columnVisibility={columnVisibility} showFlaggedItems={showFlaggedItems} category={category} setCategory={setCategory} onMutate={() => { setInventoryVersion(v => v + 1); refreshUndoDepth(); }} showOnlyFavorites={showOnlyFavorites} onToggleFavorites={() => setShowOnlyFavorites(v => !v)} />
                                         ) : invView === 'database' ? (
                                             <DatabaseTab
                                                 columnVisibility={columnVisibility}

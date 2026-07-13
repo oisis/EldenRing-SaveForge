@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-07-13
+
+### fix(inventory): keep pot and perfume containers consistent
+
+Adding craftable pots or perfume items now creates or updates their matching
+container in Inventory Key Items, rather than routing it to Common Items or
+leaving an existing container quantity unchanged. Storage-only additions create
+the required minimum of one container; larger Storage stacks do not consume
+additional containers.
+
+Editing pot or perfume quantities in `Character → Inventory` now updates the
+matching container when `Save Changes` is pressed. The Inventory table refreshes
+immediately after saving, so the new container quantity is visible without
+changing tabs or filters.
+
 ## [1.3.2] - 2026-07-13
 
 ### fix(ui): simplify the Flask subcategory label

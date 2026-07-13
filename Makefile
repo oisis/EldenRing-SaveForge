@@ -1,6 +1,6 @@
 # Variables
 BINARY_NAME=Elden Ring SaveForge
-VERSION=1.3.2
+VERSION=1.3.3
 BUILD_DIR=build/bin
 WAILS ?= ~/go/bin/wails
 OUTPUT ?= $(BINARY_NAME)

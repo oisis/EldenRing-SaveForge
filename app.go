@@ -272,12 +272,25 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	a.pushUndoLocked(index)
 
+	// Atomic rollback point captured before any mutation: a failed container
+	// sync must not leave an increased pot/perfume without its required Key
+	// Items container.
+	containerRollback := core.SnapshotSlot(&a.save.Slots[index])
+
 	// 1. Update the slot data
 	if err := vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index]); err != nil {
 		return err
 	}
 
 	slot := &a.save.Slots[index]
+
+	// 1b. Keep pot/perfume containers in sync with the edited Inventory/Storage
+	// quantities (Character → Inventory → Save Changes). Roll the whole slot back
+	// if the container cannot be written.
+	if err := syncContainerKeyItems(slot); err != nil {
+		core.RestoreSlot(slot, containerRollback)
+		return fmt.Errorf("SaveCharacter: sync containers: %w", err)
+	}
 
 	if err := a.applyMemoryStonesToSlot(slot, charVM.MemoryStones); err != nil {
 		return err
@@ -634,6 +647,10 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 	// Track containers touched by this batch (need auto-update of qty).
 	usedContainers := make(map[uint32]bool)
+	// Containers required only because a gated item was added to Storage. Storage
+	// has no cap and does not consume per-unit containers, but the game still
+	// requires at least one container in Key Items to hold the family at all.
+	storageContainers := make(map[uint32]bool)
 
 	// FCFS distribution for container caps must be deterministic and intuitive:
 	// gated items are processed in ascending ID order so canonical first-of-group
@@ -758,6 +775,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 
 		if cID, gated := data.GetRequiredContainer(id); gated && (actualInv > 0 || actualStorage > 0) {
 			usedContainers[cID] = true
+			if actualStorage > 0 {
+				storageContainers[cID] = true
+			}
 		}
 
 		forceStackable := db.IsArrowID(finalID)
@@ -915,12 +935,22 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		if current > finalQty {
 			finalQty = current
 		}
-		if desired > current {
-			if err := core.AddItemsToSlot(slot, []uint32{cID}, desired, 0, false); err != nil {
+		// A Storage-only add consumes no per-unit container but still needs one
+		// container present to hold the family; never below the existing count.
+		if storageContainers[cID] && finalQty < 1 {
+			finalQty = 1
+		}
+		if finalQty > current {
+			// Containers (Cracked/Ritual Pot, Perfume Bottle, Hefty Cracked Pot)
+			// live in Inventory.KeyItems with a goods handle (0xB0…), never in
+			// CommonItems. core.AddItemsToSlot would either skip the stackable row
+			// already present or create it in CommonItems — both wrong for this
+			// format — so upsert the KeyItems record directly.
+			if err := upsertInventoryKeyItemQuantity(slot, cID, uint32(finalQty)); err != nil {
 				core.RestoreSlot(slot, snapshot)
-				return result, fmt.Errorf("rollback after container add: %w", err)
+				return result, fmt.Errorf("rollback after container upsert: %w", err)
 			}
-			existingKeyItemQty[cID] = desired
+			existingKeyItemQty[cID] = finalQty
 		}
 
 		if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -993,6 +1023,139 @@ func setInventoryKeyItemQuantity(slot *core.SaveSlot, row int, qty uint32) error
 	}
 	binary.LittleEndian.PutUint32(slot.Data[off:], qty)
 	slot.Inventory.KeyItems[row].Quantity = qty
+	return nil
+}
+
+// upsertInventoryKeyItemQuantity ensures the goods container itemID (Cracked Pot,
+// Ritual Pot, Perfume Bottle, Hefty Cracked Pot) exists in Inventory.KeyItems at
+// the given quantity. If a KeyItems record with the canonical goods handle (0xB0…)
+// already exists, its quantity is updated in place. Otherwise a record is created
+// in the first empty KeyItems row with that handle, quantity, and a fresh
+// acquisition index. Containers are never routed into CommonItems. Returns an error
+// if the KeyItems section is full or offsets fall out of bounds.
+func upsertInventoryKeyItemQuantity(slot *core.SaveSlot, itemID, qty uint32) error {
+	handle := db.ItemIDToHandlePrefix(itemID) | (itemID & 0x0FFFFFFF)
+
+	for row := range slot.Inventory.KeyItems {
+		if slot.Inventory.KeyItems[row].GaItemHandle == handle {
+			return setInventoryKeyItemQuantity(slot, row, qty)
+		}
+	}
+
+	for row := range slot.Inventory.KeyItems {
+		h := slot.Inventory.KeyItems[row].GaItemHandle
+		if h != core.GaHandleEmpty && h != core.GaHandleInvalid {
+			continue
+		}
+		keyStart := slot.MagicOffset + core.InvStartFromMagic +
+			core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
+		off := keyStart + row*core.InvRecordLen
+		if off < 0 || off+core.InvRecordLen > len(slot.Data) {
+			return fmt.Errorf("upsertInventoryKeyItemQuantity: row %d record offset %d out of bounds (data len %d)", row, off, len(slot.Data))
+		}
+		binary.LittleEndian.PutUint32(slot.Data[off:], handle)
+		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
+		slot.Inventory.KeyItems[row].GaItemHandle = handle
+		slot.Inventory.KeyItems[row].Quantity = qty
+		// AssignFreshInventoryIndex requires the handle to be written first; it
+		// stamps the acquisition index (record +8) in memory and slot.Data.
+		if _, err := core.AssignFreshInventoryIndex(slot, "inventory_key", row); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	return fmt.Errorf("upsertInventoryKeyItemQuantity: KeyItems section full, cannot add item 0x%08X", itemID)
+}
+
+// syncContainerKeyItems reconciles container Key Items (Cracked/Ritual/Hefty Pot,
+// Perfume Bottle) against the current slot state after a manual inventory edit
+// (Character → Inventory → Save Changes, via SaveCharacter). Each container's
+// quantity is raised to cover the total active Inventory units of its gated
+// family; a family present only in Storage forces at least one container.
+// Quantities are never lowered and containers only ever live in Inventory.KeyItems.
+// On a confirmed increase the container's pickup/vendor flags are set for the
+// saved quantity. Returns an error if a container record cannot be written.
+func syncContainerKeyItems(slot *core.SaveSlot) error {
+	itemID := func(h uint32) uint32 {
+		if id, ok := slot.GaMap[h]; ok && id != 0 {
+			return id
+		}
+		return db.HandleToItemID(h)
+	}
+	live := func(h uint32) bool { return h != core.GaHandleEmpty && h != core.GaHandleInvalid }
+
+	invByContainer := make(map[uint32]int)
+	storageContainers := make(map[uint32]bool)
+	for _, it := range slot.Inventory.CommonItems {
+		if !live(it.GaItemHandle) {
+			continue
+		}
+		_, base := db.GetItemDataFuzzy(itemID(it.GaItemHandle))
+		if cID, ok := data.GetRequiredContainer(base); ok {
+			invByContainer[cID] += int(it.Quantity & 0x7FFFFFFF)
+		}
+	}
+	for _, it := range slot.Storage.CommonItems {
+		if !live(it.GaItemHandle) {
+			continue
+		}
+		_, base := db.GetItemDataFuzzy(itemID(it.GaItemHandle))
+		if cID, ok := data.GetRequiredContainer(base); ok {
+			storageContainers[cID] = true
+		}
+	}
+
+	currentQty := make(map[uint32]int)
+	for _, it := range slot.Inventory.KeyItems {
+		if !live(it.GaItemHandle) {
+			continue
+		}
+		if id := db.HandleToItemID(it.GaItemHandle); data.IsContainerItem(id) {
+			currentQty[id] = int(it.Quantity & 0x7FFFFFFF)
+		}
+	}
+
+	needed := make(map[uint32]bool)
+	for cID := range invByContainer {
+		needed[cID] = true
+	}
+	for cID := range storageContainers {
+		needed[cID] = true
+	}
+	for cID := range needed {
+		current := currentQty[cID]
+		finalQty := invByContainer[cID]
+		if current > finalQty {
+			finalQty = current
+		}
+		if storageContainers[cID] && finalQty < 1 {
+			finalQty = 1
+		}
+		if finalQty > current {
+			if err := upsertInventoryKeyItemQuantity(slot, cID, uint32(finalQty)); err != nil {
+				return err
+			}
+			// Container written successfully — set pickup/vendor flags for the
+			// saved quantity (mirrors the Add path) so the game won't re-offer the
+			// world pickups. Best-effort: a missing flags region is not fatal.
+			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+				flags := slot.Data[slot.EventFlagsOffset:]
+				if flagList, ok := data.ContainerPickupFlags[cID]; ok {
+					n := finalQty
+					if n > len(flagList) {
+						n = len(flagList)
+					}
+					for i := 0; i < n; i++ {
+						_ = db.SetEventFlag(flags, flagList[i], true)
+					}
+				}
+				for _, f := range data.ContainerVendorPurchaseFlags[cID] {
+					_ = db.SetEventFlag(flags, f, true)
+				}
+			}
+		}
+	}
 	return nil
 }
 

@@ -23,6 +23,16 @@ vi.mock('../state/favorites', () => ({
     useFavorites: () => ({ isFav: () => false, toggle: vi.fn() }),
 }));
 
+// jsdom has no layout, so the real virtualizer renders zero rows — the editable
+// quantity inputs never mount. Render every row so the Save flow is reachable.
+vi.mock('@tanstack/react-virtual', () => ({
+    useVirtualizer: (opts: { count: number }) => ({
+        getVirtualItems: () => Array.from({ length: opts.count }, (_, index) => ({ index, start: 0, size: 40, key: index })),
+        getTotalSize: () => opts.count * 40,
+        measureElement: () => {},
+    }),
+}));
+
 import * as App from '../../wailsjs/go/main/App';
 import { InventoryTab } from './InventoryTab';
 
@@ -95,6 +105,20 @@ describe('InventoryTab (Equipment)', () => {
 
         fireEvent.change(screen.getByPlaceholderText('Search owned items...'), { target: { value: 'zzz-no-match' } });
         expect(badge).toHaveTextContent('Owned:3');
+    });
+
+    it('fires onMutate after a successful SaveCharacter so App can bump inventoryVersion', async () => {
+        mocks.SaveCharacter.mockResolvedValue(undefined);
+        const onMutate = vi.fn();
+        render(tabElement({ category: 'melee_armaments', onMutate }));
+
+        // Edit a quantity so the Save Changes button appears, then save.
+        const qtyInput = (await screen.findAllByRole('spinbutton'))[0];
+        fireEvent.change(qtyInput, { target: { value: '7' } });
+        fireEvent.click(await screen.findByText('Save Changes'));
+
+        await waitFor(() => expect(mocks.SaveCharacter).toHaveBeenCalled());
+        await waitFor(() => expect(onMutate).toHaveBeenCalled());
     });
 
     it('sorts by owned Inventory quantity', async () => {
