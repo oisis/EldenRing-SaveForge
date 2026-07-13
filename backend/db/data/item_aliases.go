@@ -36,7 +36,6 @@ var TechnicalItemAliases = map[uint32]uint32{
 	0x40001FDA: 0x40001FDB, // Lord of Blood's Favor
 	0x40002004: 0x40002310, // Unalloyed Gold Needle (quest-state row)
 	0x4000230F: 0x40002310, // Unalloyed Gold Needle (quest-state row)
-	0x401EA3E1: 0x40001FF9, // Larval Tear (DLC-space duplicate of base row)
 
 	// Scorpion Stew: technical twin rows (no FMG text) -> canonical FMG row.
 	0x401E8932: 0x401E8930, // Scorpion Stew (technical variant)

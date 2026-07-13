@@ -43,6 +43,25 @@ func keyItemFixture(handle, index, qty uint32) *App {
 	return app
 }
 
+func addKeyItemFixtureRow(t *testing.T, app *App, row int, handle, index, qty uint32) {
+	t.Helper()
+	slot := &app.save.Slots[0]
+	if row != len(slot.Inventory.KeyItems) {
+		t.Fatalf("fixture row = %d, want next row %d", row, len(slot.Inventory.KeyItems))
+	}
+	keyStartOff := slot.MagicOffset + core.InvStartFromMagic +
+		core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
+	off := keyStartOff + row*core.InvRecordLen
+	binary.LittleEndian.PutUint32(slot.Data[off:], handle)
+	binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
+	binary.LittleEndian.PutUint32(slot.Data[off+8:], index)
+	slot.Inventory.KeyItems = append(slot.Inventory.KeyItems, core.InventoryItem{
+		GaItemHandle: handle,
+		Quantity:     qty,
+		Index:        index,
+	})
+}
+
 func keyItemBinQty(slot *core.SaveSlot, row int) uint32 {
 	keyStartOff := slot.MagicOffset + core.InvStartFromMagic +
 		core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
@@ -159,6 +178,69 @@ func TestChaosKeyItem_LarvalTearBumped(t *testing.T) {
 	}
 	if got := keyItemBinQty(slot, 0); got != uint32(want) {
 		t.Errorf("binary KeyItems qty = %d, want %d", got, want)
+	}
+	if n := len(slot.Inventory.CommonItems); n != 0 {
+		t.Errorf("CommonItems len = %d, want 0", n)
+	}
+}
+
+// TestChaosKeyItem_LarvalTearVariantsRemainIndependent proves that the base-game
+// and DLC Larval Tear records can coexist. Raising one to Game Max must neither
+// skip nor overwrite the other physical KeyItems row.
+func TestChaosKeyItem_LarvalTearVariantsRemainIndependent(t *testing.T) {
+	const (
+		baseID     = uint32(0x40001FF9)
+		dlcID      = uint32(0x401EA3E1)
+		baseHandle = uint32(0xB0001FF9)
+		dlcHandle  = uint32(0xB01EA3E1)
+	)
+	baseMax, dlcMax := gameMaxInv(baseID), gameMaxInv(dlcID)
+	if baseMax != 99 || dlcMax != 99 {
+		t.Fatalf("Game Max inventory caps = base %d, DLC %d; want 99/99", baseMax, dlcMax)
+	}
+
+	app := keyItemFixture(baseHandle, 4100, 3)
+	addKeyItemFixtureRow(t, app, 1, dlcHandle, 4101, 4)
+	slot := &app.save.Slots[0]
+
+	res, err := app.AddItemsToCharacterWithGameLimits(0, []uint32{dlcID}, 0, 0, 0, 0, -1, 0)
+	if err != nil {
+		t.Fatalf("add DLC Larval Tear: %v", err)
+	}
+	if res.Added != 1 {
+		t.Fatalf("DLC Added = %d, want 1", res.Added)
+	}
+	if got := slot.Inventory.KeyItems[0].Quantity; got != 3 {
+		t.Errorf("base quantity after DLC add = %d, want 3", got)
+	}
+	if got := keyItemBinQty(slot, 0); got != 3 {
+		t.Errorf("base binary quantity after DLC add = %d, want 3", got)
+	}
+	if got := slot.Inventory.KeyItems[1].Quantity; got != uint32(dlcMax) {
+		t.Errorf("DLC quantity = %d, want %d", got, dlcMax)
+	}
+	if got := keyItemBinQty(slot, 1); got != uint32(dlcMax) {
+		t.Errorf("DLC binary quantity = %d, want %d", got, dlcMax)
+	}
+
+	res, err = app.AddItemsToCharacterWithGameLimits(0, []uint32{baseID}, 0, 0, 0, 0, -1, 0)
+	if err != nil {
+		t.Fatalf("add base Larval Tear: %v", err)
+	}
+	if res.Added != 1 {
+		t.Fatalf("base Added = %d, want 1", res.Added)
+	}
+	if got := slot.Inventory.KeyItems[0].Quantity; got != uint32(baseMax) {
+		t.Errorf("base quantity = %d, want %d", got, baseMax)
+	}
+	if got := keyItemBinQty(slot, 0); got != uint32(baseMax) {
+		t.Errorf("base binary quantity = %d, want %d", got, baseMax)
+	}
+	if got := slot.Inventory.KeyItems[1].Quantity; got != uint32(dlcMax) {
+		t.Errorf("DLC quantity after base add = %d, want %d", got, dlcMax)
+	}
+	if got := keyItemBinQty(slot, 1); got != uint32(dlcMax) {
+		t.Errorf("DLC binary quantity after base add = %d, want %d", got, dlcMax)
 	}
 	if n := len(slot.Inventory.CommonItems); n != 0 {
 		t.Errorf("CommonItems len = %d, want 0", n)

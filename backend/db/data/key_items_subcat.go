@@ -49,9 +49,16 @@ var containerNames = map[string]struct{}{
 	"Talisman Pouch":    {},
 }
 
-// larvalDeathrootNames — Larval Tears + Deathroot + Lost Ashes of War.
+// larvalDeathrootIDs identifies the separate base-game and DLC Larval Tear
+// records. Both belong to the same in-game section despite their distinct UI
+// labels and per-playthrough caps.
+var larvalDeathrootIDs = map[uint32]struct{}{
+	0x40001FF9: {}, // Larval Tear
+	0x401EA3E1: {}, // Larval Tear (DLC)
+}
+
+// larvalDeathrootNames — Deathroot + Lost Ashes of War.
 var larvalDeathrootNames = map[string]struct{}{
-	"Larval Tear":       {},
 	"Deathroot":         {},
 	"Lost Ashes of War": {},
 }
@@ -110,6 +117,9 @@ func classifyKeyItem(id uint32, item ItemData) string {
 		return SubcatKeyContainers
 	}
 	// 4. Larval / Deathroot / Lost AoW
+	if _, ok := larvalDeathrootIDs[id]; ok {
+		return SubcatKeyLarvalDeathroot
+	}
 	if _, ok := larvalDeathrootNames[name]; ok {
 		return SubcatKeyLarvalDeathroot
 	}

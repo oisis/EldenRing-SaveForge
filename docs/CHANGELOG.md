@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(db): separate base-game and DLC Larval Tears
+
+Larval Tears now retain their distinct game records: the base-game item has a
+Safe limit of 18 per playthrough, while the DLC item has its own `Larval Tear
+(DLC)` entry and a Safe limit of 6. In Expanded Limits, both records use their
+canonical game caps of 99 in Inventory and 600 in Storage, and adding one no
+longer changes the other.
+
 ### fix(database): show expanded Remembrance stack quantities accurately
 
 In Expanded Limits, Remembrances now show their actual owned quantities in the

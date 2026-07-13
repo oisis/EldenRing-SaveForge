@@ -76,6 +76,9 @@ var KeyItems = map[uint32]ItemData{
 	0x40002297: {Name: "Fire Monks' Prayerbook", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/fire_monks_prayerbook.png"},
 	0x401EA3CC: {Name: "Cross-Marked Map", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/cross_marked_map.png", Flags: []string{"dlc"}},
 	0x401EA3D3: {Name: "Black Syrup", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/tools/black_syrup.png", Flags: []string{"dlc"}},
+	// This is a distinct DLC record, not a technical duplicate of the base-game
+	// Larval Tear. Keep its conservative per-playthrough cap and identity separate.
+	0x401EA3E1: {Name: "Larval Tear (DLC)", Category: "key_items", MaxInventory: 6, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/larval_tear_dlc.png", Flags: []string{"dlc", "stackable", "scales_with_ng"}},
 	0x400021D4: {Name: "Mirage Riddle", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/mirage_riddle.png"},
 	0x401EA749: {Name: "Greasemonger's Bell Bearing", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/greasemongers_bell_bearing.png", Flags: []string{"dlc"}},
 	0x40001FA9: {Name: "Dectus Medallion (Left)", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/dectus_medallion_(left).png"},
@@ -109,8 +112,8 @@ var KeyItems = map[uint32]ItemData{
 	0x40001FF6: {Name: "Mending Rune of Perfect Order", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/mending_rune_of_perfect_order.png"},
 	0x40001FF7: {Name: "Mending Rune of the Death-Prince", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/mending_rune_of_the_death_prince.png"},
 	0x40001FF8: {Name: "Mending Rune of the Fell Curse", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/mending_rune_of_the_fell_curse.png"},
-	// Larval Tear: 18 base + 6 DLC = 24 per playthrough; scales_with_ng.
-	0x40001FF9: {Name: "Larval Tear", Category: "key_items", MaxInventory: 24, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/larval_tear.png", Flags: []string{"stackable", "scales_with_ng"}},
+	// Base-game Larval Tear: 18 per playthrough; the separate DLC record has 6.
+	0x40001FF9: {Name: "Larval Tear", Category: "key_items", MaxInventory: 18, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/larval_tear.png", Flags: []string{"stackable", "scales_with_ng"}},
 	0x40001FD2: {Name: "Miniature Ranni (Variant)", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/miniature_ranni.png", Flags: []string{"no_database"}}, // technical variant GoodsParam row
 	0x40001FFB: {Name: "Miniature Ranni", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/miniature_ranni.png"},
 	0x40001FFC: {Name: "Golden Tailoring Tools", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/golden_tailoring_tools.png"},
