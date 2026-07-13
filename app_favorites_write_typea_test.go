@@ -117,3 +117,48 @@ func TestWriteSelectedToFavorites_TypeA_InMemory(t *testing.T) {
 		t.Errorf("favSlotNames[0] = %q, want %q", app.favSlotNames[0], testName)
 	}
 }
+
+// TestWriteSelectedToFavorites_RejectsTypeB_Atomic is the A4e regression: a mixed
+// batch of a Type A and a Type B preset must be rejected before any snapshot or
+// mutation — no Type A entry written first, UserData10/favSlotNames/favUndoStack
+// all untouched. Uses two real generated presets (Geralt = Type A, Ciri = Type B).
+func TestWriteSelectedToFavorites_RejectsTypeB_Atomic(t *testing.T) {
+	const charIdx = 0
+	const typeAName = "Geralt of Rivia, the Witcher"           // BodyType 1
+	const typeBName = "Ciri, the Princess of Cintra (Witcher)" // BodyType 0
+
+	if p := findPresetByName(typeBName); p == nil || p.BodyType != 0 {
+		t.Fatalf("fixture assumption broken: %q must be a known Type B preset", typeBName)
+	}
+
+	app := &App{save: &core.SaveFile{}, favSlotNames: make(map[int]string)}
+	app.save.UserData10.Data = make([]byte, 0x60000)
+	app.save.Slots[charIdx] = core.SaveSlot{
+		Data:           make([]byte, core.FaceDataBlobSize),
+		FaceDataOffset: core.FaceDataBlobSize,
+	}
+
+	// Seed favSlotNames and favUndoStack so the test proves they are PRESERVED,
+	// not merely left empty.
+	app.favSlotNames[14] = "sentinel — pre-existing"
+	app.favUndoStack = []favSnapshot{{Data: []byte{0xAB}, SlotNames: map[int]string{7: "seed"}}}
+
+	before := append([]byte(nil), app.save.UserData10.Data...)
+
+	written, err := app.WriteSelectedToFavorites(charIdx, []string{typeAName, typeBName})
+	if err == nil {
+		t.Fatal("WriteSelectedToFavorites accepted a Type B preset, want error")
+	}
+	if written != 0 {
+		t.Errorf("written = %d, want 0", written)
+	}
+	if !bytes.Equal(before, app.save.UserData10.Data) {
+		t.Error("UserData10.Data mutated despite rejection (Type A written before Type B?)")
+	}
+	if len(app.favSlotNames) != 1 || app.favSlotNames[14] != "sentinel — pre-existing" {
+		t.Errorf("favSlotNames changed: %v", app.favSlotNames)
+	}
+	if len(app.favUndoStack) != 1 {
+		t.Errorf("favUndoStack depth = %d, want 1 (unchanged)", len(app.favUndoStack))
+	}
+}
