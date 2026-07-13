@@ -77,6 +77,10 @@ func TestApplyMirrorFavorite_TypeB_InMemory(t *testing.T) {
 		Data:           slotData,
 		FaceDataOffset: core.FaceDataBlobSize, // → FaceDataStart() == 0
 	}
+	// Distinctive target voice — Mirror Favorites carry no VoiceType field, so
+	// Apply must leave it untouched (direct preset Apply is what sets voice).
+	const wantVoice = 4
+	app.save.Slots[charIdx].Player.VoiceType = wantVoice
 	app.save.UserData10.Data = ud
 
 	// --- Act ---
@@ -109,5 +113,10 @@ func TestApplyMirrorFavorite_TypeB_InMemory(t *testing.T) {
 	}
 	if gender := app.save.Slots[charIdx].Player.Gender; gender != 0 {
 		t.Errorf("target gender = %d, want 0 (female/Type B)", gender)
+	}
+	// Confirmed format rule: Mirror Apply never writes VoiceType — the target's
+	// own voice is preserved (only direct preset Apply sets the preset voice).
+	if voice := app.save.Slots[charIdx].Player.VoiceType; voice != wantVoice {
+		t.Errorf("target VoiceType = %d, want %d (preserved)", voice, wantVoice)
 	}
 }

@@ -28,10 +28,20 @@ func TestWriteSelectedToFavorites_TypeB_Melina(t *testing.T) {
 		t.Fatalf("fixture assumption broken: %q must be a known Type B preset", melinaName)
 	}
 
+	// Seed the source character's unk0x6c (opaque 64B) with a distinct pattern.
+	// The writer copies THIS block into the Mirror slot — the preset carries no
+	// unk0x6c of its own.
+	slotData := make([]byte, core.FaceDataBlobSize)
+	wantUnk := make([]byte, 64)
+	for i := range wantUnk {
+		wantUnk[i] = byte(0xA0 + i)
+	}
+	copy(slotData[core.FDOffUnknownBlock:], wantUnk)
+
 	app := &App{save: &core.SaveFile{}, favSlotNames: make(map[int]string)}
 	app.save.UserData10.Data = make([]byte, 0x60000)
 	app.save.Slots[charIdx] = core.SaveSlot{
-		Data:           make([]byte, core.FaceDataBlobSize),
+		Data:           slotData,
 		FaceDataOffset: core.FaceDataBlobSize, // → FaceDataStart() == 0
 	}
 
@@ -49,9 +59,25 @@ func TestWriteSelectedToFavorites_TypeB_Melina(t *testing.T) {
 	if magic := string(ud[slotOff+core.FavOffMagic : slotOff+core.FavOffMagic+4]); magic != "FACE" {
 		t.Fatalf("slot magic = %q, want FACE", magic)
 	}
+	// Every known header/default field the writer emits.
+	if hm := binary.LittleEndian.Uint16(ud[slotOff:]); hm != core.FavHeaderMagicU16 {
+		t.Errorf("header magic u16 = %#x, want %#x", hm, core.FavHeaderMagicU16)
+	}
+	if hu := binary.LittleEndian.Uint32(ud[slotOff+0x04:]); hu != core.FavHeaderUnk {
+		t.Errorf("header unk u32 = %#x, want %#x", hu, core.FavHeaderUnk)
+	}
+	if bf := ud[slotOff+core.FavOffBodyFlag]; bf != 1 {
+		t.Errorf("body flag = %d, want 1", bf)
+	}
 	// Type B → body type byte 1 (female, inverted vs gender).
 	if bt := ud[slotOff+core.FavOffBodyType]; bt != 1 {
 		t.Errorf("body type byte = %d, want 1 (Type B female)", bt)
+	}
+	if al := binary.LittleEndian.Uint32(ud[slotOff+core.FavOffAlignment:]); al != 4 {
+		t.Errorf("alignment = %d, want 4", al)
+	}
+	if is := binary.LittleEndian.Uint32(ud[slotOff+core.FavOffInnerSize:]); is != 0x120 {
+		t.Errorf("inner size = %#x, want 0x120", is)
 	}
 	for i, exp := range melinaWantModels {
 		got := binary.LittleEndian.Uint32(ud[slotOff+core.FavOffModelIDs+i*4:])
@@ -72,6 +98,10 @@ func TestWriteSelectedToFavorites_TypeB_Melina(t *testing.T) {
 	if got := ud[slotOff+core.FavOffSkin : slotOff+core.FavOffSkin+91]; !bytes.Equal(got, preset.Skin[:]) {
 		t.Error("Skin not copied")
 	}
+	// The opaque unk0x6c block is carried verbatim from the source character.
+	if got := ud[slotOff+core.FavOffUnkBlock : slotOff+core.FavOffUnkBlock+64]; !bytes.Equal(got, wantUnk) {
+		t.Error("unk0x6c not copied from source character")
+	}
 }
 
 // TestWriteSelectedToFavorites_TypeB_RoundTrip writes a mapped Type B preset to
@@ -82,8 +112,17 @@ func TestWriteSelectedToFavorites_TypeB_Melina(t *testing.T) {
 func TestWriteSelectedToFavorites_TypeB_RoundTrip(t *testing.T) {
 	app, idx := realSaveAppForSave(t)
 
-	if findPresetByName(melinaName) == nil {
+	preset := findPresetByName(melinaName)
+	if preset == nil {
 		t.Fatalf("preset %q not found", melinaName)
+	}
+
+	// Capture the source character's opaque unk0x6c — the writer copies it into
+	// the Mirror slot, so it must survive the save/reload cycle unchanged.
+	var wantUnk [64]byte
+	src := &app.save.Slots[idx]
+	if fd := src.FaceDataStart(); fd >= 0 && fd+core.FaceDataBlobSize <= len(src.Data) {
+		copy(wantUnk[:], src.Data[fd+core.FDOffUnknownBlock:fd+core.FDOffUnknownBlock+64])
 	}
 
 	written, err := app.WriteSelectedToFavorites(idx, []string{melinaName})
@@ -140,6 +179,25 @@ func TestWriteSelectedToFavorites_TypeB_RoundTrip(t *testing.T) {
 	if magic := string(ud[slotOff+core.FavOffMagic : slotOff+core.FavOffMagic+4]); magic != "FACE" {
 		t.Fatalf("reloaded slot magic = %q, want FACE", magic)
 	}
+	// Known header/default fields survive the round-trip.
+	if hm := binary.LittleEndian.Uint16(ud[slotOff:]); hm != core.FavHeaderMagicU16 {
+		t.Errorf("reloaded header magic u16 = %#x, want %#x", hm, core.FavHeaderMagicU16)
+	}
+	if hu := binary.LittleEndian.Uint32(ud[slotOff+0x04:]); hu != core.FavHeaderUnk {
+		t.Errorf("reloaded header unk u32 = %#x, want %#x", hu, core.FavHeaderUnk)
+	}
+	if bf := ud[slotOff+core.FavOffBodyFlag]; bf != 1 {
+		t.Errorf("reloaded body flag = %d, want 1", bf)
+	}
+	if bt := ud[slotOff+core.FavOffBodyType]; bt != 1 {
+		t.Errorf("reloaded body type byte = %d, want 1 (Type B female)", bt)
+	}
+	if al := binary.LittleEndian.Uint32(ud[slotOff+core.FavOffAlignment:]); al != 4 {
+		t.Errorf("reloaded alignment = %d, want 4", al)
+	}
+	if is := binary.LittleEndian.Uint32(ud[slotOff+core.FavOffInnerSize:]); is != 0x120 {
+		t.Errorf("reloaded inner size = %#x, want 0x120", is)
+	}
 	for i, exp := range melinaWantModels {
 		got := binary.LittleEndian.Uint32(ud[slotOff+core.FavOffModelIDs+i*4:])
 		if got != exp {
@@ -148,5 +206,17 @@ func TestWriteSelectedToFavorites_TypeB_RoundTrip(t *testing.T) {
 	}
 	if decal := binary.LittleEndian.Uint32(ud[slotOff+core.FavOffModelIDs+6*4:]); decal != 29 {
 		t.Errorf("reloaded Decal = %d, want 29", decal)
+	}
+	if got := ud[slotOff+core.FavOffFaceShape : slotOff+core.FavOffFaceShape+64]; !bytes.Equal(got, preset.FaceShape[:]) {
+		t.Error("reloaded FaceShape not preserved")
+	}
+	if got := ud[slotOff+core.FavOffBody : slotOff+core.FavOffBody+7]; !bytes.Equal(got, preset.Body[:]) {
+		t.Error("reloaded Body not preserved")
+	}
+	if got := ud[slotOff+core.FavOffSkin : slotOff+core.FavOffSkin+91]; !bytes.Equal(got, preset.Skin[:]) {
+		t.Error("reloaded Skin not preserved")
+	}
+	if got := ud[slotOff+core.FavOffUnkBlock : slotOff+core.FavOffUnkBlock+64]; !bytes.Equal(got, wantUnk[:]) {
+		t.Error("reloaded unk0x6c not preserved from source character")
 	}
 }
