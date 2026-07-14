@@ -7,7 +7,6 @@ import {
     LaunchRemoteGame, CloseRemoteGame, DeployAndLaunch, CloseAndDownload,
     PrepareConversion, ExecuteConversion,
     BackupCurrentSave,
-    AnalyzeGaItemRepack,
 } from '../../wailsjs/go/main/App';
 import {deploy} from '../../wailsjs/go/models';
 import {saveSafetyProfile, type SafetyProfile} from '../state/safetyProfile';
@@ -33,6 +32,8 @@ interface SettingsTabProps {
     charIndex: number;
     onComplete: () => void;
     onMutate?: () => void;
+    // Opens the App-owned GaItem repack modal for the current character.
+    onOptimizeGaItem?: () => void;
 }
 
 const EMPTY_SSH_TARGET: deploy.Target = new deploy.Target({
@@ -55,7 +56,7 @@ export function SettingsTab({
     platform, charIndex,
     selectedDeployTarget: selectedTarget, setSelectedDeployTarget: setSelectedTarget,
     onAfterLoad,
-    onComplete, onMutate,
+    onComplete, onMutate, onOptimizeGaItem,
 }: SettingsTabProps) {
     const {count: favCount} = useFavorites();
     const [view, setView] = useState<'overview' | 'favorites'>('overview');
@@ -103,21 +104,6 @@ export function SettingsTab({
             toast.error('Diagnostics failed: ' + e);
         } finally {
             setScanning(false);
-        }
-    };
-
-    // GaItem repack — dry-run only (task 6.1). Analysis result is not yet
-    // presented; task 6.2 adds the modal. Only API rejection is a toast error.
-    const [repackAnalyzing, setRepackAnalyzing] = useState(false);
-    const handleOptimizeGaItem = async () => {
-        if (repackAnalyzing) return; // dedupe double-click
-        setRepackAnalyzing(true);
-        try {
-            await AnalyzeGaItemRepack(charIndex);
-        } catch (e) {
-            toast.error('GaItem analysis failed: ' + e);
-        } finally {
-            setRepackAnalyzing(false);
         }
     };
 
@@ -532,17 +518,14 @@ export function SettingsTab({
                             {scanning ? 'Scanning…' : 'Diagnostics'}
                         </button>
                         <button
-                            onClick={handleOptimizeGaItem}
-                            disabled={repackAnalyzing || !platform}
+                            onClick={() => onOptimizeGaItem?.()}
+                            disabled={!platform}
                             className="flex items-center gap-2 px-3 py-2 rounded bg-primary text-primary-foreground hover:brightness-110 transition-all text-[9px] font-black uppercase tracking-widest shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            {repackAnalyzing
-                                ? <div className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7" />
-                                </svg>
-                            }
-                            {repackAnalyzing ? 'Analyzing…' : 'Optimize GaItem allocation'}
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7" />
+                            </svg>
+                            Optimize GaItem allocation
                         </button>
                         <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

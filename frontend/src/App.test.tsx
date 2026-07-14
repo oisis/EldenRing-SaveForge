@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafetyProfile } from './state/safetyProfile';
 
@@ -30,6 +30,7 @@ vi.mock('../wailsjs/go/main/App', () => {
         GetSlotCapacity: r(), AuditLoadedSaveIssues: r(), GetSaveInventoryIntegrityReport: r(),
         RepairDuplicateInventoryIndices: r(), CloseSave: r(), RunDiagnosticsAllLoaded: r(),
         GetAppVersion: r(), ScanRepairIssuesLoaded: r(),
+        AnalyzeGaItemRepack: r(), ExecuteGaItemRepack: r(),
     };
 });
 
@@ -38,7 +39,12 @@ vi.mock('../wailsjs/go/main/App', () => {
 vi.mock('./components/CharacterTab', () => ({ CharacterTab: () => null }));
 vi.mock('./components/InventoryTab', () => ({ InventoryTab: () => null }));
 vi.mock('./components/WorldTab', () => ({ WorldTab: () => null }));
-vi.mock('./components/SettingsTab', () => ({ SettingsTab: () => null }));
+// The stub exposes the App-owned callback so a test can open the shared modal.
+vi.mock('./components/SettingsTab', () => ({
+    SettingsTab: (props: { onOptimizeGaItem?: () => void }) => (
+        <button onClick={() => props.onOptimizeGaItem?.()}>open-gaitem-repack</button>
+    ),
+}));
 vi.mock('./components/DiagnosticsModal', () => ({ DiagnosticsModal: () => null }));
 vi.mock('./components/InventoryIssuesModal', () => ({ InventoryIssuesModal: () => null }));
 vi.mock('./components/DatabaseTab', () => ({ DatabaseTab: () => null }));
@@ -57,8 +63,10 @@ vi.mock('./components/ToastBar', () => ({ ToastBar: () => null }));
 
 import App from './App';
 import { SafetyModeProvider } from './state/safetyMode';
-import { SelectAndOpenSave, GetSaveInventoryIntegrityReport } from '../wailsjs/go/main/App';
+import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave } from '../wailsjs/go/main/App';
 import toast from './lib/toast';
+
+const CAP = (physicalEmpty: number, cursorRoom: number, usable: number) => ({ physicalEmpty, cursorRoom, usable });
 
 function renderApp(profile: SafetyProfile) {
     localStorage.setItem('setting:safetyProfile', profile);
@@ -204,5 +212,55 @@ describe('App unsupported-container handling', () => {
         await new Promise(r => setTimeout(r, 0));
         expect(screen.queryByText('Unsupported Save Format')).not.toBeInTheDocument();
         expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('some other failure'));
+    });
+});
+
+describe('App GaItem repack modal wiring', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    async function loadSave() {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        await new Promise(r => setTimeout(r, 0));
+    }
+
+    it('opens the shared modal for the selected character and analyzes it', async () => {
+        vi.mocked(AnalyzeGaItemRepack).mockResolvedValue({
+            outcome: 'ready', characterIndex: 0, analysisToken: 't',
+            before: CAP(2, 3, 40), projectedAfter: CAP(7, 8, 45),
+            recovered: 5, nonEmptyRecords: 9, blockers: [],
+        } as never);
+
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'open-gaitem-repack' }));
+
+        await screen.findByText('Ready to optimize');
+        expect(AnalyzeGaItemRepack).toHaveBeenCalledWith(0);
+    });
+
+    it('routes the success Write Save through the central App path', async () => {
+        vi.mocked(AnalyzeGaItemRepack).mockResolvedValue({
+            outcome: 'ready', characterIndex: 0, analysisToken: 't',
+            before: CAP(2, 3, 40), projectedAfter: CAP(7, 8, 45),
+            recovered: 5, nonEmptyRecords: 9, blockers: [],
+        } as never);
+        vi.mocked(ExecuteGaItemRepack).mockResolvedValue({
+            outcome: 'success', characterIndex: 0,
+            before: CAP(2, 3, 40), after: CAP(7, 8, 45), recovered: 5,
+        } as never);
+
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'open-gaitem-repack' }));
+        fireEvent.click(await screen.findByRole('button', { name: /^Continue$/ }));
+        fireEvent.click(await screen.findByRole('button', { name: /^Optimize allocation$/ }));
+        await screen.findByText('GaItem allocation optimized');
+
+        fireEvent.click(screen.getByRole('button', { name: /^Write Save$/ }));
+        await waitFor(() => expect(WriteSave).toHaveBeenCalled());
     });
 });

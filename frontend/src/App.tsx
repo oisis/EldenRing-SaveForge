@@ -7,6 +7,7 @@ import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
 import {SettingsTab} from './components/SettingsTab';
+import {GaItemRepackModal} from './components/GaItemRepackModal';
 import {DiagnosticsModal} from './components/DiagnosticsModal';
 import {InventoryIssuesModal} from './components/InventoryIssuesModal';
 import {DatabaseTab} from './components/DatabaseTab';
@@ -76,6 +77,8 @@ function App() {
     const [theme, setTheme] = useState<Theme>(() => {
         return (localStorage.getItem('setting:theme') as Theme) || 'dark';
     });
+    // Character index the GaItem repack modal is open for (null = closed).
+    const [gaItemRepackChar, setGaItemRepackChar] = useState<number | null>(null);
     const [cloneModal, setCloneModal] = useState<{srcIdx: number} | null>(null);
     const [deleteModal, setDeleteModal] = useState<{idx: number} | null>(null);
     const [cleaningSlot, setCleaningSlot] = useState<number | null>(null);
@@ -328,19 +331,27 @@ function App() {
         }
     };
 
+    // Drops the loaded save from backend memory and resets the UI to the
+    // no-save state. Shared by the integrity gate and the GaItem repack critical
+    // path. Throws on backend failure so callers can surface it.
+    const closeSaveWithoutSaving = async () => {
+        await CloseSave();
+        setIntegrityReport(null);
+        setPendingPlatform(null);
+        setPlatform(null);
+        setActiveSlots([]);
+        setCharacterNames([]);
+        setSelectedChar(0);
+        setGaItemRepackChar(null);
+        setSaveLoadKey(k => k + 1);
+    };
+
     const handleCloseSaveFromIntegrity = async () => {
         if (integrityBusy) return;
         setIntegrityBusy(true);
         setIntegrityError(null);
         try {
-            await CloseSave();
-            setIntegrityReport(null);
-            setPendingPlatform(null);
-            setPlatform(null);
-            setActiveSlots([]);
-            setCharacterNames([]);
-            setSelectedChar(0);
-            setSaveLoadKey(k => k + 1);
+            await closeSaveWithoutSaving();
         } catch (err) {
             setIntegrityError('Close save failed: ' + String(err));
         } finally {
@@ -645,6 +656,7 @@ function App() {
                                     charIndex={selectedChar}
                                     onComplete={refreshSlots}
                                     onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
+                                    onOptimizeGaItem={() => setGaItemRepackChar(selectedChar)}
                                 />
                             </div>
                         ) : !platform ? (
@@ -882,6 +894,16 @@ function App() {
                     </div>
                 </div>
             </div>
+        )}
+        {gaItemRepackChar !== null && (
+            <GaItemRepackModal
+                charIndex={gaItemRepackChar}
+                characterName={charNames[gaItemRepackChar]}
+                onWriteSave={handleSaveAs}
+                onRefresh={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
+                onCloseSaveWithoutSaving={closeSaveWithoutSaving}
+                onClose={() => setGaItemRepackChar(null)}
+            />
         )}
         {unsupportedSaveModal && (
             <div data-testid="unsupported-save-backdrop" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">

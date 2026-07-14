@@ -32,8 +32,6 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     PrepareConversion: vi.fn(),
     ExecuteConversion: vi.fn(),
     BackupCurrentSave: vi.fn().mockResolvedValue(undefined),
-    AnalyzeGaItemRepack: vi.fn().mockResolvedValue({}),
-    ExecuteGaItemRepack: vi.fn(),
 }));
 
 // Stub the modal to a marker so we can assert it opened with the scan report.
@@ -49,7 +47,7 @@ import { SafetyModeProvider } from '../state/safetyMode';
 import { FavoritesProvider } from '../state/favorites';
 import type { SafetyProfile } from '../state/safetyProfile';
 import toast from '../lib/toast';
-import { PrepareConversion, AnalyzeGaItemRepack, ExecuteGaItemRepack } from '../../wailsjs/go/main/App';
+import { PrepareConversion } from '../../wailsjs/go/main/App';
 
 // jsdom here has no localStorage; SettingsTab reads it for the Full Chaos toggle.
 const lsStore: Record<string, string> = {};
@@ -73,7 +71,7 @@ function fakeReport(hasIssues: boolean): RepairIssueReport {
     };
 }
 
-function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe') {
+function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', onOptimizeGaItem = vi.fn()) {
     render(
         <SafetyModeProvider>
             <FavoritesProvider>
@@ -87,6 +85,7 @@ function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe') {
                     onAfterLoad={vi.fn()}
                     charIndex={charIndex}
                     onComplete={vi.fn()}
+                    onOptimizeGaItem={onOptimizeGaItem}
                 />
             </FavoritesProvider>
         </SafetyModeProvider>,
@@ -147,18 +146,8 @@ describe('SettingsTab diagnostics', () => {
     });
 });
 
-describe('SettingsTab Optimize GaItem allocation (dry-run)', () => {
-    const analyze = AnalyzeGaItemRepack as ReturnType<typeof vi.fn>;
-    const execute = ExecuteGaItemRepack as ReturnType<typeof vi.fn>;
-
-    beforeEach(() => {
-        analyze.mockReset();
-        execute.mockReset();
-        (toast.error as ReturnType<typeof vi.fn>).mockReset();
-    });
-
+describe('SettingsTab Optimize GaItem allocation', () => {
     it('renders right after Diagnostics in the Tools list', () => {
-        analyze.mockResolvedValue({});
         renderSettings();
         const diagnostics = screen.getByRole('button', { name: /Diagnostics/i });
         const optimize = screen.getByRole('button', { name: /Optimize GaItem allocation/i });
@@ -167,33 +156,14 @@ describe('SettingsTab Optimize GaItem allocation (dry-run)', () => {
         expect(diagnostics.nextElementSibling).toBe(optimize);
     });
 
-    it('calls AnalyzeGaItemRepack with the charIndex and never ExecuteGaItemRepack', async () => {
-        analyze.mockResolvedValue({});
-        renderSettings(2);
+    it('opens the shared modal via the App-owned callback and never analyzes itself', () => {
+        const onOptimize = vi.fn();
+        renderSettings(2, 'safe', onOptimize);
         fireEvent.click(screen.getByRole('button', { name: /Optimize GaItem allocation/i }));
-        expect(analyze).toHaveBeenCalledWith(2);
-        expect(execute).not.toHaveBeenCalled();
-        await waitFor(() => expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).not.toBeDisabled());
-    });
-
-    it('shows a loading state, disables the button and dedupes a second click', async () => {
-        let resolve!: (v: unknown) => void;
-        analyze.mockReturnValue(new Promise(res => { resolve = res; }));
-        renderSettings();
-
-        fireEvent.click(screen.getByRole('button', { name: /Optimize GaItem allocation/i }));
-        const analyzing = await screen.findByRole('button', { name: /Analyzing/i });
-        expect(analyzing).toBeDisabled();
-
-        fireEvent.click(analyzing); // second click must not start another analysis
-        expect(analyze).toHaveBeenCalledTimes(1);
-
-        resolve({});
-        await waitFor(() => expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).not.toBeDisabled());
+        expect(onOptimize).toHaveBeenCalledTimes(1);
     });
 
     it('is disabled when no platform is loaded', () => {
-        analyze.mockResolvedValue({});
         render(
             <SafetyModeProvider>
                 <FavoritesProvider>
@@ -207,19 +177,12 @@ describe('SettingsTab Optimize GaItem allocation (dry-run)', () => {
                         onAfterLoad={vi.fn()}
                         charIndex={0}
                         onComplete={vi.fn()}
+                        onOptimizeGaItem={vi.fn()}
                     />
                 </FavoritesProvider>
             </SafetyModeProvider>,
         );
         expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).toBeDisabled();
-    });
-
-    it('reports a rejected API call via toast and re-enables the button', async () => {
-        analyze.mockRejectedValue(new Error('boom'));
-        renderSettings();
-        fireEvent.click(screen.getByRole('button', { name: /Optimize GaItem allocation/i }));
-        await waitFor(() => expect(toast.error).toHaveBeenCalled());
-        expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).not.toBeDisabled();
     });
 });
 
