@@ -130,7 +130,7 @@ var KeyItems = map[uint32]ItemData{
 	0x40002007: {Name: "Discarded Palace Key", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/discarded_palace_key.png"},
 	0x4000251C: {Name: "Cracked Pot", Category: "key_items", MaxInventory: 20, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/cracked_pot.png", Flags: []string{"stackable", "no_database"}},
 	0x4000251D: {Name: "Ritual Pot", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/ritual_pot.png", Flags: []string{"stackable", "no_database"}},
-	0x40002526: {Name: "Perfume Bottle", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/perfume_bottle.png", Flags: []string{"stackable"}},
+	0x40002526: {Name: "Perfume Bottle", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/perfume_bottle.png", Flags: []string{"stackable", "no_database"}},
 	0x401EA99C: {Name: "Hefty Cracked Pot", Category: "key_items", MaxInventory: 10, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/hefty_cracked_pot.png", Flags: []string{"stackable", "no_database"}},
 	0x40000073: {Name: "Memory of Grace", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/memory_of_grace.png"},
 	0x4000082A: {Name: "Deathroot", Category: "key_items", MaxInventory: 9, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/deathroot.png", Flags: []string{"stackable"}},

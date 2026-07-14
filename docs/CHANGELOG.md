@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-07-14
+
+### fix(database): handle all crafting containers consistently
+
+Perfume Bottle is no longer available as a manually addable Key Item in Item
+Database, matching Cracked Pot, Ritual Pot, and Hefty Cracked Pot. All four
+containers remain managed automatically when their associated craftable items
+are added or edited.
+
 ## [1.4.0] - 2026-07-14
 
 ### feat(appearance): complete Type B preset support

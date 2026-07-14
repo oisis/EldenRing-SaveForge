@@ -74,3 +74,18 @@ func TestGetItemsByCategory_AllFiveWhetbladesExposed(t *testing.T) {
 		t.Errorf("exposed %d Whetblades, want 5 (issue 4): seen %v", len(seen), seen)
 	}
 }
+
+func TestGetItemsByCategory_ContainersStayHidden(t *testing.T) {
+	hidden := map[uint32]string{
+		0x4000251C: "Cracked Pot",
+		0x4000251D: "Ritual Pot",
+		0x40002526: "Perfume Bottle",
+		0x401EA99C: "Hefty Cracked Pot",
+	}
+
+	for _, item := range GetItemsByCategory("key_items", "PC") {
+		if name, ok := hidden[item.ID]; ok {
+			t.Errorf("%s (0x%08X) must stay hidden but appears in picker", name, item.ID)
+		}
+	}
+}
