@@ -1740,6 +1740,193 @@ export namespace main {
 	        this.image = source["image"];
 	    }
 	}
+	export class GaItemCapacity {
+	    physicalEmpty: number;
+	    cursorRoom: number;
+	    usable: number;
+
+	    static createFrom(source: any = {}) {
+	        return new GaItemCapacity(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.physicalEmpty = source["physicalEmpty"];
+	        this.cursorRoom = source["cursorRoom"];
+	        this.usable = source["usable"];
+	    }
+	}
+	export class GaItemRepackFailure {
+	    stage: string;
+	    code: string;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new GaItemRepackFailure(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.stage = source["stage"];
+	        this.code = source["code"];
+	        this.message = source["message"];
+	    }
+	}
+	export class GaItemRepackBlocker {
+	    code: string;
+	    message: string;
+
+	    static createFrom(source: any = {}) {
+	        return new GaItemRepackBlocker(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.code = source["code"];
+	        this.message = source["message"];
+	    }
+	}
+	export class GaItemRepackAnalysis {
+	    outcome: string;
+	    characterIndex: number;
+	    analysisToken?: string;
+	    before: GaItemCapacity;
+	    projectedAfter?: GaItemCapacity;
+	    recovered: number;
+	    nonEmptyRecords: number;
+	    blockers: GaItemRepackBlocker[];
+	    failure?: GaItemRepackFailure;
+
+	    static createFrom(source: any = {}) {
+	        return new GaItemRepackAnalysis(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.outcome = source["outcome"];
+	        this.characterIndex = source["characterIndex"];
+	        this.analysisToken = source["analysisToken"];
+	        this.before = this.convertValues(source["before"], GaItemCapacity);
+	        this.projectedAfter = this.convertValues(source["projectedAfter"], GaItemCapacity);
+	        this.recovered = source["recovered"];
+	        this.nonEmptyRecords = source["nonEmptyRecords"];
+	        this.blockers = this.convertValues(source["blockers"], GaItemRepackBlocker);
+	        this.failure = this.convertValues(source["failure"], GaItemRepackFailure);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+	export class GaItemRepackExecuteRequest {
+	    characterIndex: number;
+	    analysisToken: string;
+
+	    static createFrom(source: any = {}) {
+	        return new GaItemRepackExecuteRequest(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.characterIndex = source["characterIndex"];
+	        this.analysisToken = source["analysisToken"];
+	    }
+	}
+	export class GaItemRepackRollback {
+	    attempted: boolean;
+	    complete: boolean;
+	    mode: string;
+	    failure?: GaItemRepackFailure;
+
+	    static createFrom(source: any = {}) {
+	        return new GaItemRepackRollback(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.attempted = source["attempted"];
+	        this.complete = source["complete"];
+	        this.mode = source["mode"];
+	        this.failure = this.convertValues(source["failure"], GaItemRepackFailure);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class GaItemRepackExecutionResult {
+	    outcome: string;
+	    characterIndex: number;
+	    before: GaItemCapacity;
+	    after?: GaItemCapacity;
+	    recovered: number;
+	    failure?: GaItemRepackFailure;
+	    rollback?: GaItemRepackRollback;
+
+	    static createFrom(source: any = {}) {
+	        return new GaItemRepackExecutionResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.outcome = source["outcome"];
+	        this.characterIndex = source["characterIndex"];
+	        this.before = this.convertValues(source["before"], GaItemCapacity);
+	        this.after = this.convertValues(source["after"], GaItemCapacity);
+	        this.recovered = source["recovered"];
+	        this.failure = this.convertValues(source["failure"], GaItemRepackFailure);
+	        this.rollback = this.convertValues(source["rollback"], GaItemRepackRollback);
+	    }
+
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+
+
 	export class InventoryIntegrityConflictItem {
 	    scope: string;
 	    row: number;

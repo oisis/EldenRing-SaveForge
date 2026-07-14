@@ -40,7 +40,7 @@ func TestSaveLifecycle_InstallLoadedSaveBlocksOnActiveReader(t *testing.T) {
 
 	// Pre-populate derived state so we can prove the install reset it.
 	app.favSlotNames[3] = "sentinel"
-	app.undoStacks[0] = append(app.undoStacks[0], slotSnapshot{Data: []byte{0xDE, 0xAD}})
+	app.undoStacks[0] = append(app.undoStacks[0], slotSnapshot{Slot: core.SlotSnapshot{Data: []byte{0xDE, 0xAD}}})
 
 	app.saveMu.RLock()
 	released := false
@@ -127,7 +127,7 @@ func TestWriteSave_AbortsWhenActiveSaveChanged(t *testing.T) {
 	// Seed the undo stack AFTER install so we can prove a rejected
 	// write does NOT clear it (clearAllUndoStacks runs inside
 	// writeSaveCore only on the happy path, after SaveFile succeeds).
-	app.undoStacks[0] = append(app.undoStacks[0], slotSnapshot{Data: []byte{0x55}})
+	app.undoStacks[0] = append(app.undoStacks[0], slotSnapshot{Slot: core.SlotSnapshot{Data: []byte{0x55}}})
 
 	// Target path must NOT exist before the write attempt and must
 	// remain non-existent afterwards — the guard errors before any

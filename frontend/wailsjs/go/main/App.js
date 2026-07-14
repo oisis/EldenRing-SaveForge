@@ -14,6 +14,10 @@ export function AddItemsToCharacterWithGameLimits(arg1, arg2, arg3, arg4, arg5, 
   return window['go']['main']['App']['AddItemsToCharacterWithGameLimits'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function AnalyzeGaItemRepack(arg1) {
+  return window['go']['main']['App']['AnalyzeGaItemRepack'](arg1);
+}
+
 export function ApplyBuildTemplateFromLibrary(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyBuildTemplateFromLibrary'](arg1, arg2, arg3);
 }
@@ -144,6 +148,10 @@ export function DownloadRemoteSave(arg1) {
 
 export function ExecuteConversion(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExecuteConversion'](arg1, arg2, arg3);
+}
+
+export function ExecuteGaItemRepack(arg1) {
+  return window['go']['main']['App']['ExecuteGaItemRepack'](arg1);
 }
 
 export function ExportBuildTemplateV2JSONFromCharacter(arg1, arg2, arg3) {
