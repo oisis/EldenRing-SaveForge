@@ -46,6 +46,7 @@ type App struct {
 	// GaItem repack tokens bind a dry-run to one loaded save and an exact slot
 	// state. They are protected by saveMu + the relevant slotMu entry.
 	gaItemRepackTokens map[string]gaItemRepackToken
+	gaItemDedupTokens  map[string]gaItemDedupToken
 	gaItemRepackNextID uint64
 	saveGeneration     uint64
 	slotRevisions      [maxCharacters]uint64
@@ -140,6 +141,7 @@ func NewApp() *App {
 		editSessions:       make(map[string]*editor.InventoryEditSession),
 		editSessionByChar:  make(map[int]string),
 		gaItemRepackTokens: make(map[string]gaItemRepackToken),
+		gaItemDedupTokens:  make(map[string]gaItemDedupToken),
 	}
 }
 
@@ -224,6 +226,7 @@ func (a *App) installLoadedSave(candidate *core.SaveFile, path string) {
 	a.saveGeneration++
 	a.slotRevisions = [maxCharacters]uint64{}
 	a.gaItemRepackTokens = make(map[string]gaItemRepackToken)
+	a.gaItemDedupTokens = make(map[string]gaItemDedupToken)
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	a.clearAllEditSessions()
