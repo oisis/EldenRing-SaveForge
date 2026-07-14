@@ -6,29 +6,6 @@ import (
 	"testing"
 )
 
-func repackPreflightFixture() *SaveSlot {
-	slot := &SaveSlot{
-		Data:              make([]byte, SlotSize),
-		Version:           1,
-		GaMap:             make(map[uint32]uint32),
-		MagicOffset:       1000,
-		InventoryEnd:      GaItemsStart,
-		PlayerDataOffset:  1000,
-		FaceDataOffset:    2000,
-		StorageBoxOffset:  2000,
-		GaItemDataOffset:  0x8000,
-		SectionMap:        []SectionRange{{Name: "all", Start: 0, End: SlotSize}},
-		NextAoWIndex:      0,
-		NextArmamentIndex: 1,
-		NextGaItemHandle:  2,
-		PartGaItemHandle:  0x80,
-	}
-	weapon := GaItemFull{Handle: ItemTypeWeapon | 1, ItemID: 1}
-	slot.GaItems = []GaItemFull{weapon, {}, {}, {}}
-	slot.GaMap[weapon.Handle] = weapon.ItemID
-	return slot
-}
-
 func repackBlockerCodes(blockers []GaItemRepackBlocker) []string {
 	codes := make([]string, len(blockers))
 	for i, blocker := range blockers {
