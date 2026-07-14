@@ -104,6 +104,8 @@ export function GetBuiltinCharacterPreset(arg1:string):Promise<vm.CharacterPrese
 
 export function GetCharacter(arg1:number):Promise<vm.CharacterViewModel>;
 
+export function GetCharacterAppearancePreset(arg1:number):Promise<main.PresetInfo>;
+
 export function GetCharacterNames():Promise<Array<string>>;
 
 export function GetColosseums(arg1:number):Promise<Array<db.ColosseumEntry>>;

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"sort"
 
@@ -22,59 +21,17 @@ type PresetInfo struct {
 	BodyType string `json:"bodyType"` // "Type A" or "Type B"
 }
 
-// writePresetAppearance writes FaceShape, Body, Skin and Model IDs from preset into slot's
-// FaceData blob and sets slot.Player.Gender. fd must be the byte offset of the FaceData blob
-// start within slot.Data (i.e. slot.FaceDataStart()). The unk0x6c block is preserved.
-func writePresetAppearance(slot *core.SaveSlot, fd int, preset *data.AppearancePreset) {
-	copy(slot.Data[fd+core.FDOffFaceShape:fd+core.FDOffFaceShape+64], preset.FaceShape[:])
-	copy(slot.Data[fd+core.FDOffHead:fd+core.FDOffHead+7], preset.Body[:])
-	copy(slot.Data[fd+core.FDOffSkinR:fd+core.FDOffSkinR+91], preset.Skin[:])
-
-	writePartsID := func(fdOff int, partsId uint8) {
-		binary.LittleEndian.PutUint32(slot.Data[fd+fdOff:], uint32(partsId))
+// writePresetAppearance resolves a preset through the shared appearance builder
+// and writes it into slot's FaceData blob, setting slot.Player.Gender/VoiceType.
+// fd must be the FaceData blob start (slot.FaceDataStart()); the unk0x6c block is
+// preserved. An unmapped Type B preset returns an error with the slot untouched.
+func writePresetAppearance(slot *core.SaveSlot, fd int, preset *data.AppearancePreset) error {
+	resolved, err := resolveAppearance(preset)
+	if err != nil {
+		return err
 	}
-
-	if preset.BodyType == 1 {
-		// Male: UI-1 applies; hair uses dedicated lookup table.
-		ui1 := func(v uint8) uint8 {
-			if v > 0 {
-				return v - 1
-			}
-			return 0
-		}
-		writePartsID(core.FDOffFaceModel, ui1(preset.FaceModel))
-		writePartsID(core.FDOffEyeModel, ui1(preset.EyeModel))
-		writePartsID(core.FDOffEyebrowModel, ui1(preset.EyebrowModel))
-		writePartsID(core.FDOffBeardModel, ui1(preset.BeardModel))
-		writePartsID(core.FDOffEyepatchModel, ui1(preset.EyepatchModel))
-		writePartsID(core.FDOffDecalModel, ui1(preset.DecalModel))
-		writePartsID(core.FDOffEyelashModel, ui1(preset.EyelashModel))
-		if partsId, ok := data.LookupMaleHairPartsID(preset.HairModel); ok {
-			writePartsID(core.FDOffHairModel, partsId)
-		} else {
-			writePartsID(core.FDOffHairModel, ui1(preset.HairModel))
-		}
-	} else {
-		// Female: UI-1 does NOT apply — female PartsId ranges differ entirely from male.
-		// Use empirically confirmed safe values (tmp/re-character/facedata_dump.txt).
-		f := data.FemaleModelIDs
-		writePartsID(core.FDOffFaceModel, f.FaceModel)
-		writePartsID(core.FDOffHairModel, f.HairModel)
-		writePartsID(core.FDOffEyeModel, f.EyeModel)
-		writePartsID(core.FDOffEyebrowModel, f.EyebrowModel)
-		writePartsID(core.FDOffBeardModel, f.BeardModel)
-		writePartsID(core.FDOffEyepatchModel, f.EyepatchModel)
-		writePartsID(core.FDOffDecalModel, f.DecalModel)
-		writePartsID(core.FDOffEyelashModel, f.EyelashModel)
-	}
-
-	// Zero trailing sex-flag bytes — game resets these on apply; leaving them
-	// at non-zero causes Type A body even when Gender is set to female.
-	slot.Data[fd+0x125] = 0
-	slot.Data[fd+0x126] = 0
-
-	slot.Player.Gender = preset.BodyType
-	slot.Player.VoiceType = preset.VoiceType
+	applyResolvedAppearance(slot, fd, resolved)
+	return nil
 }
 
 // findPresetByName returns a pointer to the named preset or nil if not found.
@@ -104,6 +61,13 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 		return fmt.Errorf("preset %q not found", presetName)
 	}
 
+	// Resolve BEFORE locking/Undo so an unmapped Type B preset fails with no
+	// snapshot and no mutation. Mapped Type B (verified UI→PartsId) is accepted.
+	resolved, err := resolveAppearance(preset)
+	if err != nil {
+		return err
+	}
+
 	a.slotMu[charIndex].Lock()
 	defer a.slotMu[charIndex].Unlock()
 
@@ -114,7 +78,7 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 	}
 
 	a.pushUndoLocked(charIndex)
-	writePresetAppearance(slot, fd, preset)
+	applyResolvedAppearance(slot, fd, resolved)
 	return nil
 }
 
@@ -132,8 +96,6 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 	if targetGender > 1 {
 		return fmt.Errorf("invalid gender: 0=female, 1=male")
 	}
-	a.slotMu[charIndex].Lock()
-	defer a.slotMu[charIndex].Unlock()
 
 	var defaultName string
 	if targetGender == 1 {
@@ -147,6 +109,16 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 		return fmt.Errorf("default preset %q not found", defaultName)
 	}
 
+	// Resolve BEFORE locking/Undo so an unmapped default preset fails with no
+	// snapshot and no mutation. The mapped Ciri default enables Type B here.
+	resolved, err := resolveAppearance(preset)
+	if err != nil {
+		return err
+	}
+
+	a.slotMu[charIndex].Lock()
+	defer a.slotMu[charIndex].Unlock()
+
 	slot := &a.save.Slots[charIndex]
 	fd := slot.FaceDataStart()
 	if fd < 0 || fd+core.FaceDataBlobSize > len(slot.Data) {
@@ -154,21 +126,51 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 	}
 
 	a.pushUndoLocked(charIndex)
-	writePresetAppearance(slot, fd, preset)
+	applyResolvedAppearance(slot, fd, resolved)
 	return nil
+}
+
+// presetToInfo converts an appearance preset to its frontend PresetInfo shape.
+func presetToInfo(p *data.AppearancePreset) PresetInfo {
+	bt := "Type A"
+	if p.BodyType == 0 {
+		bt = "Type B"
+	}
+	return PresetInfo{Name: p.Name, Image: p.Image, BodyType: bt}
 }
 
 // ListAppearancePresets returns the list of available character appearance presets.
 func (a *App) ListAppearancePresets() []PresetInfo {
 	result := make([]PresetInfo, len(data.Presets))
-	for i, p := range data.Presets {
-		bt := "Type A"
-		if p.BodyType == 0 {
-			bt = "Type B"
-		}
-		result[i] = PresetInfo{Name: p.Name, Image: p.Image, BodyType: bt}
+	for i := range data.Presets {
+		result[i] = presetToInfo(&data.Presets[i])
 	}
 	return result
+}
+
+// GetCharacterAppearancePreset returns the canonical preset whose resolved
+// appearance the character at charIndex exactly matches, or (nil, nil) when
+// nothing matches. Uses only the exact matcher (matchCharacterAppearance) —
+// no fuzzy matching. Read-only: it takes saveMu.RLock + slotMu and never
+// mutates the slot.
+func (a *App) GetCharacterAppearancePreset(charIndex int) (*PresetInfo, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return nil, fmt.Errorf("no save loaded")
+	}
+	if charIndex < 0 || charIndex >= 10 {
+		return nil, fmt.Errorf("invalid character index")
+	}
+	a.slotMu[charIndex].Lock()
+	defer a.slotMu[charIndex].Unlock()
+
+	p := matchCharacterAppearance(&a.save.Slots[charIndex])
+	if p == nil {
+		return nil, nil
+	}
+	info := presetToInfo(p)
+	return &info, nil
 }
 
 // applyMemoryStonesToSlot sets the quantity of memory stones in a slot to the desired count,

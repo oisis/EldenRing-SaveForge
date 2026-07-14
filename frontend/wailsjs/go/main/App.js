@@ -194,6 +194,10 @@ export function GetCharacter(arg1) {
   return window['go']['main']['App']['GetCharacter'](arg1);
 }
 
+export function GetCharacterAppearancePreset(arg1) {
+  return window['go']['main']['App']['GetCharacterAppearancePreset'](arg1);
+}
+
 export function GetCharacterNames() {
   return window['go']['main']['App']['GetCharacterNames']();
 }

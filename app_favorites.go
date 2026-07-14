@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
-	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // FavoriteSlotInfo describes a single Favorites slot in the Mirror.
@@ -13,7 +12,8 @@ type FavoriteSlotInfo struct {
 	Index  int    `json:"index"`  // absolute slot index (0-14)
 	Active bool   `json:"active"` // true if slot has FACE magic
 	Safe   bool   `json:"safe"`   // true if not colliding with ProfileSummary
-	Name   string `json:"name"`   // preset name if we wrote it, empty otherwise
+	Name   string `json:"name"`   // canonical preset name if matched, else session name, else empty
+	Image  string `json:"image"`  // preset image filename if the entry exactly matches a known preset
 }
 
 // GetFavoritesStatus returns the state of all 15 Favorites slots.
@@ -36,12 +36,23 @@ func (a *App) GetFavoritesStatus() []FavoriteSlotInfo {
 	for i := 0; i < core.FavSlotCount; i++ {
 		off := core.FavBaseOffset + i*core.FavSlotSize
 		active := off+core.FavOffAlignment <= len(ud) && string(ud[off+core.FavOffMagic:off+core.FavOffMagic+4]) == "FACE"
-		result[i] = FavoriteSlotInfo{
+		info := FavoriteSlotInfo{
 			Index:  i,
 			Active: active,
 			Safe:   true,
 			Name:   a.favSlotNames[i],
 		}
+		// Exact match wins over the session name and survives a reload (empty
+		// favSlotNames): read-only, so it cannot mutate UserData10. An active
+		// but unmatched slot keeps its session name (empty after reload → the
+		// frontend shows "In-game favorite").
+		if active && off+core.FavSlotSize <= len(ud) {
+			if p := matchMirrorAppearance(ud[off : off+core.FavSlotSize]); p != nil {
+				info.Name = p.Name
+				info.Image = p.Image
+			}
+		}
+		result[i] = info
 	}
 	return result
 }
@@ -63,6 +74,11 @@ func (a *App) RemoveFavoritePreset(slotIndex int) error {
 	off := core.FavBaseOffset + slotIndex*core.FavSlotSize
 	if off+core.FavSlotSize > len(ud) {
 		return fmt.Errorf("slot offset out of bounds")
+	}
+
+	// Empty slot removal is a no-op.
+	if string(ud[off+core.FavOffMagic:off+core.FavOffMagic+4]) != "FACE" {
+		return nil
 	}
 
 	// Zero out the entire slot
@@ -183,6 +199,23 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 	ud := a.save.UserData10.Data
 	slot := &a.save.Slots[charIndex]
 
+	// Pre-resolve every known preset through the shared appearance builder BEFORE
+	// snapshotting or mutating. An unmapped Type B preset (or a mixed batch that
+	// contains one) fails atomically here — nothing is written. Unknown names
+	// resolve to nil and are skipped by the write loop, preserving prior behavior.
+	resolved := make([]*resolvedAppearance, len(presetNames))
+	for i, name := range presetNames {
+		preset := findPresetByName(name)
+		if preset == nil {
+			continue
+		}
+		r, err := resolveAppearance(preset)
+		if err != nil {
+			return 0, err
+		}
+		resolved[i] = &r
+	}
+
 	// Find available slots
 	var freeSlots []int
 	for s := 0; s < core.FavSlotCount; s++ {
@@ -208,8 +241,8 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 
 	written := 0
 	for i, name := range presetNames {
-		preset := findPresetByName(name)
-		if preset == nil {
+		r := resolved[i]
+		if r == nil {
 			continue
 		}
 
@@ -222,7 +255,7 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 		binary.LittleEndian.PutUint16(buf[0x00:], core.FavHeaderMagicU16)
 		binary.LittleEndian.PutUint32(buf[0x04:], core.FavHeaderUnk)
 		buf[core.FavOffBodyFlag] = 1
-		if preset.BodyType == 1 {
+		if r.BodyType == 1 {
 			buf[core.FavOffBodyType] = 0 // male in Favorites
 		} else {
 			buf[core.FavOffBodyType] = 1 // female in Favorites
@@ -233,33 +266,17 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 		binary.LittleEndian.PutUint32(buf[core.FavOffAlignment:], 4)
 		binary.LittleEndian.PutUint32(buf[core.FavOffInnerSize:], 0x120)
 
-		// Model IDs — male only, female skipped (no mapping)
-		if preset.BodyType == 1 {
-			writeModel := func(off int, uiVal uint8) {
-				val := uiVal
-				if val > 0 {
-					val--
-				}
-				binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+(off*4):], uint32(val))
-			}
-			// Hair: lookup table first, fallback to UI-1 for unmapped styles
-			if partsId, ok := data.LookupMaleHairPartsID(preset.HairModel); ok {
-				binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+1*4:], uint32(partsId))
-			} else if preset.HairModel > 0 {
-				binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+1*4:], uint32(preset.HairModel-1))
-			}
-			writeModel(2, preset.EyeModel)
-			writeModel(3, preset.EyebrowModel)
-			writeModel(4, preset.BeardModel)
-			writeModel(5, preset.EyepatchModel)
-			writeModel(6, preset.DecalModel)
-			writeModel(7, preset.EyelashModel)
+		// Eight resolved model IDs — shared with direct Apply so Add and Apply
+		// can never diverge. Type A = UI-1 + hair lookup, Type B = verified
+		// female mapping (incl. DecalModel).
+		for m, id := range r.Models {
+			binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+m*4:], uint32(id))
 		}
 
-		copy(buf[core.FavOffFaceShape:], preset.FaceShape[:])
+		copy(buf[core.FavOffFaceShape:], r.FaceShape[:])
 		copy(buf[core.FavOffUnkBlock:], unkBlock[:])
-		copy(buf[core.FavOffBody:], preset.Body[:])
-		copy(buf[core.FavOffSkin:], preset.Skin[:])
+		copy(buf[core.FavOffBody:], r.Body[:])
+		copy(buf[core.FavOffSkin:], r.Skin[:])
 
 		copy(ud[slotOff:], buf)
 		a.favSlotNames[safeIdx] = name
