@@ -219,3 +219,110 @@ func TestBuildRepairIssueReport_SameCodeDifferentHandle(t *testing.T) {
 		t.Error("expected duplicate_handle issue for handle h2 (workspace), was incorrectly deduplicated")
 	}
 }
+
+// ---- ScanRepairIssuesLoaded is read-only w.r.t. Inventory Workspaces --------
+
+// scanRepackApp builds an App around the synthetic fragmentedRepackSlot at slot
+// 0, so the diagnostics/workspace regressions run deterministically without the
+// on-disk tmp/save fixture.
+func scanRepackApp(t *testing.T) (*App, int) {
+	t.Helper()
+	app := NewApp()
+	app.save = &core.SaveFile{}
+	app.save.Slots[0] = *fragmentedRepackSlot(t)
+	app.saveGeneration = 1
+	return app, 0
+}
+
+// TestScanRepairIssuesLoaded_DoesNotCreateSession confirms a diagnostic scan on
+// a slot with no active workspace leaves the session registry empty — it must
+// not publish an Inventory Edit Session.
+func TestScanRepairIssuesLoaded_DoesNotCreateSession(t *testing.T) {
+	app, charIdx := scanRepackApp(t)
+
+	report, err := app.ScanRepairIssuesLoaded(charIdx)
+	if err != nil {
+		t.Fatalf("ScanRepairIssuesLoaded: %v", err)
+	}
+	if report.SlotIndex != charIdx {
+		t.Fatalf("report SlotIndex=%d, want %d", report.SlotIndex, charIdx)
+	}
+
+	app.editSessionsMu.Lock()
+	nSessions, nByChar := len(app.editSessions), len(app.editSessionByChar)
+	app.editSessionsMu.Unlock()
+	if nSessions != 0 || nByChar != 0 {
+		t.Fatalf("scan created a session: editSessions=%d editSessionByChar=%d, want 0/0", nSessions, nByChar)
+	}
+}
+
+// TestScanRepairIssuesLoaded_PreservesExistingSession confirms that scanning a
+// slot with a live Inventory Workspace leaves that exact session intact — same
+// ID, same object (so same pending state), neither replaced nor discarded.
+func TestScanRepairIssuesLoaded_PreservesExistingSession(t *testing.T) {
+	app, charIdx := scanRepackApp(t)
+
+	snap, err := app.StartInventoryEditSession(charIdx)
+	if err != nil {
+		t.Fatalf("StartInventoryEditSession: %v", err)
+	}
+	wantID := snap.SessionID
+
+	app.editSessionsMu.Lock()
+	wantSess := app.editSessions[app.editSessionByChar[charIdx]]
+	app.editSessionsMu.Unlock()
+
+	if _, err := app.ScanRepairIssuesLoaded(charIdx); err != nil {
+		t.Fatalf("ScanRepairIssuesLoaded: %v", err)
+	}
+
+	app.editSessionsMu.Lock()
+	gotID := app.editSessionByChar[charIdx]
+	gotSess := app.editSessions[gotID]
+	nSessions := len(app.editSessions)
+	app.editSessionsMu.Unlock()
+
+	if gotID != wantID {
+		t.Fatalf("session ID changed: %q -> %q", wantID, gotID)
+	}
+	if gotSess != wantSess {
+		t.Fatal("session object was replaced by the scan")
+	}
+	if nSessions != 1 {
+		t.Fatalf("editSessions size=%d, want 1", nSessions)
+	}
+}
+
+// TestScanRepairIssuesLoaded_ThenRepackNotRejected is the regression for the
+// original defect: a diagnostic scan must not leave a session that makes the
+// GaItem optimizer refuse with inventory_edit_session_active.
+func TestScanRepairIssuesLoaded_ThenRepackNotRejected(t *testing.T) {
+	app, charIdx := scanRepackApp(t)
+
+	if _, err := app.ScanRepairIssuesLoaded(charIdx); err != nil {
+		t.Fatalf("ScanRepairIssuesLoaded: %v", err)
+	}
+
+	analysis, err := app.AnalyzeGaItemRepack(charIdx)
+	if err != nil {
+		t.Fatalf("AnalyzeGaItemRepack: %v", err)
+	}
+	if analysis.Failure != nil && analysis.Failure.Code == "inventory_edit_session_active" {
+		t.Fatalf("repack rejected after diagnostics scan: %+v", analysis.Failure)
+	}
+	if analysis.Outcome != "ready" {
+		t.Fatalf("analysis outcome=%q, want ready", analysis.Outcome)
+	}
+}
+
+// TestScanRepairIssuesLoaded_EmptySlotErrors guards the pre-refactor behavior:
+// an empty slot (Version == 0) must still return an error, not an empty report.
+func TestScanRepairIssuesLoaded_EmptySlotErrors(t *testing.T) {
+	app := NewApp()
+	app.save = &core.SaveFile{} // Slots[0].Version == 0
+	app.saveGeneration = 1
+
+	if _, err := app.ScanRepairIssuesLoaded(0); err == nil {
+		t.Fatal("ScanRepairIssuesLoaded on an empty slot returned nil error, want failure")
+	}
+}

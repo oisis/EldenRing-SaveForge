@@ -331,14 +331,13 @@ func buildRepairIssueReport(slotIndex int, charName string, slot *core.SaveSlot,
 
 // ScanRepairIssuesLoaded scans the loaded save slot at charIdx and returns a
 // unified repair issue report merging raw/core and workspace findings.
-// Read-only — does not mutate the slot.
+//
+// Read-only with respect to both the slot and Inventory Workspaces: it builds
+// a throwaway snapshot via editor.BuildSnapshot instead of publishing an edit
+// session, so a diagnostic scan never creates, replaces, or discards an
+// existing session (which would otherwise block the GaItem optimizer).
 func (a *App) ScanRepairIssuesLoaded(charIdx int) (RepairIssueReport, error) {
 	var empty RepairIssueReport
-
-	snap, err := a.StartInventoryEditSession(charIdx)
-	if err != nil {
-		return empty, fmt.Errorf("ScanRepairIssuesLoaded: %w", err)
-	}
 
 	a.saveMu.RLock()
 	defer a.saveMu.RUnlock()
@@ -351,6 +350,22 @@ func (a *App) ScanRepairIssuesLoaded(charIdx int) (RepairIssueReport, error) {
 	a.slotMu[charIdx].Lock()
 	defer a.slotMu[charIdx].Unlock()
 	slot := &a.save.Slots[charIdx]
+
+	// Preserve the pre-refactor empty-slot failure. The prior implementation
+	// delegated to StartInventoryEditSession, which errored on Version == 0;
+	// BuildSnapshot alone would silently return an empty report instead.
+	if slot.Version == 0 {
+		return empty, fmt.Errorf("ScanRepairIssuesLoaded: slot %d is empty", charIdx)
+	}
+
+	// Build the validation snapshot inline (no session publish). Mirrors
+	// editor.StartSession's Build+Validate, minus the registry side effects.
+	snap, err := editor.BuildSnapshot(slot, "", charIdx)
+	if err != nil {
+		return empty, fmt.Errorf("ScanRepairIssuesLoaded: %w", err)
+	}
+	snap.Validation = editor.Validate(snap)
+
 	charName := core.UTF16ToString(slot.Player.CharacterName[:])
 	return buildRepairIssueReport(charIdx, charName, slot, &snap.Validation, &snap), nil
 }
