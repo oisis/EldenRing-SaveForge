@@ -16,6 +16,9 @@ interface GaItemRepackModalProps {
     onRefresh: () => void;
     // Existing App close-without-saving path, used only for the critical state.
     onCloseSaveWithoutSaving: () => Promise<void> | void;
+    // Display-only CTA context: set when opened from a rejected add batch. Never
+    // used for any decision or calculation.
+    ctaContext?: { neededGaItems: number };
     onClose: () => void;
 }
 
@@ -66,7 +69,7 @@ function CapacityTable({before, after, recovered, afterLabel = 'After (projected
 
 export function GaItemRepackModal({
     charIndex, characterName,
-    onWriteSave, onRefresh, onCloseSaveWithoutSaving, onClose,
+    onWriteSave, onRefresh, onCloseSaveWithoutSaving, ctaContext, onClose,
 }: GaItemRepackModalProps) {
     const [stage, setStage] = useState<Stage>('analyzing');
     const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -204,9 +207,16 @@ export function GaItemRepackModal({
 
                 {/* Analyzing */}
                 {stage === 'analyzing' && (
-                    <div className="flex items-center gap-3 py-6 justify-center">
-                        <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-primary rounded-full animate-spin" />
-                        <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Analyzing GaItem allocation…</span>
+                    <div className="space-y-3">
+                        {ctaContext && (
+                            <p className={caveat}>
+                                An add batch that needed {ctaContext.neededGaItems} GaItem allocation records was rejected. This analysis checks whether optimization can make room.
+                            </p>
+                        )}
+                        <div className="flex items-center gap-3 py-6 justify-center">
+                            <div className="w-4 h-4 border-2 border-muted-foreground/30 border-t-primary rounded-full animate-spin" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Analyzing GaItem allocation…</span>
+                        </div>
                     </div>
                 )}
 
@@ -235,6 +245,9 @@ export function GaItemRepackModal({
                                 <p className={caveat}>
                                     Stable compaction repositions the {analysis.nonEmptyRecords} non-empty GaItem records; their handles and data are unchanged.
                                 </p>
+                                {ctaContext && (
+                                    <p className={caveat}>After optimizing, try adding the rejected batch again.</p>
+                                )}
                             </div>
                         )}
 

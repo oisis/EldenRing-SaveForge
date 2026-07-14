@@ -109,6 +109,29 @@ describe('GaItemRepackModal dry-run', () => {
     });
 });
 
+describe('GaItemRepackModal CTA context', () => {
+    it('renders the rejected-batch message while analysis is in progress', async () => {
+        analyze.mockReturnValue(new Promise(() => {})); // never resolves — stays analyzing
+        renderModal({ ctaContext: { neededGaItems: 12 } });
+        await screen.findByText(/An add batch that needed 12 GaItem allocation records was rejected/);
+    });
+
+    it('renders the retry-after-optimization message in Ready to optimize', async () => {
+        analyze.mockResolvedValue(readyAnalysis());
+        renderModal({ ctaContext: { neededGaItems: 12 } });
+        await screen.findByText('Ready to optimize');
+        expect(screen.getByText('After optimizing, try adding the rejected batch again.')).toBeInTheDocument();
+    });
+
+    it('renders neither message without context', async () => {
+        analyze.mockResolvedValue(readyAnalysis());
+        renderModal();
+        await screen.findByText('Ready to optimize');
+        expect(screen.queryByText(/was rejected/)).not.toBeInTheDocument();
+        expect(screen.queryByText('After optimizing, try adding the rejected batch again.')).not.toBeInTheDocument();
+    });
+});
+
 describe('GaItemRepackModal confirm & execute', () => {
     async function toConfirm() {
         analyze.mockResolvedValue(readyAnalysis());

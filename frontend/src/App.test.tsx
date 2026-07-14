@@ -47,7 +47,13 @@ vi.mock('./components/SettingsTab', () => ({
 }));
 vi.mock('./components/DiagnosticsModal', () => ({ DiagnosticsModal: () => null }));
 vi.mock('./components/InventoryIssuesModal', () => ({ InventoryIssuesModal: () => null }));
-vi.mock('./components/DatabaseTab', () => ({ DatabaseTab: () => null }));
+// The editable stub exposes the App-owned CTA callback with display context.
+vi.mock('./components/DatabaseTab', () => ({
+    DatabaseTab: (props: { onOptimizeGaItem?: (ctx: { neededGaItems: number }) => void }) =>
+        props.onOptimizeGaItem
+            ? <button onClick={() => props.onOptimizeGaItem?.({ neededGaItems: 7 })}>db-optimize-gaitem</button>
+            : null,
+}));
 vi.mock('./components/AppearanceTab', () => ({ AppearanceTab: () => null }));
 vi.mock('./components/PvPTab', () => ({ PvPTab: () => null }));
 vi.mock('./components/SortOrderTab', () => ({ SortOrderTab: () => null }));
@@ -240,6 +246,31 @@ describe('App GaItem repack modal wiring', () => {
 
         await screen.findByText('Ready to optimize');
         expect(AnalyzeGaItemRepack).toHaveBeenCalledWith(0);
+    });
+
+    it('opens with CTA context from the Database, and context-free from Tools', async () => {
+        vi.mocked(AnalyzeGaItemRepack).mockResolvedValue({
+            outcome: 'ready', characterIndex: 0, analysisToken: 't',
+            before: CAP(2, 3, 40), projectedAfter: CAP(7, 8, 45),
+            recovered: 5, nonEmptyRecords: 9, blockers: [],
+        } as never);
+
+        await loadSave();
+        // Reach the editable DatabaseTab and fire its CTA.
+        fireEvent.click(screen.getByRole('button', { name: /game items/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Item Database/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'db-optimize-gaitem' }));
+
+        await screen.findByText('Ready to optimize');
+        expect(screen.getByText('After optimizing, try adding the rejected batch again.')).toBeInTheDocument();
+
+        // Close, then reopen from Tools — the modal must carry no context.
+        fireEvent.click(screen.getByRole('button', { name: /^Close$/ }));
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'open-gaitem-repack' }));
+
+        await screen.findByText('Ready to optimize');
+        expect(screen.queryByText('After optimizing, try adding the rejected batch again.')).not.toBeInTheDocument();
     });
 
     it('routes the success Write Save through the central App path', async () => {

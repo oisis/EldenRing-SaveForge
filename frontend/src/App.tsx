@@ -79,6 +79,8 @@ function App() {
     });
     // Character index the GaItem repack modal is open for (null = closed).
     const [gaItemRepackChar, setGaItemRepackChar] = useState<number | null>(null);
+    // Optional CTA display context (add batch rejected for lack of GaItem room).
+    const [gaItemRepackCtx, setGaItemRepackCtx] = useState<{neededGaItems: number} | null>(null);
     const [cloneModal, setCloneModal] = useState<{srcIdx: number} | null>(null);
     const [deleteModal, setDeleteModal] = useState<{idx: number} | null>(null);
     const [cleaningSlot, setCleaningSlot] = useState<number | null>(null);
@@ -343,7 +345,15 @@ function App() {
         setCharacterNames([]);
         setSelectedChar(0);
         setGaItemRepackChar(null);
+        setGaItemRepackCtx(null);
         setSaveLoadKey(k => k + 1);
+    };
+
+    // Shared open path for the GaItem repack modal. Stores optional CTA context
+    // (or clears it) and opens the modal for the currently selected character.
+    const openGaItemRepack = (ctx?: {neededGaItems: number}) => {
+        setGaItemRepackCtx(ctx ?? null);
+        setGaItemRepackChar(selectedChar);
     };
 
     const handleCloseSaveFromIntegrity = async () => {
@@ -656,7 +666,7 @@ function App() {
                                     charIndex={selectedChar}
                                     onComplete={refreshSlots}
                                     onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
-                                    onOptimizeGaItem={() => setGaItemRepackChar(selectedChar)}
+                                    onOptimizeGaItem={() => openGaItemRepack()}
                                 />
                             </div>
                         ) : !platform ? (
@@ -779,6 +789,7 @@ function App() {
                                                 onCloseDetail={() => setDetailItem(null)}
                                                 showOnlyFavorites={showOnlyFavorites}
                                                 onToggleFavorites={() => setShowOnlyFavorites(v => !v)}
+                                                onOptimizeGaItem={(ctx) => openGaItemRepack(ctx)}
                                             />
                                         ) : (
                                             <SortOrderTab
@@ -902,7 +913,8 @@ function App() {
                 onWriteSave={handleSaveAs}
                 onRefresh={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
                 onCloseSaveWithoutSaving={closeSaveWithoutSaving}
-                onClose={() => setGaItemRepackChar(null)}
+                ctaContext={gaItemRepackCtx ?? undefined}
+                onClose={() => { setGaItemRepackChar(null); setGaItemRepackCtx(null); }}
             />
         )}
         {unsupportedSaveModal && (
