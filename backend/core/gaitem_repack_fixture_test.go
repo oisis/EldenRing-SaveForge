@@ -100,12 +100,20 @@ func fragmentedRepackReferenceFixture(t *testing.T) repackReferenceFixture {
 // binary layout, so RepackGaItems can rebuild and reparse it in a test without
 // using a user save file.
 func fragmentedRepackRoundTripFixture(t *testing.T) repackReferenceFixture {
+	return fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+}
+
+func fragmentedRepackRoundTripFixtureForVersion(t *testing.T, version uint32) repackReferenceFixture {
 	t.Helper()
 
 	fixture := fragmentedRepackReferenceFixture(t)
 	slot := fixture.Slot
 	initial := append([]GaItemFull(nil), slot.GaItems...)
-	slot.GaItems = make([]GaItemFull, GaItemCountNew)
+	gaItemCount := GaItemCountNew
+	if version <= GaItemVersionBreak {
+		gaItemCount = GaItemCountOld
+	}
+	slot.GaItems = make([]GaItemFull, gaItemCount)
 	copy(slot.GaItems, initial)
 
 	gaBytes := 0
@@ -114,7 +122,7 @@ func fragmentedRepackRoundTripFixture(t *testing.T) repackReferenceFixture {
 	}
 	slot.MagicOffset = GaItemsStart + gaBytes + DynPlayerData - 1
 	slot.Data = make([]byte, SlotSize)
-	slot.Version = GaItemVersionBreak + 1
+	slot.Version = version
 	binary.LittleEndian.PutUint32(slot.Data, slot.Version)
 	copy(slot.Data[slot.MagicOffset:], MagicPattern)
 
@@ -140,10 +148,11 @@ func fragmentedRepackRoundTripFixture(t *testing.T) repackReferenceFixture {
 	for i := 0; i < ChrAsmEquipmentSize; i++ {
 		slot.Data[slot.EquipItemsIDOffset+i] = byte(i + 1)
 	}
-	for i := 0; i < 16; i++ {
-		slot.Data[slot.GaItemDataOffset+i] = byte(0xA0 + i)
-	}
-	binary.LittleEndian.PutUint32(slot.Data[slot.GaItemDataOffset:], 0)
+	binary.LittleEndian.PutUint64(slot.Data[slot.GaItemDataOffset:], 1)
+	binary.LittleEndian.PutUint32(slot.Data[slot.GaItemDataOffset+8:], 0x000F4240)
+	slot.Data[slot.GaItemDataOffset+12] = 0xA4
+	binary.LittleEndian.PutUint32(slot.Data[slot.GaItemDataOffset+16:], 0x10000001)
+	slot.Data[slot.GaItemDataOffset+20] = 0xA8
 
 	if err := slot.parseFromData(); err != nil {
 		t.Fatalf("parseFromData: %v", err)
