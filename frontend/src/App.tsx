@@ -671,16 +671,10 @@ function App() {
                             </div>
                         ) : !platform ? (
                             <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                                <div className="mb-3 flex items-center justify-between gap-3 px-1 shrink-0">
+                                <div className="mb-3 px-1 shrink-0">
                                     <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">
                                         Preview mode — load a save file to enable editing
                                     </p>
-                                    <button
-                                        onClick={handleOpenSave}
-                                        className="px-4 py-1.5 bg-primary text-primary-foreground rounded-full text-[9px] font-black uppercase tracking-[0.2em] transition-all shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95"
-                                    >
-                                        Open Save
-                                    </button>
                                 </div>
                                 <div className={['inventory', 'advanced'].includes(activeTab) ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
                                     {activeTab === 'character' && (

@@ -150,9 +150,10 @@ describe('App open-save button wording', () => {
     beforeEach(() => localStorage.clear());
     afterEach(() => vi.clearAllMocks());
 
-    it('reads "Open Save File" before a save is loaded (no legacy "Change Save")', () => {
+    it('keeps only the sidebar "Open Save File" action before a save is loaded', () => {
         renderApp('safe');
         expect(screen.getByRole('button', { name: /Open Save File/i })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Open Save' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Change Save/i })).not.toBeInTheDocument();
     });
 
