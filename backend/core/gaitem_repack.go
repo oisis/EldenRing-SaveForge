@@ -1,5 +1,7 @@
 package core
 
+import "fmt"
+
 // GaItemCapacity describes the usable GaItem allocation capacity at one point
 // in time. PhysicalEmpty is the number of empty records in the table, while
 // CursorRoom is what the current allocator cursor can reach. Usable is always
@@ -19,6 +21,16 @@ type GaItemRepackAnalysis struct {
 	ProjectedAfter  GaItemCapacity
 	Recovered       int
 	NonEmptyRecords int
+}
+
+// GaItemRepackPlan is the deterministic in-memory layout produced by stable
+// compaction. It is valid only for the exact, already preflighted slot from
+// which it was built; the transaction layer is responsible for checking
+// freshness before applying it to a candidate slot.
+type GaItemRepackPlan struct {
+	GaItems         []GaItemFull
+	NonEmptyRecords int
+	Changes         bool
 }
 
 // AnalyzeGaItemRepack calculates the capacity effect of the canonical stable
@@ -55,6 +67,57 @@ func AnalyzeGaItemRepack(slot *SaveSlot) GaItemRepackAnalysis {
 		Recovered:       max(0, projectedAfter.Usable-before.Usable),
 		NonEmptyRecords: nonEmpty,
 	}
+}
+
+// BuildGaItemRepackPlan creates the canonical stable-compaction layout without
+// modifying slot. It preserves every field and the relative order of non-empty
+// records, then leaves a zero-value empty suffix of the original table length.
+// Callers must run PreflightGaItemRepack before using the plan.
+func BuildGaItemRepackPlan(slot *SaveSlot) GaItemRepackPlan {
+	if slot == nil {
+		return GaItemRepackPlan{}
+	}
+
+	planned := make([]GaItemFull, len(slot.GaItems))
+	nonEmpty := 0
+	for _, record := range slot.GaItems {
+		if record.IsEmpty() {
+			continue
+		}
+		planned[nonEmpty] = record
+		nonEmpty++
+	}
+
+	changed := false
+	for i := range planned {
+		if planned[i] != slot.GaItems[i] {
+			changed = true
+			break
+		}
+	}
+	return GaItemRepackPlan{
+		GaItems:         planned,
+		NonEmptyRecords: nonEmpty,
+		Changes:         changed,
+	}
+}
+
+// ApplyGaItemRepackPlan replaces only slot.GaItems with a private copy of the
+// planned stable layout. It intentionally does not rebuild bytes, reparse,
+// update cursors, or touch GaMap; those atomic transaction steps belong to the
+// caller. A no-op plan does not replace the existing slice.
+func ApplyGaItemRepackPlan(slot *SaveSlot, plan GaItemRepackPlan) error {
+	if slot == nil {
+		return fmt.Errorf("ApplyGaItemRepackPlan: nil slot")
+	}
+	if len(plan.GaItems) != len(slot.GaItems) {
+		return fmt.Errorf("ApplyGaItemRepackPlan: plan length %d != GaItems length %d", len(plan.GaItems), len(slot.GaItems))
+	}
+	if !plan.Changes {
+		return nil
+	}
+	slot.GaItems = append([]GaItemFull(nil), plan.GaItems...)
+	return nil
 }
 
 func gaItemCapacity(tableSize, nonEmpty, nextArmamentIndex int) GaItemCapacity {
