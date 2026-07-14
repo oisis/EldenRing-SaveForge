@@ -115,7 +115,6 @@ func TestPreflightGaItemRepack_AggregatesReferenceBlockersDeterministically(t *t
 		aowHandle   = ItemTypeAow | 4
 		danglingAoW = ItemTypeAow | 99
 		accessory   = ItemTypeAccessory | 5
-		unresolved  = ItemTypeItem | 6
 		zeroMap     = ItemTypeItem | 7
 		orphanMap   = ItemTypeWeapon | 8
 	)
@@ -140,7 +139,6 @@ func TestPreflightGaItemRepack_AggregatesReferenceBlockersDeterministically(t *t
 	}
 	slot.Inventory.CommonItems = []InventoryItem{
 		{GaItemHandle: weaponOne, Index: 42},
-		{GaItemHandle: unresolved, Index: 43},
 	}
 	slot.Inventory.KeyItems = []InventoryItem{{GaItemHandle: accessory, Index: 42}}
 	slot.Storage.CommonItems = []InventoryItem{{GaItemHandle: weaponOne, Index: 1}}
@@ -160,13 +158,36 @@ func TestPreflightGaItemRepack_AggregatesReferenceBlockersDeterministically(t *t
 		"orphan_storage_handle",
 		"shared_aow_handle",
 		"storage_count",
-		"unresolved_stackable_handle",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("blocker codes=%v, want %v", got, want)
 	}
 	if preflight.Analysis != (GaItemRepackAnalysis{}) {
 		t.Errorf("Analysis=%+v, want zero when blockers exist", preflight.Analysis)
+	}
+}
+
+func TestPreflightGaItemRepack_AllowsHandleEncodedStackablesWithoutGaMap(t *testing.T) {
+	const (
+		inventoryGoods = ItemTypeItem | 0x2738
+		keyTalisman    = ItemTypeAccessory | 0x73
+		storageGoods   = ItemTypeItem | 0x12C
+	)
+
+	slot := repackPreflightFixture()
+	slot.Inventory.CommonItems = []InventoryItem{{GaItemHandle: inventoryGoods, Quantity: 1, Index: 1}}
+	slot.Inventory.KeyItems = []InventoryItem{{GaItemHandle: keyTalisman, Quantity: 1, Index: 2}}
+	slot.Storage.CommonItems = []InventoryItem{{GaItemHandle: storageGoods, Quantity: 1, Index: 3}}
+	writeFixtureStorage(slot, slot.Storage.CommonItems)
+
+	preflight := PreflightGaItemRepack(slot)
+	if len(preflight.Blockers) != 0 {
+		t.Fatalf("Blockers=%+v, want none for handle-encoded stackables", preflight.Blockers)
+	}
+	for _, handle := range []uint32{inventoryGoods, keyTalisman, storageGoods} {
+		if _, exists := slot.GaMap[handle]; exists {
+			t.Fatalf("GaMap unexpectedly contains handle-encoded stackable 0x%08X", handle)
+		}
 	}
 }
 

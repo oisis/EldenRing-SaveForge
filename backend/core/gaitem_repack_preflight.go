@@ -274,13 +274,9 @@ func repackContainerBlockers(items []InventoryItem, scope string, physical map[u
 				))
 			}
 		case ItemTypeAccessory, ItemTypeItem:
-			if itemID, ok := gaMap[handle]; !ok || itemID == 0 {
-				blockers = append(blockers, newRepackBlocker(
-					"unresolved_stackable_handle",
-					fmt.Sprintf("%s[%d] stackable handle 0x%08X is not in GaMap", scope, i, handle),
-					i,
-				))
-			}
+			// Talismans and goods are handle-encoded and normally have no
+			// physical GaItem or GaMap entry. A present zero-valued GaMap entry
+			// is still rejected by the global gamap_zero_id preflight check.
 		}
 	}
 	return blockers

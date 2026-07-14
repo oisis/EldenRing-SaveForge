@@ -162,9 +162,22 @@ func fragmentedRepackRoundTripFixtureForVersion(t *testing.T, version uint32) re
 
 func writeFixtureInventory(slot *SaveSlot, items []InventoryItem) {
 	start := slot.MagicOffset + InvStartFromMagic
-	binary.LittleEndian.PutUint32(slot.Data[start-InvKeyCountHeader:], uint32(len(items)))
+	nonEmpty := 0
+	for _, item := range items {
+		if item.GaItemHandle != GaHandleEmpty && item.GaItemHandle != GaHandleInvalid {
+			nonEmpty++
+		}
+	}
+	binary.LittleEndian.PutUint32(slot.Data[start-InvKeyCountHeader:], uint32(nonEmpty))
 	for i, item := range items {
 		off := start + i*InvRecordLen
+		binary.LittleEndian.PutUint32(slot.Data[off:], item.GaItemHandle)
+		binary.LittleEndian.PutUint32(slot.Data[off+4:], item.Quantity)
+		binary.LittleEndian.PutUint32(slot.Data[off+8:], item.Index)
+	}
+	keyStart := start + CommonItemCount*InvRecordLen + InvKeyCountHeader
+	for i, item := range slot.Inventory.KeyItems {
+		off := keyStart + i*InvRecordLen
 		binary.LittleEndian.PutUint32(slot.Data[off:], item.GaItemHandle)
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], item.Quantity)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], item.Index)

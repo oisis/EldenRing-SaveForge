@@ -74,6 +74,54 @@ func TestRepackGaItems_PreservesRecordsHandlesAndReferences(t *testing.T) {
 	}
 }
 
+func TestRepackGaItems_PreservesHandleEncodedStackablesWithoutGaMap(t *testing.T) {
+	const (
+		inventoryGoods = ItemTypeItem | 0x2738
+		keyTalisman    = ItemTypeAccessory | 0x73
+		storageGoods   = ItemTypeItem | 0x12C
+	)
+
+	fixture := fragmentedRepackRoundTripFixture(t)
+	slot := fixture.Slot
+	slot.Inventory.CommonItems[3] = InventoryItem{GaItemHandle: inventoryGoods, Quantity: 7, Index: 103}
+	slot.Inventory.KeyItems[0] = InventoryItem{GaItemHandle: keyTalisman, Quantity: 1, Index: 104}
+	slot.Storage.CommonItems = append(slot.Storage.CommonItems, InventoryItem{GaItemHandle: storageGoods, Quantity: 9, Index: 201})
+	writeFixtureInventory(slot, slot.Inventory.CommonItems)
+	writeFixtureStorage(slot, slot.Storage.CommonItems)
+	if err := slot.parseFromData(); err != nil {
+		t.Fatalf("parseFromData: %v", err)
+	}
+
+	for _, handle := range []uint32{inventoryGoods, keyTalisman, storageGoods} {
+		if _, exists := slot.GaMap[handle]; exists {
+			t.Fatalf("GaMap unexpectedly contains handle-encoded stackable 0x%08X", handle)
+		}
+	}
+	if preflight := PreflightGaItemRepack(slot); len(preflight.Blockers) != 0 {
+		t.Fatalf("preflight blockers=%+v, want none", preflight.Blockers)
+	}
+	before := CloneSlot(slot)
+
+	result, err := RepackGaItems(slot)
+	if err != nil {
+		t.Fatalf("RepackGaItems: %v", err)
+	}
+	if !result.Changed || result.Recovered <= 0 {
+		t.Fatalf("result=%+v, want compacting repack", result)
+	}
+	if !reflect.DeepEqual(slot.Inventory, before.Inventory) {
+		t.Fatalf("Inventory changed\n got: %#v\nwant: %#v", slot.Inventory, before.Inventory)
+	}
+	if !reflect.DeepEqual(slot.Storage, before.Storage) {
+		t.Fatalf("Storage changed\n got: %#v\nwant: %#v", slot.Storage, before.Storage)
+	}
+	for _, handle := range []uint32{inventoryGoods, keyTalisman, storageGoods} {
+		if _, exists := slot.GaMap[handle]; exists {
+			t.Fatalf("repack added unexpected GaMap entry for 0x%08X", handle)
+		}
+	}
+}
+
 func nonEmptyGaItemRecords(records []GaItemFull) []GaItemFull {
 	result := make([]GaItemFull, 0, len(records))
 	for _, record := range records {
