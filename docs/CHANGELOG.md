@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-14
+
+### feat(appearance): complete Type B preset support
+
+Character Appearance presets now apply Type B characters correctly and can add
+them to Mirror Favorites using verified game model IDs. Casca and Fire Keeper
+are correctly classified as Type B. The same resolved appearance payload is
+used for direct Apply and Mirror Favorites, including hair, eyelashes, and
+tattoos or marks.
+
+### feat(appearance): identify matching saved appearances
+
+The Character profile now shows a preset name and thumbnail only when the
+current appearance exactly matches one known preset. Mirror Favorites uses the
+same exact recognition after an application reload; unknown in-game entries
+remain labelled `In-game favorite` without a guessed thumbnail. Recognised
+Mirror thumbnails enlarge on hover for easier inspection.
+
+### change(appearance): remove Mirror Favorites undo
+
+The separate Undo action for Mirror Favorites was removed. Adding or removing
+a Mirror Favorite now takes effect directly; the existing global character Undo
+continues to revert character changes only.
+
 ## [1.3.3] - 2026-07-13
 
 ### fix(inventory): keep pot and perfume containers consistent
