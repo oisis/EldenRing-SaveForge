@@ -326,3 +326,36 @@ func TestScanRepairIssuesLoaded_EmptySlotErrors(t *testing.T) {
 		t.Fatal("ScanRepairIssuesLoaded on an empty slot returned nil error, want failure")
 	}
 }
+
+// TestScanRepairIssuesLoaded_ReportsPhysicalGaItemDuplicate confirms the new
+// read-only physical GaItem duplicate-handle issue surfaces in the normal
+// Diagnostics report produced by ScanRepairIssuesLoaded.
+func TestScanRepairIssuesLoaded_ReportsPhysicalGaItemDuplicate(t *testing.T) {
+	app, charIdx := scanRepackApp(t)
+	slot := &app.save.Slots[charIdx]
+
+	// Inject a second physical GaItem reusing an existing non-empty handle.
+	dupHandle := slot.GaItems[1].Handle
+	slot.GaItems = append(slot.GaItems, core.GaItemFull{Handle: dupHandle, ItemID: 0x00000002})
+
+	report, err := app.ScanRepairIssuesLoaded(charIdx)
+	if err != nil {
+		t.Fatalf("ScanRepairIssuesLoaded: %v", err)
+	}
+
+	found := false
+	for _, dto := range report.Issues {
+		if dto.Key.Code == core.RepairCodeDuplicatePhysicalHandle {
+			found = true
+			if dto.Key.Handle != dupHandle {
+				t.Errorf("issue handle = 0x%08X, want 0x%08X", dto.Key.Handle, dupHandle)
+			}
+			if dto.DefaultAction != core.RepairActionNoAction {
+				t.Errorf("physical duplicate must be report-only, default=%q", dto.DefaultAction)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("ScanRepairIssuesLoaded did not report the physical GaItem duplicate handle")
+	}
+}

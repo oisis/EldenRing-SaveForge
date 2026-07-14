@@ -404,3 +404,125 @@ func TestScanRepairIssues_IssueIDDeterministic(t *testing.T) {
 		}
 	}
 }
+
+// ---- physical GaItem duplicate handle ---------------------------------------
+
+// TestScanRepairIssues_DuplicatePhysicalGaItemHandle covers the real corruption
+// (Slot 4 "Średniak": GaItem[5103] reuses handle 0x808113EE from GaItem[5102]):
+// two non-empty physical GaItems with the same handle but different ItemIDs yield
+// exactly one report-only physical-duplicate issue with deterministic indexes.
+func TestScanRepairIssues_DuplicatePhysicalGaItemHandle(t *testing.T) {
+	const dupHandle = uint32(0x808113EE)
+	slot := &SaveSlot{
+		GaItems: []GaItemFull{
+			{}, // empty leading record must be skipped
+			{Handle: dupHandle, ItemID: 0x00000001},
+			{Handle: dupHandle, ItemID: 0x00000002}, // repeat → physical duplicate
+		},
+	}
+
+	var got []RepairIssue
+	for _, iss := range ScanRepairIssues(4, slot) {
+		if iss.Key.Code == RepairCodeDuplicatePhysicalHandle {
+			got = append(got, iss)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 %s issue, got %d", RepairCodeDuplicatePhysicalHandle, len(got))
+	}
+	iss := got[0]
+	if iss.Key.Handle != dupHandle {
+		t.Errorf("issue handle = 0x%08X, want 0x%08X", iss.Key.Handle, dupHandle)
+	}
+	if iss.Key.Row != 2 || iss.Key.Value != "1" {
+		t.Errorf("indexes = repeated %d first %q, want repeated 2 first \"1\"", iss.Key.Row, iss.Key.Value)
+	}
+	if want := "GaItem[2] reuses handle 0x808113EE from GaItem[1]"; iss.Description != want {
+		t.Errorf("description = %q, want %q", iss.Description, want)
+	}
+	if iss.Severity != repairSeverityError {
+		t.Errorf("severity = %q, want %q (real integrity problem)", iss.Severity, repairSeverityError)
+	}
+	if len(iss.Actions) != 1 || iss.Actions[0] != RepairActionNoAction || iss.DefaultAction != RepairActionNoAction {
+		t.Errorf("issue must be report-only: actions=%v default=%q", iss.Actions, iss.DefaultAction)
+	}
+}
+
+// TestScanRepairIssues_DuplicatePhysicalGaItemHandle_NoMutation confirms the scan
+// leaves slot.GaItems untouched.
+func TestScanRepairIssues_DuplicatePhysicalGaItemHandle_NoMutation(t *testing.T) {
+	const dupHandle = uint32(0x808113EE)
+	slot := &SaveSlot{
+		GaItems: []GaItemFull{
+			{Handle: dupHandle, ItemID: 0x00000001},
+			{Handle: dupHandle, ItemID: 0x00000002},
+		},
+	}
+	before := append([]GaItemFull(nil), slot.GaItems...)
+	_ = ScanRepairIssues(4, slot)
+	for i := range before {
+		if slot.GaItems[i] != before[i] {
+			t.Errorf("GaItems[%d] mutated by scan: %+v -> %+v", i, before[i], slot.GaItems[i])
+		}
+	}
+}
+
+// TestScanRepairIssues_PhysicalAndContainerDuplicatesAreDistinct confirms the two
+// duplicate-handle defects use separate codes and coexist: a duplicate physical
+// GaItem record (report-only) and a duplicate inventory container record (the
+// existing repairable duplicate_handle).
+func TestScanRepairIssues_PhysicalAndContainerDuplicatesAreDistinct(t *testing.T) {
+	const physHandle = uint32(0x808113EE)
+	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{testHandleDagger: testItemIDDagger},
+		GaItems: []GaItemFull{
+			{Handle: physHandle, ItemID: 0x00000001},
+			{Handle: physHandle, ItemID: 0x00000002}, // physical duplicate
+		},
+		Inventory: EquipInventoryData{
+			CommonItems: []InventoryItem{
+				{GaItemHandle: testHandleDagger, Quantity: 1, Index: 500},
+				{GaItemHandle: testHandleDagger, Quantity: 1, Index: 501}, // container duplicate
+			},
+		},
+	}
+
+	foundPhysical, foundContainer := false, false
+	for _, iss := range ScanRepairIssues(0, slot) {
+		switch iss.Key.Code {
+		case RepairCodeDuplicatePhysicalHandle:
+			foundPhysical = true
+			if iss.DefaultAction != RepairActionNoAction {
+				t.Errorf("physical duplicate must be report-only, default=%q", iss.DefaultAction)
+			}
+		case RepairCodeDuplicateHandle:
+			foundContainer = true
+			if iss.DefaultAction != RepairActionCreateCopy {
+				t.Errorf("container duplicate_handle default changed: %q, want %q", iss.DefaultAction, RepairActionCreateCopy)
+			}
+		}
+	}
+	if !foundPhysical {
+		t.Error("expected physical GaItem duplicate issue, none found")
+	}
+	if !foundContainer {
+		t.Error("expected container duplicate_handle issue, none found")
+	}
+}
+
+// TestScanRepairIssues_CleanGaItemsNoPhysicalDuplicate confirms a slot with
+// distinct non-empty GaItem handles produces no physical-duplicate issue.
+func TestScanRepairIssues_CleanGaItemsNoPhysicalDuplicate(t *testing.T) {
+	slot := &SaveSlot{
+		GaItems: []GaItemFull{
+			{}, {},
+			{Handle: 0x80000001, ItemID: 0x00000001},
+			{Handle: 0x80000002, ItemID: 0x00000002},
+		},
+	}
+	for _, iss := range ScanRepairIssues(0, slot) {
+		if iss.Key.Code == RepairCodeDuplicatePhysicalHandle {
+			t.Fatalf("clean GaItems produced a physical-duplicate issue: %+v", iss)
+		}
+	}
+}
