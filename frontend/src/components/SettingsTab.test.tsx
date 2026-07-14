@@ -32,6 +32,8 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     PrepareConversion: vi.fn(),
     ExecuteConversion: vi.fn(),
     BackupCurrentSave: vi.fn().mockResolvedValue(undefined),
+    AnalyzeGaItemRepack: vi.fn().mockResolvedValue({}),
+    ExecuteGaItemRepack: vi.fn(),
 }));
 
 // Stub the modal to a marker so we can assert it opened with the scan report.
@@ -47,7 +49,7 @@ import { SafetyModeProvider } from '../state/safetyMode';
 import { FavoritesProvider } from '../state/favorites';
 import type { SafetyProfile } from '../state/safetyProfile';
 import toast from '../lib/toast';
-import { PrepareConversion } from '../../wailsjs/go/main/App';
+import { PrepareConversion, AnalyzeGaItemRepack, ExecuteGaItemRepack } from '../../wailsjs/go/main/App';
 
 // jsdom here has no localStorage; SettingsTab reads it for the Full Chaos toggle.
 const lsStore: Record<string, string> = {};
@@ -142,6 +144,82 @@ describe('SettingsTab diagnostics', () => {
 
         await waitFor(() => expect(toast.error).toHaveBeenCalled());
         expect(screen.queryByTestId('inv-issues-modal')).not.toBeInTheDocument();
+    });
+});
+
+describe('SettingsTab Optimize GaItem allocation (dry-run)', () => {
+    const analyze = AnalyzeGaItemRepack as ReturnType<typeof vi.fn>;
+    const execute = ExecuteGaItemRepack as ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+        analyze.mockReset();
+        execute.mockReset();
+        (toast.error as ReturnType<typeof vi.fn>).mockReset();
+    });
+
+    it('renders right after Diagnostics in the Tools list', () => {
+        analyze.mockResolvedValue({});
+        renderSettings();
+        const diagnostics = screen.getByRole('button', { name: /Diagnostics/i });
+        const optimize = screen.getByRole('button', { name: /Optimize GaItem allocation/i });
+        expect(diagnostics.compareDocumentPosition(optimize) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // Nothing renders between them (they are adjacent siblings).
+        expect(diagnostics.nextElementSibling).toBe(optimize);
+    });
+
+    it('calls AnalyzeGaItemRepack with the charIndex and never ExecuteGaItemRepack', async () => {
+        analyze.mockResolvedValue({});
+        renderSettings(2);
+        fireEvent.click(screen.getByRole('button', { name: /Optimize GaItem allocation/i }));
+        expect(analyze).toHaveBeenCalledWith(2);
+        expect(execute).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).not.toBeDisabled());
+    });
+
+    it('shows a loading state, disables the button and dedupes a second click', async () => {
+        let resolve!: (v: unknown) => void;
+        analyze.mockReturnValue(new Promise(res => { resolve = res; }));
+        renderSettings();
+
+        fireEvent.click(screen.getByRole('button', { name: /Optimize GaItem allocation/i }));
+        const analyzing = await screen.findByRole('button', { name: /Analyzing/i });
+        expect(analyzing).toBeDisabled();
+
+        fireEvent.click(analyzing); // second click must not start another analysis
+        expect(analyze).toHaveBeenCalledTimes(1);
+
+        resolve({});
+        await waitFor(() => expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).not.toBeDisabled());
+    });
+
+    it('is disabled when no platform is loaded', () => {
+        analyze.mockResolvedValue({});
+        render(
+            <SafetyModeProvider>
+                <FavoritesProvider>
+                    <SettingsTab
+                        theme="dark" setTheme={vi.fn()}
+                        columnVisibility={{ id: false, category: false }} setColumnVisibility={vi.fn()}
+                        safetyProfile="safe"
+                        debugMode={false} setDebugMode={vi.fn()}
+                        platform={null}
+                        selectedDeployTarget="" setSelectedDeployTarget={vi.fn()}
+                        onAfterLoad={vi.fn()}
+                        charIndex={0}
+                        onComplete={vi.fn()}
+                    />
+                </FavoritesProvider>
+            </SafetyModeProvider>,
+        );
+        expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).toBeDisabled();
+    });
+
+    it('reports a rejected API call via toast and re-enables the button', async () => {
+        analyze.mockRejectedValue(new Error('boom'));
+        renderSettings();
+        fireEvent.click(screen.getByRole('button', { name: /Optimize GaItem allocation/i }));
+        await waitFor(() => expect(toast.error).toHaveBeenCalled());
+        expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).not.toBeDisabled();
     });
 });
 
