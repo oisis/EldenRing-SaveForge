@@ -40,8 +40,6 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     GetStartingClasses: vi.fn(() => Promise.resolve([])),
     SetCharacterGender: vi.fn(),
     ApplyPresetToCharacter: vi.fn(),
-    GetFavoritesUndoDepth: vi.fn(),
-    RevertFavorites: vi.fn(() => Promise.resolve()),
     GetCharacterAppearancePreset: vi.fn(() => Promise.resolve(null)),
 }));
 
@@ -73,8 +71,7 @@ function renderTab() {
     );
 }
 
-// Open the Appearance Presets accordion so its children (incl. the Undo button)
-// render — AccordionSection only mounts children when expanded.
+// Open the Appearance Presets accordion so its children render.
 async function openAppearance() {
     fireEvent.click(await screen.findByText('Appearance Presets'));
 }
@@ -84,30 +81,6 @@ afterEach(() => {
     localStorage.clear();
 });
 
-describe('CharacterTab — Undo last Mirror change', () => {
-    it('hides the Undo button when favorites undo depth is 0', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
-        renderTab();
-        await openAppearance();
-        await waitFor(() => expect(mocks.GetFavoritesUndoDepth).toHaveBeenCalled());
-        expect(screen.queryByText(/Undo last Mirror change/i)).toBeNull();
-    });
-
-    it('shows the Undo button with the depth count and calls RevertFavorites on click', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(2);
-        renderTab();
-        await openAppearance();
-
-        const btn = await screen.findByText(/Undo last Mirror change \(2\)/i);
-        expect(btn).toBeTruthy();
-
-        fireEvent.click(btn);
-        await waitFor(() => expect(mocks.RevertFavorites).toHaveBeenCalledTimes(1));
-        // Undo triggers a status refresh (favorites + depth) afterwards.
-        await waitFor(() => expect(mocks.GetFavoritesUndoDepth.mock.calls.length).toBeGreaterThan(1));
-    });
-});
-
 describe('CharacterTab — Type B appearance enabled', () => {
     const PRESETS = [
         { name: 'Geralt of Rivia', image: '', bodyType: 'Type A' },
@@ -115,7 +88,6 @@ describe('CharacterTab — Type B appearance enabled', () => {
     ];
 
     it('applies a Type B preset (calls ApplyPresetToCharacter)', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
         mocks.ApplyPresetToCharacter.mockResolvedValue(undefined);
         renderTab();
@@ -129,7 +101,6 @@ describe('CharacterTab — Type B appearance enabled', () => {
     });
 
     it('applies a Type A preset normally', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
         mocks.ApplyPresetToCharacter.mockResolvedValue(undefined);
         renderTab();
@@ -142,7 +113,6 @@ describe('CharacterTab — Type B appearance enabled', () => {
     });
 
     it('adds a Type B preset to Mirror (calls WriteSelectedToFavorites)', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         mocks.ListAppearancePresets.mockResolvedValue(PRESETS);
         mocks.WriteSelectedToFavorites.mockResolvedValue(1);
         // A free Mirror slot so the Add button is enabled.
@@ -163,7 +133,6 @@ describe('CharacterTab — Body Type switch', () => {
     }
 
     it('switches to Type B (calls SetCharacterGender)', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         // Start on Type A so selecting Type B is an actual value change.
         mocks.GetCharacter.mockResolvedValue({ ...MOCK_CHAR, gender: 1 });
         mocks.SetCharacterGender.mockResolvedValue(undefined);
@@ -176,7 +145,6 @@ describe('CharacterTab — Body Type switch', () => {
     });
 
     it('switches to Type A (male) normally', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         // Start on Type B so selecting Type A is an actual value change.
         mocks.GetCharacter.mockResolvedValue({ ...MOCK_CHAR, gender: 0 });
         mocks.SetCharacterGender.mockResolvedValue(undefined);
@@ -191,7 +159,6 @@ describe('CharacterTab — Body Type switch', () => {
 
 describe('CharacterTab — Mirror Favorites labels after reload', () => {
     it('labels a named slot with the preset name and an unnamed active slot as "In-game favorite" (never "N/A"), with no thumbnail when unmatched', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         // clearAllMocks keeps implementations, so reset the preset list a sibling
         // test may have populated — otherwise its card duplicates the slot label.
         mocks.ListAppearancePresets.mockResolvedValue([]);
@@ -217,7 +184,6 @@ describe('CharacterTab — Mirror Favorites labels after reload', () => {
     });
 
     it('renders the canonical name and thumbnail for an exact Mirror match after reload (no session name)', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         mocks.ListAppearancePresets.mockResolvedValue([]);
         // Reloaded save: favSlotNames empty, but the backend matched the entry and
         // filled canonical name + image directly from GetFavoritesStatus.
@@ -235,7 +201,6 @@ describe('CharacterTab — Mirror Favorites labels after reload', () => {
 
 describe('CharacterTab — matched appearance refresh after apply', () => {
     it('re-queries GetCharacterAppearancePreset after a successful direct Apply', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         mocks.ListAppearancePresets.mockResolvedValue([
             { name: 'Geralt of Rivia', image: '', bodyType: 'Type A' },
         ]);
@@ -256,7 +221,6 @@ describe('CharacterTab — matched appearance refresh after apply', () => {
     });
 
     it('re-queries GetCharacterAppearancePreset after a successful Apply from Mirror', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         mocks.ListAppearancePresets.mockResolvedValue([]);
         mocks.GetFavoritesStatus.mockResolvedValue([
             { index: 0, active: true, safe: true, name: 'Geralt of Rivia', image: '' },
@@ -280,7 +244,6 @@ describe('CharacterTab — matched appearance refresh after apply', () => {
 
 describe('CharacterTab — matched appearance card', () => {
     it('renders the thumbnail and canonical name when the character exactly matches a Type B preset', async () => {
-        mocks.GetFavoritesUndoDepth.mockResolvedValue(0);
         mocks.GetCharacterAppearancePreset.mockResolvedValue({
             name: 'Casca, Berserk’s Band of the Falcon Commander', image: 'casca.jpg', bodyType: 'Type B',
         });

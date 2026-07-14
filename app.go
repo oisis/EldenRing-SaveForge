@@ -145,20 +145,6 @@ type App struct {
 	// when both apply (see ApplyMirrorFavoriteToCharacter,
 	// WriteSelectedToFavorites).
 	favMu sync.RWMutex
-	// favUndoStack holds pre-mutation snapshots of the Mirror Favorites state
-	// (UserData10 bytes + favSlotNames). Favorites live outside any character
-	// slot, so the per-slot undoStacks cannot cover them; this dedicated stack
-	// gives one logical undo point per WriteSelectedToFavorites Add. Guarded by
-	// favMu (same lock as the state it snapshots).
-	favUndoStack []favSnapshot
-}
-
-// favSnapshot captures the whole Mirror Favorites state so a single Add can be
-// reverted as one logical step: the raw UserData10 bytes and the favSlotNames
-// bookkeeping map.
-type favSnapshot struct {
-	Data      []byte
-	SlotNames map[int]string
 }
 
 // NewApp creates a new App struct
@@ -1708,7 +1694,6 @@ func (a *App) clearAllUndoStacks() {
 	for i := range a.undoStacks {
 		a.undoStacks[i] = nil
 	}
-	a.favUndoStack = nil
 }
 
 // clearAllEditSessions drops every in-memory inventory edit session. Called when

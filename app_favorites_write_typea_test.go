@@ -121,8 +121,8 @@ func TestWriteSelectedToFavorites_TypeA_InMemory(t *testing.T) {
 // TestWriteSelectedToFavorites_RejectsUnmappedTypeB_Atomic is the A5 rejection
 // regression: a Type B preset with UI values OUTSIDE the verified mapping (and a
 // mixed Type A + unmapped-Type B batch) must be rejected before any snapshot or
-// mutation — no Type A entry written first, UserData10/favSlotNames/favUndoStack
-// all untouched. Uses a real Type A preset plus a deliberately injected unmapped
+// mutation — no Type A entry written first, UserData10/favSlotNames stay
+// untouched. Uses a real Type A preset plus a deliberately injected unmapped
 // Type B preset (FaceModel 99 has no verified PartsId).
 func TestWriteSelectedToFavorites_RejectsUnmappedTypeB_Atomic(t *testing.T) {
 	const charIdx = 0
@@ -149,10 +149,8 @@ func TestWriteSelectedToFavorites_RejectsUnmappedTypeB_Atomic(t *testing.T) {
 		FaceDataOffset: core.FaceDataBlobSize,
 	}
 
-	// Seed favSlotNames and favUndoStack so the test proves they are PRESERVED,
-	// not merely left empty.
+	// Seed favSlotNames so the test proves it is PRESERVED, not merely left empty.
 	app.favSlotNames[14] = "sentinel — pre-existing"
-	app.favUndoStack = []favSnapshot{{Data: []byte{0xAB}, SlotNames: map[int]string{7: "seed"}}}
 
 	before := append([]byte(nil), app.save.UserData10.Data...)
 
@@ -168,8 +166,5 @@ func TestWriteSelectedToFavorites_RejectsUnmappedTypeB_Atomic(t *testing.T) {
 	}
 	if len(app.favSlotNames) != 1 || app.favSlotNames[14] != "sentinel — pre-existing" {
 		t.Errorf("favSlotNames changed: %v", app.favSlotNames)
-	}
-	if len(app.favUndoStack) != 1 {
-		t.Errorf("favUndoStack depth = %d, want 1 (unchanged)", len(app.favUndoStack))
 	}
 }

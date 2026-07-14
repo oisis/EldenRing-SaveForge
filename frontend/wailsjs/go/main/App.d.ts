@@ -116,8 +116,6 @@ export function GetDeployTargets():Promise<Array<deploy.Target>>;
 
 export function GetFavoritesStatus():Promise<Array<main.FavoriteSlotInfo>>;
 
-export function GetFavoritesUndoDepth():Promise<number>;
-
 export function GetGestures(arg1:number):Promise<Array<db.GestureEntry>>;
 
 export function GetGraces(arg1:number):Promise<Array<db.GraceEntry>>;
@@ -227,8 +225,6 @@ export function ResetMapExploration(arg1:number):Promise<void>;
 export function ResetNetworkParams():Promise<void>;
 
 export function RevealAllMap(arg1:number):Promise<void>;
-
-export function RevertFavorites():Promise<void>;
 
 export function RevertSlot(arg1:number):Promise<void>;
 
