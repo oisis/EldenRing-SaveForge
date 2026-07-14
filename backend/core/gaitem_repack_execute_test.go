@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -73,6 +74,68 @@ func TestRepackGaItems_RefusalDoesNotMutateSlot(t *testing.T) {
 	}
 }
 
+func TestRepackGaItems_RefusalGatesDoNotMutateSlot(t *testing.T) {
+	tests := []struct {
+		name     string
+		prepare  func(*SaveSlot)
+		wantCode string
+	}{
+		{
+			name: "invalid slot data size",
+			prepare: func(slot *SaveSlot) {
+				slot.Data = slot.Data[:16]
+			},
+			wantCode: "slot_data_size",
+		},
+		{
+			name: "invalid section map",
+			prepare: func(slot *SaveSlot) {
+				slot.SectionMap = nil
+			},
+			wantCode: "section_map",
+		},
+		{
+			name: "duplicate GaItem handle",
+			prepare: func(slot *SaveSlot) {
+				slot.GaItems = append(slot.GaItems, slot.GaItems[0])
+				slot.NextArmamentIndex = len(slot.GaItems)
+			},
+			wantCode: "duplicate_handle",
+		},
+		{
+			name: "dangling inventory handle",
+			prepare: func(slot *SaveSlot) {
+				slot.Inventory.CommonItems = []InventoryItem{{GaItemHandle: ItemTypeWeapon | 99, Quantity: 1, Index: 1}}
+			},
+			wantCode: "orphan_inventory_handle",
+		},
+		{
+			name: "dangling Ash of War link",
+			prepare: func(slot *SaveSlot) {
+				slot.GaItems[0].AoWGaItemHandle = ItemTypeAow | 99
+			},
+			wantCode: "dangling_aow_handle",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			slot := repackPreflightFixture()
+			tc.prepare(slot)
+			before := CloneSlot(slot)
+
+			_, err := RepackGaItems(slot)
+
+			if err == nil || !strings.Contains(err.Error(), tc.wantCode) {
+				t.Fatalf("RepackGaItems error=%v, want refusal %q", err, tc.wantCode)
+			}
+			if !reflect.DeepEqual(slot, before) {
+				t.Fatal("RepackGaItems changed a refused slot")
+			}
+		})
+	}
+}
+
 func TestRepackGaItems_RebuildFailureRollsBack(t *testing.T) {
 	slot := repackPreflightFixture()
 	weapon := slot.GaItems[0]
@@ -87,6 +150,27 @@ func TestRepackGaItems_RebuildFailureRollsBack(t *testing.T) {
 	}
 	if !reflect.DeepEqual(slot, before) {
 		t.Fatal("RepackGaItems left partial state after rebuild failure")
+	}
+}
+
+func TestRepackGaItems_PostconditionFailureRollsBackCompleteSlot(t *testing.T) {
+	fixture := fragmentedRepackRoundTripFixture(t)
+	slot := fixture.Slot
+	// scanGaItems derives 0x80 from this fixture's handle bits. A different
+	// snapshot value passes preflight but must fail the post-reparse contract.
+	slot.PartGaItemHandle = 0x81
+	slot.SteamID = 42
+	slot.Warnings = []string{"pre-existing warning"}
+	slot.Player.Level = 99
+	before := CloneSlot(slot)
+
+	_, err := RepackGaItems(slot)
+
+	if err == nil || !strings.Contains(err.Error(), "postcondition") {
+		t.Fatalf("RepackGaItems error=%v, want postcondition failure", err)
+	}
+	if !reflect.DeepEqual(slot, before) {
+		t.Fatal("RepackGaItems did not restore the complete slot after postcondition failure")
 	}
 }
 
