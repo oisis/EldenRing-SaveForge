@@ -95,6 +95,84 @@ func fragmentedRepackReferenceFixture(t *testing.T) repackReferenceFixture {
 	return repackReferenceFixture{Slot: slot, Handles: handles}
 }
 
+// fragmentedRepackRoundTripFixture is the fully serializable form of the
+// reference fixture. It has the production-size GaItem table and a coherent
+// binary layout, so RepackGaItems can rebuild and reparse it in a test without
+// using a user save file.
+func fragmentedRepackRoundTripFixture(t *testing.T) repackReferenceFixture {
+	t.Helper()
+
+	fixture := fragmentedRepackReferenceFixture(t)
+	slot := fixture.Slot
+	initial := append([]GaItemFull(nil), slot.GaItems...)
+	slot.GaItems = make([]GaItemFull, GaItemCountNew)
+	copy(slot.GaItems, initial)
+
+	gaBytes := 0
+	for i := range slot.GaItems {
+		gaBytes += slot.GaItems[i].ByteSize()
+	}
+	slot.MagicOffset = GaItemsStart + gaBytes + DynPlayerData - 1
+	slot.Data = make([]byte, SlotSize)
+	slot.Version = GaItemVersionBreak + 1
+	binary.LittleEndian.PutUint32(slot.Data, slot.Version)
+	copy(slot.Data[slot.MagicOffset:], MagicPattern)
+
+	pos := GaItemsStart
+	for i := range slot.GaItems {
+		pos += slot.GaItems[i].Serialize(slot.Data[pos:])
+	}
+	if pos != slot.MagicOffset-DynPlayerData+1 {
+		t.Fatalf("GaItem fixture end=0x%X, want 0x%X", pos, slot.MagicOffset-DynPlayerData+1)
+	}
+
+	if err := slot.calculateDynamicOffsets(); err != nil {
+		t.Fatalf("calculateDynamicOffsets: %v", err)
+	}
+	writeFixtureInventory(slot, slot.Inventory.CommonItems)
+	writeFixtureStorage(slot, slot.Storage.CommonItems)
+	if err := slot.buildSectionMap(); err != nil {
+		t.Fatalf("buildSectionMap: %v", err)
+	}
+
+	// Make the non-GaItem regions observably non-zero, including the equipped
+	// items and GaItemData areas whose preservation is asserted by Task 7.2.
+	for i := 0; i < ChrAsmEquipmentSize; i++ {
+		slot.Data[slot.EquipItemsIDOffset+i] = byte(i + 1)
+	}
+	for i := 0; i < 16; i++ {
+		slot.Data[slot.GaItemDataOffset+i] = byte(0xA0 + i)
+	}
+	binary.LittleEndian.PutUint32(slot.Data[slot.GaItemDataOffset:], 0)
+
+	if err := slot.parseFromData(); err != nil {
+		t.Fatalf("parseFromData: %v", err)
+	}
+	return fixture
+}
+
+func writeFixtureInventory(slot *SaveSlot, items []InventoryItem) {
+	start := slot.MagicOffset + InvStartFromMagic
+	binary.LittleEndian.PutUint32(slot.Data[start-InvKeyCountHeader:], uint32(len(items)))
+	for i, item := range items {
+		off := start + i*InvRecordLen
+		binary.LittleEndian.PutUint32(slot.Data[off:], item.GaItemHandle)
+		binary.LittleEndian.PutUint32(slot.Data[off+4:], item.Quantity)
+		binary.LittleEndian.PutUint32(slot.Data[off+8:], item.Index)
+	}
+}
+
+func writeFixtureStorage(slot *SaveSlot, items []InventoryItem) {
+	binary.LittleEndian.PutUint32(slot.Data[slot.StorageBoxOffset:], uint32(len(items)))
+	start := slot.StorageBoxOffset + StorageHeaderSkip
+	for i, item := range items {
+		off := start + i*InvRecordLen
+		binary.LittleEndian.PutUint32(slot.Data[off:], item.GaItemHandle)
+		binary.LittleEndian.PutUint32(slot.Data[off+4:], item.Quantity)
+		binary.LittleEndian.PutUint32(slot.Data[off+8:], item.Index)
+	}
+}
+
 func TestFragmentedRepackReferenceFixture_IsHealthyAndRepresentative(t *testing.T) {
 	fixture := fragmentedRepackReferenceFixture(t)
 	preflight := PreflightGaItemRepack(fixture.Slot)
