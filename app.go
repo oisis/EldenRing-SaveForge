@@ -445,6 +445,11 @@ type AddResult struct {
 	// the batch requires — surfaced so the UI can explain a gaitem_full failure.
 	FreeGaItems   int `json:"freeGaItems"`
 	NeededGaItems int `json:"neededGaItems"`
+	// GaItemCapacity and GaItemRepackCTA are present only for a gaitem_full
+	// rejection. They carry the backend's raw capacity breakdown and repack
+	// eligibility decision so the frontend never derives repack safety itself.
+	GaItemCapacity  *GaItemCapacity  `json:"gaItemCapacity,omitempty"`
+	GaItemRepackCTA *GaItemRepackCTA `json:"gaItemRepackCTA,omitempty"`
 }
 
 // SlotState is the frontend's single source of truth for character-slot
@@ -539,6 +544,16 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	if charIdx < 0 || charIdx >= 10 {
 		return result, fmt.Errorf("invalid character index")
 	}
+
+	// Probe the inventory-workspace registry BEFORE taking slotMu: editSessionsMu
+	// (#3) precedes slotMu (#6) in the lock order, so it must not be acquired while
+	// slotMu is held. Because the probe runs outside slotMu, a workspace started
+	// concurrently after it returns can leave the CTA computed below stale (reported
+	// as eligible when a live workspace now exists). That is tolerated here: this
+	// path only reports the CTA and never mutates the slot on it, and
+	// AnalyzeGaItemRepack re-checks workspace state under its own lifecycle guard
+	// before performing any optimization.
+	workspaceActive := a.gaItemRepackHasActiveWorkspaceLocked(charIdx)
 
 	a.slotMu[charIdx].Lock()
 	defer a.slotMu[charIdx].Unlock()
@@ -832,6 +847,11 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			result.NeededStore = capReport.NeededStorage
 			result.FreeGaItems = freeGaItems
 			result.NeededGaItems = capReport.NeededGaItems
+			if capReport.CapHit == "gaitem_full" {
+				capacity, cta := gaItemFullCTA(slot, capReport, workspaceActive)
+				result.GaItemCapacity = &capacity
+				result.GaItemRepackCTA = &cta
+			}
 			return result, nil
 		}
 	}

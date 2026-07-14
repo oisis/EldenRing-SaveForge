@@ -15,6 +15,14 @@ type GaItemCapacity struct {
 	Usable        int `json:"usable"`
 }
 
+// GaItemRepackCTA carries the backend's eligibility decision for surfacing a
+// GaItem repack call-to-action on a gaitem_full add rejection. The frontend must
+// render it verbatim; it may not derive repack safety or recoverable capacity.
+type GaItemRepackCTA struct {
+	Eligible  bool `json:"eligible"`
+	Recovered int  `json:"recovered"`
+}
+
 type GaItemRepackBlocker struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
@@ -213,6 +221,35 @@ func gaItemRepackCouldNotStart(result GaItemRepackExecutionResult, failure *GaIt
 	return result
 }
 
+// gaItemFullCTA builds the capacity breakdown and repack CTA for a gaitem_full
+// add rejection. It is intentionally conservative: eligibility is asserted only
+// when a non-mutating repack preflight proves the rejected batch would fit
+// afterward. It never issues a token, calls AnalyzeGaItemRepack, or mutates slot.
+func gaItemFullCTA(slot *core.SaveSlot, cap core.CapacityReport, workspaceActive bool) (GaItemCapacity, GaItemRepackCTA) {
+	capacity := GaItemCapacity{
+		PhysicalEmpty: cap.FreeGaItems,
+		CursorRoom:    cap.FreeGaItemCursor,
+		Usable:        min(cap.FreeGaItems, cap.FreeGaItemCursor),
+	}
+
+	preflight := core.PreflightGaItemRepack(slot)
+	cta := GaItemRepackCTA{}
+	if len(preflight.Blockers) != 0 {
+		return capacity, cta // preflight refusal: no safe recovery estimate
+	}
+
+	// Recovered is preserved for any safe preflight, even if another eligibility
+	// condition below fails.
+	cta.Recovered = preflight.Analysis.Recovered
+	cta.Eligible = !workspaceActive &&
+		preflight.Analysis.Recovered > 0 &&
+		cap.NeededGaItems <= preflight.Analysis.ProjectedAfter.Usable &&
+		cap.NeededInv <= cap.FreeInv &&
+		cap.NeededStorage <= cap.FreeStorage &&
+		cap.NeededGaItemData <= cap.FreeGaItemData
+	return capacity, cta
+}
+
 func mapGaItemCapacity(capacity core.GaItemCapacity) GaItemCapacity {
 	return GaItemCapacity{PhysicalEmpty: capacity.PhysicalEmpty, CursorRoom: capacity.CursorRoom, Usable: capacity.Usable}
 }
@@ -262,6 +299,6 @@ func (a *App) invalidateGaItemRepackTokensLocked(charIdx int) {
 
 // _forceExportTypesGaItemRepack makes the Wails generator emit bindings for
 // every repack DTO. It is never invoked at runtime.
-func (a *App) _forceExportTypesGaItemRepack() (GaItemCapacity, GaItemRepackBlocker, GaItemRepackFailure, GaItemRepackRollback, GaItemRepackAnalysis, GaItemRepackExecuteRequest, GaItemRepackExecutionResult) {
-	return GaItemCapacity{}, GaItemRepackBlocker{}, GaItemRepackFailure{}, GaItemRepackRollback{}, GaItemRepackAnalysis{}, GaItemRepackExecuteRequest{}, GaItemRepackExecutionResult{}
+func (a *App) _forceExportTypesGaItemRepack() (GaItemCapacity, GaItemRepackCTA, GaItemRepackBlocker, GaItemRepackFailure, GaItemRepackRollback, GaItemRepackAnalysis, GaItemRepackExecuteRequest, GaItemRepackExecutionResult) {
+	return GaItemCapacity{}, GaItemRepackCTA{}, GaItemRepackBlocker{}, GaItemRepackFailure{}, GaItemRepackRollback{}, GaItemRepackAnalysis{}, GaItemRepackExecuteRequest{}, GaItemRepackExecutionResult{}
 }
