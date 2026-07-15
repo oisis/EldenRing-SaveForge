@@ -989,15 +989,9 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], newItem.Quantity)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], newItem.Index)
 
-		// LOCAL-ONLY NextEquipIndex bump: only when SaveForge writes a new record
-		// that would exceed the current NextEquipIndex. Never on load or topup.
-		// Global reconciliation on load caused CE-108255-1 (PS4 corruption).
-		if nextListId >= slot.Storage.NextEquipIndex {
-			slot.Storage.NextEquipIndex = nextListId + 1
-			if slot.Storage.nextEquipIndexOff > 0 {
-				binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextEquipIndexOff:], slot.Storage.NextEquipIndex)
-			}
-		}
+		// NextEquipIndex is a separate game-owned counter. Acquisition order uses
+		// NextAcquisitionSortId, so inserting a record must never synchronize or
+		// advance NextEquipIndex (doing so causes an in-game load crash).
 		slot.Storage.NextAcquisitionSortId = nextListId + 1
 		if slot.Storage.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextAcqSortIdOff:], slot.Storage.NextAcquisitionSortId)
@@ -1042,15 +1036,9 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], acqIdx)
 
-		// LOCAL-ONLY NextEquipIndex bump: only when SaveForge writes a new record
-		// that would exceed the current NextEquipIndex. Never on load or topup.
-		// Global reconciliation on load caused CE-108255-1 (PS4 corruption).
-		if acqIdx >= slot.Inventory.NextEquipIndex {
-			slot.Inventory.NextEquipIndex = acqIdx + 1
-			if slot.Inventory.nextEquipIndexOff > 0 {
-				binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
-			}
-		}
+		// NextEquipIndex is a separate game-owned counter. Acquisition order uses
+		// NextAcquisitionSortId, so inserting a record must never synchronize or
+		// advance NextEquipIndex (doing so causes an in-game load crash).
 		slot.Inventory.NextAcquisitionSortId = acqIdx + 1
 		if slot.Inventory.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)

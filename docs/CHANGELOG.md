@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-07-16
+
+### fix(save): preserve game-owned equip counters when adding items
+
+Adding items now advances only the acquisition-sort counter. SaveForge leaves
+the separate `NextEquipIndex` values untouched, matching game-written saves
+and preventing a character-load crash after large weapon batches.
+
 ## [1.5.0] - 2026-07-15
 
 ### feat(gaitem): analyse and optimize GaItem allocation

@@ -82,9 +82,9 @@ func buildStorageFixture(t *testing.T, nextEquip, nextAcq uint32) *SaveSlot {
 	return slot
 }
 
-// TestNextEquipIndex_InvInsert verifies the regression fix for issue #3:
-// when a new inventory item's acqIdx >= NextEquipIndex, NextEquipIndex must
-// be bumped to acqIdx+1 in both struct and binary.
+// TestNextEquipIndex_InvInsert verifies that inserting an inventory record
+// advances only the acquisition counter. NextEquipIndex is game-owned and must
+// remain byte-for-byte unchanged even when it is below the new acquisition ID.
 func TestNextEquipIndex_InvInsert(t *testing.T) {
 	// Simulate genuine PC save: NextEquipIndex=500 well below NextAcquisitionSortId=1000.
 	items := make([]InventoryItem, 10)
@@ -99,8 +99,7 @@ func TestNextEquipIndex_InvInsert(t *testing.T) {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
-	// acqIdx=1000 >= NextEquipIndex=500 → must bump to 1001.
-	wantEquip := acqBefore + 1
+	const wantEquip = uint32(500)
 	if slot.Inventory.NextEquipIndex != wantEquip {
 		t.Errorf("struct NextEquipIndex: got %d, want %d", slot.Inventory.NextEquipIndex, wantEquip)
 	}
@@ -113,7 +112,7 @@ func TestNextEquipIndex_InvInsert(t *testing.T) {
 	}
 }
 
-// TestNextEquipIndex_StorageInsert verifies the same fix on the storage path.
+// TestNextEquipIndex_StorageInsert verifies the same invariant for Storage.
 func TestNextEquipIndex_StorageInsert(t *testing.T) {
 	slot := buildStorageFixture(t, 500, 1000)
 	acqBefore := slot.Storage.NextAcquisitionSortId // 1000
@@ -123,9 +122,7 @@ func TestNextEquipIndex_StorageInsert(t *testing.T) {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
-	// Storage uses NextAcquisitionSortId=1000 as its acquisition index.
-	// 1000 >= 500 → NextEquipIndex is bumped locally to 1001.
-	const wantEquip = uint32(1001)
+	const wantEquip = uint32(500)
 	if slot.Storage.NextEquipIndex != wantEquip {
 		t.Errorf("struct NextEquipIndex: got %d, want %d", slot.Storage.NextEquipIndex, wantEquip)
 	}

@@ -38,6 +38,12 @@ func TestAddToInventory_MassBatchesUseDistinctAcquisitionBuckets(t *testing.T) {
 
 	for _, tc := range containers {
 		t.Run(tc.name, func(t *testing.T) {
+			preNextEquip := func() uint32 {
+				if tc.isStorage {
+					return tc.slot.Storage.NextEquipIndex
+				}
+				return tc.slot.Inventory.NextEquipIndex
+			}()
 			for batch := 0; batch < massAddBatchCount; batch++ {
 				for item := 0; item < massAddBatchSize; item++ {
 					handle := ItemTypeWeapon | uint32(batch*massAddBatchSize+item+1)
@@ -48,6 +54,13 @@ func TestAddToInventory_MassBatchesUseDistinctAcquisitionBuckets(t *testing.T) {
 			}
 
 			assertDistinctAcquisitionBuckets(t, tc.items(tc.slot))
+			if tc.isStorage {
+				if tc.slot.Storage.NextEquipIndex != preNextEquip {
+					t.Fatalf("NextEquipIndex changed: got %d, want preserved %d", tc.slot.Storage.NextEquipIndex, preNextEquip)
+				}
+			} else if tc.slot.Inventory.NextEquipIndex != preNextEquip {
+				t.Fatalf("NextEquipIndex changed: got %d, want preserved %d", tc.slot.Inventory.NextEquipIndex, preNextEquip)
+			}
 		})
 	}
 }

@@ -93,20 +93,12 @@ func TestBinaryAddAndReload(t *testing.T) {
 		t.Errorf("NextAcqSortId: got %d, want %d", acqSortIdAfterBin, acqSortIdBefore+1)
 	}
 
-	// Verify NextEquipIndex bumped when acqIdx >= NextEquipIndex (regression fix for issue #3)
+	// NextEquipIndex is a separate game-owned counter, not an acquisition ID.
+	// Any write by the editor is unsafe, even when the new item index is higher.
 	acqIdxUsed := acqSortIdBefore // the value written to the new record
-	if acqIdxUsed >= nextEquipIdxBefore {
-		wantNextEquip := acqIdxUsed + 1
-		if nextEquipIdxAfterBin != wantNextEquip {
-			t.Errorf("NextEquipIndex: got %d, want %d (acqIdx=%d was >= old NextEquipIdx=%d)",
-				nextEquipIdxAfterBin, wantNextEquip, acqIdxUsed, nextEquipIdxBefore)
-		}
-	} else {
-		// acqIdx < NextEquipIndex — should be untouched
-		if nextEquipIdxAfterBin != nextEquipIdxBefore {
-			t.Errorf("NextEquipIndex changed unexpectedly: %d → %d (acqIdx=%d was < NextEquipIdx=%d)",
-				nextEquipIdxBefore, nextEquipIdxAfterBin, acqIdxUsed, nextEquipIdxBefore)
-		}
+	if nextEquipIdxAfterBin != nextEquipIdxBefore {
+		t.Errorf("NextEquipIndex changed unexpectedly: %d → %d (new acquisition index=%d)",
+			nextEquipIdxBefore, nextEquipIdxAfterBin, acqIdxUsed)
 	}
 
 	// Find the new item in binary
