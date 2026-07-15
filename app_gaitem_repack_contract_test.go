@@ -70,6 +70,22 @@ func TestGaItemRepackAPIJSONContracts(t *testing.T) {
 	}
 }
 
+func TestGaItemRepackBlockerJSONCarriesStructuralHandle(t *testing.T) {
+	withHandle := jsonObject(t, GaItemRepackBlocker{Code: "duplicate_handle", Message: "dup", Handle: 0x80000005})
+	if got, ok := withHandle["handle"]; !ok {
+		t.Fatalf("handle missing for a duplicate_handle blocker: %v", withHandle)
+	} else if int(got.(float64)) != 0x80000005 {
+		t.Fatalf("handle=%v, want %d", got, 0x80000005)
+	}
+
+	// Unrelated blockers keep Handle == 0 and must omit the field entirely so the
+	// frontend never mistakes an absent handle for a real one.
+	withoutHandle := jsonObject(t, GaItemRepackBlocker{Code: "orphan_handle", Message: "orphan"})
+	if _, ok := withoutHandle["handle"]; ok {
+		t.Fatalf("handle unexpectedly present for a zero-handle blocker: %v", withoutHandle)
+	}
+}
+
 func TestAddResultJSONIncludesCTAFieldsOnlyWhenProvided(t *testing.T) {
 	base := AddResult{Added: 0, Requested: 1, Trimmed: []SkippedAdd{}, SkippedExisting: []SkippedAdd{}, CapHit: "gaitem_full"}
 	withoutCTA := jsonObject(t, base)

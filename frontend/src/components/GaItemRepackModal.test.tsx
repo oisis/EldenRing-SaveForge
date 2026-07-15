@@ -90,6 +90,34 @@ describe('GaItemRepackModal dry-run', () => {
         expect(screen.queryByRole('button', { name: /^Continue$/ })).not.toBeInTheDocument();
     });
 
+    it('duplicate_handle refusal with a nonzero handle opens the shared modal via callback', async () => {
+        const onResolveDuplicateGaItem = vi.fn();
+        analyze.mockResolvedValue(readyAnalysis({
+            outcome: 'refusal', analysisToken: '', projectedAfter: undefined, recovered: 0,
+            blockers: [
+                { code: 'duplicate_handle', message: 'GaItem[2] reuses handle 0x80000102.', handle: 0x80000102 },
+            ],
+        }));
+        renderModal({ onResolveDuplicateGaItem });
+        await screen.findByText('Optimization unavailable');
+        fireEvent.click(screen.getByRole('button', { name: /Resolve duplicate GaItem/ }));
+        expect(onResolveDuplicateGaItem).toHaveBeenCalledWith(0x80000102);
+    });
+
+    it('does not show the duplicate CTA for a non-duplicate blocker or a zero handle', async () => {
+        const onResolveDuplicateGaItem = vi.fn();
+        analyze.mockResolvedValue(readyAnalysis({
+            outcome: 'refusal', analysisToken: '', projectedAfter: undefined, recovered: 0,
+            blockers: [
+                { code: 'orphan_handle', message: 'Inventory references a missing record.' },
+                { code: 'duplicate_handle', message: 'A container duplicate with no physical handle.', handle: 0 },
+            ],
+        }));
+        renderModal({ onResolveDuplicateGaItem });
+        await screen.findByText('Optimization unavailable');
+        expect(screen.queryByRole('button', { name: /Resolve duplicate GaItem/ })).not.toBeInTheDocument();
+    });
+
     it('unavailable shows the failure message and no Continue', async () => {
         analyze.mockResolvedValue(readyAnalysis({
             outcome: 'unavailable', analysisToken: '', projectedAfter: undefined, recovered: 0,

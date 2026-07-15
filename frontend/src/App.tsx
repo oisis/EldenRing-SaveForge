@@ -8,6 +8,7 @@ import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
 import {SettingsTab} from './components/SettingsTab';
 import {GaItemRepackModal} from './components/GaItemRepackModal';
+import {GaItemDuplicateRepairModal} from './components/GaItemDuplicateRepairModal';
 import {DiagnosticsModal} from './components/DiagnosticsModal';
 import {InventoryIssuesModal} from './components/InventoryIssuesModal';
 import {DatabaseTab} from './components/DatabaseTab';
@@ -81,6 +82,9 @@ function App() {
     const [gaItemRepackChar, setGaItemRepackChar] = useState<number | null>(null);
     // Optional CTA display context (add batch rejected for lack of GaItem room).
     const [gaItemRepackCtx, setGaItemRepackCtx] = useState<{neededGaItems: number} | null>(null);
+    // Shared duplicate-repair modal context: character index + physical handle
+    // (null = closed). Reachable from Diagnostics and the repack refusal path.
+    const [gaItemDuplicateCtx, setGaItemDuplicateCtx] = useState<{charIndex: number; handle: number} | null>(null);
     const [cloneModal, setCloneModal] = useState<{srcIdx: number} | null>(null);
     const [deleteModal, setDeleteModal] = useState<{idx: number} | null>(null);
     const [cleaningSlot, setCleaningSlot] = useState<number | null>(null);
@@ -346,6 +350,7 @@ function App() {
         setSelectedChar(0);
         setGaItemRepackChar(null);
         setGaItemRepackCtx(null);
+        setGaItemDuplicateCtx(null);
         setSaveLoadKey(k => k + 1);
     };
 
@@ -354,6 +359,15 @@ function App() {
     const openGaItemRepack = (ctx?: {neededGaItems: number}) => {
         setGaItemRepackCtx(ctx ?? null);
         setGaItemRepackChar(selectedChar);
+    };
+
+    // Shared open path for the duplicate-repair modal. Closes any repack or issues
+    // modal first so only one flow is on screen, then opens the duplicate modal.
+    const openGaItemDuplicateRepair = (charIndex: number, handle: number) => {
+        setGaItemRepackChar(null);
+        setGaItemRepackCtx(null);
+        setInventoryIssuesModal(null);
+        setGaItemDuplicateCtx({charIndex, handle});
     };
 
     const handleCloseSaveFromIntegrity = async () => {
@@ -667,6 +681,7 @@ function App() {
                                     onComplete={refreshSlots}
                                     onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
                                     onOptimizeGaItem={() => openGaItemRepack()}
+                                    onResolveDuplicateGaItem={(slotIndex, handle) => openGaItemDuplicateRepair(slotIndex, handle)}
                                 />
                             </div>
                         ) : !platform ? (
@@ -908,7 +923,17 @@ function App() {
                 onRefresh={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
                 onCloseSaveWithoutSaving={closeSaveWithoutSaving}
                 ctaContext={gaItemRepackCtx ?? undefined}
+                onResolveDuplicateGaItem={(handle) => openGaItemDuplicateRepair(gaItemRepackChar, handle)}
                 onClose={() => { setGaItemRepackChar(null); setGaItemRepackCtx(null); }}
+            />
+        )}
+        {gaItemDuplicateCtx && (
+            <GaItemDuplicateRepairModal
+                charIndex={gaItemDuplicateCtx.charIndex}
+                characterName={charNames[gaItemDuplicateCtx.charIndex]}
+                handle={gaItemDuplicateCtx.handle}
+                onRefresh={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
+                onClose={() => setGaItemDuplicateCtx(null)}
             />
         )}
         {unsupportedSaveModal && (
@@ -1001,6 +1026,7 @@ function App() {
                     setSaveDataRevision(v => v + 1);
                     refreshUndoDepth();
                 }}
+                onResolveDuplicateGaItem={(slotIndex, handle) => openGaItemDuplicateRepair(slotIndex, handle)}
             />
         )}
         <ToastBar sidebarWidth={256} />

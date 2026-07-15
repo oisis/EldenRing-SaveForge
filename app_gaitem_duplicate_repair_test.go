@@ -71,6 +71,40 @@ func TestAnalyzeGaItemDuplicate_App_ReadyIssuesTokenAndCandidates(t *testing.T) 
 	}
 }
 
+// The fixture handle points at Dagger +0 (0x000F4240) and Dagger +1
+// (0x000F4241), both real DB weapon IDs, so the display-only candidate fields
+// must resolve from each candidate's OWN ItemID.
+func TestAnalyzeGaItemDuplicate_App_CandidatesCarryDisplayFields(t *testing.T) {
+	app, charIdx, handle := dedupInMemoryApp(t)
+
+	analysis, err := app.AnalyzeGaItemDuplicate(charIdx, handle)
+	if err != nil {
+		t.Fatalf("AnalyzeGaItemDuplicate: %v", err)
+	}
+	byItemID := map[uint32]GaItemDuplicateCandidate{}
+	for _, c := range analysis.Candidates {
+		byItemID[c.ItemID] = c
+	}
+	base := byItemID[0x000F4240]
+	upgraded := byItemID[0x000F4241]
+	if base.Unknown || base.Name != "Dagger" || base.CurrentUpgrade != 0 {
+		t.Errorf("base candidate=%+v, want resolved Dagger +0", base)
+	}
+	if upgraded.Unknown || upgraded.Name != "Dagger" || upgraded.CurrentUpgrade != 1 {
+		t.Errorf("upgraded candidate=%+v, want resolved Dagger +1", upgraded)
+	}
+}
+
+func TestDescribeDuplicateCandidate_UnknownItemIDFallsBack(t *testing.T) {
+	c := describeDuplicateCandidate(core.GaItemDuplicateCandidate{Index: 7, ItemID: 0xEEEEEEEE})
+	if !c.Unknown || c.Name != "" || c.CurrentUpgrade != 0 || c.InfusionName != "" {
+		t.Fatalf("candidate=%+v, want Unknown with no display metadata", c)
+	}
+	if c.Index != 7 || c.ItemID != 0xEEEEEEEE {
+		t.Fatalf("candidate identity=%+v, want Index/ItemID preserved", c)
+	}
+}
+
 func TestAnalyzeGaItemDuplicate_App_ActiveWorkspaceUnavailable(t *testing.T) {
 	app, charIdx, handle := dedupInMemoryApp(t)
 	app.editSessionByChar[charIdx] = "active-workspace"

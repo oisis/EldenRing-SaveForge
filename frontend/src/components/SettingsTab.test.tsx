@@ -35,9 +35,16 @@ vi.mock('../../wailsjs/go/main/App', () => ({
 }));
 
 // Stub the modal to a marker so we can assert it opened with the scan report.
+// It also exposes the threaded duplicate-repair callback for one test.
 vi.mock('./InventoryIssuesModal', () => ({
-    InventoryIssuesModal: (props: { reports: RepairIssueReport[] }) =>
-        <div data-testid="inv-issues-modal">reports:{props.reports.length}</div>,
+    InventoryIssuesModal: (props: { reports: RepairIssueReport[]; onResolveDuplicateGaItem?: (s: number, h: number) => void }) => (
+        <div data-testid="inv-issues-modal">
+            reports:{props.reports.length}
+            {props.onResolveDuplicateGaItem && (
+                <button onClick={() => props.onResolveDuplicateGaItem!(0, 0x80000102)}>stub-resolve-dup</button>
+            )}
+        </div>
+    ),
 }));
 vi.mock('./SaveManagerModal', () => ({ SaveManagerModal: () => null }));
 vi.mock('./FavoritesManager', () => ({ FavoritesManager: () => null }));
@@ -71,7 +78,7 @@ function fakeReport(hasIssues: boolean): RepairIssueReport {
     };
 }
 
-function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', onOptimizeGaItem = vi.fn()) {
+function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', onOptimizeGaItem = vi.fn(), onResolveDuplicateGaItem = vi.fn()) {
     render(
         <SafetyModeProvider>
             <FavoritesProvider>
@@ -86,6 +93,7 @@ function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', on
                     charIndex={charIndex}
                     onComplete={vi.fn()}
                     onOptimizeGaItem={onOptimizeGaItem}
+                    onResolveDuplicateGaItem={onResolveDuplicateGaItem}
                 />
             </FavoritesProvider>
         </SafetyModeProvider>,
@@ -106,6 +114,16 @@ describe('SettingsTab diagnostics', () => {
 
         expect(scanRepairIssuesLoaded).toHaveBeenCalledWith(2);
         expect(await screen.findByTestId('inv-issues-modal')).toBeInTheDocument();
+    });
+
+    it('threads the duplicate-repair callback into its InventoryIssuesModal', async () => {
+        const onResolveDuplicateGaItem = vi.fn();
+        scanRepairIssuesLoaded.mockResolvedValue(fakeReport(true));
+        renderSettings(2, 'safe', vi.fn(), onResolveDuplicateGaItem);
+
+        fireEvent.click(screen.getByRole('button', { name: /Diagnostics/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'stub-resolve-dup' }));
+        expect(onResolveDuplicateGaItem).toHaveBeenCalledWith(0, 0x80000102);
     });
 
     it('opens the modal for a report with issues', async () => {

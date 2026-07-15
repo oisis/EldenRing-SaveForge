@@ -41,12 +41,24 @@ vi.mock('./components/InventoryTab', () => ({ InventoryTab: () => null }));
 vi.mock('./components/WorldTab', () => ({ WorldTab: () => null }));
 // The stub exposes the App-owned callback so a test can open the shared modal.
 vi.mock('./components/SettingsTab', () => ({
-    SettingsTab: (props: { onOptimizeGaItem?: () => void }) => (
-        <button onClick={() => props.onOptimizeGaItem?.()}>open-gaitem-repack</button>
+    SettingsTab: (props: { onOptimizeGaItem?: () => void; onResolveDuplicateGaItem?: (s: number, h: number) => void }) => (
+        <>
+            <button onClick={() => props.onOptimizeGaItem?.()}>open-gaitem-repack</button>
+            <button onClick={() => props.onResolveDuplicateGaItem?.(0, 0x80000102)}>settings-resolve-dup</button>
+        </>
     ),
 }));
 vi.mock('./components/DiagnosticsModal', () => ({ DiagnosticsModal: () => null }));
 vi.mock('./components/InventoryIssuesModal', () => ({ InventoryIssuesModal: () => null }));
+// Stub the shared duplicate modal so its endpoints are not exercised here; it
+// exposes the App-owned handle/char context plus an onRefresh trigger.
+vi.mock('./components/GaItemDuplicateRepairModal', () => ({
+    GaItemDuplicateRepairModal: (props: { charIndex: number; handle: number; onRefresh: () => void }) => (
+        <div data-testid="dup-modal" data-char={props.charIndex} data-handle={props.handle}>
+            <button onClick={props.onRefresh}>dup-refresh</button>
+        </div>
+    ),
+}));
 // The editable stub exposes the App-owned CTA callback with display context.
 vi.mock('./components/DatabaseTab', () => ({
     DatabaseTab: (props: { onOptimizeGaItem?: (ctx: { neededGaItems: number }) => void }) =>
@@ -294,5 +306,64 @@ describe('App GaItem repack modal wiring', () => {
 
         fireEvent.click(screen.getByRole('button', { name: /^Write Save$/ }));
         await waitFor(() => expect(WriteSave).toHaveBeenCalled());
+    });
+});
+
+describe('App shared duplicate GaItem repair wiring', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    async function loadSave() {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        await new Promise(r => setTimeout(r, 0));
+    }
+
+    it('opens the shared duplicate modal from a Diagnostics duplicate action with slot + handle', async () => {
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'settings-resolve-dup' }));
+
+        const modal = await screen.findByTestId('dup-modal');
+        expect(modal).toHaveAttribute('data-char', '0');
+        expect(modal).toHaveAttribute('data-handle', String(0x80000102));
+    });
+
+    it('opens the shared duplicate modal from a repack duplicate_handle refusal and closes the repack modal', async () => {
+        vi.mocked(AnalyzeGaItemRepack).mockResolvedValue({
+            outcome: 'refusal', characterIndex: 0, blockers: [
+                { code: 'duplicate_handle', message: 'GaItem[2] reuses handle 0x80000102.', handle: 0x80000102 },
+            ],
+            before: CAP(0, 0, 0), recovered: 0, nonEmptyRecords: 0,
+        } as never);
+
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'open-gaitem-repack' }));
+        await screen.findByText('Optimization unavailable');
+
+        fireEvent.click(screen.getByRole('button', { name: /Resolve duplicate GaItem/ }));
+        const modal = await screen.findByTestId('dup-modal');
+        expect(modal).toHaveAttribute('data-handle', String(0x80000102));
+        // The repack modal is gone.
+        expect(screen.queryByText('Optimization unavailable')).not.toBeInTheDocument();
+    });
+
+    it('refreshes after a successful dedup but never auto-runs GaItem optimization', async () => {
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'settings-resolve-dup' }));
+
+        await screen.findByTestId('dup-modal');
+        vi.mocked(AnalyzeGaItemRepack).mockClear();
+        fireEvent.click(screen.getByRole('button', { name: 'dup-refresh' }));
+
+        // The normal post-mutation refresh runs, but optimization is never opened
+        // or analyzed automatically.
+        await new Promise(r => setTimeout(r, 0));
+        expect(AnalyzeGaItemRepack).not.toHaveBeenCalled();
+        expect(screen.queryByText('Ready to optimize')).not.toBeInTheDocument();
     });
 });

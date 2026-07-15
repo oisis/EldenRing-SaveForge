@@ -26,6 +26,11 @@ type GaItemRepackCTA struct {
 type GaItemRepackBlocker struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+	// Handle is the offending GaItem handle for blockers that identify one
+	// structurally (currently only "duplicate_handle" for a physical GaItem
+	// duplicate). It is 0 for blockers that do not name a handle; the frontend
+	// must use this numeric field and never parse the message text.
+	Handle uint32 `json:"handle,omitempty"`
 }
 
 type GaItemRepackFailure struct {
@@ -257,7 +262,7 @@ func mapGaItemCapacity(capacity core.GaItemCapacity) GaItemCapacity {
 func mapGaItemRepackBlockers(blockers []core.GaItemRepackBlocker) []GaItemRepackBlocker {
 	mapped := make([]GaItemRepackBlocker, 0, len(blockers))
 	for _, blocker := range blockers {
-		mapped = append(mapped, GaItemRepackBlocker{Code: blocker.Code, Message: blocker.Message})
+		mapped = append(mapped, GaItemRepackBlocker{Code: blocker.Code, Message: blocker.Message, Handle: blocker.Handle})
 	}
 	return mapped
 }

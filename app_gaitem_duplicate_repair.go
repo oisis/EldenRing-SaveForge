@@ -5,13 +5,22 @@ import (
 	"reflect"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
 
 // GaItemDuplicateCandidate is one physical GaItem record the user may keep. The
 // frontend renders both and must send back exactly one Index as the keep choice.
+// Name/CurrentUpgrade/InfusionName are display-only and resolved from the
+// candidate's own ItemID (never via GaMap, which represents only one version of
+// a shared handle). Unknown is true when the ItemID does not resolve to a known
+// item, in which case the frontend uses a hexadecimal ItemID fallback.
 type GaItemDuplicateCandidate struct {
-	Index  int    `json:"index"`
-	ItemID uint32 `json:"itemId"`
+	Index          int    `json:"index"`
+	ItemID         uint32 `json:"itemId"`
+	Name           string `json:"name,omitempty"`
+	CurrentUpgrade int    `json:"currentUpgrade,omitempty"`
+	InfusionName   string `json:"infusionName,omitempty"`
+	Unknown        bool   `json:"unknown,omitempty"`
 }
 
 // GaItemDuplicateAnalysis is the read-only result returned to the UI before the
@@ -187,8 +196,26 @@ func gaItemDedupCouldNotStart(result GaItemDuplicateExecutionResult, failure *Ga
 func mapGaItemDuplicateCandidates(candidates [2]core.GaItemDuplicateCandidate) []GaItemDuplicateCandidate {
 	out := make([]GaItemDuplicateCandidate, 0, 2)
 	for _, c := range candidates {
-		out = append(out, GaItemDuplicateCandidate{Index: c.Index, ItemID: c.ItemID})
+		out = append(out, describeDuplicateCandidate(c))
 	}
+	return out
+}
+
+// describeDuplicateCandidate resolves display-only metadata for one duplicate
+// candidate from its OWN ItemID. It deliberately does not consult GaMap: a
+// physical duplicate shares a single handle whose GaMap entry can only reflect
+// one of the two records.
+func describeDuplicateCandidate(c core.GaItemDuplicateCandidate) GaItemDuplicateCandidate {
+	out := GaItemDuplicateCandidate{Index: c.Index, ItemID: c.ItemID}
+	itemData, baseID := db.GetItemDataFuzzy(c.ItemID)
+	if itemData.Name == "" {
+		out.Unknown = true
+		return out
+	}
+	out.Name = itemData.Name
+	// decodeWeaponUpgradeInfusion is a safe no-op when ItemID == baseID (talismans,
+	// armor, +0 weapons), so it needs no category gate here.
+	out.CurrentUpgrade, out.InfusionName = decodeWeaponUpgradeInfusion(c.ItemID, baseID)
 	return out
 }
 

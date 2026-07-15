@@ -8,9 +8,13 @@ import (
 
 // GaItemRepackBlocker is one fail-closed reason why a GaItem repack cannot be
 // attempted. Code is stable for callers; Message is concise and user-facing.
+// Handle carries the offending GaItem handle for blockers that identify one
+// structurally (currently only "duplicate_handle" for a physical GaItem
+// duplicate); it is 0 for blockers that do not name a handle.
 type GaItemRepackBlocker struct {
 	Code    string
 	Message string
+	Handle  uint32
 	order   int
 }
 
@@ -138,11 +142,13 @@ func scanRepackRecords(slot *SaveSlot) ([]repackRecord, []GaItemRepackBlocker) {
 			continue
 		}
 		if first, exists := seenHandles[entry.Handle]; exists {
-			blockers = append(blockers, newRepackBlocker(
+			blocker := newRepackBlocker(
 				"duplicate_handle",
 				fmt.Sprintf("GaItem[%d] reuses handle 0x%08X from GaItem[%d]", i, entry.Handle, first),
 				i,
-			))
+			)
+			blocker.Handle = entry.Handle // structural handle for the shared duplicate-repair UI
+			blockers = append(blockers, blocker)
 			continue
 		}
 		seenHandles[entry.Handle] = i

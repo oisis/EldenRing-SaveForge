@@ -19,6 +19,9 @@ interface GaItemRepackModalProps {
     // Display-only CTA context: set when opened from a rejected add batch. Never
     // used for any decision or calculation.
     ctaContext?: { neededGaItems: number };
+    // Opens the App-owned shared duplicate-repair modal for a physical GaItem
+    // handle carried structurally by a duplicate_handle refusal blocker.
+    onResolveDuplicateGaItem?: (handle: number) => void;
     onClose: () => void;
 }
 
@@ -69,7 +72,7 @@ function CapacityTable({before, after, recovered, afterLabel = 'After (projected
 
 export function GaItemRepackModal({
     charIndex, characterName,
-    onWriteSave, onRefresh, onCloseSaveWithoutSaving, ctaContext, onClose,
+    onWriteSave, onRefresh, onCloseSaveWithoutSaving, ctaContext, onResolveDuplicateGaItem, onClose,
 }: GaItemRepackModalProps) {
     const [stage, setStage] = useState<Stage>('analyzing');
     const [analysis, setAnalysis] = useState<Analysis | null>(null);
@@ -264,9 +267,18 @@ export function GaItemRepackModal({
                                 <p className="text-[11px] font-bold text-red-500">Optimization unavailable</p>
                                 <ul className="space-y-1.5">
                                     {analysis.blockers.map((b, i) => (
-                                        <li key={i} className="rounded border border-red-500/30 bg-red-500/5 px-2.5 py-1.5">
-                                            <p className="text-[8px] font-mono uppercase tracking-widest text-red-400">{b.code}</p>
-                                            <p className="text-[10px] text-foreground">{b.message}</p>
+                                        <li key={i} className="rounded border border-red-500/30 bg-red-500/5 px-2.5 py-1.5 space-y-1.5">
+                                            <div>
+                                                <p className="text-[8px] font-mono uppercase tracking-widest text-red-400">{b.code}</p>
+                                                <p className="text-[10px] text-foreground">{b.message}</p>
+                                            </div>
+                                            {b.code === 'duplicate_handle' && !!b.handle && onResolveDuplicateGaItem && (
+                                                <div className="flex justify-end">
+                                                    <button onClick={() => onResolveDuplicateGaItem(b.handle!)} className={btnSecondary}>
+                                                        Resolve duplicate GaItem
+                                                    </button>
+                                                </div>
+                                            )}
                                         </li>
                                     ))}
                                 </ul>

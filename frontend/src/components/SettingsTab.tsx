@@ -34,6 +34,8 @@ interface SettingsTabProps {
     onMutate?: () => void;
     // Opens the App-owned GaItem repack modal for the current character.
     onOptimizeGaItem?: () => void;
+    // Opens the App-owned shared duplicate-repair modal for a physical GaItem handle.
+    onResolveDuplicateGaItem?: (slotIndex: number, handle: number) => void;
 }
 
 const EMPTY_SSH_TARGET: deploy.Target = new deploy.Target({
@@ -56,7 +58,7 @@ export function SettingsTab({
     platform, charIndex,
     selectedDeployTarget: selectedTarget, setSelectedDeployTarget: setSelectedTarget,
     onAfterLoad,
-    onComplete, onMutate, onOptimizeGaItem,
+    onComplete, onMutate, onOptimizeGaItem, onResolveDuplicateGaItem,
 }: SettingsTabProps) {
     const {count: favCount} = useFavorites();
     const [view, setView] = useState<'overview' | 'favorites'>('overview');
@@ -559,6 +561,9 @@ export function SettingsTab({
                     setInventoryIssuesModal(null);
                     onMutate?.();
                 }}
+                onResolveDuplicateGaItem={onResolveDuplicateGaItem
+                    ? (slotIndex, handle) => { setInventoryIssuesModal(null); onResolveDuplicateGaItem(slotIndex, handle); }
+                    : undefined}
             />
         )}
         {showSaveManager && (

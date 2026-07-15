@@ -329,6 +329,63 @@ describe('InventoryIssuesModal', () => {
     });
 });
 
+// ---- Task 7.9c: shared duplicate-repair action ------------------------------
+
+function duplicatePhysicalIssue(handle = 0x80000102): RepairIssue {
+    return issue({
+        issueID: 'issue-duplicate_physical_gaitem_handle-2',
+        key: { domain: 'gaitem', code: 'duplicate_physical_gaitem_handle', scope: 'gaitems', row: 2, handle },
+        actions: [{ id: 'no_action', label: 'No action' }],
+        defaultAction: 'no_action',
+        record: undefined,
+    });
+}
+
+describe('InventoryIssuesModal duplicate GaItem action', () => {
+    it('renders the dedicated CTA for a duplicate_physical_gaitem_handle issue and passes slot + handle', () => {
+        const onResolveDuplicateGaItem = vi.fn();
+        render(
+            <InventoryIssuesModal
+                reports={report([duplicatePhysicalIssue(0x80000102)])}
+                charIndex={0}
+                onClose={vi.fn()}
+                onSaved={vi.fn()}
+                onResolveDuplicateGaItem={onResolveDuplicateGaItem}
+            />,
+        );
+        fireEvent.click(screen.getByRole('button', { name: /Resolve duplicate GaItem/ }));
+        expect(onResolveDuplicateGaItem).toHaveBeenCalledWith(0, 0x80000102);
+        // The issue stays report-only: no mutating repair is selected for it.
+        expect(screen.getByRole('button', { name: /Repair selected \(0\)/i })).toBeInTheDocument();
+    });
+
+    it('does not render the CTA for other issue codes', () => {
+        const onResolveDuplicateGaItem = vi.fn();
+        render(
+            <InventoryIssuesModal
+                reports={report([issue({})])}
+                charIndex={0}
+                onClose={vi.fn()}
+                onSaved={vi.fn()}
+                onResolveDuplicateGaItem={onResolveDuplicateGaItem}
+            />,
+        );
+        expect(screen.queryByRole('button', { name: /Resolve duplicate GaItem/ })).not.toBeInTheDocument();
+    });
+
+    it('does not render the CTA when no callback is provided', () => {
+        render(
+            <InventoryIssuesModal
+                reports={report([duplicatePhysicalIssue()])}
+                charIndex={0}
+                onClose={vi.fn()}
+                onSaved={vi.fn()}
+            />,
+        );
+        expect(screen.queryByRole('button', { name: /Resolve duplicate GaItem/ })).not.toBeInTheDocument();
+    });
+});
+
 // ---- Prompt 15: validation coverage -----------------------------------------
 
 function coverage(overrides: Partial<ValidationCoverage> = {}): ValidationCoverage {

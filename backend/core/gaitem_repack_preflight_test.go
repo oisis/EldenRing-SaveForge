@@ -93,6 +93,11 @@ func TestPreflightGaItemRepack_RejectsDuplicateHandlesBeforeReferenceChecks(t *t
 	if got, want := repackBlockerCodes(preflight.Blockers), []string{"duplicate_handle"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("blocker codes=%v, want %v", got, want)
 	}
+	// The duplicate_handle blocker must carry the offending handle structurally
+	// so the shared duplicate-repair UI never parses it from the message.
+	if got, want := preflight.Blockers[0].Handle, slot.GaItems[0].Handle; got != want {
+		t.Errorf("duplicate_handle blocker Handle=0x%08X, want 0x%08X", got, want)
+	}
 }
 
 func TestPreflightGaItemRepack_RejectsInvalidCursorIndices(t *testing.T) {
