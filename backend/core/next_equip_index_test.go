@@ -123,9 +123,9 @@ func TestNextEquipIndex_StorageInsert(t *testing.T) {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
-	// nextListId derived from NextEquipIndex=500; no existing items → stays 500.
-	// 500 >= 500 → must bump to 501.
-	const wantEquip = uint32(501)
+	// Storage uses NextAcquisitionSortId=1000 as its acquisition index.
+	// 1000 >= 500 → NextEquipIndex is bumped locally to 1001.
+	const wantEquip = uint32(1001)
 	if slot.Storage.NextEquipIndex != wantEquip {
 		t.Errorf("struct NextEquipIndex: got %d, want %d", slot.Storage.NextEquipIndex, wantEquip)
 	}

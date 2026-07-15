@@ -220,14 +220,6 @@ func repackReferenceBlockers(slot *SaveSlot, records []repackRecord) []GaItemRep
 	blockers = append(blockers, repackContainerBlockers(slot.Storage.CommonItems, "storage", physical, slot.GaMap)...)
 	blockers = append(blockers, repackAoWBlockers(records, aowRecords)...)
 
-	for _, issue := range ScanDuplicateInventoryIndices(slot) {
-		blockers = append(blockers, newRepackBlocker(
-			"duplicate_index",
-			fmt.Sprintf("duplicate inventory index %d in %s", issue.Index, issue.Scope),
-			issue.DuplicateRow,
-		))
-	}
-
 	headerCount := binary.LittleEndian.Uint32(slot.Data[slot.StorageBoxOffset:])
 	actualStorageCount := uint32(0)
 	storageStart := slot.StorageBoxOffset + StorageHeaderSkip

@@ -121,8 +121,8 @@ func validateGaItemRepackPostconditions(slot *SaveSlot, snapshot SlotSnapshot, p
 	if err := verifyNonGaItemBytes(snapshot.Data, slot.Data, snapshot.GaItems); err != nil {
 		return GaItemRepackPreflight{}, err
 	}
-	if violations := ValidatePostMutation(slot); len(violations) != 0 {
-		return GaItemRepackPreflight{}, fmt.Errorf("postcondition: ValidatePostMutation: %v", violations)
+	if violations := validateGaItemRepackPostMutation(slot); len(violations) != 0 {
+		return GaItemRepackPreflight{}, fmt.Errorf("postcondition: repack integrity: %v", violations)
 	}
 
 	post := PreflightGaItemRepack(slot)
@@ -133,6 +133,22 @@ func validateGaItemRepackPostconditions(slot *SaveSlot, snapshot SlotSnapshot, p
 		return GaItemRepackPreflight{}, fmt.Errorf("postcondition: recovered capacity remains %d", post.Analysis.Recovered)
 	}
 	return post, nil
+}
+
+// validateGaItemRepackPostMutation keeps the generic integrity checks that
+// cover data repack can affect. A raw InventoryItem.Index duplicate is omitted:
+// stable GaItem compaction preserves Inventory and Storage byte-for-byte, and
+// Elden Ring can legitimately write such duplicates after a container move.
+func validateGaItemRepackPostMutation(slot *SaveSlot) []IntegrityError {
+	all := ValidatePostMutation(slot)
+	filtered := make([]IntegrityError, 0, len(all))
+	for _, violation := range all {
+		if violation.Check == "duplicate_index" {
+			continue
+		}
+		filtered = append(filtered, violation)
+	}
+	return filtered
 }
 
 func sameGaItemPrefix(actual, planned []GaItemFull, count int) bool {

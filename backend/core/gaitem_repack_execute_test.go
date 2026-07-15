@@ -58,6 +58,26 @@ func TestSnapshotSlot_RestoresCompleteMutableState(t *testing.T) {
 	}
 }
 
+func TestValidateGaItemRepackPostMutation_IgnoresRawDuplicateInventoryIndex(t *testing.T) {
+	const secondWeapon = ItemTypeWeapon | 2
+
+	slot := repackPreflightFixture()
+	slot.GaItems[1] = GaItemFull{Handle: secondWeapon, ItemID: 2}
+	slot.NextArmamentIndex = 2
+	slot.GaMap[secondWeapon] = 2
+	slot.Inventory.CommonItems = []InventoryItem{
+		{GaItemHandle: slot.GaItems[0].Handle, Quantity: 1, Index: 1088},
+		{GaItemHandle: secondWeapon, Quantity: 1, Index: 1088},
+	}
+
+	if violations := ValidatePostMutation(slot); len(violations) != 1 || violations[0].Check != "duplicate_index" {
+		t.Fatalf("ValidatePostMutation=%+v, want one duplicate_index", violations)
+	}
+	if violations := validateGaItemRepackPostMutation(slot); len(violations) != 0 {
+		t.Fatalf("repack post-mutation violations=%+v, want none", violations)
+	}
+}
+
 func TestRepackGaItems_RefusalDoesNotMutateSlot(t *testing.T) {
 	slot := repackPreflightFixture()
 	slot.GaItems[0].Handle = 0x70000001

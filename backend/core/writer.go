@@ -872,6 +872,20 @@ func storageRecordOffset(slot *SaveSlot, startOffset int, handle uint32) (int, e
 	return 0, fmt.Errorf("storageRecordOffset: handle 0x%08X not found in storage CommonItems", handle)
 }
 
+// nextAcquisitionWriteIndex returns the next safe acquisition index for a
+// newly written record. Elden Ring orders acquisition records by Index >> 1,
+// so writes must use a parity-stable stride of two. Keeping the base even also
+// keeps every consecutive write in a distinct game-side bucket.
+func nextAcquisitionWriteIndex(next uint32) uint32 {
+	if next <= InvEquipReservedMax {
+		next = InvEquipReservedMax + 2
+	}
+	if next%2 != 0 {
+		next++
+	}
+	return next
+}
+
 // allowDuplicate: when true, always append a NEW physical record even if a record
 // with the same handle already exists. Used for talismans, where N copies are N
 // separate records sharing the id-derived handle (not a merged quantity stack).
@@ -941,13 +955,10 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 			return io.ErrShortBuffer // All storage slots occupied
 		}
 
-		// Use next_equip_index as the Index value (matching Rust ER-Save-Editor behavior).
-		// For newly generated records only, stay above InvEquipReservedMax and max existing
-		// indices to avoid collisions. Existing low indices are not inherently corrupt.
-		nextListId := slot.Storage.NextEquipIndex
-		if nextListId <= InvEquipReservedMax {
-			nextListId = InvEquipReservedMax + 1
-		}
+		// Acquisition order is keyed by Index >> 1 in-game. Start from the
+		// acquisition counter (not NextEquipIndex), then keep the value above
+		// existing storage records and on an even stride-2 boundary.
+		nextListId := slot.Storage.NextAcquisitionSortId
 		for i := 0; i < storageCapacity; i++ {
 			off := startOffset + i*InvRecordLen
 			if off+InvRecordLen > len(slot.Data) {
@@ -967,6 +978,7 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 				nextListId = idx + 1
 			}
 		}
+		nextListId = nextAcquisitionWriteIndex(nextListId)
 
 		newItem := InventoryItem{GaItemHandle: handle, Quantity: qty, Index: nextListId}
 		off := startOffset + emptyIdx*InvRecordLen
@@ -986,7 +998,7 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 				binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextEquipIndexOff:], slot.Storage.NextEquipIndex)
 			}
 		}
-		slot.Storage.NextAcquisitionSortId++
+		slot.Storage.NextAcquisitionSortId = nextListId + 1
 		if slot.Storage.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Storage.nextAcqSortIdOff:], slot.Storage.NextAcquisitionSortId)
 		}
@@ -1016,14 +1028,10 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 			return io.ErrShortBuffer // All slots occupied
 		}
 
-		// Per-item acquisition index = current NextAcquisitionSortId (before increment).
-		// mapInventory() reconciles this value on load so it is always > all existing
-		// item indices — no per-call scan needed here.
-		acqIdx := slot.Inventory.NextAcquisitionSortId
-		if acqIdx <= InvEquipReservedMax {
-			acqIdx = InvEquipReservedMax + 1
-			slot.Inventory.NextAcquisitionSortId = acqIdx
-		}
+		// Elden Ring uses Index >> 1 as its acquisition-order key. Allocate a
+		// fresh even value so consecutive writes advance by two and cannot share
+		// a game-side sort bucket.
+		acqIdx := nextAcquisitionWriteIndex(slot.Inventory.NextAcquisitionSortId)
 
 		(*items)[emptyIdx] = InventoryItem{GaItemHandle: handle, Quantity: qty, Index: acqIdx}
 		off := startOffset + emptyIdx*InvRecordLen
@@ -1043,7 +1051,7 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 				binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
 			}
 		}
-		slot.Inventory.NextAcquisitionSortId++
+		slot.Inventory.NextAcquisitionSortId = acqIdx + 1
 		if slot.Inventory.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
 		}

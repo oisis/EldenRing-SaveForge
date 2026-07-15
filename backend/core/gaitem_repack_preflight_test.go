@@ -30,6 +30,29 @@ func TestPreflightGaItemRepack_HealthySlotAllowsAnalysis(t *testing.T) {
 	}
 }
 
+// Raw acquisition Index duplicates can be written by Elden Ring itself after
+// an inventory/storage move. GaItem repack never rewrites either container,
+// so they are not a safety blocker for this operation.
+func TestPreflightGaItemRepack_AllowsGameWrittenDuplicateInventoryIndex(t *testing.T) {
+	const secondWeapon = ItemTypeWeapon | 2
+
+	slot := repackPreflightFixture()
+	slot.GaItems[1] = GaItemFull{Handle: secondWeapon, ItemID: 2}
+	slot.NextArmamentIndex = 2
+	slot.GaMap[secondWeapon] = 2
+	slot.Inventory.CommonItems = []InventoryItem{
+		{GaItemHandle: slot.GaItems[0].Handle, Quantity: 1, Index: 1088},
+		{GaItemHandle: secondWeapon, Quantity: 1, Index: 1088},
+	}
+
+	if issues := ScanDuplicateInventoryIndices(slot); len(issues) != 1 {
+		t.Fatalf("duplicate scanner issues=%d, want 1", len(issues))
+	}
+	if blockers := PreflightGaItemRepack(slot).Blockers; len(blockers) != 0 {
+		t.Fatalf("Blockers=%+v, want none", blockers)
+	}
+}
+
 func TestPreflightGaItemRepack_StopsAfterStructuralFailure(t *testing.T) {
 	slot := repackPreflightFixture()
 	slot.Data = slot.Data[:16]
@@ -154,7 +177,6 @@ func TestPreflightGaItemRepack_AggregatesReferenceBlockersDeterministically(t *t
 	got := repackBlockerCodes(preflight.Blockers)
 	want := []string{
 		"dangling_aow_handle",
-		"duplicate_index",
 		"gaitemdata_count",
 		"gamap_record_mismatch",
 		"gamap_zero_id",
