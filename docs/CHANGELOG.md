@@ -4,6 +4,37 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-15
+
+### feat(gaitem): analyse and optimize GaItem allocation
+
+Game Items now reports physical empty records, allocator cursor room, and
+recoverable capacity before applying stable GaItem compaction. Optimisation is
+transactional: it preserves non-empty records, their handles, and all
+Inventory/Storage data, with preflight and postcondition validation.
+
+### feat(gaitem): repair duplicate physical GaItem handles
+
+A dedicated repair flow detects duplicate physical GaItem handles and lets you
+keep a chosen record safely before running allocation optimisation.
+
+### fix(save): write weapon and Ash of War data safely
+
+Active GaItemData entries are now written using their real 8-byte layout.
+Adding large batches of weapons uses even acquisition indices with a stride of
+two in both Inventory and Storage, avoiding game-side acquisition-sort bucket
+collisions and load crashes.
+
+### fix(gaitem): allow safe optimisation of game-written index duplicates
+
+GaItem optimisation no longer refuses a save only because the game wrote
+duplicate full acquisition indices. Repack does not rewrite Inventory or
+Storage, and preserves those records unchanged.
+
+### fix(repair): apply weapon upgrade limits consistently
+
+Repair actions clamp weapon upgrades through the central game-limit resolver.
+
 ## [1.4.1] - 2026-07-14
 
 ### fix(database): handle all crafting containers consistently
