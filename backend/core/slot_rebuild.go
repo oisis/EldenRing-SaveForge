@@ -312,6 +312,41 @@ func RebuildSlotFull(slot *SaveSlot) ([]byte, error) {
 		return out, nil
 	}
 
+	// Fail-closed layout refresh. Every dynamic boundary this function slices
+	// against — oldGaLimit, preRegsBlob's end (UnlockedRegionsOffset), the
+	// SectionMap regions boundary — hangs off slot.MagicOffset, which is a
+	// *pattern match* into slot.Data recorded at Read time. A prior writer
+	// (AddItemsToSlot, revealDLCMap, FlushGaItems, SetUnlockedRegions rollback,
+	// …) can shift slot.Data without a reparse, leaving MagicOffset — and every
+	// offset derived from it (UnlockedRegionsOffset, FaceDataOffset,
+	// StorageBoxOffset, GaItemDataOffset, …) plus the SectionMap — stale by the
+	// same shift delta. A heuristic that compares two of those cached offsets
+	// (e.g. UnlockedRegionsOffset vs a MagicOffset-derived inventory end) cannot
+	// detect this: both sides move together, so the comparison stays false while
+	// the geometry is wrong. Instead rediscover MagicOffset from the current
+	// bytes and recompute every dynamic offset and the section map from it,
+	// erroring rather than rebuilding from stale or unparseable geometry.
+	//
+	// scanGaItems is deliberately NOT re-run: slot.GaItems holds the pending
+	// mutation we are about to serialize, and re-scanning would clobber it.
+	// calculateDynamicOffsets only re-reads the region list (which RebuildSlotFull
+	// never mutates) from slot.Data, so the refresh is idempotent on fresh input.
+	magic := NewReader(slot.Data).FindPattern(MagicPattern)
+	if magic == -1 {
+		magic = FallbackMagicBase
+	}
+	if magic < MinMagicOffset {
+		return nil, fmt.Errorf("RebuildSlotFull: MagicOffset 0x%X below min 0x%X (unparseable layout)",
+			magic, MinMagicOffset)
+	}
+	slot.MagicOffset = magic
+	if err := slot.calculateDynamicOffsets(); err != nil {
+		return nil, fmt.Errorf("RebuildSlotFull: refresh dynamic offsets: %w", err)
+	}
+	if err := slot.buildSectionMap(); err != nil {
+		return nil, fmt.Errorf("RebuildSlotFull: refresh section map: %w", err)
+	}
+
 	// 1. Serialize new GaItems into a temp buffer. Max possible per-entry
 	// size is GaRecordWeapon (21 bytes); the actual size depends on each
 	// entry's ItemID type prefix.

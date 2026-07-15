@@ -36,6 +36,9 @@ func (a *App) CloseSave() error {
 	}
 	a.save = nil
 	a.lastSavePath = ""
+	a.saveGeneration++
+	a.slotRevisions = [maxCharacters]uint64{}
+	a.gaItemRepackTokens = make(map[string]gaItemRepackToken)
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	a.clearAllEditSessions()

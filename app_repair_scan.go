@@ -238,7 +238,7 @@ func workspaceIssueDomain(code string) string {
 // the matching EditableItem and uses its container/slot/handle to populate the
 // IssueKey and Record — giving the UI the item context it needs for decisions.
 // Issues without a UID (global or AoW-level) fall back to scope="workspace"/row=-1.
-func workspaceIssueToDTO(slotIndex int, iss editor.WorkspaceValidationIssue, snap *editor.InventoryWorkspaceSnapshot) RepairIssueDTO {
+func workspaceIssueToDTO(slotIndex int, slot *core.SaveSlot, iss editor.WorkspaceValidationIssue, snap *editor.InventoryWorkspaceSnapshot) RepairIssueDTO {
 	domain := workspaceIssueDomain(iss.Code)
 	scope := "workspace"
 	row := -1
@@ -273,11 +273,19 @@ func workspaceIssueToDTO(slotIndex int, iss editor.WorkspaceValidationIssue, sna
 		Row:    row,
 		Handle: handle,
 	}
+	// Workspace validation is derived from a throwaway snapshot, but upgrade
+	// repairs still address one concrete binary inventory record. Carry its
+	// fingerprint through the modal so ApplyRepairsLoaded can reject a stale
+	// row just like the core-scanner repairs do.
+	fingerprint := ""
+	if slot != nil && scopeAddressesRecord(scope) {
+		fingerprint, _ = core.FingerprintRecordAt(slot, scope, row)
+	}
 	actions, def := repairActionsForCode(iss.Code)
 	return RepairIssueDTO{
 		IssueID:       core.IssueKeyID(key),
 		DebugKey:      fmt.Sprintf("slot:%d|domain:%s|code:%s|scope:%s|handle:0x%08X", slotIndex, domain, iss.Code, scope, handle),
-		Fingerprint:   "",
+		Fingerprint:   fingerprint,
 		Key:           key,
 		Description:   iss.Message,
 		Severity:      iss.Severity,
@@ -309,7 +317,7 @@ func buildRepairIssueReport(slotIndex int, charName string, slot *core.SaveSlot,
 	if wsValidation != nil {
 		allWSIssues := append(wsValidation.Errors, wsValidation.Warnings...)
 		for _, wi := range allWSIssues {
-			dto := workspaceIssueToDTO(slotIndex, wi, snap)
+			dto := workspaceIssueToDTO(slotIndex, slot, wi, snap)
 			if seenIDs[dto.IssueID] {
 				continue
 			}
@@ -331,14 +339,13 @@ func buildRepairIssueReport(slotIndex int, charName string, slot *core.SaveSlot,
 
 // ScanRepairIssuesLoaded scans the loaded save slot at charIdx and returns a
 // unified repair issue report merging raw/core and workspace findings.
-// Read-only — does not mutate the slot.
+//
+// Read-only with respect to both the slot and Inventory Workspaces: it builds
+// a throwaway snapshot via editor.BuildSnapshot instead of publishing an edit
+// session, so a diagnostic scan never creates, replaces, or discards an
+// existing session (which would otherwise block the GaItem optimizer).
 func (a *App) ScanRepairIssuesLoaded(charIdx int) (RepairIssueReport, error) {
 	var empty RepairIssueReport
-
-	snap, err := a.StartInventoryEditSession(charIdx)
-	if err != nil {
-		return empty, fmt.Errorf("ScanRepairIssuesLoaded: %w", err)
-	}
 
 	a.saveMu.RLock()
 	defer a.saveMu.RUnlock()
@@ -351,6 +358,22 @@ func (a *App) ScanRepairIssuesLoaded(charIdx int) (RepairIssueReport, error) {
 	a.slotMu[charIdx].Lock()
 	defer a.slotMu[charIdx].Unlock()
 	slot := &a.save.Slots[charIdx]
+
+	// Preserve the pre-refactor empty-slot failure. The prior implementation
+	// delegated to StartInventoryEditSession, which errored on Version == 0;
+	// BuildSnapshot alone would silently return an empty report instead.
+	if slot.Version == 0 {
+		return empty, fmt.Errorf("ScanRepairIssuesLoaded: slot %d is empty", charIdx)
+	}
+
+	// Build the validation snapshot inline (no session publish). Mirrors
+	// editor.StartSession's Build+Validate, minus the registry side effects.
+	snap, err := editor.BuildSnapshot(slot, "", charIdx)
+	if err != nil {
+		return empty, fmt.Errorf("ScanRepairIssuesLoaded: %w", err)
+	}
+	snap.Validation = editor.Validate(snap)
+
 	charName := core.UTF16ToString(slot.Player.CharacterName[:])
 	return buildRepairIssueReport(charIdx, charName, slot, &snap.Validation, &snap), nil
 }

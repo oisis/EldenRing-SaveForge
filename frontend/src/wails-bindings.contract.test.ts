@@ -85,6 +85,31 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.RebuildBuildTemplateLibraryIndex).toBe('function');
         expect(typeof App.GetBuildTemplateLibraryPath).toBe('function');
     });
+
+    it('exposes both GaItem duplicate-repair endpoints and their DTO fields', () => {
+        expect(typeof App.AnalyzeGaItemDuplicate).toBe('function');
+        expect(typeof App.ExecuteGaItemDuplicateRepair).toBe('function');
+
+        // The repack blocker carries a structural handle for the shared modal.
+        const blocker = main.GaItemRepackBlocker.createFrom({});
+        expect('handle' in blocker).toBe(true);
+
+        // Candidate display-only fields must survive binding generation.
+        const candidate = main.GaItemDuplicateCandidate.createFrom({});
+        for (const field of ['index', 'itemId', 'name', 'currentUpgrade', 'infusionName', 'unknown']) {
+            expect(field in candidate).toBe(true);
+        }
+
+        const analysis = main.GaItemDuplicateAnalysis.createFrom({});
+        for (const field of ['outcome', 'characterIndex', 'handle', 'candidates', 'refusalCode', 'refusalMessage']) {
+            expect(field in analysis).toBe(true);
+        }
+
+        const req = main.GaItemDuplicateExecuteRequest.createFrom({});
+        for (const field of ['characterIndex', 'handle', 'keepIndex', 'analysisToken']) {
+            expect(field in req).toBe(true);
+        }
+    });
 });
 
 describe('Wails binding contract: central repair DTOs', () => {

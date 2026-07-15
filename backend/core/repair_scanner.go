@@ -46,6 +46,14 @@ const (
 	// no mutating action (no safe generic auto-repair; the user chooses what to
 	// trim), so its default action is no_action.
 	RepairCodeContainerOveruse = "container_overuse"
+	// RepairCodeDuplicatePhysicalHandle flags two non-empty records in the
+	// physical slot.GaItems table sharing one handle. This is a DISTINCT defect
+	// from RepairCodeDuplicateHandle (duplicate Inventory/Storage container
+	// records): here the collision is between physical GaItem records that may
+	// carry different ItemIDs, which the GaItem repack preflight refuses. It is
+	// REPORT-ONLY — no safe generic auto-repair exists (which ItemID to retain is
+	// the user's call), so its only action is no_action.
+	RepairCodeDuplicatePhysicalHandle = "duplicate_physical_gaitem_handle"
 )
 
 // Repair action identifiers — proposed by the scanner, executed by the apply endpoint.
@@ -66,6 +74,9 @@ const (
 	repairDomainInventory = "inventory"
 	repairDomainAoW       = "aow"
 	repairDomainStats     = "stats"
+	repairDomainGaItem    = "gaitem"
+
+	repairScopeGaItems = "gaitems"
 
 	repairScopeInventoryCommon = "inventory_common"
 	repairScopeInventoryKey    = "inventory_key"
@@ -145,7 +156,40 @@ func scanRepairIssuesFrom(slotIndex int, slot *SaveSlot, records []ResolvedRecor
 	out = append(out, inv...)
 	out = append(out, scanAoWRepairIssues(slotIndex, slot)...)
 	out = append(out, scanStatsRepairIssues(slotIndex, slot)...)
+	out = append(out, scanPhysicalGaItemHandleIssues(slotIndex, slot)...)
 	return out, structuralChecked, categoryChecked
+}
+
+// scanPhysicalGaItemHandleIssues reports duplicate handles in the physical
+// slot.GaItems table. Two non-empty GaItem records sharing one handle is a real
+// integrity defect — the GaItem repack preflight refuses it — and is DISTINCT
+// from a duplicate Inventory/Storage container record (RepairCodeDuplicateHandle):
+// the colliding records may carry different ItemIDs. REPORT-ONLY: no safe generic
+// auto-repair exists, so the only action is no_action. Deterministic — records
+// are scanned in ascending physical index, emitting one issue per repeated index.
+func scanPhysicalGaItemHandleIssues(slotIndex int, slot *SaveSlot) []RepairIssue {
+	firstIndex := make(map[uint32]int)
+	var out []RepairIssue
+	for i := range slot.GaItems {
+		g := &slot.GaItems[i]
+		if g.IsEmpty() {
+			continue
+		}
+		h := g.Handle
+		if first, seen := firstIndex[h]; seen {
+			key := IssueKey{Slot: slotIndex, Domain: repairDomainGaItem, Code: RepairCodeDuplicatePhysicalHandle,
+				Scope: repairScopeGaItems, Row: i, Handle: h,
+				Field: "first_index", Value: fmt.Sprintf("%d", first)}
+			out = append(out, mkIssue(key,
+				fmt.Sprintf("GaItem[%d] reuses handle 0x%08X from GaItem[%d]", i, h, first),
+				repairSeverityError,
+				[]string{RepairActionNoAction},
+				RepairActionNoAction, ""))
+			continue
+		}
+		firstIndex[h] = i
+	}
+	return out
 }
 
 // ---- helpers ----------------------------------------------------------------

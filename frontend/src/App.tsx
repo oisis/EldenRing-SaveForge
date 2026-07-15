@@ -7,6 +7,8 @@ import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
 import {SettingsTab} from './components/SettingsTab';
+import {GaItemRepackModal} from './components/GaItemRepackModal';
+import {GaItemDuplicateRepairModal} from './components/GaItemDuplicateRepairModal';
 import {DiagnosticsModal} from './components/DiagnosticsModal';
 import {InventoryIssuesModal} from './components/InventoryIssuesModal';
 import {DatabaseTab} from './components/DatabaseTab';
@@ -76,6 +78,13 @@ function App() {
     const [theme, setTheme] = useState<Theme>(() => {
         return (localStorage.getItem('setting:theme') as Theme) || 'dark';
     });
+    // Character index the GaItem repack modal is open for (null = closed).
+    const [gaItemRepackChar, setGaItemRepackChar] = useState<number | null>(null);
+    // Optional CTA display context (add batch rejected for lack of GaItem room).
+    const [gaItemRepackCtx, setGaItemRepackCtx] = useState<{neededGaItems: number} | null>(null);
+    // Shared duplicate-repair modal context: character index + physical handle
+    // (null = closed). Reachable from Diagnostics and the repack refusal path.
+    const [gaItemDuplicateCtx, setGaItemDuplicateCtx] = useState<{charIndex: number; handle: number} | null>(null);
     const [cloneModal, setCloneModal] = useState<{srcIdx: number} | null>(null);
     const [deleteModal, setDeleteModal] = useState<{idx: number} | null>(null);
     const [cleaningSlot, setCleaningSlot] = useState<number | null>(null);
@@ -328,19 +337,45 @@ function App() {
         }
     };
 
+    // Drops the loaded save from backend memory and resets the UI to the
+    // no-save state. Shared by the integrity gate and the GaItem repack critical
+    // path. Throws on backend failure so callers can surface it.
+    const closeSaveWithoutSaving = async () => {
+        await CloseSave();
+        setIntegrityReport(null);
+        setPendingPlatform(null);
+        setPlatform(null);
+        setActiveSlots([]);
+        setCharacterNames([]);
+        setSelectedChar(0);
+        setGaItemRepackChar(null);
+        setGaItemRepackCtx(null);
+        setGaItemDuplicateCtx(null);
+        setSaveLoadKey(k => k + 1);
+    };
+
+    // Shared open path for the GaItem repack modal. Stores optional CTA context
+    // (or clears it) and opens the modal for the currently selected character.
+    const openGaItemRepack = (ctx?: {neededGaItems: number}) => {
+        setGaItemRepackCtx(ctx ?? null);
+        setGaItemRepackChar(selectedChar);
+    };
+
+    // Shared open path for the duplicate-repair modal. Closes any repack or issues
+    // modal first so only one flow is on screen, then opens the duplicate modal.
+    const openGaItemDuplicateRepair = (charIndex: number, handle: number) => {
+        setGaItemRepackChar(null);
+        setGaItemRepackCtx(null);
+        setInventoryIssuesModal(null);
+        setGaItemDuplicateCtx({charIndex, handle});
+    };
+
     const handleCloseSaveFromIntegrity = async () => {
         if (integrityBusy) return;
         setIntegrityBusy(true);
         setIntegrityError(null);
         try {
-            await CloseSave();
-            setIntegrityReport(null);
-            setPendingPlatform(null);
-            setPlatform(null);
-            setActiveSlots([]);
-            setCharacterNames([]);
-            setSelectedChar(0);
-            setSaveLoadKey(k => k + 1);
+            await closeSaveWithoutSaving();
         } catch (err) {
             setIntegrityError('Close save failed: ' + String(err));
         } finally {
@@ -645,20 +680,16 @@ function App() {
                                     charIndex={selectedChar}
                                     onComplete={refreshSlots}
                                     onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
+                                    onOptimizeGaItem={() => openGaItemRepack()}
+                                    onResolveDuplicateGaItem={(slotIndex, handle) => openGaItemDuplicateRepair(slotIndex, handle)}
                                 />
                             </div>
                         ) : !platform ? (
                             <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-bottom-2 duration-500">
-                                <div className="mb-3 flex items-center justify-between gap-3 px-1 shrink-0">
+                                <div className="mb-3 px-1 shrink-0">
                                     <p className="text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">
                                         Preview mode — load a save file to enable editing
                                     </p>
-                                    <button
-                                        onClick={handleOpenSave}
-                                        className="px-4 py-1.5 bg-primary text-primary-foreground rounded-full text-[9px] font-black uppercase tracking-[0.2em] transition-all shadow-lg shadow-primary/20 hover:brightness-110 active:scale-95"
-                                    >
-                                        Open Save
-                                    </button>
                                 </div>
                                 <div className={['inventory', 'advanced'].includes(activeTab) ? 'flex-1 flex flex-col min-h-0 overflow-hidden' : 'flex-1 overflow-y-auto custom-scrollbar'}>
                                     {activeTab === 'character' && (
@@ -767,6 +798,7 @@ function App() {
                                                 onCloseDetail={() => setDetailItem(null)}
                                                 showOnlyFavorites={showOnlyFavorites}
                                                 onToggleFavorites={() => setShowOnlyFavorites(v => !v)}
+                                                onOptimizeGaItem={(ctx) => openGaItemRepack(ctx)}
                                             />
                                         ) : (
                                             <SortOrderTab
@@ -883,6 +915,27 @@ function App() {
                 </div>
             </div>
         )}
+        {gaItemRepackChar !== null && (
+            <GaItemRepackModal
+                charIndex={gaItemRepackChar}
+                characterName={charNames[gaItemRepackChar]}
+                onWriteSave={handleSaveAs}
+                onRefresh={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
+                onCloseSaveWithoutSaving={closeSaveWithoutSaving}
+                ctaContext={gaItemRepackCtx ?? undefined}
+                onResolveDuplicateGaItem={(handle) => openGaItemDuplicateRepair(gaItemRepackChar, handle)}
+                onClose={() => { setGaItemRepackChar(null); setGaItemRepackCtx(null); }}
+            />
+        )}
+        {gaItemDuplicateCtx && (
+            <GaItemDuplicateRepairModal
+                charIndex={gaItemDuplicateCtx.charIndex}
+                characterName={charNames[gaItemDuplicateCtx.charIndex]}
+                handle={gaItemDuplicateCtx.handle}
+                onRefresh={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
+                onClose={() => setGaItemDuplicateCtx(null)}
+            />
+        )}
         {unsupportedSaveModal && (
             <div data-testid="unsupported-save-backdrop" className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
                 <div className="bg-background border border-border rounded-xl p-6 w-[30rem] max-w-[90vw] space-y-4 shadow-2xl">
@@ -973,6 +1026,7 @@ function App() {
                     setSaveDataRevision(v => v + 1);
                     refreshUndoDepth();
                 }}
+                onResolveDuplicateGaItem={(slotIndex, handle) => openGaItemDuplicateRepair(slotIndex, handle)}
             />
         )}
         <ToastBar sidebarWidth={256} />

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 )
 
 // Repair apply outcome tags. One central result model shared by the loaded and
@@ -209,6 +210,21 @@ func applyRepairActionToSlot(slot *core.SaveSlot, slotIndex int, t RepairApplyTa
 		res.Message = "post-validation: quantity still invalid at the clamped row"
 		return res
 	}
+	if t.SelectedAction == RepairActionClampUpgrade {
+		stillInvalid, err := clampUpgradeStillInvalid(slot, slotIndex, t)
+		if err != nil {
+			core.RestoreSlot(slot, snap)
+			res.Outcome = repairOutcomeFailed
+			res.Message = fmt.Sprintf("post-validation: %v", err)
+			return res
+		}
+		if stillInvalid {
+			core.RestoreSlot(slot, snap)
+			res.Outcome = repairOutcomeFailed
+			res.Message = "post-validation: upgrade still invalid after repair"
+			return res
+		}
+	}
 
 	res.Outcome = repairOutcomeApplied
 	return res
@@ -229,6 +245,9 @@ func clampLeavesQuantityInvalid(issues []core.RepairIssue, scope string, row int
 
 // dispatchRepairAction routes (domain, action) to the backing core primitive.
 func dispatchRepairAction(slot *core.SaveSlot, t RepairApplyTarget) error {
+	if t.SelectedAction == RepairActionClampUpgrade {
+		return clampUpgradeAt(slot, t)
+	}
 	switch t.Key.Domain {
 	case "inventory":
 		switch t.SelectedAction {
@@ -265,16 +284,91 @@ func dispatchRepairAction(slot *core.SaveSlot, t RepairApplyTarget) error {
 	return fmt.Errorf("unsupported action %q for domain %q", t.SelectedAction, t.Key.Domain)
 }
 
-// isSkipRepairAction reports actions the central endpoint does not mutate for:
-// explicit no-ops plus workspace/stats actions handled by other flows. These
+// clampUpgradeAt reuses the workspace weapon encoder, then applies only its
+// resulting ItemID patch to the matching GaItem. Unlike a workspace save this
+// does not rebuild inventory/storage layouts or touch their acquisition
+// counters; a repair of an invalid upgrade must be limited to that weapon.
+func clampUpgradeAt(slot *core.SaveSlot, t RepairApplyTarget) error {
+	if t.Key.Domain != "inventory" || t.Key.Code != editor.CodeUpgradeOutOfRange {
+		return fmt.Errorf("clamp_upgrade requires an inventory upgrade_out_of_range issue")
+	}
+
+	snap, err := editor.BuildSnapshot(slot, "", t.Key.Slot)
+	if err != nil {
+		return fmt.Errorf("build workspace snapshot: %w", err)
+	}
+
+	item, ok := findWorkspaceItemForRepair(&snap, t.Key)
+	if !ok {
+		return fmt.Errorf("target weapon at %s row %d (handle 0x%08X) not found",
+			t.Key.Scope, t.Key.Row, t.Key.Handle)
+	}
+	oldItemID := item.ItemID
+	if err := editor.AutoRepairWorkspaceItem(&snap, item.UID, editor.CodeUpgradeOutOfRange); err != nil {
+		return err
+	}
+	repaired, ok := findWorkspaceItem(&snap, item.UID)
+	if !ok {
+		return fmt.Errorf("repaired weapon %q disappeared from workspace", item.UID)
+	}
+	if repaired.ItemID == oldItemID {
+		return fmt.Errorf("clamp_upgrade produced no ItemID change for %q", item.Name)
+	}
+	return core.PatchWeaponItemID(slot, item.OriginalHandle, oldItemID, repaired.ItemID)
+}
+
+// findWorkspaceItemForRepair resolves a workspace item by its concrete binary
+// location. Handle alone is insufficient because the same handle may exist in
+// both containers, so scope and physical row are part of the identity.
+func findWorkspaceItemForRepair(snap *editor.InventoryWorkspaceSnapshot, key core.IssueKey) (editor.EditableItem, bool) {
+	var items []editor.EditableItem
+	switch key.Scope {
+	case "inventory_common":
+		items = snap.InventoryItems
+	case "storage_common":
+		items = snap.StorageItems
+	default:
+		return editor.EditableItem{}, false
+	}
+	for _, item := range items {
+		if item.OriginalSlotIndex == key.Row && item.OriginalHandle == key.Handle {
+			return item, true
+		}
+	}
+	return editor.EditableItem{}, false
+}
+
+// clampUpgradeStillInvalid re-runs workspace validation after the GaItem patch
+// because core.ScanRepairIssues intentionally does not own editor-only upgrade
+// validation.
+func clampUpgradeStillInvalid(slot *core.SaveSlot, slotIndex int, t RepairApplyTarget) (bool, error) {
+	snap, err := editor.BuildSnapshot(slot, "", slotIndex)
+	if err != nil {
+		return false, err
+	}
+	validation := editor.Validate(snap)
+	for _, issue := range append(validation.Errors, validation.Warnings...) {
+		if issue.Code != editor.CodeUpgradeOutOfRange {
+			continue
+		}
+		item, ok := findWorkspaceItem(&snap, issue.UID)
+		if ok && item.OriginalSlotIndex == t.Key.Row && item.OriginalHandle == t.Key.Handle &&
+			containerToScope(item.Container) == t.Key.Scope {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// isSkipRepairAction reports actions the central endpoint intentionally does
+// not mutate: explicit no-ops and stats actions handled by other flows. These
 // are reported as skipped, never failed.
 func isSkipRepairAction(action string) bool {
 	switch action {
 	case core.RepairActionNoAction,
 		core.RepairActionFixLevel,
 		RepairActionLeaveUnchanged,
-		RepairActionReportOnly,
-		RepairActionClampUpgrade:
+		RepairActionReportOnly:
 		return true
 	}
 	return false

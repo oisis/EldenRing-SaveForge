@@ -31,30 +31,9 @@ const maxCharacters = 10
 
 // slotSnapshot holds a deep copy of a SaveSlot for undo purposes.
 type slotSnapshot struct {
-	Active             bool
-	ProfileSummary     core.ProfileSummary
-	Data               []byte
-	Version            uint32
-	Player             core.PlayerGameData
-	GaMap              map[uint32]uint32
-	GaItems            []core.GaItemFull
-	Inventory          core.EquipInventoryData
-	Storage            core.EquipInventoryData
-	Warnings           []string
-	MagicOffset        int
-	InventoryEnd       int
-	EventFlagsOffset   int
-	PlayerDataOffset   int
-	FaceDataOffset     int
-	StorageBoxOffset   int
-	IngameTimerOffset  int
-	GaItemDataOffset   int
-	TutorialDataOffset int
-	// GaItem tracked indices
-	NextAoWIndex      int
-	NextArmamentIndex int
-	NextGaItemHandle  uint32
-	PartGaItemHandle  uint8
+	Active         bool
+	ProfileSummary core.ProfileSummary
+	Slot           core.SlotSnapshot
 }
 
 // App struct
@@ -63,10 +42,18 @@ type App struct {
 	save         *core.SaveFile
 	undoStacks   [10][]slotSnapshot
 	lastSavePath string
-	deployStore  *deploy.TargetStore
-	deploySSH    *deploy.SSHManager
-	deployLocal  *deploy.LocalManager
-	favSlotNames map[int]string // preset name written to each Favorites slot; empty = loaded from save (unknown)
+
+	// GaItem repack tokens bind a dry-run to one loaded save and an exact slot
+	// state. They are protected by saveMu + the relevant slotMu entry.
+	gaItemRepackTokens map[string]gaItemRepackToken
+	gaItemDedupTokens  map[string]gaItemDedupToken
+	gaItemRepackNextID uint64
+	saveGeneration     uint64
+	slotRevisions      [maxCharacters]uint64
+	deployStore        *deploy.TargetStore
+	deploySSH          *deploy.SSHManager
+	deployLocal        *deploy.LocalManager
+	favSlotNames       map[int]string // preset name written to each Favorites slot; empty = loaded from save (unknown)
 
 	// Phase 1 inventory edit session state. One active session per character.
 	// editSessions is keyed by session ID; editSessionByChar maps charIdx → ID
@@ -150,9 +137,11 @@ type App struct {
 // NewApp creates a new App struct
 func NewApp() *App {
 	return &App{
-		favSlotNames:      make(map[int]string),
-		editSessions:      make(map[string]*editor.InventoryEditSession),
-		editSessionByChar: make(map[int]string),
+		favSlotNames:       make(map[int]string),
+		editSessions:       make(map[string]*editor.InventoryEditSession),
+		editSessionByChar:  make(map[int]string),
+		gaItemRepackTokens: make(map[string]gaItemRepackToken),
+		gaItemDedupTokens:  make(map[string]gaItemDedupToken),
 	}
 }
 
@@ -234,6 +223,10 @@ func (a *App) SelectAndOpenSave() (string, error) {
 func (a *App) installLoadedSave(candidate *core.SaveFile, path string) {
 	a.save = candidate
 	a.lastSavePath = path
+	a.saveGeneration++
+	a.slotRevisions = [maxCharacters]uint64{}
+	a.gaItemRepackTokens = make(map[string]gaItemRepackToken)
+	a.gaItemDedupTokens = make(map[string]gaItemDedupToken)
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	a.clearAllEditSessions()
@@ -455,6 +448,11 @@ type AddResult struct {
 	// the batch requires — surfaced so the UI can explain a gaitem_full failure.
 	FreeGaItems   int `json:"freeGaItems"`
 	NeededGaItems int `json:"neededGaItems"`
+	// GaItemCapacity and GaItemRepackCTA are present only for a gaitem_full
+	// rejection. They carry the backend's raw capacity breakdown and repack
+	// eligibility decision so the frontend never derives repack safety itself.
+	GaItemCapacity  *GaItemCapacity  `json:"gaItemCapacity,omitempty"`
+	GaItemRepackCTA *GaItemRepackCTA `json:"gaItemRepackCTA,omitempty"`
 }
 
 // SlotState is the frontend's single source of truth for character-slot
@@ -549,6 +547,16 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	if charIdx < 0 || charIdx >= 10 {
 		return result, fmt.Errorf("invalid character index")
 	}
+
+	// Probe the inventory-workspace registry BEFORE taking slotMu: editSessionsMu
+	// (#3) precedes slotMu (#6) in the lock order, so it must not be acquired while
+	// slotMu is held. Because the probe runs outside slotMu, a workspace started
+	// concurrently after it returns can leave the CTA computed below stale (reported
+	// as eligible when a live workspace now exists). That is tolerated here: this
+	// path only reports the CTA and never mutates the slot on it, and
+	// AnalyzeGaItemRepack re-checks workspace state under its own lifecycle guard
+	// before performing any optimization.
+	workspaceActive := a.gaItemRepackHasActiveWorkspaceLocked(charIdx)
 
 	a.slotMu[charIdx].Lock()
 	defer a.slotMu[charIdx].Unlock()
@@ -842,6 +850,11 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			result.NeededStore = capReport.NeededStorage
 			result.FreeGaItems = freeGaItems
 			result.NeededGaItems = capReport.NeededGaItems
+			if capReport.CapHit == "gaitem_full" {
+				capacity, cta := gaItemFullCTA(slot, capReport, workspaceActive)
+				result.GaItemCapacity = &capacity
+				result.GaItemRepackCTA = &cta
+			}
 			return result, nil
 		}
 	}
@@ -1693,52 +1706,11 @@ func (a *App) pushUndoLocked(idx int) {
 // one action actually mutated — so a fully-rolled-back batch leaves no undo
 // entry. Same locking contract as pushUndoLocked.
 func (a *App) buildSlotSnapshotLocked(idx int) slotSnapshot {
-	slot := &a.save.Slots[idx]
-
-	// Deep copy Data
-	dataCopy := make([]byte, len(slot.Data))
-	copy(dataCopy, slot.Data)
-
-	// Deep copy GaMap
-	gaMapCopy := make(map[uint32]uint32, len(slot.GaMap))
-	for k, v := range slot.GaMap {
-		gaMapCopy[k] = v
+	return slotSnapshot{
+		Active:         a.save.ActiveSlots[idx],
+		ProfileSummary: a.save.ProfileSummaries[idx],
+		Slot:           core.SnapshotSlot(&a.save.Slots[idx]),
 	}
-
-	// Deep copy GaItems
-	var gaItemsCopy []core.GaItemFull
-	if slot.GaItems != nil {
-		gaItemsCopy = make([]core.GaItemFull, len(slot.GaItems))
-		copy(gaItemsCopy, slot.GaItems)
-	}
-
-	snap := slotSnapshot{
-		Active:             a.save.ActiveSlots[idx],
-		ProfileSummary:     a.save.ProfileSummaries[idx],
-		Data:               dataCopy,
-		Version:            slot.Version,
-		Player:             slot.Player,
-		GaMap:              gaMapCopy,
-		GaItems:            gaItemsCopy,
-		Inventory:          slot.Inventory.Clone(),
-		Storage:            slot.Storage.Clone(),
-		Warnings:           append([]string{}, slot.Warnings...),
-		MagicOffset:        slot.MagicOffset,
-		InventoryEnd:       slot.InventoryEnd,
-		EventFlagsOffset:   slot.EventFlagsOffset,
-		PlayerDataOffset:   slot.PlayerDataOffset,
-		FaceDataOffset:     slot.FaceDataOffset,
-		StorageBoxOffset:   slot.StorageBoxOffset,
-		IngameTimerOffset:  slot.IngameTimerOffset,
-		GaItemDataOffset:   slot.GaItemDataOffset,
-		TutorialDataOffset: slot.TutorialDataOffset,
-		NextAoWIndex:       slot.NextAoWIndex,
-		NextArmamentIndex:  slot.NextArmamentIndex,
-		NextGaItemHandle:   slot.NextGaItemHandle,
-		PartGaItemHandle:   slot.PartGaItemHandle,
-	}
-
-	return snap
 }
 
 // pushUndoSnapshotLocked appends a pre-built undo snapshot onto the stack,
@@ -1749,6 +1721,8 @@ func (a *App) pushUndoSnapshotLocked(idx int, snap slotSnapshot) {
 		stack = stack[1:] // drop oldest
 	}
 	a.undoStacks[idx] = append(stack, snap)
+	a.slotRevisions[idx]++
+	a.invalidateGaItemRepackTokensLocked(idx)
 }
 
 // lockAllSlots takes every slotMu[0..maxCharacters-1] in strictly ascending
@@ -1813,29 +1787,9 @@ func (a *App) RevertSlot(idx int) error {
 	a.undoStacks[idx] = stack[:len(stack)-1]
 	a.save.ActiveSlots[idx] = snap.Active
 	a.save.ProfileSummaries[idx] = snap.ProfileSummary
-
-	slot := &a.save.Slots[idx]
-	slot.Data = snap.Data
-	slot.Version = snap.Version
-	slot.Player = snap.Player
-	slot.GaMap = snap.GaMap
-	slot.GaItems = snap.GaItems
-	slot.Inventory = snap.Inventory
-	slot.Storage = snap.Storage
-	slot.Warnings = snap.Warnings
-	slot.MagicOffset = snap.MagicOffset
-	slot.InventoryEnd = snap.InventoryEnd
-	slot.EventFlagsOffset = snap.EventFlagsOffset
-	slot.PlayerDataOffset = snap.PlayerDataOffset
-	slot.FaceDataOffset = snap.FaceDataOffset
-	slot.StorageBoxOffset = snap.StorageBoxOffset
-	slot.IngameTimerOffset = snap.IngameTimerOffset
-	slot.GaItemDataOffset = snap.GaItemDataOffset
-	slot.TutorialDataOffset = snap.TutorialDataOffset
-	slot.NextAoWIndex = snap.NextAoWIndex
-	slot.NextArmamentIndex = snap.NextArmamentIndex
-	slot.NextGaItemHandle = snap.NextGaItemHandle
-	slot.PartGaItemHandle = snap.PartGaItemHandle
+	core.RestoreSlot(&a.save.Slots[idx], snap.Slot)
+	a.slotRevisions[idx]++
+	a.invalidateGaItemRepackTokensLocked(idx)
 
 	return nil
 }

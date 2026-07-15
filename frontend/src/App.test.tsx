@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SafetyProfile } from './state/safetyProfile';
 
@@ -30,6 +30,7 @@ vi.mock('../wailsjs/go/main/App', () => {
         GetSlotCapacity: r(), AuditLoadedSaveIssues: r(), GetSaveInventoryIntegrityReport: r(),
         RepairDuplicateInventoryIndices: r(), CloseSave: r(), RunDiagnosticsAllLoaded: r(),
         GetAppVersion: r(), ScanRepairIssuesLoaded: r(),
+        AnalyzeGaItemRepack: r(), ExecuteGaItemRepack: r(),
     };
 });
 
@@ -38,10 +39,33 @@ vi.mock('../wailsjs/go/main/App', () => {
 vi.mock('./components/CharacterTab', () => ({ CharacterTab: () => null }));
 vi.mock('./components/InventoryTab', () => ({ InventoryTab: () => null }));
 vi.mock('./components/WorldTab', () => ({ WorldTab: () => null }));
-vi.mock('./components/SettingsTab', () => ({ SettingsTab: () => null }));
+// The stub exposes the App-owned callback so a test can open the shared modal.
+vi.mock('./components/SettingsTab', () => ({
+    SettingsTab: (props: { onOptimizeGaItem?: () => void; onResolveDuplicateGaItem?: (s: number, h: number) => void }) => (
+        <>
+            <button onClick={() => props.onOptimizeGaItem?.()}>open-gaitem-repack</button>
+            <button onClick={() => props.onResolveDuplicateGaItem?.(0, 0x80000102)}>settings-resolve-dup</button>
+        </>
+    ),
+}));
 vi.mock('./components/DiagnosticsModal', () => ({ DiagnosticsModal: () => null }));
 vi.mock('./components/InventoryIssuesModal', () => ({ InventoryIssuesModal: () => null }));
-vi.mock('./components/DatabaseTab', () => ({ DatabaseTab: () => null }));
+// Stub the shared duplicate modal so its endpoints are not exercised here; it
+// exposes the App-owned handle/char context plus an onRefresh trigger.
+vi.mock('./components/GaItemDuplicateRepairModal', () => ({
+    GaItemDuplicateRepairModal: (props: { charIndex: number; handle: number; onRefresh: () => void }) => (
+        <div data-testid="dup-modal" data-char={props.charIndex} data-handle={props.handle}>
+            <button onClick={props.onRefresh}>dup-refresh</button>
+        </div>
+    ),
+}));
+// The editable stub exposes the App-owned CTA callback with display context.
+vi.mock('./components/DatabaseTab', () => ({
+    DatabaseTab: (props: { onOptimizeGaItem?: (ctx: { neededGaItems: number }) => void }) =>
+        props.onOptimizeGaItem
+            ? <button onClick={() => props.onOptimizeGaItem?.({ neededGaItems: 7 })}>db-optimize-gaitem</button>
+            : null,
+}));
 vi.mock('./components/AppearanceTab', () => ({ AppearanceTab: () => null }));
 vi.mock('./components/PvPTab', () => ({ PvPTab: () => null }));
 vi.mock('./components/SortOrderTab', () => ({ SortOrderTab: () => null }));
@@ -57,8 +81,10 @@ vi.mock('./components/ToastBar', () => ({ ToastBar: () => null }));
 
 import App from './App';
 import { SafetyModeProvider } from './state/safetyMode';
-import { SelectAndOpenSave, GetSaveInventoryIntegrityReport } from '../wailsjs/go/main/App';
+import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave } from '../wailsjs/go/main/App';
 import toast from './lib/toast';
+
+const CAP = (physicalEmpty: number, cursorRoom: number, usable: number) => ({ physicalEmpty, cursorRoom, usable });
 
 function renderApp(profile: SafetyProfile) {
     localStorage.setItem('setting:safetyProfile', profile);
@@ -136,9 +162,10 @@ describe('App open-save button wording', () => {
     beforeEach(() => localStorage.clear());
     afterEach(() => vi.clearAllMocks());
 
-    it('reads "Open Save File" before a save is loaded (no legacy "Change Save")', () => {
+    it('keeps only the sidebar "Open Save File" action before a save is loaded', () => {
         renderApp('safe');
         expect(screen.getByRole('button', { name: /Open Save File/i })).toBeInTheDocument();
+        expect(screen.queryByRole('button', { name: 'Open Save' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Change Save/i })).not.toBeInTheDocument();
     });
 
@@ -204,5 +231,139 @@ describe('App unsupported-container handling', () => {
         await new Promise(r => setTimeout(r, 0));
         expect(screen.queryByText('Unsupported Save Format')).not.toBeInTheDocument();
         expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('some other failure'));
+    });
+});
+
+describe('App GaItem repack modal wiring', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    async function loadSave() {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        await new Promise(r => setTimeout(r, 0));
+    }
+
+    it('opens the shared modal for the selected character and analyzes it', async () => {
+        vi.mocked(AnalyzeGaItemRepack).mockResolvedValue({
+            outcome: 'ready', characterIndex: 0, analysisToken: 't',
+            before: CAP(2, 3, 40), projectedAfter: CAP(7, 8, 45),
+            recovered: 5, nonEmptyRecords: 9, blockers: [],
+        } as never);
+
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'open-gaitem-repack' }));
+
+        await screen.findByText('Ready to optimize');
+        expect(AnalyzeGaItemRepack).toHaveBeenCalledWith(0);
+    });
+
+    it('opens with CTA context from the Database, and context-free from Tools', async () => {
+        vi.mocked(AnalyzeGaItemRepack).mockResolvedValue({
+            outcome: 'ready', characterIndex: 0, analysisToken: 't',
+            before: CAP(2, 3, 40), projectedAfter: CAP(7, 8, 45),
+            recovered: 5, nonEmptyRecords: 9, blockers: [],
+        } as never);
+
+        await loadSave();
+        // Reach the editable DatabaseTab and fire its CTA.
+        fireEvent.click(screen.getByRole('button', { name: /game items/i }));
+        fireEvent.click(screen.getByRole('button', { name: /Item Database/i }));
+        fireEvent.click(screen.getByRole('button', { name: 'db-optimize-gaitem' }));
+
+        await screen.findByText('Ready to optimize');
+        expect(screen.getByText('After optimizing, try adding the rejected batch again.')).toBeInTheDocument();
+
+        // Close, then reopen from Tools — the modal must carry no context.
+        fireEvent.click(screen.getByRole('button', { name: /^Close$/ }));
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'open-gaitem-repack' }));
+
+        await screen.findByText('Ready to optimize');
+        expect(screen.queryByText('After optimizing, try adding the rejected batch again.')).not.toBeInTheDocument();
+    });
+
+    it('routes the success Write Save through the central App path', async () => {
+        vi.mocked(AnalyzeGaItemRepack).mockResolvedValue({
+            outcome: 'ready', characterIndex: 0, analysisToken: 't',
+            before: CAP(2, 3, 40), projectedAfter: CAP(7, 8, 45),
+            recovered: 5, nonEmptyRecords: 9, blockers: [],
+        } as never);
+        vi.mocked(ExecuteGaItemRepack).mockResolvedValue({
+            outcome: 'success', characterIndex: 0,
+            before: CAP(2, 3, 40), after: CAP(7, 8, 45), recovered: 5,
+        } as never);
+
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'open-gaitem-repack' }));
+        fireEvent.click(await screen.findByRole('button', { name: /^Continue$/ }));
+        fireEvent.click(await screen.findByRole('button', { name: /^Optimize allocation$/ }));
+        await screen.findByText('GaItem allocation optimized');
+
+        fireEvent.click(screen.getByRole('button', { name: /^Write Save$/ }));
+        await waitFor(() => expect(WriteSave).toHaveBeenCalled());
+    });
+});
+
+describe('App shared duplicate GaItem repair wiring', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    async function loadSave() {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        await new Promise(r => setTimeout(r, 0));
+    }
+
+    it('opens the shared duplicate modal from a Diagnostics duplicate action with slot + handle', async () => {
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'settings-resolve-dup' }));
+
+        const modal = await screen.findByTestId('dup-modal');
+        expect(modal).toHaveAttribute('data-char', '0');
+        expect(modal).toHaveAttribute('data-handle', String(0x80000102));
+    });
+
+    it('opens the shared duplicate modal from a repack duplicate_handle refusal and closes the repack modal', async () => {
+        vi.mocked(AnalyzeGaItemRepack).mockResolvedValue({
+            outcome: 'refusal', characterIndex: 0, blockers: [
+                { code: 'duplicate_handle', message: 'GaItem[2] reuses handle 0x80000102.', handle: 0x80000102 },
+            ],
+            before: CAP(0, 0, 0), recovered: 0, nonEmptyRecords: 0,
+        } as never);
+
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'open-gaitem-repack' }));
+        await screen.findByText('Optimization unavailable');
+
+        fireEvent.click(screen.getByRole('button', { name: /Resolve duplicate GaItem/ }));
+        const modal = await screen.findByTestId('dup-modal');
+        expect(modal).toHaveAttribute('data-handle', String(0x80000102));
+        // The repack modal is gone.
+        expect(screen.queryByText('Optimization unavailable')).not.toBeInTheDocument();
+    });
+
+    it('refreshes after a successful dedup but never auto-runs GaItem optimization', async () => {
+        await loadSave();
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'settings-resolve-dup' }));
+
+        await screen.findByTestId('dup-modal');
+        vi.mocked(AnalyzeGaItemRepack).mockClear();
+        fireEvent.click(screen.getByRole('button', { name: 'dup-refresh' }));
+
+        // The normal post-mutation refresh runs, but optimization is never opened
+        // or analyzed automatically.
+        await new Promise(r => setTimeout(r, 0));
+        expect(AnalyzeGaItemRepack).not.toHaveBeenCalled();
+        expect(screen.queryByText('Ready to optimize')).not.toBeInTheDocument();
     });
 });

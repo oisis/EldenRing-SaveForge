@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 )
 
 // buildApplyInvFixture builds an inventory-only slot with a non-zero MagicOffset
@@ -411,5 +412,121 @@ func TestApplyRepairAction_LeaveUnchangedIsSkippedNotFailed(t *testing.T) {
 	}
 	if slot.Inventory.CommonItems[0].GaItemHandle == 0 {
 		t.Fatal("leave_unchanged mutated the record")
+	}
+}
+
+// golemUpgradeRepairFixture models the exact regression reported from the
+// repair modal: one Golem Greatbow +25 in inventory and one in storage. The
+// two records deliberately use different weapon-instance handles, while their
+// invalid ItemID encoding is the same.
+func golemUpgradeRepairFixture() *App {
+	const (
+		magicOffset   = 0x2000
+		storageOffset = 0x12000
+		golemPlus25   = uint32(0x02810590 + 25)
+	)
+	const (
+		invHandle = uint32(0x80800021)
+		stoHandle = uint32(0x80800022)
+	)
+
+	app := NewApp()
+	app.save = &core.SaveFile{}
+	slot := &app.save.Slots[0]
+	slot.Version = 1
+	slot.MagicOffset = magicOffset
+	slot.StorageBoxOffset = storageOffset
+	slot.Data = make([]byte, storageOffset+core.StorageHeaderSkip+core.StorageCommonCount*core.InvRecordLen+64)
+	slot.GaMap = map[uint32]uint32{invHandle: golemPlus25, stoHandle: golemPlus25}
+	slot.GaItems = []core.GaItemFull{
+		{Handle: invHandle, ItemID: golemPlus25, Unk2: -1, Unk3: -1, AoWGaItemHandle: core.NoCustomAoWHandle},
+		{Handle: stoHandle, ItemID: golemPlus25, Unk2: -1, Unk3: -1, AoWGaItemHandle: core.NoCustomAoWHandle},
+	}
+
+	gaOff := core.GaItemsStart
+	for _, item := range slot.GaItems {
+		gaOff += item.Serialize(slot.Data[gaOff:])
+	}
+	slot.InventoryEnd = gaOff
+
+	invOff := magicOffset + core.InvStartFromMagic
+	binary.LittleEndian.PutUint32(slot.Data[invOff:], invHandle)
+	binary.LittleEndian.PutUint32(slot.Data[invOff+4:], 1)
+	binary.LittleEndian.PutUint32(slot.Data[invOff+8:], 100)
+	slot.Inventory.CommonItems = []core.InventoryItem{{GaItemHandle: invHandle, Quantity: 1, Index: 100}}
+
+	stoOff := storageOffset + core.StorageHeaderSkip
+	binary.LittleEndian.PutUint32(slot.Data[stoOff:], stoHandle)
+	binary.LittleEndian.PutUint32(slot.Data[stoOff+4:], 1)
+	binary.LittleEndian.PutUint32(slot.Data[stoOff+8:], 200)
+	slot.Storage.CommonItems = []core.InventoryItem{{GaItemHandle: stoHandle, Quantity: 1, Index: 200}}
+
+	return app
+}
+
+// TestApplyRepairsLoaded_ClampUpgrade_InventoryAndStorage is the automated
+// regression for the manual flow: the central modal must apply both upgrades,
+// and its next scan must be clean. It also guards against a layout rebuild by
+// checking that the original record indices remain untouched.
+func TestApplyRepairsLoaded_ClampUpgrade_InventoryAndStorage(t *testing.T) {
+	const golemPlus10 = uint32(0x02810590 + 10)
+	app := golemUpgradeRepairFixture()
+	slot := &app.save.Slots[0]
+
+	beforeInvIndex := binary.LittleEndian.Uint32(slot.Data[slot.MagicOffset+core.InvStartFromMagic+8:])
+	beforeStoIndex := binary.LittleEndian.Uint32(slot.Data[slot.StorageBoxOffset+core.StorageHeaderSkip+8:])
+
+	report, err := app.ScanRepairIssuesLoaded(0)
+	if err != nil {
+		t.Fatalf("ScanRepairIssuesLoaded before repair: %v", err)
+	}
+	targets := make([]RepairApplyTarget, 0, 2)
+	for _, issue := range report.Issues {
+		if issue.Key.Code != editor.CodeUpgradeOutOfRange {
+			continue
+		}
+		if issue.Fingerprint == "" {
+			t.Fatalf("upgrade issue at %s row %d is missing a fingerprint", issue.Key.Scope, issue.Key.Row)
+		}
+		targets = append(targets, RepairApplyTarget{
+			IssueID: issue.IssueID, Key: issue.Key, Fingerprint: issue.Fingerprint,
+			SelectedAction: RepairActionClampUpgrade,
+		})
+	}
+	if len(targets) != 2 {
+		t.Fatalf("upgrade targets = %d, want inventory + storage", len(targets))
+	}
+
+	rep, err := app.ApplyRepairsLoaded(0, targets, false)
+	if err != nil {
+		t.Fatalf("ApplyRepairsLoaded: %v", err)
+	}
+	if rep.Applied != 2 || rep.Skipped != 0 || rep.Failed != 0 {
+		t.Fatalf("want 2 applied and no skips/failures, got %+v", rep)
+	}
+	if got := len(app.undoStacks[0]); got != 1 {
+		t.Errorf("undo depth = %d, want one batch snapshot", got)
+	}
+
+	for _, handle := range []uint32{0x80800021, 0x80800022} {
+		if got := slot.GaMap[handle]; got != golemPlus10 {
+			t.Errorf("GaMap[0x%08X] = 0x%08X, want +10 0x%08X", handle, got, golemPlus10)
+		}
+	}
+	if got := binary.LittleEndian.Uint32(slot.Data[slot.MagicOffset+core.InvStartFromMagic+8:]); got != beforeInvIndex {
+		t.Errorf("inventory acquisition index changed %d -> %d", beforeInvIndex, got)
+	}
+	if got := binary.LittleEndian.Uint32(slot.Data[slot.StorageBoxOffset+core.StorageHeaderSkip+8:]); got != beforeStoIndex {
+		t.Errorf("storage acquisition index changed %d -> %d", beforeStoIndex, got)
+	}
+
+	after, err := app.ScanRepairIssuesLoaded(0)
+	if err != nil {
+		t.Fatalf("ScanRepairIssuesLoaded after repair: %v", err)
+	}
+	for _, issue := range after.Issues {
+		if issue.Key.Code == editor.CodeUpgradeOutOfRange {
+			t.Fatalf("upgrade issue remains after repair: %+v", issue)
+		}
 	}
 }

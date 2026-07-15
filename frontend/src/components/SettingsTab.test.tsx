@@ -35,9 +35,16 @@ vi.mock('../../wailsjs/go/main/App', () => ({
 }));
 
 // Stub the modal to a marker so we can assert it opened with the scan report.
+// It also exposes the threaded duplicate-repair callback for one test.
 vi.mock('./InventoryIssuesModal', () => ({
-    InventoryIssuesModal: (props: { reports: RepairIssueReport[] }) =>
-        <div data-testid="inv-issues-modal">reports:{props.reports.length}</div>,
+    InventoryIssuesModal: (props: { reports: RepairIssueReport[]; onResolveDuplicateGaItem?: (s: number, h: number) => void }) => (
+        <div data-testid="inv-issues-modal">
+            reports:{props.reports.length}
+            {props.onResolveDuplicateGaItem && (
+                <button onClick={() => props.onResolveDuplicateGaItem!(0, 0x80000102)}>stub-resolve-dup</button>
+            )}
+        </div>
+    ),
 }));
 vi.mock('./SaveManagerModal', () => ({ SaveManagerModal: () => null }));
 vi.mock('./FavoritesManager', () => ({ FavoritesManager: () => null }));
@@ -71,7 +78,7 @@ function fakeReport(hasIssues: boolean): RepairIssueReport {
     };
 }
 
-function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe') {
+function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', onOptimizeGaItem = vi.fn(), onResolveDuplicateGaItem = vi.fn()) {
     render(
         <SafetyModeProvider>
             <FavoritesProvider>
@@ -85,6 +92,8 @@ function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe') {
                     onAfterLoad={vi.fn()}
                     charIndex={charIndex}
                     onComplete={vi.fn()}
+                    onOptimizeGaItem={onOptimizeGaItem}
+                    onResolveDuplicateGaItem={onResolveDuplicateGaItem}
                 />
             </FavoritesProvider>
         </SafetyModeProvider>,
@@ -105,6 +114,16 @@ describe('SettingsTab diagnostics', () => {
 
         expect(scanRepairIssuesLoaded).toHaveBeenCalledWith(2);
         expect(await screen.findByTestId('inv-issues-modal')).toBeInTheDocument();
+    });
+
+    it('threads the duplicate-repair callback into its InventoryIssuesModal', async () => {
+        const onResolveDuplicateGaItem = vi.fn();
+        scanRepairIssuesLoaded.mockResolvedValue(fakeReport(true));
+        renderSettings(2, 'safe', vi.fn(), onResolveDuplicateGaItem);
+
+        fireEvent.click(screen.getByRole('button', { name: /Diagnostics/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'stub-resolve-dup' }));
+        expect(onResolveDuplicateGaItem).toHaveBeenCalledWith(0, 0x80000102);
     });
 
     it('opens the modal for a report with issues', async () => {
@@ -142,6 +161,46 @@ describe('SettingsTab diagnostics', () => {
 
         await waitFor(() => expect(toast.error).toHaveBeenCalled());
         expect(screen.queryByTestId('inv-issues-modal')).not.toBeInTheDocument();
+    });
+});
+
+describe('SettingsTab Optimize GaItem allocation', () => {
+    it('renders right after Diagnostics in the Tools list', () => {
+        renderSettings();
+        const diagnostics = screen.getByRole('button', { name: /Diagnostics/i });
+        const optimize = screen.getByRole('button', { name: /Optimize GaItem allocation/i });
+        expect(diagnostics.compareDocumentPosition(optimize) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        // Nothing renders between them (they are adjacent siblings).
+        expect(diagnostics.nextElementSibling).toBe(optimize);
+    });
+
+    it('opens the shared modal via the App-owned callback and never analyzes itself', () => {
+        const onOptimize = vi.fn();
+        renderSettings(2, 'safe', onOptimize);
+        fireEvent.click(screen.getByRole('button', { name: /Optimize GaItem allocation/i }));
+        expect(onOptimize).toHaveBeenCalledTimes(1);
+    });
+
+    it('is disabled when no platform is loaded', () => {
+        render(
+            <SafetyModeProvider>
+                <FavoritesProvider>
+                    <SettingsTab
+                        theme="dark" setTheme={vi.fn()}
+                        columnVisibility={{ id: false, category: false }} setColumnVisibility={vi.fn()}
+                        safetyProfile="safe"
+                        debugMode={false} setDebugMode={vi.fn()}
+                        platform={null}
+                        selectedDeployTarget="" setSelectedDeployTarget={vi.fn()}
+                        onAfterLoad={vi.fn()}
+                        charIndex={0}
+                        onComplete={vi.fn()}
+                        onOptimizeGaItem={vi.fn()}
+                    />
+                </FavoritesProvider>
+            </SafetyModeProvider>,
+        );
+        expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).toBeDisabled();
     });
 });
 

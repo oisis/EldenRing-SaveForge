@@ -17,6 +17,9 @@ interface Props {
     onClose: () => void;
     onSaved: () => void;
     applyRepairs?: (targets: RepairApplyTarget[], stopOnFirstFailure: boolean) => Promise<RepairApplyReport>;
+    // Opens the shared duplicate-repair modal for a physical GaItem handle. Only
+    // wired for `duplicate_physical_gaitem_handle`; other issue codes never use it.
+    onResolveDuplicateGaItem?: (slotIndex: number, handle: number) => void;
 }
 
 type Phase =
@@ -188,7 +191,7 @@ function CoverageSection({ coverage }: { coverage: ValidationCoverage }) {
     );
 }
 
-export function InventoryIssuesModal({ reports, charIndex, onClose, onSaved, applyRepairs }: Props) {
+export function InventoryIssuesModal({ reports, charIndex, onClose, onSaved, applyRepairs, onResolveDuplicateGaItem }: Props) {
     const [phase, setPhase] = useState<Phase>({ kind: 'issues' });
     const [checked, setChecked] = useState<Set<string>>(() => new Set(
         reports.flatMap(r => r.issues).filter(i => isMutatingAction(i.defaultAction)).map(i => i.issueID),
@@ -378,6 +381,17 @@ export function InventoryIssuesModal({ reports, charIndex, onClose, onSaved, app
                                                         {pickRequiresInput && (
                                                             <div className="mx-3 mb-3 rounded border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-[9px] text-warning-foreground">
                                                                 Compatible Ash of War selection needs a concrete AoW handle. Use Clear Ash of War or Create separate copy until the picker is wired.
+                                                            </div>
+                                                        )}
+                                                        {issue.key.code === 'duplicate_physical_gaitem_handle' && onResolveDuplicateGaItem && (
+                                                            <div className="mx-3 mb-3 flex justify-end">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => onResolveDuplicateGaItem(report.slotIndex, issue.key.handle)}
+                                                                    className="px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-all"
+                                                                >
+                                                                    Resolve duplicate GaItem
+                                                                </button>
                                                             </div>
                                                         )}
                                                         {selected === 'remove_record' && issue.key.code === 'unknown_handle_type' && (
