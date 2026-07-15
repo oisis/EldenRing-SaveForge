@@ -124,7 +124,7 @@ func TestWorkspaceIssueToDTO_UpgradeOutOfRange_HasRecord(t *testing.T) {
 		Handle:   weapHandle,
 	}
 
-	dto := workspaceIssueToDTO(0, issue, &snap)
+	dto := workspaceIssueToDTO(0, nil, issue, &snap)
 
 	if dto.Record == nil {
 		t.Fatal("DTO Record is nil; expected enriched record with item context")
@@ -156,7 +156,7 @@ func TestWorkspaceIssueToDTO_NoUID_FallsBackToWorkspaceScope(t *testing.T) {
 		Handle:   0xC0001234,
 	}
 
-	dto := workspaceIssueToDTO(0, issue, nil)
+	dto := workspaceIssueToDTO(0, nil, issue, nil)
 
 	if dto.Key.Scope != "workspace" {
 		t.Errorf("scope = %q, want %q", dto.Key.Scope, "workspace")

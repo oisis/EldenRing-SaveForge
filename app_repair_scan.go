@@ -238,7 +238,7 @@ func workspaceIssueDomain(code string) string {
 // the matching EditableItem and uses its container/slot/handle to populate the
 // IssueKey and Record — giving the UI the item context it needs for decisions.
 // Issues without a UID (global or AoW-level) fall back to scope="workspace"/row=-1.
-func workspaceIssueToDTO(slotIndex int, iss editor.WorkspaceValidationIssue, snap *editor.InventoryWorkspaceSnapshot) RepairIssueDTO {
+func workspaceIssueToDTO(slotIndex int, slot *core.SaveSlot, iss editor.WorkspaceValidationIssue, snap *editor.InventoryWorkspaceSnapshot) RepairIssueDTO {
 	domain := workspaceIssueDomain(iss.Code)
 	scope := "workspace"
 	row := -1
@@ -273,11 +273,19 @@ func workspaceIssueToDTO(slotIndex int, iss editor.WorkspaceValidationIssue, sna
 		Row:    row,
 		Handle: handle,
 	}
+	// Workspace validation is derived from a throwaway snapshot, but upgrade
+	// repairs still address one concrete binary inventory record. Carry its
+	// fingerprint through the modal so ApplyRepairsLoaded can reject a stale
+	// row just like the core-scanner repairs do.
+	fingerprint := ""
+	if slot != nil && scopeAddressesRecord(scope) {
+		fingerprint, _ = core.FingerprintRecordAt(slot, scope, row)
+	}
 	actions, def := repairActionsForCode(iss.Code)
 	return RepairIssueDTO{
 		IssueID:       core.IssueKeyID(key),
 		DebugKey:      fmt.Sprintf("slot:%d|domain:%s|code:%s|scope:%s|handle:0x%08X", slotIndex, domain, iss.Code, scope, handle),
-		Fingerprint:   "",
+		Fingerprint:   fingerprint,
 		Key:           key,
 		Description:   iss.Message,
 		Severity:      iss.Severity,
@@ -309,7 +317,7 @@ func buildRepairIssueReport(slotIndex int, charName string, slot *core.SaveSlot,
 	if wsValidation != nil {
 		allWSIssues := append(wsValidation.Errors, wsValidation.Warnings...)
 		for _, wi := range allWSIssues {
-			dto := workspaceIssueToDTO(slotIndex, wi, snap)
+			dto := workspaceIssueToDTO(slotIndex, slot, wi, snap)
 			if seenIDs[dto.IssueID] {
 				continue
 			}
