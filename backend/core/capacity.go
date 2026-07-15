@@ -122,7 +122,7 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 			if count > 0 && count <= GaItemDataMaxCount {
 				arrayBase := off + GaItemDataArrayOff
 				for i := 0; i < count; i++ {
-					entryOff := arrayBase + i*GaItemDataEntryLen
+					entryOff := arrayBase + i*GaItemDataActiveEntryLen
 					if entryOff+4 > len(slot.Data) {
 						break
 					}

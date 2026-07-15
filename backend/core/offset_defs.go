@@ -295,9 +295,9 @@ const (
 // GaItemData records every weapon/AoW ID ever acquired. The game looks up weapon properties
 // (reinforce_type etc.) from this list on load. Missing entry → crash.
 const (
-	GaItemDataEntryLen = 16   // id(4) + unk(4) + reinforce_type(4) + unk1(4)
-	GaItemDataArrayOff = 8    // array starts after distinct_count(4) + unk1(4)
-	GaItemDataMaxCount = 7000 // 0x1B58 max entries (matches DynGaItemsOther / GaItemDataEntryLen)
+	GaItemDataActiveEntryLen = 8    // active record: itemID(4) + flag(4)
+	GaItemDataArrayOff       = 8    // array starts after distinct_count(4) + unk1(4)
+	GaItemDataMaxCount       = 7000 // 0x1B58 max active records
 )
 
 // DLC black tile removal constants.

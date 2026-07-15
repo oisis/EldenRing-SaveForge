@@ -8,59 +8,132 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 )
 
-// upsertGaItemData ensures itemID is present in the GaitemGameData section.
-// The game looks up weapon/AoW properties from this list on load. Adding a
-// weapon without a corresponding entry causes EXCEPTION_ACCESS_VIOLATION.
+// upsertWeaponGaItemData ensures a weapon itemID is present in the active
+// GaItemData list. The game resolves weapon properties from this list on load;
+// omitting the corresponding entry causes EXCEPTION_ACCESS_VIOLATION.
 //
-// Layout (at slot.GaItemDataOffset = start of GaitemGameData):
+// Current PC saves store each active record as eight bytes:
 //
 //	[0:8]  count (i64) — number of valid entries
-//	[8+]   GaitemGameDataEntry array: 7000 × 16 bytes
-//	        per entry: id(4) + unk0x4(1) + pad(3) + nextItemID(4) + unk0xc(1) + pad(3)
-func upsertGaItemData(slot *SaveSlot, itemID uint32) error {
+//	[8+]   count × { itemID(u32), flag(u32) }
+//
+// Ordinary item IDs occupy the final ascending low-ID segment before the
+// high-bit Ashes of War group. We reproduce the game's lower-bound insertion
+// in that segment and shift only the active list, preserving every byte beyond
+// the expanded active range.
+func upsertWeaponGaItemData(slot *SaveSlot, itemID uint32) error {
+	return upsertActiveGaItemData(slot, itemID, "upsertWeaponGaItemData", weaponGaItemDataInsertionIndex)
+}
+
+// upsertAoWGaItemData is the AoW counterpart of upsertWeaponGaItemData. On
+// current saves the high-bit AoW group is ascending, so new AoWs are inserted
+// with lower_bound. Older saves can retain an unsorted legacy group; appending
+// to that group preserves its established order rather than rewriting it.
+func upsertAoWGaItemData(slot *SaveSlot, itemID uint32) error {
+	return upsertActiveGaItemData(slot, itemID, "upsertAoWGaItemData", aowGaItemDataInsertionIndex)
+}
+
+type gaItemDataInsertionIndex func(data []byte, arrayBase, count int, itemID uint32) int
+
+func upsertActiveGaItemData(slot *SaveSlot, itemID uint32, operation string, insertionIndex gaItemDataInsertionIndex) error {
 	off := slot.GaItemDataOffset
 	if off <= 0 {
 		return nil
 	}
 	sa := NewSlotAccessor(slot.Data)
 
-	if err := sa.CheckBounds(off, GaItemDataArrayOff, "upsertGaItemData/header"); err != nil {
-		return fmt.Errorf("upsertGaItemData: header bounds check failed: %w", err)
+	if err := sa.CheckBounds(off, GaItemDataArrayOff, operation+"/header"); err != nil {
+		return fmt.Errorf("%s: header bounds check failed: %w", operation, err)
 	}
 	count := int(int32(binary.LittleEndian.Uint32(slot.Data[off:])))
 	if count < 0 || count >= GaItemDataMaxCount {
-		return fmt.Errorf("upsertGaItemData: count %d out of range [0, %d)", count, GaItemDataMaxCount)
+		return fmt.Errorf("%s: count %d out of range [0, %d)", operation, count, GaItemDataMaxCount)
 	}
 
 	arrayBase := off + GaItemDataArrayOff
 	for i := 0; i < count; i++ {
-		entryOff := arrayBase + i*GaItemDataEntryLen
-		if err := sa.CheckBounds(entryOff, 4, "upsertGaItemData/scan"); err != nil {
-			return fmt.Errorf("upsertGaItemData: scan bounds check at entry %d: %w", i, err)
+		entryOff := arrayBase + i*GaItemDataActiveEntryLen
+		if err := sa.CheckBounds(entryOff, 4, operation+"/scan"); err != nil {
+			return fmt.Errorf("%s: scan bounds check at entry %d: %w", operation, i, err)
 		}
 		if binary.LittleEndian.Uint32(slot.Data[entryOff:]) == itemID {
 			return nil
 		}
 	}
 
-	newEntryOff := arrayBase + count*GaItemDataEntryLen
-	if err := sa.CheckBounds(newEntryOff, GaItemDataEntryLen, "upsertGaItemData/write"); err != nil {
-		return fmt.Errorf("upsertGaItemData: write bounds check at count %d: %w", count, err)
+	insertAt := insertionIndex(slot.Data, arrayBase, count, itemID)
+	oldEnd := arrayBase + count*GaItemDataActiveEntryLen
+	newEnd := oldEnd + GaItemDataActiveEntryLen
+	if err := sa.CheckBounds(oldEnd, GaItemDataActiveEntryLen, operation+"/write"); err != nil {
+		return fmt.Errorf("%s: write bounds check at count %d: %w", operation, count, err)
 	}
-	binary.LittleEndian.PutUint32(slot.Data[newEntryOff:], itemID)
-	slot.Data[newEntryOff+4] = 1
-	slot.Data[newEntryOff+5] = 0
-	slot.Data[newEntryOff+6] = 0
-	slot.Data[newEntryOff+7] = 0
-	binary.LittleEndian.PutUint32(slot.Data[newEntryOff+8:], itemID)
-	slot.Data[newEntryOff+12] = 1
-	slot.Data[newEntryOff+13] = 0
-	slot.Data[newEntryOff+14] = 0
-	slot.Data[newEntryOff+15] = 0
-
+	insertOff := arrayBase + insertAt*GaItemDataActiveEntryLen
+	copy(slot.Data[insertOff+GaItemDataActiveEntryLen:newEnd], slot.Data[insertOff:oldEnd])
+	binary.LittleEndian.PutUint32(slot.Data[insertOff:], itemID)
+	binary.LittleEndian.PutUint32(slot.Data[insertOff+4:], 1)
 	binary.LittleEndian.PutUint32(slot.Data[off:], uint32(count+1))
-
 	return nil
+}
+
+func weaponGaItemDataInsertionIndex(data []byte, arrayBase, count int, itemID uint32) int {
+	ordinaryEnd := count
+	for i := 0; i < count; i++ {
+		entryOff := arrayBase + i*GaItemDataActiveEntryLen
+		if binary.LittleEndian.Uint32(data[entryOff:])>>28 == 8 {
+			ordinaryEnd = i
+			break
+		}
+	}
+	ordinaryStart := 0
+	for i := ordinaryEnd - 1; i > 0; i-- {
+		previousOff := arrayBase + (i-1)*GaItemDataActiveEntryLen
+		currentOff := arrayBase + i*GaItemDataActiveEntryLen
+		if binary.LittleEndian.Uint32(data[previousOff:]) > binary.LittleEndian.Uint32(data[currentOff:]) {
+			ordinaryStart = i
+			break
+		}
+	}
+	return gaItemDataLowerBound(data, arrayBase, ordinaryStart, ordinaryEnd, itemID)
+}
+
+func aowGaItemDataInsertionIndex(data []byte, arrayBase, count int, itemID uint32) int {
+	aowStart := count
+	for i := 0; i < count; i++ {
+		entryOff := arrayBase + i*GaItemDataActiveEntryLen
+		if binary.LittleEndian.Uint32(data[entryOff:])>>28 == 8 {
+			aowStart = i
+			break
+		}
+	}
+	if aowStart == count {
+		return count
+	}
+	aowEnd := aowStart
+	for aowEnd < count {
+		entryOff := arrayBase + aowEnd*GaItemDataActiveEntryLen
+		if binary.LittleEndian.Uint32(data[entryOff:])>>28 != 8 {
+			break
+		}
+		aowEnd++
+	}
+	for i := aowStart + 1; i < aowEnd; i++ {
+		previousOff := arrayBase + (i-1)*GaItemDataActiveEntryLen
+		currentOff := arrayBase + i*GaItemDataActiveEntryLen
+		if binary.LittleEndian.Uint32(data[previousOff:]) > binary.LittleEndian.Uint32(data[currentOff:]) {
+			return aowEnd
+		}
+	}
+	return gaItemDataLowerBound(data, arrayBase, aowStart, aowEnd, itemID)
+}
+
+func gaItemDataLowerBound(data []byte, arrayBase, start, end int, itemID uint32) int {
+	for i := start; i < end; i++ {
+		entryOff := arrayBase + i*GaItemDataActiveEntryLen
+		if binary.LittleEndian.Uint32(data[entryOff:]) >= itemID {
+			return i
+		}
+	}
+	return end
 }
 
 type Writer struct {
@@ -136,8 +209,12 @@ func AddItemsToSlot(slot *SaveSlot, itemIDs []uint32, invQty, storageQty int, fo
 			return 0, err
 		}
 		slot.GaMap[h] = id
-		if (handlePrefix == ItemTypeWeapon && !db.IsArrowID(id)) || handlePrefix == ItemTypeAow {
-			if err := upsertGaItemData(slot, id); err != nil {
+		if handlePrefix == ItemTypeWeapon && !db.IsArrowID(id) {
+			if err := upsertWeaponGaItemData(slot, id); err != nil {
+				return 0, err
+			}
+		} else if handlePrefix == ItemTypeAow {
+			if err := upsertAoWGaItemData(slot, id); err != nil {
 				return 0, err
 			}
 		}
@@ -306,8 +383,12 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 			return 0, err
 		}
 		slot.GaMap[h] = id
-		if (handlePrefix == ItemTypeWeapon && !db.IsArrowID(id)) || handlePrefix == ItemTypeAow {
-			if err := upsertGaItemData(slot, id); err != nil {
+		if handlePrefix == ItemTypeWeapon && !db.IsArrowID(id) {
+			if err := upsertWeaponGaItemData(slot, id); err != nil {
+				return 0, err
+			}
+		} else if handlePrefix == ItemTypeAow {
+			if err := upsertAoWGaItemData(slot, id); err != nil {
 				return 0, err
 			}
 		}
@@ -1206,7 +1287,7 @@ func PatchWeaponItemID(slot *SaveSlot, handle, expectedCurrentItemID, newItemID 
 	// We intentionally leave the old entry in GaItemData — the game tolerates
 	// extra entries (same behaviour as when a weapon is removed from inventory
 	// but AddItemsToSlot already registered it in GaItemData).
-	return upsertGaItemData(slot, newItemID)
+	return upsertWeaponGaItemData(slot, newItemID)
 }
 
 // PatchWeaponAoWHandle patches the AoWGaItemHandle field of a weapon GaItem in-place.
@@ -1359,7 +1440,7 @@ func PatchWeaponAoW(slot *SaveSlot, weaponHandle, newAoWItemID uint32) error {
 	}
 	slot.GaMap[newAoWHandle] = newAoWItemID
 
-	if err := upsertGaItemData(slot, newAoWItemID); err != nil {
+	if err := upsertAoWGaItemData(slot, newAoWItemID); err != nil {
 		return fmt.Errorf("PatchWeaponAoW: %w", err)
 	}
 

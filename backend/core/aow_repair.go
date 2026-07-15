@@ -185,7 +185,7 @@ func gaItemDataContains(slot *SaveSlot, itemID uint32) bool {
 	}
 	arrayBase := off + GaItemDataArrayOff
 	for i := 0; i < count; i++ {
-		entryOff := arrayBase + i*GaItemDataEntryLen
+		entryOff := arrayBase + i*GaItemDataActiveEntryLen
 		if entryOff+4 > len(slot.Data) {
 			break
 		}
