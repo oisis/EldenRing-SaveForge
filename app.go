@@ -109,6 +109,7 @@ type App struct {
 	// favSlotNames concurrent-map-writes between favorites endpoints).
 	//
 	// Lock order — taken in increasing order, released in reverse — is:
+	//   0. diagnosticScopeMu      (diagnostic scope-marker linearity — outermost)
 	//   1. saveMu                 (whole-save lifecycle + metadata)
 	//   2. lifecycleMu[i]         (session lifecycle per slot — existing)
 	//   3. editSessionsMu         (session registry, short — existing)
@@ -126,6 +127,17 @@ type App struct {
 	//     UserData11 (network params), SteamID, Platform, IV, Encrypted,
 	//     lastSavePath. Writers take saveMu.Lock(); readers RLock().
 	saveMu sync.RWMutex
+	// diagnosticScopeMu serialises the diagnostic current-save scope
+	// transitions (commitLoadedSave, CloseSave) so the final a.save state and
+	// the last save_loaded/save_closed marker can never diverge under
+	// concurrent load/close. It is the OUTERMOST lock (level 0): a transition
+	// holds it across the whole sequence — take saveMu, mutate a.save, release
+	// saveMu, append the scope marker — so two transitions can never interleave
+	// their (state change, marker) pairs. It is acquired ONLY by those two
+	// methods and ALWAYS before saveMu, so no reverse-lock is possible; the
+	// marker append (journal j.mu, a leaf) runs after saveMu is released, so
+	// journal Sync never happens under saveMu.
+	diagnosticScopeMu sync.Mutex
 	// slotMu[i] protects the per-character data of Slots[i] as well as
 	// ActiveSlots[i], ProfileSummaries[i] and undoStacks[i] — every field
 	// keyed by character index. Always held in ADDITION to saveMu.RLock
@@ -233,10 +245,9 @@ func (a *App) SelectAndOpenSave() (string, error) {
 	// a.save while the pointer swap + derived-state reset run. installLoadedSave
 	// also resets favSlotNames; favMu is intentionally NOT taken here — every
 	// favorites endpoint enters via saveMu.RLock first, so saveMu.Lock alone
-	// guarantees no favorites endpoint is mid-flight.
-	a.saveMu.Lock()
-	a.installLoadedSave(save, path)
-	a.saveMu.Unlock()
+	// guarantees no favorites endpoint is mid-flight. commitLoadedSave appends
+	// the save_loaded scope marker after the lock is released.
+	a.commitLoadedSave(save, path, loadOriginFileDialog)
 	return string(save.Platform), nil
 }
 

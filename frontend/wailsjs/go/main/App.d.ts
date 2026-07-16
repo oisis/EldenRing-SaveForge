@@ -76,6 +76,8 @@ export function DeployAndLaunch(arg1:string):Promise<void>;
 
 export function DeploySave(arg1:string):Promise<string>;
 
+export function DiagnosticRecoveryStatus():Promise<main.DiagnosticRecoveryStatus>;
+
 export function DiscardInventoryEditSession(arg1:string):Promise<void>;
 
 export function DownloadBackupFile(arg1:string,arg2:string):Promise<string>;
@@ -91,6 +93,8 @@ export function ExecuteGaItemRepack(arg1:main.GaItemRepackExecuteRequest):Promis
 export function ExportBuildTemplateV2JSONFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
 
 export function ExportBuildTemplateV2YAMLFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
+
+export function ExportDiagnosticLog(arg1:string):Promise<main.DiagnosticExportResult>;
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1:string):Promise<main.BuildTemplateExportResult>;
 

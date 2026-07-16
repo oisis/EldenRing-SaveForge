@@ -118,8 +118,6 @@ func (a *App) LoadSaveFromPath(localPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid save file: %w", err)
 	}
-	a.saveMu.Lock()
-	a.installLoadedSave(save, "")
-	a.saveMu.Unlock()
+	a.commitLoadedSave(save, "", loadOriginLocalPath)
 	return string(save.Platform), nil
 }

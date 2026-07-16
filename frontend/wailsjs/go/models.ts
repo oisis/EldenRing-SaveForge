@@ -1720,6 +1720,40 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class DiagnosticExportResult {
+	    scope: string;
+	    cancelled: boolean;
+	    path?: string;
+	    recordCount: number;
+
+	    static createFrom(source: any = {}) {
+	        return new DiagnosticExportResult(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.scope = source["scope"];
+	        this.cancelled = source["cancelled"];
+	        this.path = source["path"];
+	        this.recordCount = source["recordCount"];
+	    }
+	}
+	export class DiagnosticRecoveryStatus {
+	    hasUnclosedSession: boolean;
+	    timestamp?: string;
+	    recordCount: number;
+
+	    static createFrom(source: any = {}) {
+	        return new DiagnosticRecoveryStatus(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.hasUnclosedSession = source["hasUnclosedSession"];
+	        this.timestamp = source["timestamp"];
+	        this.recordCount = source["recordCount"];
+	    }
+	}
 	export class DiagnosticsReport {
 	    source: string;
 	    slots: SlotDiagResult[];

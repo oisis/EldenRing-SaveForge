@@ -138,6 +138,10 @@ export function DeploySave(arg1) {
   return window['go']['main']['App']['DeploySave'](arg1);
 }
 
+export function DiagnosticRecoveryStatus() {
+  return window['go']['main']['App']['DiagnosticRecoveryStatus']();
+}
+
 export function DiscardInventoryEditSession(arg1) {
   return window['go']['main']['App']['DiscardInventoryEditSession'](arg1);
 }
@@ -168,6 +172,10 @@ export function ExportBuildTemplateV2JSONFromCharacter(arg1, arg2, arg3) {
 
 export function ExportBuildTemplateV2YAMLFromCharacter(arg1, arg2, arg3) {
   return window['go']['main']['App']['ExportBuildTemplateV2YAMLFromCharacter'](arg1, arg2, arg3);
+}
+
+export function ExportDiagnosticLog(arg1) {
+  return window['go']['main']['App']['ExportDiagnosticLog'](arg1);
 }
 
 export function ExportLibraryBuildTemplateAsYAMLToFile(arg1) {

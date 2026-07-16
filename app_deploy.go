@@ -157,9 +157,7 @@ func (a *App) DownloadRemoteSave(targetName string) (string, error) {
 		return "", fmt.Errorf("downloaded file is not a valid save: %w", err)
 	}
 	// Commit phase under exclusive saveMu — see SelectAndOpenSave.
-	a.saveMu.Lock()
-	a.installLoadedSave(save, "")
-	a.saveMu.Unlock()
+	a.commitLoadedSave(save, "", loadOriginRemoteDownload)
 	return string(save.Platform), nil
 }
 

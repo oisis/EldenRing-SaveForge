@@ -371,6 +371,37 @@ func (j *DiagnosticJournal) Tail() []diagnosticRecord {
 	return append([]diagnosticRecord(nil), j.tail...)
 }
 
+// Path returns the absolute path of the backing session file, or "" for a
+// nil or in-memory journal. The diagnostic export reads this file directly
+// (the on-disk JSONL is the durable source of truth, not the bounded tail).
+func (j *DiagnosticJournal) Path() string {
+	if j == nil {
+		return ""
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.path
+}
+
+// usableSessionPath returns the backing session file path only when the
+// journal is present, disk-backed, and has NOT failed; otherwise "". It lets
+// the export layer treat an absent OR permanently failed journal identically —
+// both yield "" — without exposing the path or the OS failure cause. Path()
+// still returns the raw path after a failure (recovery scans need it to
+// exclude the current file); this stricter accessor gates the current-session
+// and current-save export scopes.
+func (j *DiagnosticJournal) usableSessionPath() string {
+	if j == nil {
+		return ""
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.failed {
+		return ""
+	}
+	return j.path
+}
+
 // Close writes the session_closed record, then fsyncs and closes the
 // file. A crash skips this path, so the absence of session_closed marks
 // an unclean shutdown — no recovery logic lives here. Close is idempotent

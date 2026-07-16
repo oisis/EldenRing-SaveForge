@@ -29,10 +29,17 @@ package main
 // returns nil — consistent with the "drop without complaining" semantics
 // the modal needs.
 func (a *App) CloseSave() error {
+	// diagnosticScopeMu (outermost, level 0) serialises this whole close
+	// transition against concurrent loads so the reset + save_closed marker can
+	// never be reordered relative to a later load's install + save_loaded. See
+	// commitLoadedSave and the lock-order note in app.go.
+	a.diagnosticScopeMu.Lock()
+	defer a.diagnosticScopeMu.Unlock()
+
 	a.saveMu.Lock()
-	defer a.saveMu.Unlock()
 	if a.save == nil {
-		return nil
+		a.saveMu.Unlock()
+		return nil // no-op: nothing to close, no scope marker to write
 	}
 	a.save = nil
 	a.lastSavePath = ""
@@ -42,5 +49,12 @@ func (a *App) CloseSave() error {
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	a.clearAllEditSessions()
+	a.saveMu.Unlock()
+
+	// Ending the current-save scope: append save_closed AFTER the reset and
+	// after releasing saveMu (journal Sync must never run under saveMu).
+	// journalLog swallows any journal error, so a logging failure never fails
+	// CloseSave.
+	a.journalLog(levelInfo, eventSaveClosed, "active save closed")
 	return nil
 }
