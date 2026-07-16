@@ -32,6 +32,8 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     PrepareConversion: vi.fn(),
     ExecuteConversion: vi.fn(),
     BackupCurrentSave: vi.fn().mockResolvedValue(undefined),
+    DiagnosticRecoveryStatus: vi.fn().mockResolvedValue({hasUnclosedSession: false, timestamp: '', recordCount: 0}),
+    ExportDiagnosticLog: vi.fn(),
 }));
 
 // Stub the modal to a marker so we can assert it opened with the scan report.
@@ -54,7 +56,7 @@ import { SafetyModeProvider } from '../state/safetyMode';
 import { FavoritesProvider } from '../state/favorites';
 import type { SafetyProfile } from '../state/safetyProfile';
 import toast from '../lib/toast';
-import { PrepareConversion } from '../../wailsjs/go/main/App';
+import { DiagnosticRecoveryStatus, ExportDiagnosticLog, PrepareConversion } from '../../wailsjs/go/main/App';
 
 // jsdom here has no localStorage; SettingsTab reads it for the Full Chaos toggle.
 const lsStore: Record<string, string> = {};
@@ -104,6 +106,9 @@ describe('SettingsTab diagnostics', () => {
     beforeEach(() => {
         scanRepairIssuesLoaded.mockReset();
         (toast.error as ReturnType<typeof vi.fn>).mockReset();
+        (DiagnosticRecoveryStatus as ReturnType<typeof vi.fn>).mockReset();
+        (DiagnosticRecoveryStatus as ReturnType<typeof vi.fn>).mockResolvedValue({hasUnclosedSession: false, timestamp: '', recordCount: 0});
+        (ExportDiagnosticLog as ReturnType<typeof vi.fn>).mockReset();
     });
 
     it('scans the loaded save directly and opens the modal for a clean report', async () => {
@@ -161,6 +166,43 @@ describe('SettingsTab diagnostics', () => {
 
         await waitFor(() => expect(toast.error).toHaveBeenCalled());
         expect(screen.queryByTestId('inv-issues-modal')).not.toBeInTheDocument();
+    });
+});
+
+describe('SettingsTab diagnostic export', () => {
+    beforeEach(() => {
+        (toast.success as ReturnType<typeof vi.fn>).mockReset();
+        (toast.error as ReturnType<typeof vi.fn>).mockReset();
+        (DiagnosticRecoveryStatus as ReturnType<typeof vi.fn>).mockReset();
+        (DiagnosticRecoveryStatus as ReturnType<typeof vi.fn>).mockResolvedValue({hasUnclosedSession: false, timestamp: '', recordCount: 0});
+        (ExportDiagnosticLog as ReturnType<typeof vi.fn>).mockReset();
+    });
+
+    it('exports the current session and never displays the chosen destination path', async () => {
+        (ExportDiagnosticLog as ReturnType<typeof vi.fn>).mockResolvedValue({
+            scope: 'current_session', cancelled: false, path: '/Users/alice/private/diagnostics.zip', recordCount: 12,
+        });
+        renderSettings();
+
+        fireEvent.click(screen.getByRole('button', {name: 'Export session log'}));
+
+        await waitFor(() => expect(ExportDiagnosticLog).toHaveBeenCalledWith('current_session'));
+        expect(toast.success).toHaveBeenCalledWith('Diagnostic log exported (12 records)');
+        expect(screen.queryByText('/Users/alice/private/diagnostics.zip')).not.toBeInTheDocument();
+    });
+
+    it('offers previous-unclosed export only when backend recovery status reports it', async () => {
+        (DiagnosticRecoveryStatus as ReturnType<typeof vi.fn>).mockResolvedValue({
+            hasUnclosedSession: true, timestamp: '2026-07-16T12:00:00Z', recordCount: 7,
+        });
+        (ExportDiagnosticLog as ReturnType<typeof vi.fn>).mockResolvedValue({
+            scope: 'previous_unclosed', cancelled: true, path: '', recordCount: 0,
+        });
+        renderSettings();
+
+        const button = await screen.findByRole('button', {name: 'Export previous unclosed log'});
+        fireEvent.click(button);
+        await waitFor(() => expect(ExportDiagnosticLog).toHaveBeenCalledWith('previous_unclosed'));
     });
 });
 

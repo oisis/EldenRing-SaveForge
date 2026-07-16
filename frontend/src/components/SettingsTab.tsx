@@ -7,8 +7,9 @@ import {
     LaunchRemoteGame, CloseRemoteGame, DeployAndLaunch, CloseAndDownload,
     PrepareConversion, ExecuteConversion,
     BackupCurrentSave,
+    DiagnosticRecoveryStatus, ExportDiagnosticLog,
 } from '../../wailsjs/go/main/App';
-import {deploy} from '../../wailsjs/go/models';
+import {deploy, main} from '../../wailsjs/go/models';
 import {saveSafetyProfile, type SafetyProfile} from '../state/safetyProfile';
 import {FavoritesManager} from './FavoritesManager';
 import {useFavorites} from '../state/favorites';
@@ -92,6 +93,31 @@ export function SettingsTab({
 
     const [scanning, setScanning] = useState(false);
     const [inventoryIssuesModal, setInventoryIssuesModal] = useState<{ reports: RepairIssueReport[] } | null>(null);
+
+    const [diagnosticRecovery, setDiagnosticRecovery] = useState<main.DiagnosticRecoveryStatus | null>(null);
+    const [diagnosticExportScope, setDiagnosticExportScope] = useState<string | null>(null);
+    const refreshDiagnosticRecovery = useCallback(() => {
+        DiagnosticRecoveryStatus()
+            .then(setDiagnosticRecovery)
+            .catch(() => setDiagnosticRecovery(null));
+    }, []);
+    useEffect(() => { refreshDiagnosticRecovery(); }, [refreshDiagnosticRecovery]);
+
+    const exportDiagnosticLog = async (scope: 'current_session' | 'current_save' | 'previous_unclosed') => {
+        if (diagnosticExportScope !== null) return;
+        setDiagnosticExportScope(scope);
+        try {
+            const result = await ExportDiagnosticLog(scope);
+            if (!result.cancelled) {
+                toast.success(`Diagnostic log exported (${result.recordCount} records)`);
+                if (scope === 'previous_unclosed') refreshDiagnosticRecovery();
+            }
+        } catch (err) {
+            toast.error(`Diagnostic export failed: ${String(err)}`);
+        } finally {
+            setDiagnosticExportScope(null);
+        }
+    };
 
     // Diagnostics now scans only the loaded save directly — no choice modal.
     // A manual scan always opens the issues modal, even with no issues, so the
@@ -548,6 +574,49 @@ export function SettingsTab({
                             Convert Format <span className="ml-1 text-[8px] opacity-60">(unavailable)</span>
                         </button>
                     </div>
+                </div>
+                <div className="card px-4 py-3 space-y-2">
+                    <div>
+                        <div className="text-[10px] font-black uppercase tracking-widest text-foreground">Diagnostic logs</div>
+                        <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
+                            Export technical logs for support without sharing your save file. Logs exclude save contents and private paths.
+                        </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={() => void exportDiagnosticLog('current_session')}
+                            disabled={diagnosticExportScope !== null}
+                            className="flex items-center gap-2 px-3 py-2 rounded bg-muted/40 border border-border hover:bg-muted/60 transition-all text-[9px] font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {diagnosticExportScope === 'current_session' ? 'Exporting…' : 'Export session log'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => void exportDiagnosticLog('current_save')}
+                            disabled={diagnosticExportScope !== null || !platform}
+                            title={!platform ? 'Load a save to export its diagnostic scope' : undefined}
+                            className="flex items-center gap-2 px-3 py-2 rounded bg-muted/40 border border-border hover:bg-muted/60 transition-all text-[9px] font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {diagnosticExportScope === 'current_save' ? 'Exporting…' : 'Export current save log'}
+                        </button>
+                        {diagnosticRecovery?.hasUnclosedSession && (
+                            <button
+                                type="button"
+                                onClick={() => void exportDiagnosticLog('previous_unclosed')}
+                                disabled={diagnosticExportScope !== null}
+                                className="flex items-center gap-2 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-all text-[9px] font-black uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed"
+                                title={`Previous session has ${diagnosticRecovery.recordCount} records and did not close cleanly`}
+                            >
+                                {diagnosticExportScope === 'previous_unclosed' ? 'Exporting…' : 'Export previous unclosed log'}
+                            </button>
+                        )}
+                    </div>
+                    {diagnosticRecovery?.hasUnclosedSession && (
+                        <p className="text-[9px] leading-relaxed text-amber-600 dark:text-amber-400">
+                            A previous diagnostic session did not close cleanly ({diagnosticRecovery.recordCount} records). This can indicate a crash or a forced quit.
+                        </p>
+                    )}
                 </div>
             </section>
         </div>
