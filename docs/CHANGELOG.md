@@ -4,6 +4,27 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.3] - 2026-07-16
+
+### feat(diagnostics): add durable, privacy-safe support logs
+
+The new Diagnostics Console records application activity in a durable local
+journal, so a crash or a report can be investigated without requesting a save
+file. Debug Mode increases diagnostic detail while sanitising paths, account
+identifiers, credentials, and other sensitive values. The console supports
+searching, level filtering, scoped export, and recovery of an unclosed prior
+session.
+
+Save loading, automatic repair prompts and repair outcomes, item operations,
+World, Advanced, Tools, backup, conversion, deployment, and save/export
+operations now emit privacy-safe lifecycle events for support diagnosis.
+
+### fix(assets): align item icons with item categories
+
+Item icon paths now consistently use their item's category directory. Missing
+dedicated artwork uses a neutral in-app placeholder, so every database item
+has a valid icon asset.
+
 ## [1.5.2] - 2026-07-16
 
 ### fix(inventory): preserve canonical crafting-container records
