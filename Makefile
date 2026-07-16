@@ -6,13 +6,20 @@ WAILS ?= ~/go/bin/wails
 OUTPUT ?= $(BINARY_NAME)
 WAILS_PLATFORM_FLAG=$(if $(PLATFORM),-platform $(PLATFORM),)
 
-.PHONY: all generate-version build dev test lint clean deps help
+.PHONY: all generate-version generate-bindings build dev test lint clean deps help
 
 all: deps build test
 
 # Generate app version source from Makefile VERSION.
 generate-version:
 	go run ./scripts/generate_app_version.go
+
+# Generate Wails bindings once, then normalize its known models.ts whitespace
+# and runtime file-mode churn. build/dev use -skipbindings so Wails does not
+# regenerate dirty output.
+generate-bindings:
+	$(WAILS) generate module
+	go run ./scripts/normalize_wails_models.go
 
 # Install dependencies for both Go and Frontend
 deps:
@@ -21,13 +28,13 @@ deps:
 	cd frontend && npm install
 
 # Build the application for the current platform
-build: generate-version
+build: generate-version generate-bindings
 	@echo "🔨 Building $(BINARY_NAME) v$(VERSION)..."
-	$(WAILS) build $(WAILS_PLATFORM_FLAG) -o "$(OUTPUT)"
+	$(WAILS) build -skipbindings $(WAILS_PLATFORM_FLAG) -o "$(OUTPUT)"
 
 # Run Wails in development mode (hot reload)
-dev: generate-version
-	$(WAILS) dev
+dev: generate-version generate-bindings
+	$(WAILS) dev -skipbindings
 
 # Run all tests
 test:
