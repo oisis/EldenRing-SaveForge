@@ -2103,12 +2103,7 @@ func (a *App) GetNetworkParams() (*core.NetworkParamValues, error) {
 
 // SetNetworkParams patches the invasion matchmaking parameters in the save's regulation.
 func (a *App) SetNetworkParams(params core.NetworkParamValues) error {
-	a.saveMu.Lock()
-	defer a.saveMu.Unlock()
-	if a.save == nil {
-		return fmt.Errorf("no save loaded")
-	}
-	return a.setNetworkParamsLocked(params)
+	return a.setNetworkParamsWithDiagnostics("network_params_apply", params)
 }
 
 // ResetNetworkParams restores vanilla defaults for all network parameters.
@@ -2117,12 +2112,35 @@ func (a *App) SetNetworkParams(params core.NetworkParamValues) error {
 // to avoid double-acquire of saveMu.Lock (sync.RWMutex.Lock is not
 // reentrant).
 func (a *App) ResetNetworkParams() error {
-	a.saveMu.Lock()
-	defer a.saveMu.Unlock()
-	if a.save == nil {
-		return fmt.Errorf("no save loaded")
+	return a.setNetworkParamsWithDiagnostics("network_params_reset", core.NetworkParamDefaults())
+}
+
+// setNetworkParamsWithDiagnostics keeps the durable journal writes outside
+// saveMu while preserving the public apply/reset contracts. The action name is
+// internal and closed, so no network values or renderer-controlled strings are
+// included in diagnostics.
+func (a *App) setNetworkParamsWithDiagnostics(action string, params core.NetworkParamValues) error {
+	a.journalLog(levelInfo, "network_params_requested", "network parameter change requested", field("action", action))
+	noActiveSave := false
+	err := func() error {
+		a.saveMu.Lock()
+		defer a.saveMu.Unlock()
+		if a.save == nil {
+			noActiveSave = true
+			return fmt.Errorf("no save loaded")
+		}
+		return a.setNetworkParamsLocked(params)
+	}()
+	if err != nil {
+		stage := "patch"
+		if noActiveSave {
+			stage = "no_active_save"
+		}
+		a.journalLog(levelError, "network_params_finished", "network parameter change failed", field("action", action), field("outcome", "error"), field("stage", stage))
+		return err
 	}
-	return a.setNetworkParamsLocked(core.NetworkParamDefaults())
+	a.journalLog(levelInfo, "network_params_finished", "network parameter change finished", field("action", action), field("outcome", "success"))
+	return nil
 }
 
 // setNetworkParamsLocked is the internal worker for SetNetworkParams and
