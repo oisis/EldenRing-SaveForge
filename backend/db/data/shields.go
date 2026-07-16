@@ -3,7 +3,7 @@ package data
 var Shields = map[uint32]ItemData{
 	0x0148D3B0: {Name: "Shield of Night", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/shields/shield_of_night.png", Flags: []string{"dlc"}},
 	0x01C9C380: {Name: "Buckler", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/buckler.png"},
-	0x01C9C7CC: {Name: "Bloody Buckler", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/bloody_buckler.png"},
+	0x01C9C7CC: {Name: "Bloody Buckler", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/buckler.png"},
 	0x01C9EA90: {Name: "Perfumer's Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/perfumers_shield.png"},
 	0x01CA11A0: {Name: "Man-Serpent's Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/man_serpents_shield.png"},
 	0x01CA38B0: {Name: "Rickety Shield", Category: "shields", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/shields/rickety_shield.png"},

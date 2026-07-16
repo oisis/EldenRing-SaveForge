@@ -30,9 +30,9 @@ func TestPhase2B4BlackSyrupPresent(t *testing.T) {
 	if item.MaxUpgrade != 0 {
 		t.Errorf("KeyItems[0x401EA3D3] MaxUpgrade = %d, want 0", item.MaxUpgrade)
 	}
-	if item.IconPath != "items/tools/black_syrup.png" {
+	if item.IconPath != "items/key_items/black_syrup.png" {
 		t.Errorf("KeyItems[0x401EA3D3] IconPath = %q, want %q",
-			item.IconPath, "items/tools/black_syrup.png")
+			item.IconPath, "items/key_items/black_syrup.png")
 	}
 	hasDLC := false
 	for _, f := range item.Flags {

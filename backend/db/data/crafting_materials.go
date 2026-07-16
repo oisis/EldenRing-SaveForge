@@ -3,10 +3,10 @@ package data
 var CraftingMaterials = map[uint32]ItemData{
 	// ─── Materials moved from tools.go (in-game Materials sub-tab) ──────
 	0x40005154: {Name: "Golden Centipede", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/crafting_materials/golden_centipede.png", Flags: []string{"stackable"}},
-	0x4000513B: {Name: "Sanctuary Stone", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/tools/sanctuary_stone.png", Flags: []string{"stackable"}},
-	0x4000514C: {Name: "Glintstone Firefly", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/tools/glintstone_firefly.png", Flags: []string{"stackable"}},
-	0x40005172: {Name: "Volcanic Stone", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/tools/volcanic_stone.png", Flags: []string{"stackable"}},
-	0x40005177: {Name: "Gravel Stone", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/tools/gravel_stone.png", Flags: []string{"stackable"}},
+	0x4000513B: {Name: "Sanctuary Stone", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/crafting_materials/sanctuary_stone.png", Flags: []string{"stackable"}},
+	0x4000514C: {Name: "Glintstone Firefly", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/crafting_materials/glintstone_firefly.png", Flags: []string{"stackable"}},
+	0x40005172: {Name: "Volcanic Stone", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/crafting_materials/volcanic_stone.png", Flags: []string{"stackable"}},
+	0x40005177: {Name: "Gravel Stone", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/crafting_materials/gravel_stone.png", Flags: []string{"stackable"}},
 
 	// Base Game Materials
 	0x400006E0: {Name: "Ruin Fragment", Category: "crafting_materials", MaxInventory: 999, MaxStorage: 999, MaxUpgrade: 0, IconPath: "items/crafting_materials/ruin_fragment.png", Flags: []string{"stackable"}},

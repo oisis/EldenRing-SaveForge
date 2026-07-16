@@ -31,9 +31,9 @@ var phase2b3Batch1Additions = []struct {
 	IconPath string
 }{
 	// 3 unique base info items (low-range IDs / standalone)
-	{0x40002020, "Note: The Preceptor's Secret", false, "items/tools/note_the_preceptors_secret.png"},
-	{0x40002021, "Weathered Map", false, "items/tools/weathered_map.png"},
-	{0x40002312, "Sellia's Secret", false, "items/tools/sellias_secret.png"},
+	{0x40002020, "Note: The Preceptor's Secret", false, "items/info/note_the_preceptors_secret.png"},
+	{0x40002021, "Weathered Map", false, "items/info/weathered_map.png"},
+	{0x40002312, "Sellia's Secret", false, "items/info/sellias_secret.png"},
 
 	// 9 About * (base) — gap fills in the 0x4000238C–0x400023C1 sequence
 	{0x4000238D, "About Sorceries and Incantations", false, "items/info/about_sorceries_and_incantations.png"},
@@ -185,9 +185,9 @@ func TestPhase2B3SealedSpiritspringsCanonicalReplacement(t *testing.T) {
 		t.Errorf("Information[0x401EA3DF] MaxUpgrade = %d, want 0",
 			canonical.MaxUpgrade)
 	}
-	if canonical.IconPath != "items/tools/note_sealed_spiritsprings.png" {
+	if canonical.IconPath != "items/info/note_sealed_spiritsprings.png" {
 		t.Errorf("Information[0x401EA3DF] IconPath = %q, want %q",
-			canonical.IconPath, "items/tools/note_sealed_spiritsprings.png")
+			canonical.IconPath, "items/info/note_sealed_spiritsprings.png")
 	}
 	hasDLC := false
 	for _, f := range canonical.Flags {
