@@ -184,6 +184,11 @@ type DiagnosticJournal struct {
 	// appended, so a partially written JSONL line can never be followed.
 	failed bool
 	err    error // cause preserved for callers once failed
+	// debug, when true, admits debug-level records; trace is always dropped
+	// either way (debug mode is not trace mode). This is the single source of
+	// truth for journal verbosity — App holds no parallel policy — and is
+	// read/written only under mu.
+	debug bool
 }
 
 // DefaultDiagnosticsDir returns the per-user diagnostics directory,
@@ -270,6 +275,33 @@ func newInMemoryDiagnosticJournal() *DiagnosticJournal {
 	return &DiagnosticJournal{tailMax: diagnosticTailMax}
 }
 
+// SetDebugEnabled sets journal verbosity: true admits debug records, false
+// drops them. Trace is always dropped regardless. It is the sole writer of
+// the journal's verbosity policy. A nil receiver is a safe no-op so headless
+// callers (tests, journal-unavailable startup) need no guard.
+func (j *DiagnosticJournal) SetDebugEnabled(enabled bool) {
+	if j == nil {
+		return
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.debug = enabled
+}
+
+// recordable reports whether a record at level passes the current verbosity
+// policy: info/warn/error always pass; debug passes only in debug mode; trace
+// is always dropped. Callers hold j.mu.
+func (j *DiagnosticJournal) recordable(level diagnosticLevel) bool {
+	switch level {
+	case levelTrace:
+		return false
+	case levelDebug:
+		return j.debug
+	default:
+		return true
+	}
+}
+
 // Log appends one record. The returned error (nil on success) lets the
 // direct caller observe a write/fsync failure; the app never crashes on a
 // journal error. A nil receiver is a safe no-op so callers that may not
@@ -300,6 +332,11 @@ func (j *DiagnosticJournal) Log(level diagnosticLevel, source, event, message st
 func (j *DiagnosticJournal) append(level diagnosticLevel, source, event, message string, fields []diagnosticField) error {
 	if j.failed {
 		return fmt.Errorf("diagnostic journal unusable: %w", j.err)
+	}
+	if !j.recordable(level) {
+		// Filtered before seq++, so a dropped record touches neither the
+		// sequence, the file, Sync, nor the tail — and leaves no seq gap.
+		return nil
 	}
 	j.seq++
 	rec := diagnosticRecord{

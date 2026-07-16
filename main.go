@@ -40,7 +40,11 @@ func main() {
 		MinHeight:     768,
 		DisableResize: false,
 		LogLevel:      logger.INFO,
-		Logger:        appLogger,
+		// Explicit INFO in production too: Wails defaults LogLevelProduction to
+		// ERROR, which would drop ordinary info/warn events before the frontend
+		// ever calls SetDiagnosticDebugMode.
+		LogLevelProduction: logger.INFO,
+		Logger:             appLogger,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

@@ -265,6 +265,10 @@ func TestWailsJournalLoggerMapsLevels(t *testing.T) {
 		t.Fatalf("newDiagnosticJournalInDir: %v", err)
 	}
 	sink := newWailsJournalLogger(j)
+	// Enable debug so the sink's Debug call is recorded; Trace is dropped by
+	// policy regardless, so this test verifies the level mapping for every
+	// sink method whose record can be observed.
+	j.SetDebugEnabled(true)
 
 	sink.Trace("t")
 	sink.Debug("d")
@@ -278,13 +282,12 @@ func TestWailsJournalLoggerMapsLevels(t *testing.T) {
 	}
 
 	recs := readSessionRecords(t, dir)
-	// session_started + 7 sink calls + session_closed.
+	// session_started + 6 recorded sink calls (trace dropped) + session_closed.
 	type want struct {
 		event string
 		level diagnosticLevel
 	}
 	wants := []want{
-		{"trace", levelTrace},
 		{"debug", levelDebug},
 		{"info", levelInfo},
 		{"warning", levelWarn},
@@ -639,6 +642,148 @@ func checkFieldType(t *testing.T, name string, ft reflect.Type) {
 			}
 		} else {
 			checkFieldType(t, name+"[]", ft.Elem())
+		}
+	}
+}
+
+// eventsOf returns the Event of every record in order, for terse assertions.
+func eventsOf(recs []diagnosticRecord) []string {
+	out := make([]string, len(recs))
+	for i, r := range recs {
+		out[i] = r.Event
+	}
+	return out
+}
+
+// assertContiguousSeq fails if the records' Seq values are not 1..N with no
+// gap — a dropped record must never leave a hole in the sequence.
+func assertContiguousSeq(t *testing.T, recs []diagnosticRecord) {
+	t.Helper()
+	for i, r := range recs {
+		if r.Seq != uint64(i+1) {
+			t.Fatalf("seq gap: record %d has seq %d, want %d", i, r.Seq, i+1)
+		}
+	}
+}
+
+func TestJournalDropsDebugAndTraceByDefault(t *testing.T) {
+	dir := t.TempDir()
+	j, err := newDiagnosticJournalInDir(dir)
+	if err != nil {
+		t.Fatalf("newDiagnosticJournalInDir: %v", err)
+	}
+	for _, c := range []struct {
+		level diagnosticLevel
+		event string
+	}{
+		{levelDebug, "d"},
+		{levelTrace, "t"},
+		{levelInfo, "i"},
+	} {
+		if err := j.Log(c.level, sourceApp, c.event, c.event); err != nil {
+			t.Fatalf("Log %s: %v", c.event, err)
+		}
+	}
+	// Tail must not observe the dropped records either.
+	if tail := j.Tail(); len(tail) != 2 { // session_started + info
+		t.Fatalf("tail = %v events, want 2", eventsOf(tail))
+	}
+	if err := j.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	recs := readSessionRecords(t, dir)
+	if got, want := eventsOf(recs), []string{"session_started", "i", "session_closed"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	assertContiguousSeq(t, recs)
+}
+
+func TestJournalRecordsDebugWhenEnabledButNotTrace(t *testing.T) {
+	dir := t.TempDir()
+	j, err := newDiagnosticJournalInDir(dir)
+	if err != nil {
+		t.Fatalf("newDiagnosticJournalInDir: %v", err)
+	}
+	j.SetDebugEnabled(true)
+	if err := j.Log(levelDebug, sourceApp, "d", "d"); err != nil {
+		t.Fatalf("Log debug: %v", err)
+	}
+	if err := j.Log(levelTrace, sourceApp, "t", "t"); err != nil {
+		t.Fatalf("Log trace: %v", err)
+	}
+	if err := j.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	recs := readSessionRecords(t, dir)
+	if got, want := eventsOf(recs), []string{"session_started", "d", "session_closed"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %v, want %v (trace must stay dropped)", got, want)
+	}
+	assertContiguousSeq(t, recs)
+}
+
+func TestJournalDropsDebugAfterDisabling(t *testing.T) {
+	dir := t.TempDir()
+	j, err := newDiagnosticJournalInDir(dir)
+	if err != nil {
+		t.Fatalf("newDiagnosticJournalInDir: %v", err)
+	}
+	j.SetDebugEnabled(true)
+	if err := j.Log(levelDebug, sourceApp, "d1", "d1"); err != nil {
+		t.Fatalf("Log d1: %v", err)
+	}
+	j.SetDebugEnabled(false)
+	if err := j.Log(levelDebug, sourceApp, "d2", "d2"); err != nil {
+		t.Fatalf("Log d2: %v", err)
+	}
+	if err := j.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	recs := readSessionRecords(t, dir)
+	if got, want := eventsOf(recs), []string{"session_started", "d1", "session_closed"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("events = %v, want %v (d2 must be dropped after disabling)", got, want)
+	}
+	assertContiguousSeq(t, recs)
+}
+
+func TestSetDiagnosticDebugModeNilCtxRecordsEvent(t *testing.T) {
+	dir := t.TempDir()
+	j, err := newDiagnosticJournalInDir(dir)
+	if err != nil {
+		t.Fatalf("newDiagnosticJournalInDir: %v", err)
+	}
+	a := &App{journal: j} // ctx is nil: headless path, no runtime call.
+	a.SetDiagnosticDebugMode(true)
+	a.SetDiagnosticDebugMode(false)
+	if err := j.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	recs := readSessionRecords(t, dir)
+	var changed []diagnosticRecord
+	for _, r := range recs {
+		if r.Event == "diagnostic_debug_mode_changed" {
+			changed = append(changed, r)
+		}
+	}
+	// Both events present — the disable event must survive too.
+	if len(changed) != 2 {
+		t.Fatalf("got %d change events, want 2 (events: %v)", len(changed), eventsOf(recs))
+	}
+	for i, want := range []string{"true", "false"} {
+		if changed[i].Level != levelInfo {
+			t.Errorf("change %d level = %q, want info", i, changed[i].Level)
+		}
+		var enabled string
+		for _, f := range changed[i].Fields {
+			if f.Key == "enabled" {
+				enabled = f.Value
+			}
+		}
+		if enabled != want {
+			t.Errorf("change %d enabled field = %q, want %q", i, enabled, want)
 		}
 	}
 }

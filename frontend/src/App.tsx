@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback, useRef} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, SetDiagnosticDebugMode} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -186,6 +186,9 @@ function App() {
     useEffect(() => { setOnlineSafety(onlineSafetyEnabled(safetyProfile)); }, [safetyProfile, setOnlineSafety]);
     useEffect(() => { localStorage.setItem('setting:columnVisibility', JSON.stringify(columnVisibility)); }, [columnVisibility]);
     useEffect(() => { localStorage.setItem('setting:debugMode', String(debugMode)); }, [debugMode]);
+    // Push Debug Mode into the backend diagnostic verbosity policy on mount and
+    // on every toggle. A sync failure must never break the UI.
+    useEffect(() => { SetDiagnosticDebugMode(debugMode).catch(() => {}); }, [debugMode]);
     useEffect(() => { localStorage.setItem('selectedDeployTarget', selectedDeployTarget); }, [selectedDeployTarget]);
     useEffect(() => { localStorage.setItem('setting:charAddSettings', JSON.stringify(charAddSettings)); }, [charAddSettings]);
 

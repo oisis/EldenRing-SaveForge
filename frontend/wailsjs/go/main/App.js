@@ -530,6 +530,10 @@ export function SetCookbookUnlocked(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetCookbookUnlocked'](arg1, arg2, arg3);
 }
 
+export function SetDiagnosticDebugMode(arg1) {
+  return window['go']['main']['App']['SetDiagnosticDebugMode'](arg1);
+}
+
 export function SetGestureUnlocked(arg1, arg2, arg3) {
   return window['go']['main']['App']['SetGestureUnlocked'](arg1, arg2, arg3);
 }

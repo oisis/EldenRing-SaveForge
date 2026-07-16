@@ -272,6 +272,8 @@ export function SetColosseumUnlocked(arg1:number,arg2:number,arg3:boolean):Promi
 
 export function SetCookbookUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
+export function SetDiagnosticDebugMode(arg1:boolean):Promise<void>;
+
 export function SetGestureUnlocked(arg1:number,arg2:number,arg3:boolean):Promise<void>;
 
 export function SetGraceVisited(arg1:number,arg2:number,arg3:boolean):Promise<void>;

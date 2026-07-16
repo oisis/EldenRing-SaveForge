@@ -31,6 +31,7 @@ vi.mock('../wailsjs/go/main/App', () => {
         RepairDuplicateInventoryIndices: r(), CloseSave: r(), RunDiagnosticsAllLoaded: r(),
         GetAppVersion: r(), ScanRepairIssuesLoaded: r(),
         AnalyzeGaItemRepack: r(), ExecuteGaItemRepack: r(),
+        SetDiagnosticDebugMode: r(),
     };
 });
 
@@ -41,10 +42,11 @@ vi.mock('./components/InventoryTab', () => ({ InventoryTab: () => null }));
 vi.mock('./components/WorldTab', () => ({ WorldTab: () => null }));
 // The stub exposes the App-owned callback so a test can open the shared modal.
 vi.mock('./components/SettingsTab', () => ({
-    SettingsTab: (props: { onOptimizeGaItem?: () => void; onResolveDuplicateGaItem?: (s: number, h: number) => void }) => (
+    SettingsTab: (props: { onOptimizeGaItem?: () => void; onResolveDuplicateGaItem?: (s: number, h: number) => void; setDebugMode?: (v: boolean) => void }) => (
         <>
             <button onClick={() => props.onOptimizeGaItem?.()}>open-gaitem-repack</button>
             <button onClick={() => props.onResolveDuplicateGaItem?.(0, 0x80000102)}>settings-resolve-dup</button>
+            <button onClick={() => props.setDebugMode?.(true)}>settings-enable-debug</button>
         </>
     ),
 }));
@@ -81,7 +83,7 @@ vi.mock('./components/ToastBar', () => ({ ToastBar: () => null }));
 
 import App from './App';
 import { SafetyModeProvider } from './state/safetyMode';
-import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave } from '../wailsjs/go/main/App';
+import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave, SetDiagnosticDebugMode } from '../wailsjs/go/main/App';
 import toast from './lib/toast';
 
 const CAP = (physicalEmpty: number, cursorRoom: number, usable: number) => ({ physicalEmpty, cursorRoom, usable });
@@ -365,5 +367,23 @@ describe('App shared duplicate GaItem repair wiring', () => {
         await new Promise(r => setTimeout(r, 0));
         expect(AnalyzeGaItemRepack).not.toHaveBeenCalled();
         expect(screen.queryByText('Ready to optimize')).not.toBeInTheDocument();
+    });
+});
+
+describe('App diagnostic debug-mode sync', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    it('pushes the initial debug-mode value to the backend on mount', async () => {
+        renderApp('safe');
+        await waitFor(() => expect(SetDiagnosticDebugMode).toHaveBeenCalledWith(false));
+    });
+
+    it('syncs the new value when debug mode is toggled on', async () => {
+        renderApp('safe');
+        await waitFor(() => expect(SetDiagnosticDebugMode).toHaveBeenCalledWith(false));
+        fireEvent.click(screen.getByRole('button', { name: /tools/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'settings-enable-debug' }));
+        await waitFor(() => expect(SetDiagnosticDebugMode).toHaveBeenCalledWith(true));
     });
 });
