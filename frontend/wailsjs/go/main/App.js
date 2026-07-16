@@ -238,6 +238,10 @@ export function GetDeployTargets() {
   return window['go']['main']['App']['GetDeployTargets']();
 }
 
+export function GetDiagnosticLogTail() {
+  return window['go']['main']['App']['GetDiagnosticLogTail']();
+}
+
 export function GetFavoritesStatus() {
   return window['go']['main']['App']['GetFavoritesStatus']();
 }

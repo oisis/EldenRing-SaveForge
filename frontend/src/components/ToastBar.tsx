@@ -1,7 +1,30 @@
 import {useEffect, useState, useCallback, useRef} from 'react';
+import {GetDiagnosticLogTail} from '../../wailsjs/go/main/App';
 
-export type LogLevel = 'info' | 'warn' | 'error';
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 export type LogEntry = { time: string; level: LogLevel; message: string; loading?: boolean };
+
+type ConsoleEntry = {
+    id: string;
+    time: string;
+    level: LogLevel;
+    source: string;
+    event: string;
+    message: string;
+    details: string;
+    loading?: boolean;
+};
+
+type DiagnosticTailField = { key: string; value: string };
+type DiagnosticTailRecord = {
+    seq: number;
+    ts: string;
+    level: LogLevel;
+    source: string;
+    event: string;
+    message: string;
+    fields?: DiagnosticTailField[];
+};
 
 let globalLogFn: ((level: LogLevel, message: string) => void) | null = null;
 let globalLoadingFn: ((id: string, message: string) => void) | null = null;
@@ -35,11 +58,94 @@ interface ToastBarProps {
 
 const MIN_WIDTH = 400;
 const MIN_HEIGHT = 150;
+const journalRefreshMs = 1000;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isLogLevel(value: unknown): value is LogLevel {
+    return value === 'debug' || value === 'info' || value === 'warn' || value === 'error';
+}
+
+// The Go endpoint returns the journal's JSON representation as a primitive so
+// generated models.ts stays untouched. Treat it as transport input, not as a
+// trusted TypeScript object: malformed records are skipped rather than rendered.
+function parseDiagnosticTail(encoded: string): ConsoleEntry[] {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(encoded);
+    } catch {
+        return [];
+    }
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.flatMap((value): ConsoleEntry[] => {
+        if (!isRecord(value)
+            || typeof value.seq !== 'number'
+            || typeof value.ts !== 'string'
+            || !isLogLevel(value.level)
+            || typeof value.source !== 'string'
+            || typeof value.event !== 'string'
+            || typeof value.message !== 'string') {
+            return [];
+        }
+        const fields = Array.isArray(value.fields)
+            ? value.fields.flatMap((field): DiagnosticTailField[] => (
+                isRecord(field) && typeof field.key === 'string' && typeof field.value === 'string'
+                    ? [{key: field.key, value: field.value}]
+                    : []
+            ))
+            : [];
+        const record: DiagnosticTailRecord = {
+            seq: value.seq,
+            ts: value.ts,
+            level: value.level,
+            source: value.source,
+            event: value.event,
+            message: value.message,
+            fields,
+        };
+        return [{
+            id: `journal-${record.seq}`,
+            time: record.ts,
+            level: record.level,
+            source: record.source,
+            event: record.event,
+            message: record.message,
+            details: record.fields?.map(field => `${field.key}=${field.value}`).join(' ') ?? '',
+        }];
+    });
+}
+
+function localConsoleEntries(logs: LogEntry[]): ConsoleEntry[] {
+    return logs.map((entry, index) => ({
+        id: `local-${index}-${entry.time}`,
+        time: entry.time,
+        level: entry.level,
+        source: 'ui',
+        event: 'ui_log',
+        message: entry.message,
+        details: '',
+        loading: entry.loading,
+    }));
+}
+
+function formatConsoleTime(time: string): string {
+    const parsed = new Date(time);
+    return Number.isNaN(parsed.getTime())
+        ? time
+        : parsed.toLocaleTimeString('en-GB', {hour12: false});
+}
 
 export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [consoleOpen, setConsoleOpen] = useState(false);
     const [lastMessage, setLastMessage] = useState<LogEntry | null>(null);
+    const [journalEntries, setJournalEntries] = useState<ConsoleEntry[]>([]);
+    const [journalAvailable, setJournalAvailable] = useState(false);
+    const [levelFilter, setLevelFilter] = useState<'all' | LogLevel>('all');
+    const [search, setSearch] = useState('');
 
     // Console dimensions (persisted in localStorage)
     const [consoleWidth, setConsoleWidth] = useState<number>(() => {
@@ -101,6 +207,30 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
         }
         return () => { globalLogFn = null; globalLoadingFn = null; globalDoneFn = null; };
     }, [addLog, startLoading, finishLoading]);
+
+    // Read only the bounded, already-sanitized journal tail while the console
+    // is visible. The disk JSONL remains the crash-safe source of truth; this
+    // polling never writes to it and stops as soon as the console closes.
+    useEffect(() => {
+        if (!consoleOpen) return;
+        let active = true;
+        const refresh = async () => {
+            try {
+                const encoded = await GetDiagnosticLogTail();
+                if (!active) return;
+                setJournalEntries(parseDiagnosticTail(encoded));
+                setJournalAvailable(true);
+            } catch {
+                if (active) setJournalAvailable(false);
+            }
+        };
+        void refresh();
+        const timer = window.setInterval(() => { void refresh(); }, journalRefreshMs);
+        return () => {
+            active = false;
+            window.clearInterval(timer);
+        };
+    }, [consoleOpen]);
 
     // Keyboard toggle
     useEffect(() => {
@@ -167,11 +297,23 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
 
     const levelColor = (l: LogLevel) => {
         switch (l) {
+            case 'debug': return 'text-muted-foreground';
             case 'info': return 'text-info';
             case 'warn': return 'text-warning';
             case 'error': return 'text-destructive';
         }
     };
+
+    const allConsoleEntries = journalAvailable ? journalEntries : localConsoleEntries(logs);
+    const searchTerm = search.trim().toLocaleLowerCase();
+    const visibleConsoleEntries = allConsoleEntries.filter(entry => {
+        if (levelFilter !== 'all' && entry.level !== levelFilter) return false;
+        if (searchTerm === '') return true;
+        return [entry.level, entry.source, entry.event, entry.message, entry.details]
+            .join(' ')
+            .toLocaleLowerCase()
+            .includes(searchTerm);
+    });
 
     // Compute console positioning
     const availableWidth = typeof window !== 'undefined' ? window.innerWidth - sidebarWidth * 2 : 800;
@@ -236,9 +378,36 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
                         onMouseDown={e => startResize(e, 'topright')} />
 
                     {/* Header */}
-                    <div className="flex items-center justify-between px-3 py-1.5 shrink-0" style={{ borderBottom: '1px solid var(--sf-console-border)' }}>
-                        <span className="text-[9px] font-black uppercase tracking-[0.2em]" style={{ color: 'var(--sf-console-text-dim)' }}>Console</span>
+                    <div className="flex items-center justify-between gap-3 px-3 py-1.5 shrink-0" style={{ borderBottom: '1px solid var(--sf-console-border)' }}>
+                        <div className="min-w-0">
+                            <span className="text-[9px] font-black uppercase tracking-[0.2em]" style={{ color: 'var(--sf-console-text-dim)' }}>Console</span>
+                            <span className="ml-2 text-[8px] uppercase tracking-wider" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.65 }}>
+                                {journalAvailable ? 'durable session log' : 'live UI log'}
+                            </span>
+                        </div>
                         <div className="flex items-center gap-2">
+                            <select
+                                aria-label="Log level"
+                                value={levelFilter}
+                                onChange={event => setLevelFilter(event.target.value as 'all' | LogLevel)}
+                                className="h-6 rounded border px-1.5 text-[9px] font-mono outline-none"
+                                style={{ background: 'var(--sf-console-bg)', borderColor: 'var(--sf-console-border)', color: 'var(--sf-console-text)' }}
+                            >
+                                <option value="all">All levels</option>
+                                <option value="debug">Debug</option>
+                                <option value="info">Info</option>
+                                <option value="warn">Warnings</option>
+                                <option value="error">Errors</option>
+                            </select>
+                            <input
+                                aria-label="Search logs"
+                                type="search"
+                                value={search}
+                                onChange={event => setSearch(event.target.value)}
+                                placeholder="Search"
+                                className="h-6 w-28 rounded border px-2 text-[9px] font-mono outline-none placeholder:opacity-50"
+                                style={{ background: 'var(--sf-console-bg)', borderColor: 'var(--sf-console-border)', color: 'var(--sf-console-text)' }}
+                            />
                             {consoleWidth > 0 && (
                                 <button
                                     onClick={() => setConsoleWidth(0)}
@@ -249,13 +418,6 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
                                     Reset
                                 </button>
                             )}
-                            <button
-                                onClick={() => setLogs([])}
-                                className="text-[8px] font-bold uppercase tracking-widest transition-colors"
-                                style={{ color: 'var(--sf-console-text-dim)' }}
-                            >
-                                Clear
-                            </button>
                             <button
                                 onClick={() => setConsoleOpen(false)}
                                 className="transition-colors"
@@ -268,22 +430,29 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
                         </div>
                     </div>
 
-                    {/* Log body — newest entries on top */}
+                    {/* Log body — newest entries on top. Filtering is UI-only:
+                        it never alters the durable journal. */}
                     <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2 font-mono text-[11px] space-y-0.5">
-                        {logs.slice().reverse().map((entry, i) => (
-                            <div key={logs.length - 1 - i} className="flex gap-2">
-                                <span className="flex-shrink-0" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.7 }}>{entry.time}</span>
+                        {visibleConsoleEntries.slice().reverse().map(entry => (
+                            <div key={entry.id} className="flex gap-2">
+                                <span className="flex-shrink-0" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.7 }}>{formatConsoleTime(entry.time)}</span>
                                 <span className={`uppercase font-bold flex-shrink-0 w-10 ${levelColor(entry.level)}`}>
                                     {entry.level}
                                 </span>
-                                <span style={{ color: 'var(--sf-console-text)' }}>
+                                <span className="min-w-0" style={{ color: 'var(--sf-console-text)' }}>
+                                    <span className="mr-1" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.75 }}>[{entry.source}/{entry.event}]</span>
                                     {entry.message}
                                     {entry.loading && <LoadingDots />}
+                                    {entry.details !== '' && (
+                                        <span className="ml-1 break-all" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.8 }}>{entry.details}</span>
+                                    )}
                                 </span>
                             </div>
                         ))}
-                        {logs.length === 0 && (
-                            <div className="text-center py-8" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.3 }}>No log entries</div>
+                        {visibleConsoleEntries.length === 0 && (
+                            <div className="text-center py-8" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.3 }}>
+                                {allConsoleEntries.length === 0 ? 'No log entries' : 'No matching log entries'}
+                            </div>
                         )}
                     </div>
                 </div>

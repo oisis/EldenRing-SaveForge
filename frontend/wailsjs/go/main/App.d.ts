@@ -126,6 +126,8 @@ export function GetCookbooks(arg1:number):Promise<Array<db.CookbookEntry>>;
 
 export function GetDeployTargets():Promise<Array<deploy.Target>>;
 
+export function GetDiagnosticLogTail():Promise<string>;
+
 export function GetFavoritesStatus():Promise<Array<main.FavoriteSlotInfo>>;
 
 export function GetGestures(arg1:number):Promise<Array<db.GestureEntry>>;
