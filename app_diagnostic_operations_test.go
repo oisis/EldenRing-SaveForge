@@ -53,6 +53,9 @@ func TestDebugOperationEventsAreSafeAndStructured(t *testing.T) {
 		t.Errorf("save_load_failed stage = %q, want parse", got)
 	}
 	writeFailed := operationEvent(t, records, "save_write_failed")
+	if got := writeFailed.Level; got != levelError {
+		t.Errorf("save_write_failed level = %q, want error", got)
+	}
 	if got := operationField(writeFailed, "stage"); got != "no_active_save" {
 		t.Errorf("save_write_failed stage = %q, want no_active_save", got)
 	}

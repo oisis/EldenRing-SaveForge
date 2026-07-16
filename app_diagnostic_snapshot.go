@@ -11,6 +11,7 @@ import (
 const (
 	eventSaveStateLoaded      = "save_state_loaded"
 	eventSaveStateBeforeWrite = "save_state_before_write"
+	eventSaveStateWritten     = "save_state_written"
 )
 
 // diagnosticSaveSnapshot builds the safe state summary for one exact save

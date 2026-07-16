@@ -35,6 +35,7 @@ vi.mock('../wailsjs/go/main/App', () => {
         RecordDiagnosticClientNavigation: r(),
         RecordDiagnosticIntegrityModalShown: r(),
         RecordDiagnosticIntegrityModalRepairOutcome: r(),
+        RecordDiagnosticPostLoadDiagnosticsModalShown: r(),
     };
 });
 
@@ -92,7 +93,7 @@ vi.mock('./components/ToastBar', () => ({ ToastBar: () => null }));
 
 import App from './App';
 import { SafetyModeProvider } from './state/safetyMode';
-import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation, RecordDiagnosticIntegrityModalShown, RecordDiagnosticIntegrityModalRepairOutcome, RepairDuplicateInventoryIndices } from '../wailsjs/go/main/App';
+import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation, RecordDiagnosticIntegrityModalShown, RecordDiagnosticIntegrityModalRepairOutcome, RecordDiagnosticPostLoadDiagnosticsModalShown, RepairDuplicateInventoryIndices, RunDiagnosticsAllLoaded } from '../wailsjs/go/main/App';
 import toast from './lib/toast';
 
 const CAP = (physicalEmpty: number, cursorRoom: number, usable: number) => ({ physicalEmpty, cursorRoom, usable });
@@ -255,6 +256,22 @@ describe('App inventory integrity diagnostics', () => {
         fireEvent.click(await screen.findByRole('button', { name: 'integrity-repair' }));
 
         await waitFor(() => expect(RecordDiagnosticIntegrityModalRepairOutcome).toHaveBeenCalledWith('error'));
+    });
+});
+
+describe('App post-load diagnostics modal', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    it('records a durable modal-shown event when repairable post-load issues are displayed', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue({ clean: true, slots: [] } as never);
+        vi.mocked(RunDiagnosticsAllLoaded).mockResolvedValue({ canRepair: true, slots: [] } as never);
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+
+        await waitFor(() => expect(RecordDiagnosticPostLoadDiagnosticsModalShown).toHaveBeenCalledTimes(1));
     });
 });
 

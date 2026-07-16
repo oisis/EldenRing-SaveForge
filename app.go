@@ -386,13 +386,13 @@ func (a *App) WriteSave() error {
 	a.saveMu.RLock()
 	if a.save == nil {
 		a.saveMu.RUnlock()
-		a.journalDebug("save_write_failed", "save write failed", field("stage", "no_active_save"))
+		a.journalLog(levelError, "save_write_failed", "save write failed", field("stage", "no_active_save"))
 		return fmt.Errorf("no save loaded")
 	}
 	expected := a.save
 	platform := string(a.save.Platform)
 	a.saveMu.RUnlock()
-	a.journalDebug("save_write_requested", "save write requested", field("platform", platform))
+	a.journalLog(levelInfo, "save_write_requested", "save write requested", field("platform", platform))
 
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title: "Save Elden Ring Save File",
@@ -402,21 +402,23 @@ func (a *App) WriteSave() error {
 		},
 	})
 	if err != nil {
-		a.journalDebug("save_write_failed", "save write failed", field("stage", "dialog"))
+		a.journalLog(levelError, "save_write_failed", "save write failed", field("stage", "dialog"))
 		return err
 	}
 	if path == "" {
-		a.journalDebug("save_write_cancelled", "save write cancelled")
+		a.journalLog(levelInfo, "save_write_cancelled", "save write cancelled")
 		return fmt.Errorf("no file selected")
 	}
 
+	backupCreated := false
 	// Backup only when the target file already exists (nothing to protect otherwise).
 	if _, statErr := os.Stat(path); statErr == nil {
 		if _, err := core.CreateBackup(path); err != nil {
-			a.journalDebug("save_write_failed", "save write failed", field("stage", "backup"))
+			a.journalLog(levelError, "save_write_failed", "save write failed", field("stage", "backup"))
 			return fmt.Errorf("backup failed, save aborted: %w", err)
 		}
-		a.journalDebug("save_write_backup_created", "save backup created")
+		backupCreated = true
+		a.journalLog(levelInfo, "save_write_backup_created", "save backup created")
 		if err := core.PruneBackups(path, 10); err != nil {
 			fmt.Printf("Warning: failed to prune old backups: %v\n", err)
 		}
@@ -428,10 +430,19 @@ func (a *App) WriteSave() error {
 			diagnosticSnapshotForSerialization(snapshot, "file")...)
 	}
 	if err != nil {
-		a.journalDebug("save_write_failed", "save write failed", field("stage", "write"))
+		a.journalLog(levelError, "save_write_failed", "save write failed", field("stage", "write"))
 		return err
 	}
-	a.journalDebug("save_write_completed", "save write completed", field("platform", platform))
+	fields := []diagnosticField{
+		field("platform", platform),
+		field("backup_created", strconv.FormatBool(backupCreated)),
+	}
+	if name := safeSaveFileName(path); name != "" {
+		fields = append(fields, field("save_file", name))
+	}
+	a.journalLog(levelInfo, "save_write_finished", "save write finished", fields...)
+	a.journalDebug(eventSaveStateWritten, "privacy-safe save state captured after successful file write",
+		diagnosticSnapshotForSerialization(snapshot, "file")...)
 	return nil
 }
 

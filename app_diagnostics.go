@@ -87,26 +87,64 @@ func (a *App) RunDiagnosticsAllLoaded() (DiagnosticsReport, error) {
 // RepairAllLoadedSlots applies automated repairs to every active slot of the
 // currently loaded save. Pushes undo for each slot before mutating.
 func (a *App) RepairAllLoadedSlots() (RepairReport, error) {
+	// Persist the user's intent before any save or slot lock is acquired. A
+	// crash during the automatic repair must still leave a durable trace that
+	// the operation started.
+	a.journalLog(levelInfo, "post_load_diagnostics_repair_requested",
+		"post-load diagnostics repair requested",
+		field("action", "repair_all_detected_issues"))
+
+	report, processedSlots, err := a.repairAllLoadedSlots()
+	outcome := "resolved"
+	level := levelInfo
+	stage := ""
+	switch {
+	case err != nil:
+		outcome = "error"
+		level = levelError
+		stage = "precondition"
+	case len(report.Skipped) > 0:
+		outcome = "partial"
+	case len(report.Fixed) == 0:
+		outcome = "no_changes"
+	}
+
+	// repairAllLoadedSlots has released saveMu and every slot lock before this
+	// journal Sync. The fields are safe aggregate/action identifiers, never the
+	// raw core messages or error values.
+	a.journalLog(level, "post_load_diagnostics_repair_finished",
+		"post-load diagnostics repair finished",
+		diagnosticPostLoadRepairFields(report, processedSlots, outcome, stage)...)
+	return report, err
+}
+
+// repairAllLoadedSlots applies the automatic repair while holding the existing
+// save/slot locks, then returns only safe aggregate data for journalling after
+// all locks are released. Its public wrapper preserves RepairAllLoadedSlots'
+// existing contract.
+func (a *App) repairAllLoadedSlots() (RepairReport, int, error) {
 	var empty RepairReport
 	a.saveMu.RLock()
 	defer a.saveMu.RUnlock()
 	if a.save == nil {
-		return empty, fmt.Errorf("no save loaded")
+		return empty, 0, fmt.Errorf("no save loaded")
 	}
 	a.lockAllSlots()
 	defer a.unlockAllSlots()
 
 	allFixed := []string{}
 	allSkipped := []string{}
+	processedSlots := 0
 	for i := range a.save.Slots {
 		slot := &a.save.Slots[i]
 		if slot.Version == 0 {
 			continue
 		}
+		processedSlots++
 		a.pushUndoLocked(i)
 		fixed, skipped := core.RepairSlot(slot)
 		allFixed = append(allFixed, fixed...)
 		allSkipped = append(allSkipped, skipped...)
 	}
-	return RepairReport{Fixed: allFixed, Skipped: allSkipped}, nil
+	return RepairReport{Fixed: allFixed, Skipped: allSkipped}, processedSlots, nil
 }

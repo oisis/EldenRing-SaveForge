@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback, useRef} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation, RecordDiagnosticIntegrityModalShown, RecordDiagnosticIntegrityModalRepairOutcome} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation, RecordDiagnosticIntegrityModalShown, RecordDiagnosticIntegrityModalRepairOutcome, RecordDiagnosticPostLoadDiagnosticsModalShown} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -273,7 +273,18 @@ function App() {
             refreshSlots();
             // Non-blocking corruption scan — show modal only if there is something to repair
             RunDiagnosticsAllLoaded()
-                .then(diagReport => { if (diagReport.canRepair) setPostLoadDiagReport(diagReport); })
+                .then(async diagReport => {
+                    if (diagReport.canRepair) {
+                        // The backend re-scans and durably records a safe summary before
+                        // exposing the action. A journal failure must never suppress the modal.
+                        try {
+                            await RecordDiagnosticPostLoadDiagnosticsModalShown();
+                        } catch {
+                            // Best-effort diagnostics only.
+                        }
+                        setPostLoadDiagReport(diagReport);
+                    }
+                })
                 .catch(() => {});
             return;
         }

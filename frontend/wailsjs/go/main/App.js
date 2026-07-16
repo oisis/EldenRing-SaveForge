@@ -418,6 +418,10 @@ export function RecordDiagnosticIntegrityModalShown() {
   return window['go']['main']['App']['RecordDiagnosticIntegrityModalShown']();
 }
 
+export function RecordDiagnosticPostLoadDiagnosticsModalShown() {
+  return window['go']['main']['App']['RecordDiagnosticPostLoadDiagnosticsModalShown']();
+}
+
 export function RemoveFavoritePreset(arg1) {
   return window['go']['main']['App']['RemoveFavoritePreset'](arg1);
 }
