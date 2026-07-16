@@ -2,6 +2,8 @@ package main
 
 import (
 	"embed"
+	"fmt"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/logger"
@@ -17,6 +19,18 @@ func main() {
 	// Create an instance of the app structure
 	app := NewApp()
 
+	// Open the durable per-session diagnostic journal before wails.Run so
+	// startup and Wails logging are captured. If it cannot be opened the
+	// app still runs: we fall back to Wails' default stdout logger and
+	// leave app.journal nil (journalLog then no-ops).
+	appLogger := logger.NewDefaultLogger()
+	if journal, err := NewSessionDiagnosticJournal(); err != nil {
+		fmt.Fprintf(os.Stderr, "diagnostic journal unavailable: %v\n", err)
+	} else {
+		app.journal = journal
+		appLogger = newWailsJournalLogger(journal)
+	}
+
 	// Create application with options
 	err := wails.Run(&options.App{
 		Title:         "Elden Ring SaveForge by OiSiS",
@@ -26,11 +40,13 @@ func main() {
 		MinHeight:     768,
 		DisableResize: false,
 		LogLevel:      logger.INFO,
+		Logger:        appLogger,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
 		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
 		OnStartup:        app.startup,
+		OnShutdown:       app.shutdown,
 		Bind: []interface{}{
 			app,
 		},

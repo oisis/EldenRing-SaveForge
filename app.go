@@ -43,6 +43,13 @@ type App struct {
 	undoStacks   [10][]slotSnapshot
 	lastSavePath string
 
+	// journal is the durable per-session diagnostic log. It is nil in
+	// tests and headless runs (NewApp leaves it unset so existing
+	// fixtures never create a real session file); production main.go
+	// opens a session journal and assigns it before wails.Run. Every
+	// access goes through journalLog, which no-ops on a nil journal.
+	journal *DiagnosticJournal
+
 	// GaItem repack tokens bind a dry-run to one loaded save and an exact slot
 	// state. They are protected by saveMu + the relevant slotMu entry.
 	gaItemRepackTokens map[string]gaItemRepackToken
@@ -149,15 +156,39 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.journalLog(levelInfo, "startup", "app startup begin")
 
 	store, err := deploy.NewTargetStore()
 	if err != nil {
 		fmt.Printf("Warning: deploy targets unavailable: %v\n", err)
+		a.journalLog(levelWarn, "deploy_store_unavailable", "deploy targets unavailable")
 		return
 	}
 	a.deployStore = store
 	a.deploySSH = deploy.NewSSHManager(store)
 	a.deployLocal = deploy.NewLocalManager(store)
+	a.journalLog(levelInfo, "startup", "app startup complete")
+}
+
+// shutdown is wired to options.App.OnShutdown. It writes the
+// session_closed record and closes the journal on a clean exit; a crash
+// skips this path, naturally leaving no session_closed marker. A journal
+// close failure is reported to stderr and never blocks shutdown.
+func (a *App) shutdown(_ context.Context) {
+	if err := a.journal.Close(); err != nil {
+		fmt.Fprintf(os.Stderr, "diagnostic journal close: %v\n", err)
+	}
+}
+
+// journalLog appends one app-sourced diagnostic record. It degrades to
+// stderr on a journal write failure and no-ops when no journal is
+// attached, so callers never need to guard the journal or handle its
+// errors. Values must already be sanitized technical fields — never raw
+// save bytes, Steam IDs, credentials, SSH data, tokens, or full paths.
+func (a *App) journalLog(level diagnosticLevel, event, message string, fields ...diagnosticField) {
+	if err := a.journal.Log(level, sourceApp, event, message, fields...); err != nil {
+		fmt.Fprintf(os.Stderr, "diagnostic journal (app %s): %v\n", event, err)
+	}
 }
 
 func (a *App) logInfo(format string, args ...interface{}) {
