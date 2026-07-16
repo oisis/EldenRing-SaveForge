@@ -304,15 +304,6 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
         window.addEventListener('mouseup', onUp);
     }, [sidebarWidth]);
 
-    const levelColor = (l: LogLevel) => {
-        switch (l) {
-            case 'debug': return 'text-muted-foreground';
-            case 'info': return 'text-info';
-            case 'warn': return 'text-warning';
-            case 'error': return 'text-destructive';
-        }
-    };
-
     const allConsoleEntries = journalAvailable ? journalEntries : localConsoleEntries(logs);
     const searchTerm = search.trim().toLocaleLowerCase();
     const visibleConsoleEntries = allConsoleEntries.filter(entry => {
@@ -445,7 +436,7 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
                         {visibleConsoleEntries.slice().reverse().map(entry => (
                             <div
                                 key={entry.id}
-                                className={`break-words ${levelColor(entry.level)}`}
+                                className="break-words text-white"
                             >
                                 {formatConsoleLine(entry)}
                             </div>
