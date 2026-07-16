@@ -90,9 +90,9 @@ func (a *App) TestSSHConnection(targetName string) (string, error) {
 // DeploySave writes the current in-memory save to a temp file and uploads/copies it to a target.
 // Returns a human-readable success message with file size.
 func (a *App) DeploySave(targetName string) (string, error) {
-	a.journalDebug("deploy_save_requested", "save deploy requested")
+	a.journalLog(levelInfo, "deploy_save_requested", "save deploy requested")
 	if a.deployStore == nil {
-		a.journalDebug("deploy_save_failed", "save deploy failed", field("stage", "configuration"))
+		a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "configuration"))
 		return "", fmt.Errorf("deploy not initialized")
 	}
 	// Brief saveMu.RLock just for the user-facing nil-check; writeTempSave
@@ -102,14 +102,14 @@ func (a *App) DeploySave(targetName string) (string, error) {
 	noSave := a.save == nil
 	a.saveMu.RUnlock()
 	if noSave {
-		a.journalDebug("deploy_save_failed", "save deploy failed", field("stage", "no_active_save"))
+		a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "no_active_save"))
 		return "", fmt.Errorf("no save loaded")
 	}
 
 	// Write current working state to a temp file for upload
 	tmpPath, err := a.writeTempSave()
 	if err != nil {
-		a.journalDebug("deploy_save_failed", "save deploy failed", field("stage", "serialize"))
+		a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "serialize"))
 		return "", err
 	}
 	defer os.Remove(tmpPath)
@@ -121,33 +121,33 @@ func (a *App) DeploySave(targetName string) (string, error) {
 	if a.isLocalTarget(targetName) {
 		transport = "local"
 		if err := a.deployLocal.UploadSave(targetName, tmpPath); err != nil {
-			a.journalDebug("deploy_save_failed", "save deploy failed", field("stage", "upload"), field("transport", transport))
+			a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "upload"), field("transport", transport))
 			return "", err
 		}
 	} else {
 		if err := a.deploySSH.UploadSave(targetName, tmpPath); err != nil {
-			a.journalDebug("deploy_save_failed", "save deploy failed", field("stage", "upload"), field("transport", transport))
+			a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "upload"), field("transport", transport))
 			return "", err
 		}
 	}
 
 	t, _ := a.deployStore.Get(targetName)
-	a.journalDebug("deploy_save_completed", "save deploy completed", field("transport", transport))
+	a.journalLog(levelInfo, "deploy_save_completed", "save deploy completed", field("transport", transport))
 	return fmt.Sprintf("Uploaded %.1f MB to %s", sizeMB, t.Name), nil
 }
 
 // DownloadRemoteSave downloads/copies a save file from a target and loads it.
 // The temp file is removed after loading into memory.
 func (a *App) DownloadRemoteSave(targetName string) (string, error) {
-	a.journalDebug("save_load_requested", "save load requested", field("origin", string(loadOriginRemoteDownload)))
+	a.journalLog(levelInfo, "save_load_requested", "save load requested", field("origin", string(loadOriginRemoteDownload)))
 	if a.deployStore == nil {
-		a.journalDebug("save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "configuration"))
+		a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "configuration"))
 		return "", fmt.Errorf("deploy not initialized")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "er-save-download-")
 	if err != nil {
-		a.journalDebug("save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "temp_dir"))
+		a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "temp_dir"))
 		return "", fmt.Errorf("cannot create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
@@ -156,22 +156,22 @@ func (a *App) DownloadRemoteSave(targetName string) (string, error) {
 
 	if a.isLocalTarget(targetName) {
 		if err := a.deployLocal.DownloadSave(targetName, localPath); err != nil {
-			a.journalDebug("save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "download"), field("transport", "local"))
+			a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "download"), field("transport", "local"))
 			return "", err
 		}
 	} else {
 		if err := a.deploySSH.DownloadSave(targetName, localPath); err != nil {
-			a.journalDebug("save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "download"), field("transport", "remote"))
+			a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "download"), field("transport", "remote"))
 			return "", err
 		}
 	}
 
 	save, err := core.LoadSave(localPath)
 	if err != nil {
-		a.journalDebug("save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "parse"))
+		a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "parse"))
 		return "", fmt.Errorf("downloaded file is not a valid save: %w", err)
 	}
-	a.journalDebug("save_load_parsed", "save load parsed", field("origin", string(loadOriginRemoteDownload)), field("platform", string(save.Platform)))
+	a.journalLog(levelInfo, "save_load_parsed", "save load parsed", field("origin", string(loadOriginRemoteDownload)), field("platform", string(save.Platform)))
 	// Commit phase under exclusive saveMu — see SelectAndOpenSave.
 	a.commitLoadedSave(save, "", loadOriginRemoteDownload)
 	return string(save.Platform), nil
@@ -201,9 +201,9 @@ func (a *App) CloseRemoteGame(targetName string) (string, error) {
 
 // DeployAndLaunch performs: write temp → upload → launch (no close).
 func (a *App) DeployAndLaunch(targetName string) error {
-	a.journalDebug("deploy_and_launch_requested", "save deploy and launch requested")
+	a.journalLog(levelInfo, "deploy_and_launch_requested", "save deploy and launch requested")
 	if a.deployStore == nil {
-		a.journalDebug("deploy_and_launch_failed", "save deploy and launch failed", field("stage", "configuration"))
+		a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "configuration"))
 		return fmt.Errorf("deploy not initialized")
 	}
 	// Brief saveMu.RLock for the nil-check; writeTempSave takes its own
@@ -212,13 +212,13 @@ func (a *App) DeployAndLaunch(targetName string) error {
 	noSave := a.save == nil
 	a.saveMu.RUnlock()
 	if noSave {
-		a.journalDebug("deploy_and_launch_failed", "save deploy and launch failed", field("stage", "no_active_save"))
+		a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "no_active_save"))
 		return fmt.Errorf("no save loaded")
 	}
 
 	tmpPath, err := a.writeTempSave()
 	if err != nil {
-		a.journalDebug("deploy_and_launch_failed", "save deploy and launch failed", field("stage", "serialize"))
+		a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "serialize"))
 		return err
 	}
 	defer os.Remove(tmpPath)
@@ -228,12 +228,12 @@ func (a *App) DeployAndLaunch(targetName string) error {
 	if a.isLocalTarget(targetName) {
 		transport = "local"
 		if err := a.deployLocal.UploadSave(targetName, tmpPath); err != nil {
-			a.journalDebug("deploy_and_launch_failed", "save deploy and launch failed", field("stage", "upload"), field("transport", transport))
+			a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "upload"), field("transport", transport))
 			return fmt.Errorf("upload failed: %w", err)
 		}
 	} else {
 		if err := a.deploySSH.UploadSave(targetName, tmpPath); err != nil {
-			a.journalDebug("deploy_and_launch_failed", "save deploy and launch failed", field("stage", "upload"), field("transport", transport))
+			a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "upload"), field("transport", transport))
 			return fmt.Errorf("upload failed: %w", err)
 		}
 	}
@@ -241,17 +241,17 @@ func (a *App) DeployAndLaunch(targetName string) error {
 	// Launch game
 	if a.isLocalTarget(targetName) {
 		if _, err := a.deployLocal.LaunchGame(targetName); err != nil {
-			a.journalDebug("deploy_and_launch_failed", "save deploy and launch failed", field("stage", "launch"), field("transport", transport))
+			a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "launch"), field("transport", transport))
 			return fmt.Errorf("launch failed: %w", err)
 		}
 	} else {
 		if _, err := a.deploySSH.LaunchGame(targetName); err != nil {
-			a.journalDebug("deploy_and_launch_failed", "save deploy and launch failed", field("stage", "launch"), field("transport", transport))
+			a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "launch"), field("transport", transport))
 			return fmt.Errorf("launch failed: %w", err)
 		}
 	}
 
-	a.journalDebug("deploy_and_launch_completed", "save deploy and launch completed", field("transport", transport))
+	a.journalLog(levelInfo, "deploy_and_launch_completed", "save deploy and launch completed", field("transport", transport))
 	return nil
 }
 
