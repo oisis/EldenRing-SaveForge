@@ -20,6 +20,7 @@ type ConversionInfo struct {
 // path and detected platform ("PC" or "PS4"). The file is not loaded into
 // memory; platform detection reads only the first 4 magic bytes.
 func (a *App) PrepareConversion() (*ConversionInfo, error) {
+	a.journalLog(levelInfo, "save_conversion_source_requested", "save conversion source requested")
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select Save File to Convert",
 		Filters: []runtime.FileFilter{
@@ -28,16 +29,24 @@ func (a *App) PrepareConversion() (*ConversionInfo, error) {
 		},
 	})
 	if err != nil {
+		a.journalLog(levelError, "save_conversion_source_failed", "save conversion source selection failed", field("stage", "dialog"))
 		return nil, err
 	}
 	if path == "" {
+		a.journalLog(levelInfo, "save_conversion_source_cancelled", "save conversion source selection cancelled")
 		return nil, fmt.Errorf("no file selected")
 	}
 
 	platform, err := peekSavePlatform(path)
 	if err != nil {
+		a.journalLog(levelError, "save_conversion_source_failed", "save conversion source selection failed", field("stage", "detect_platform"))
 		return nil, err
 	}
+	fields := []diagnosticField{field("platform", platform)}
+	if name := safeSaveFileName(path); name != "" {
+		fields = append(fields, field("save_file", name))
+	}
+	a.journalLog(levelInfo, "save_conversion_source_selected", "save conversion source selected", fields...)
 	return &ConversionInfo{Path: path, Platform: platform}, nil
 }
 
@@ -46,8 +55,14 @@ func (a *App) PrepareConversion() (*ConversionInfo, error) {
 // the result. steamIDStr is applied only when targetPlatform == "PC"; pass ""
 // for PC→PS4 conversions.
 func (a *App) ExecuteConversion(sourcePath string, targetPlatform string, steamIDStr string) (string, error) {
+	fields := []diagnosticField{field("target_platform", targetPlatform)}
+	if name := safeSaveFileName(sourcePath); name != "" {
+		fields = append(fields, field("source_file", name))
+	}
+	a.journalLog(levelInfo, "save_conversion_requested", "save conversion requested", fields...)
 	save, err := core.LoadSave(sourcePath)
 	if err != nil {
+		a.journalLog(levelError, "save_conversion_failed", "save conversion failed", field("stage", "parse"))
 		return "", fmt.Errorf("failed to load source save: %w", err)
 	}
 
@@ -55,10 +70,12 @@ func (a *App) ExecuteConversion(sourcePath string, targetPlatform string, steamI
 	case "PC":
 		steamID, err := strconv.ParseUint(steamIDStr, 10, 64)
 		if err != nil {
+			a.journalLog(levelError, "save_conversion_failed", "save conversion failed", field("stage", "steam_id"))
 			return "", fmt.Errorf("invalid Steam ID: %w", err)
 		}
 		iv := make([]byte, 16)
 		if _, err := rand.Read(iv); err != nil {
+			a.journalLog(levelError, "save_conversion_failed", "save conversion failed", field("stage", "iv"))
 			return "", fmt.Errorf("failed to generate IV: %w", err)
 		}
 		save.Platform = core.PlatformPC
@@ -69,6 +86,7 @@ func (a *App) ExecuteConversion(sourcePath string, targetPlatform string, steamI
 		save.Platform = core.PlatformPS
 		save.Encrypted = false
 	default:
+		a.journalLog(levelError, "save_conversion_failed", "save conversion failed", field("stage", "target_platform"))
 		return "", fmt.Errorf("unknown target platform: %s", targetPlatform)
 	}
 
@@ -80,15 +98,23 @@ func (a *App) ExecuteConversion(sourcePath string, targetPlatform string, steamI
 		},
 	})
 	if err != nil {
+		a.journalLog(levelError, "save_conversion_failed", "save conversion failed", field("stage", "dialog"))
 		return "", err
 	}
 	if destPath == "" {
+		a.journalLog(levelInfo, "save_conversion_cancelled", "save conversion cancelled")
 		return "", fmt.Errorf("no destination selected")
 	}
 
 	if err := save.SaveFile(destPath); err != nil {
+		a.journalLog(levelError, "save_conversion_failed", "save conversion failed", field("stage", "write"))
 		return "", fmt.Errorf("failed to write converted save: %w", err)
 	}
+	completed := []diagnosticField{field("target_platform", targetPlatform)}
+	if name := safeSaveFileName(destPath); name != "" {
+		completed = append(completed, field("save_file", name))
+	}
+	a.journalLog(levelInfo, "save_conversion_finished", "save conversion finished", completed...)
 	return destPath, nil
 }
 
