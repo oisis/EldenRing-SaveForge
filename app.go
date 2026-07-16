@@ -940,10 +940,10 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		}
 	}
 
-	// Auto-add / update container key item quantities.
+	// Auto-add / update container quantities.
 	for cID := range usedContainers {
 		desired := existingByContainer[cID]
-		current := existingKeyItemQty[cID]
+		current := inventoryContainerQuantity(slot, cID)
 		finalQty := desired
 		if current > finalQty {
 			finalQty = current
@@ -954,16 +954,10 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			finalQty = 1
 		}
 		if finalQty > current {
-			// Containers (Cracked/Ritual Pot, Perfume Bottle, Hefty Cracked Pot)
-			// live in Inventory.KeyItems with a goods handle (0xB0…), never in
-			// CommonItems. core.AddItemsToSlot would either skip the stackable row
-			// already present or create it in CommonItems — both wrong for this
-			// format — so upsert the KeyItems record directly.
-			if err := upsertInventoryKeyItemQuantity(slot, cID, uint32(finalQty)); err != nil {
+			if err := upsertInventoryContainerQuantity(slot, cID, uint32(finalQty)); err != nil {
 				core.RestoreSlot(slot, snapshot)
 				return result, fmt.Errorf("rollback after container upsert: %w", err)
 			}
-			existingKeyItemQty[cID] = finalQty
 		}
 
 		if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
@@ -1039,15 +1033,52 @@ func setInventoryKeyItemQuantity(slot *core.SaveSlot, row int, qty uint32) error
 	return nil
 }
 
-// upsertInventoryKeyItemQuantity ensures the goods container itemID (Cracked Pot,
-// Ritual Pot, Perfume Bottle, Hefty Cracked Pot) exists in Inventory.KeyItems at
-// the given quantity. If a KeyItems record with the canonical goods handle (0xB0…)
-// already exists, its quantity is updated in place. Otherwise a record is created
-// in the first empty KeyItems row with that handle, quantity, and a fresh
-// acquisition index. Containers are never routed into CommonItems. Returns an error
-// if the KeyItems section is full or offsets fall out of bounds.
-func upsertInventoryKeyItemQuantity(slot *core.SaveSlot, itemID, qty uint32) error {
+func setInventoryCommonItemQuantity(slot *core.SaveSlot, row int, qty uint32) error {
+	if row < 0 || row >= len(slot.Inventory.CommonItems) {
+		return fmt.Errorf("setInventoryCommonItemQuantity: row %d out of range (%d common items)", row, len(slot.Inventory.CommonItems))
+	}
+	off := slot.MagicOffset + core.InvStartFromMagic + row*core.InvRecordLen + 4
+	if off < 4 || off+4 > len(slot.Data) {
+		return fmt.Errorf("setInventoryCommonItemQuantity: quantity offset %d out of bounds (data len %d)", off, len(slot.Data))
+	}
+	binary.LittleEndian.PutUint32(slot.Data[off:], qty)
+	slot.Inventory.CommonItems[row].Quantity = qty
+	return nil
+}
+
+// inventoryContainerQuantity returns the largest physical quantity for the
+// container. Normal game saves place these goods records in CommonItems. The
+// KeyItems lookup preserves compatibility with saves written by versions
+// 1.3.3–1.5.1, which could have created a second legacy record there.
+func inventoryContainerQuantity(slot *core.SaveSlot, itemID uint32) int {
 	handle := db.ItemIDToHandlePrefix(itemID) | (itemID & 0x0FFFFFFF)
+	qty := 0
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle == handle && int(item.Quantity&0x7FFFFFFF) > qty {
+			qty = int(item.Quantity & 0x7FFFFFFF)
+		}
+	}
+	for _, item := range slot.Inventory.KeyItems {
+		if item.GaItemHandle == handle && int(item.Quantity&0x7FFFFFFF) > qty {
+			qty = int(item.Quantity & 0x7FFFFFFF)
+		}
+	}
+	return qty
+}
+
+// upsertInventoryContainerQuantity updates the physical container record
+// already present in inventory. Vanilla saves store the goods container in
+// CommonItems; a KeyItems record is supported only as a legacy compatibility
+// layout. When missing entirely, core.AddItemsToSlot creates the canonical
+// CommonItems record.
+func upsertInventoryContainerQuantity(slot *core.SaveSlot, itemID, qty uint32) error {
+	handle := db.ItemIDToHandlePrefix(itemID) | (itemID & 0x0FFFFFFF)
+
+	for row := range slot.Inventory.CommonItems {
+		if slot.Inventory.CommonItems[row].GaItemHandle == handle {
+			return setInventoryCommonItemQuantity(slot, row, qty)
+		}
+	}
 
 	for row := range slot.Inventory.KeyItems {
 		if slot.Inventory.KeyItems[row].GaItemHandle == handle {
@@ -1055,38 +1086,16 @@ func upsertInventoryKeyItemQuantity(slot *core.SaveSlot, itemID, qty uint32) err
 		}
 	}
 
-	for row := range slot.Inventory.KeyItems {
-		h := slot.Inventory.KeyItems[row].GaItemHandle
-		if h != core.GaHandleEmpty && h != core.GaHandleInvalid {
-			continue
-		}
-		keyStart := slot.MagicOffset + core.InvStartFromMagic +
-			core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
-		off := keyStart + row*core.InvRecordLen
-		if off < 0 || off+core.InvRecordLen > len(slot.Data) {
-			return fmt.Errorf("upsertInventoryKeyItemQuantity: row %d record offset %d out of bounds (data len %d)", row, off, len(slot.Data))
-		}
-		binary.LittleEndian.PutUint32(slot.Data[off:], handle)
-		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
-		slot.Inventory.KeyItems[row].GaItemHandle = handle
-		slot.Inventory.KeyItems[row].Quantity = qty
-		// AssignFreshInventoryIndex requires the handle to be written first; it
-		// stamps the acquisition index (record +8) in memory and slot.Data.
-		if _, err := core.AssignFreshInventoryIndex(slot, "inventory_key", row); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	return fmt.Errorf("upsertInventoryKeyItemQuantity: KeyItems section full, cannot add item 0x%08X", itemID)
+	return core.AddItemsToSlot(slot, []uint32{itemID}, int(qty), 0, false)
 }
 
-// syncContainerKeyItems reconciles container Key Items (Cracked/Ritual/Hefty Pot,
+// syncContainerKeyItems reconciles containers (Cracked/Ritual/Hefty Pot,
 // Perfume Bottle) against the current slot state after a manual inventory edit
 // (Character → Inventory → Save Changes, via SaveCharacter). Each container's
 // quantity is raised to cover the total active Inventory units of its gated
 // family; a family present only in Storage forces at least one container.
-// Quantities are never lowered and containers only ever live in Inventory.KeyItems.
+// Quantities are never lowered. Existing records are updated in their physical
+// section; missing records are added to canonical Inventory.CommonItems.
 // On a confirmed increase the container's pickup/vendor flags are set for the
 // saved quantity. Returns an error if a container record cannot be written.
 func syncContainerKeyItems(slot *core.SaveSlot) error {
@@ -1119,16 +1128,6 @@ func syncContainerKeyItems(slot *core.SaveSlot) error {
 		}
 	}
 
-	currentQty := make(map[uint32]int)
-	for _, it := range slot.Inventory.KeyItems {
-		if !live(it.GaItemHandle) {
-			continue
-		}
-		if id := db.HandleToItemID(it.GaItemHandle); data.IsContainerItem(id) {
-			currentQty[id] = int(it.Quantity & 0x7FFFFFFF)
-		}
-	}
-
 	needed := make(map[uint32]bool)
 	for cID := range invByContainer {
 		needed[cID] = true
@@ -1137,7 +1136,7 @@ func syncContainerKeyItems(slot *core.SaveSlot) error {
 		needed[cID] = true
 	}
 	for cID := range needed {
-		current := currentQty[cID]
+		current := inventoryContainerQuantity(slot, cID)
 		finalQty := invByContainer[cID]
 		if current > finalQty {
 			finalQty = current
@@ -1146,7 +1145,7 @@ func syncContainerKeyItems(slot *core.SaveSlot) error {
 			finalQty = 1
 		}
 		if finalQty > current {
-			if err := upsertInventoryKeyItemQuantity(slot, cID, uint32(finalQty)); err != nil {
+			if err := upsertInventoryContainerQuantity(slot, cID, uint32(finalQty)); err != nil {
 				return err
 			}
 			// Container written successfully — set pickup/vendor flags for the

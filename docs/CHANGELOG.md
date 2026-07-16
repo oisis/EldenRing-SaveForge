@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-07-16
+
+### fix(inventory): preserve canonical crafting-container records
+
+Cracked Pot, Ritual Pot, Hefty Cracked Pot, and Perfume Bottle now update the
+container record already present in the save. Vanilla container records in
+Inventory Common Items are updated in place; legacy Key Items records created
+by earlier SaveForge versions remain supported without creating another copy.
+New containers are written to Common Items, so a full Key Items section no
+longer blocks pot or perfume additions.
+
 ## [1.5.1] - 2026-07-16
 
 ### fix(save): preserve game-owned equip counters when adding items

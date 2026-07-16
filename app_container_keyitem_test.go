@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/binary"
 	"testing"
 
@@ -10,11 +9,11 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
-// Confirmed against the real save tmp/save/ER0000.sl2: the game's containers
-// (Cracked Pot, Ritual Pot, …) live in Inventory.KeyItems with a 0xB0… goods
-// handle — never in Inventory.CommonItems. These tests drive the public
-// App.AddItemsToCharacter path so they cover the whole add + rollback flow, not
-// just the upsert helper in isolation.
+// Confirmed against the real save tmp/save/ER0000-kro55.sl2: the game's
+// containers (Cracked Pot, Ritual Pot, …) live in Inventory.CommonItems with a
+// 0xB0… goods handle. These tests drive the public App.AddItemsToCharacter path
+// so they cover the whole add + rollback flow, not just the upsert helper in
+// isolation.
 const (
 	firePotID        = uint32(0x4000012C)
 	firePotHandle    = uint32(0xB000012C)
@@ -37,6 +36,28 @@ func findKeyItem(slot *core.SaveSlot, handle uint32) (int, uint32) {
 	return -1, 0
 }
 
+func findCommonItem(slot *core.SaveSlot, handle uint32) (int, uint32) {
+	for i := range slot.Inventory.CommonItems {
+		if slot.Inventory.CommonItems[i].GaItemHandle == handle {
+			return i, slot.Inventory.CommonItems[i].Quantity
+		}
+	}
+	return -1, 0
+}
+
+func addCommonItemFixtureRow(t *testing.T, app *App, row int, handle, index, qty uint32) {
+	t.Helper()
+	slot := &app.save.Slots[0]
+	if row < 0 || row >= len(slot.Inventory.CommonItems) {
+		t.Fatalf("common row %d out of range", row)
+	}
+	off := slot.MagicOffset + core.InvStartFromMagic + row*core.InvRecordLen
+	binary.LittleEndian.PutUint32(slot.Data[off:], handle)
+	binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
+	binary.LittleEndian.PutUint32(slot.Data[off+8:], index)
+	slot.Inventory.CommonItems[row] = core.InventoryItem{GaItemHandle: handle, Quantity: qty, Index: index}
+}
+
 // eventFlagsRegionSize covers every Cracked Pot flag the container loop touches:
 // the pickup block (66000 → byte 0x7D0, group ends ~0x7E7) and Kale's vendor
 // purchase flag 710580 → byte 0x367B. Sized past the highest so no SetEventFlag
@@ -54,12 +75,11 @@ func withContainerEventFlags(app *App) {
 
 // TestContainer covers the container-writer patch through the public add path.
 func TestContainer(t *testing.T) {
-	// 1. Existing container: a Cracked Pot already in KeyItems has its quantity
-	// bumped to match the pots added — in memory and in the binary KeyItems
-	// record — never spawning a CommonItems container record.
+	// 1. Regression case: a vanilla Cracked Pot in CommonItems is updated in
+	// place when Fire Pots are added. No duplicate KeyItems record may appear.
 	t.Run("ExistingCrackedPotBumped", func(t *testing.T) {
 		app := remembranceGameLimitsFixture()
-		addKeyItemFixtureRow(t, app, 0, crackedPotHandle, 2000, 1)
+		addCommonItemFixtureRow(t, app, 0, crackedPotHandle, 2000, 1)
 		withContainerEventFlags(app)
 		slot := &app.save.Slots[0]
 
@@ -71,15 +91,15 @@ func TestContainer(t *testing.T) {
 			t.Fatalf("Added = %d, want 1", res.Added)
 		}
 
-		if got := slot.Inventory.KeyItems[0].Quantity; got != 2 {
+		if got := slot.Inventory.CommonItems[0].Quantity; got != 2 {
 			t.Errorf("in-memory Cracked Pot qty = %d, want 2", got)
 		}
-		if got := keyItemBinQty(slot, 0); got != 2 {
+		invStart := slot.MagicOffset + core.InvStartFromMagic
+		if got, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, crackedPotHandle); !ok || got != 2 {
 			t.Errorf("binary Cracked Pot qty = %d, want 2", got)
 		}
-		invStart := slot.MagicOffset + core.InvStartFromMagic
-		if _, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, crackedPotHandle); ok {
-			t.Error("Cracked Pot found in CommonItems, want none")
+		if row, _ := findKeyItem(slot, crackedPotHandle); row >= 0 {
+			t.Error("Cracked Pot duplicated into KeyItems")
 		}
 
 		flags := slot.Data[slot.EventFlagsOffset:]
@@ -90,9 +110,28 @@ func TestContainer(t *testing.T) {
 		}
 	})
 
-	// 2. Missing container: adding one Fire Pot creates the Cracked Pot from
-	// scratch, only in KeyItems, with the canonical handle, qty 1 and a fresh
-	// acquisition index.
+	// 2. Saves created by versions 1.3.3–1.5.1 may have the container only in
+	// KeyItems. Preserve that physical layout when raising the quantity instead
+	// of creating yet another CommonItems record.
+	t.Run("LegacyKeyItemsCrackedPotBumped", func(t *testing.T) {
+		app := remembranceGameLimitsFixture()
+		addKeyItemFixtureRow(t, app, 0, crackedPotHandle, 2000, 1)
+		withContainerEventFlags(app)
+		slot := &app.save.Slots[0]
+
+		if _, err := app.AddItemsToCharacter(0, []uint32{firePotID}, 0, 0, 0, 0, 2, 0); err != nil {
+			t.Fatalf("AddItemsToCharacter: %v", err)
+		}
+		if got := slot.Inventory.KeyItems[0].Quantity; got != 2 {
+			t.Errorf("legacy KeyItems Cracked Pot qty = %d, want 2", got)
+		}
+		if row, _ := findCommonItem(slot, crackedPotHandle); row >= 0 {
+			t.Error("legacy Cracked Pot duplicated into CommonItems")
+		}
+	})
+
+	// 3. Missing container: adding one Fire Pot creates the Cracked Pot from
+	// scratch in canonical CommonItems, with qty 1 and a fresh acquisition index.
 	t.Run("MissingCrackedPotCreated", func(t *testing.T) {
 		app := remembranceGameLimitsFixture()
 		slot := &app.save.Slots[0]
@@ -107,43 +146,35 @@ func TestContainer(t *testing.T) {
 			t.Fatalf("Added = %d, want 1", res.Added)
 		}
 
-		row := -1
-		for i := range slot.Inventory.KeyItems {
-			if slot.Inventory.KeyItems[i].GaItemHandle == crackedPotHandle {
-				row = i
-				break
-			}
-		}
+		row, qty := findCommonItem(slot, crackedPotHandle)
 		if row < 0 {
-			t.Fatal("Cracked Pot not found in KeyItems")
+			t.Fatal("Cracked Pot not found in CommonItems")
 		}
-		it := slot.Inventory.KeyItems[row]
-		if it.Quantity != 1 {
-			t.Errorf("Cracked Pot qty = %d, want 1", it.Quantity)
+		if qty != 1 {
+			t.Errorf("Cracked Pot qty = %d, want 1", qty)
 		}
 		// Fresh, safe acquisition index: at least the fixture's starting
 		// NextAcquisitionSortId (1000), and the counter must have advanced past it.
+		it := slot.Inventory.CommonItems[row]
 		if it.Index < 1000 {
 			t.Errorf("Cracked Pot acquisition index = %d, want >= 1000", it.Index)
 		}
 		if slot.Inventory.NextAcquisitionSortId <= it.Index {
 			t.Errorf("NextAcquisitionSortId = %d, want > record index %d", slot.Inventory.NextAcquisitionSortId, it.Index)
 		}
-		if got := keyItemBinQty(slot, row); got != 1 {
+		invStart := slot.MagicOffset + core.InvStartFromMagic
+		if got, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, crackedPotHandle); !ok || got != 1 {
 			t.Errorf("binary Cracked Pot qty = %d, want 1", got)
 		}
-		keyStart := slot.MagicOffset + core.InvStartFromMagic +
-			core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
-		recOff := keyStart + row*core.InvRecordLen
+		recOff := invStart + row*core.InvRecordLen
 		if got := binary.LittleEndian.Uint32(slot.Data[recOff:]); got != crackedPotHandle {
 			t.Errorf("binary Cracked Pot handle = 0x%08X, want 0x%08X", got, crackedPotHandle)
 		}
 		if got := binary.LittleEndian.Uint32(slot.Data[recOff+8:]); got != it.Index {
 			t.Errorf("binary Cracked Pot index = %d, want %d (matches in-memory)", got, it.Index)
 		}
-		invStart := slot.MagicOffset + core.InvStartFromMagic
-		if _, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, crackedPotHandle); ok {
-			t.Error("Cracked Pot found in CommonItems, want none")
+		if keyRow, _ := findKeyItem(slot, crackedPotHandle); keyRow >= 0 {
+			t.Error("Cracked Pot unexpectedly created in KeyItems")
 		}
 
 		flags := slot.Data[slot.EventFlagsOffset:]
@@ -152,11 +183,9 @@ func TestContainer(t *testing.T) {
 		}
 	})
 
-	// 3. Full KeyItems + rollback: with every KeyItems row occupied the container
-	// upsert fails; the public method returns that error, the whole slot rolls
-	// back byte-identical, no pickup flag is set, and neither Fire Pot nor
-	// Cracked Pot leaks into CommonItems.
-	t.Run("FullKeyItemsRollback", func(t *testing.T) {
+	// 4. KeyItems capacity is irrelevant to a new canonical CommonItems
+	// container. This guards against reintroducing the old routing regression.
+	t.Run("FullKeyItemsDoesNotBlockCommonContainer", func(t *testing.T) {
 		app := remembranceGameLimitsFixture()
 		// Filler handles sit in an empty goods range (0xB0001xxx) so none resolves
 		// to Fire Pot (0xB000012C) or Cracked Pot (0xB000251C); each index is unique.
@@ -166,32 +195,25 @@ func TestContainer(t *testing.T) {
 		withContainerEventFlags(app)
 		slot := &app.save.Slots[0]
 
-		before := append([]byte(nil), slot.Data...)
-
-		_, err := app.AddItemsToCharacter(0, []uint32{firePotID}, 0, 0, 0, 0, 1, 0)
-		if err == nil {
-			t.Fatal("AddItemsToCharacter into full KeyItems: want error, got nil")
-		}
-
-		if !bytes.Equal(slot.Data, before) {
-			t.Error("slot.Data not byte-identical after rollback")
+		if _, err := app.AddItemsToCharacter(0, []uint32{firePotID}, 0, 0, 0, 0, 1, 0); err != nil {
+			t.Fatalf("AddItemsToCharacter with full KeyItems: %v", err)
 		}
 		flags := slot.Data[slot.EventFlagsOffset:]
-		if set, err := db.GetEventFlag(flags, data.ContainerPickupFlags[data.CrackedPotKeyItemID][0]); err != nil || set {
-			t.Errorf("first pickup flag set=%v err=%v, want unset", set, err)
+		if set, err := db.GetEventFlag(flags, data.ContainerPickupFlags[data.CrackedPotKeyItemID][0]); err != nil || !set {
+			t.Errorf("first pickup flag set=%v err=%v, want set", set, err)
 		}
 		invStart := slot.MagicOffset + core.InvStartFromMagic
-		if _, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, firePotHandle); ok {
-			t.Error("Fire Pot leaked into CommonItems after rollback")
+		if _, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, firePotHandle); !ok {
+			t.Error("Fire Pot missing from CommonItems")
 		}
-		if _, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, crackedPotHandle); ok {
-			t.Error("Cracked Pot leaked into CommonItems after rollback")
+		if got, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, crackedPotHandle); !ok || got != 1 {
+			t.Errorf("Cracked Pot in CommonItems = %d, want 1", got)
 		}
 	})
 }
 
 // TestContainerStorageAdd: adding a pot/perfume to Storage must still guarantee a
-// container in Key Items, but only the minimal one — Storage consumes no per-unit
+// container in CommonItems, but only the minimal one — Storage consumes no per-unit
 // containers, so raising the Storage stack never raises the container past 1.
 func TestContainerStorageAdd(t *testing.T) {
 	app := remembranceGameLimitsFixture()
@@ -203,23 +225,22 @@ func TestContainerStorageAdd(t *testing.T) {
 	if _, err := app.AddItemsToCharacter(0, []uint32{sparkAromaticID}, 0, 0, 0, 0, 0, 2); err != nil {
 		t.Fatalf("storage add: %v", err)
 	}
-	row, qty := findKeyItem(slot, perfumeBottleHandle)
+	row, qty := findCommonItem(slot, perfumeBottleHandle)
 	if row < 0 {
-		t.Fatal("Perfume Bottle not created in KeyItems from a Storage-only add")
+		t.Fatal("Perfume Bottle not created in CommonItems from a Storage-only add")
 	}
 	if qty != 1 {
 		t.Errorf("Perfume Bottle qty = %d, want 1 (Storage consumes no per-unit container)", qty)
 	}
-	invStart := slot.MagicOffset + core.InvStartFromMagic
-	if _, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, perfumeBottleHandle); ok {
-		t.Error("Perfume Bottle found in Inventory CommonItems, want KeyItems only")
+	if keyRow, _ := findKeyItem(slot, perfumeBottleHandle); keyRow >= 0 {
+		t.Error("Perfume Bottle unexpectedly created in KeyItems")
 	}
 
 	// A larger Storage stack must not raise the bottle above the minimal 1.
 	if _, err := app.AddItemsToCharacter(0, []uint32{sparkAromaticID}, 0, 0, 0, 0, 0, 5); err != nil {
 		t.Fatalf("second storage add: %v", err)
 	}
-	if _, qty := findKeyItem(slot, perfumeBottleHandle); qty != 1 {
+	if _, qty := findCommonItem(slot, perfumeBottleHandle); qty != 1 {
 		t.Errorf("Perfume Bottle qty after larger Storage add = %d, want unchanged 1", qty)
 	}
 
@@ -236,49 +257,47 @@ func TestContainerStorageAdd(t *testing.T) {
 }
 
 // containerEditFixture builds a slot holding one Inventory common item (a
-// pot/perfume) and its Key Items container — both in memory and binary — plus an
-// event-flags region. It mirrors the state the Inventory tab edits: GetCharacter →
-// change char.inventory → SaveCharacter.
+// pot/perfume) and its canonical CommonItems container — both in memory and
+// binary — plus an event-flags region. It mirrors the state the Inventory tab
+// edits: GetCharacter → change char.inventory → SaveCharacter.
 func containerEditFixture(t *testing.T, itemHandle, itemID, itemQty, containerHandle, containerQty uint32) *App {
 	t.Helper()
 	app := remembranceGameLimitsFixture()
 	slot := &app.save.Slots[0]
 	invStart := slot.MagicOffset + core.InvStartFromMagic
-	keyStart := invStart + core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
-
 	slot.GaMap[itemHandle] = itemID
 	binary.LittleEndian.PutUint32(slot.Data[invStart:], itemHandle)
 	binary.LittleEndian.PutUint32(slot.Data[invStart+4:], itemQty)
 	binary.LittleEndian.PutUint32(slot.Data[invStart+8:], 900)
 	slot.Inventory.CommonItems[0] = core.InventoryItem{GaItemHandle: itemHandle, Quantity: itemQty, Index: 900}
 
-	slot.Inventory.KeyItems = make([]core.InventoryItem, core.KeyItemCount)
-	binary.LittleEndian.PutUint32(slot.Data[keyStart:], containerHandle)
-	binary.LittleEndian.PutUint32(slot.Data[keyStart+4:], containerQty)
-	binary.LittleEndian.PutUint32(slot.Data[keyStart+8:], 901)
-	slot.Inventory.KeyItems[0] = core.InventoryItem{GaItemHandle: containerHandle, Quantity: containerQty, Index: 901}
+	binary.LittleEndian.PutUint32(slot.Data[invStart+core.InvRecordLen:], containerHandle)
+	binary.LittleEndian.PutUint32(slot.Data[invStart+core.InvRecordLen+4:], containerQty)
+	binary.LittleEndian.PutUint32(slot.Data[invStart+core.InvRecordLen+8:], 901)
+	slot.Inventory.CommonItems[1] = core.InventoryItem{GaItemHandle: containerHandle, Quantity: containerQty, Index: 901}
 
 	withContainerEventFlags(app)
 	return app
 }
 
-// assertContainerSaved checks the container reached wantQty in memory and binary,
-// never leaked into CommonItems, and set its first wantQty pickup flags.
+// assertContainerSaved checks the container reached wantQty in canonical
+// CommonItems in memory and binary, never leaked into KeyItems, and set its first
+// wantQty pickup flags.
 func assertContainerSaved(t *testing.T, slot *core.SaveSlot, containerHandle, containerID uint32, wantQty int) {
 	t.Helper()
-	row, qty := findKeyItem(slot, containerHandle)
+	row, qty := findCommonItem(slot, containerHandle)
 	if row < 0 {
-		t.Fatalf("container 0x%08X missing from KeyItems after save", containerHandle)
+		t.Fatalf("container 0x%08X missing from CommonItems after save", containerHandle)
 	}
 	if int(qty) != wantQty {
 		t.Errorf("in-memory container qty = %d, want %d", qty, wantQty)
 	}
-	if got := keyItemBinQty(slot, row); int(got) != wantQty {
+	invStart := slot.MagicOffset + core.InvStartFromMagic
+	if got, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, containerHandle); !ok || int(got) != wantQty {
 		t.Errorf("binary container qty = %d, want %d", got, wantQty)
 	}
-	invStart := slot.MagicOffset + core.InvStartFromMagic
-	if _, ok := quantityInRecords(slot.Data, invStart, core.CommonItemCount, containerHandle); ok {
-		t.Error("container leaked into Inventory CommonItems, want KeyItems only")
+	if keyRow, _ := findKeyItem(slot, containerHandle); keyRow >= 0 {
+		t.Error("container leaked into Inventory KeyItems")
 	}
 	flags := slot.Data[slot.EventFlagsOffset:]
 	for i := 0; i < wantQty && i < len(data.ContainerPickupFlags[containerID]); i++ {
@@ -349,10 +368,9 @@ func TestContainerSaveCharacterPerfume(t *testing.T) {
 	assertContainerSaved(t, slot, perfumeBottleHandle, data.PerfumeBottleKeyItemID, 2)
 }
 
-// TestContainerSaveCharacterFullKeyItemsRollback: raising a pot via SaveCharacter
-// when Key Items is full and the required container is missing must fail, leave
-// slot.Data byte-identical, create no container and set no pickup flag.
-func TestContainerSaveCharacterFullKeyItemsRollback(t *testing.T) {
+// TestContainerSaveCharacterFullKeyItems: a full KeyItems section does not block
+// SaveCharacter from creating the missing canonical CommonItems container.
+func TestContainerSaveCharacterFullKeyItems(t *testing.T) {
 	app := remembranceGameLimitsFixture()
 	slot := &app.save.Slots[0]
 	invStart := slot.MagicOffset + core.InvStartFromMagic
@@ -370,8 +388,6 @@ func TestContainerSaveCharacterFullKeyItemsRollback(t *testing.T) {
 	}
 	withContainerEventFlags(app)
 
-	before := append([]byte(nil), slot.Data...)
-
 	charVM, err := app.GetCharacter(0)
 	if err != nil {
 		t.Fatalf("GetCharacter: %v", err)
@@ -388,18 +404,17 @@ func TestContainerSaveCharacterFullKeyItemsRollback(t *testing.T) {
 		t.Fatalf("Fire Pot (0x%08X) absent from GetCharacter VM", firePotHandle)
 	}
 
-	if err := app.SaveCharacter(0, *charVM); err == nil {
-		t.Fatal("SaveCharacter into full KeyItems: want error, got nil")
-	}
-
-	if !bytes.Equal(slot.Data, before) {
-		t.Error("slot.Data not byte-identical after rollback")
+	if err := app.SaveCharacter(0, *charVM); err != nil {
+		t.Fatalf("SaveCharacter into full KeyItems: %v", err)
 	}
 	if row, _ := findKeyItem(slot, crackedPotHandle); row >= 0 {
-		t.Error("Cracked Pot created despite rollback")
+		t.Error("Cracked Pot created in KeyItems")
+	}
+	if _, qty := findCommonItem(slot, crackedPotHandle); qty != 2 {
+		t.Errorf("Cracked Pot CommonItems qty = %d, want 2", qty)
 	}
 	flags := slot.Data[slot.EventFlagsOffset:]
-	if set, err := db.GetEventFlag(flags, data.ContainerPickupFlags[data.CrackedPotKeyItemID][0]); err != nil || set {
-		t.Errorf("first pickup flag set=%v err=%v, want unset", set, err)
+	if set, err := db.GetEventFlag(flags, data.ContainerPickupFlags[data.CrackedPotKeyItemID][0]); err != nil || !set {
+		t.Errorf("first pickup flag set=%v err=%v, want set", set, err)
 	}
 }
