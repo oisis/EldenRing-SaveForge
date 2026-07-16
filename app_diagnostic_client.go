@@ -23,6 +23,21 @@ func (a *App) RecordDiagnosticClientError(kind, errorType, message string) {
 		field("message", truncateDiagnosticRunes(message, maxClientDiagnosticMessageRunes)))
 }
 
+// RecordDiagnosticClientAssetLoadFailure records that a specific item icon
+// actually failed to load in the renderer (a real <img> error, not asset-server
+// fallback chatter). The renderer supplies only the public, relative icon path
+// items/<category>/<file>.png and cannot choose the event, message, level, or
+// any other field. An asset failing strict validation is dropped without a
+// record; a validated asset is the single deliberate exception to the journal
+// path sanitizer (see sanitizeFields / isValidIconAsset).
+func (a *App) RecordDiagnosticClientAssetLoadFailure(asset string) {
+	if !isValidIconAsset(asset) {
+		return
+	}
+	a.journalLogFrom(levelWarn, "frontend", "asset_load_failed", "item icon failed to load",
+		field("asset", asset))
+}
+
 func truncateDiagnosticRunes(value string, limit int) string {
 	if limit <= 0 {
 		return ""

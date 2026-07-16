@@ -29,6 +29,60 @@ func TestRecordDiagnosticClientErrorIsDurableAndSanitized(t *testing.T) {
 	}
 }
 
+func TestRecordDiagnosticClientAssetLoadFailureKeepsValidatedAssetVisible(t *testing.T) {
+	app := NewApp()
+	app.journal = newInMemoryDiagnosticJournal()
+	app.RecordDiagnosticClientAssetLoadFailure("items/tools/fire_pot.png")
+
+	record := operationEvent(t, app.journal.Tail(), "asset_load_failed")
+	if record.Level != levelWarn || record.Source != "frontend" {
+		t.Errorf("unexpected record: level=%q source=%q", record.Level, record.Source)
+	}
+	if record.Message != "item icon failed to load" {
+		t.Errorf("message = %q, want fixed message", record.Message)
+	}
+	// The general path sanitizer would redact items/tools/fire_pot.png; the
+	// narrow asset exception must keep the validated value readable.
+	if got := operationField(record, "asset"); got != "items/tools/fire_pot.png" {
+		t.Errorf("asset = %q, want items/tools/fire_pot.png (must survive sanitizer)", got)
+	}
+}
+
+func TestRecordDiagnosticClientAssetLoadFailureRejectsUnsafeAssets(t *testing.T) {
+	unsafe := []string{
+		"https://internal.example/items/tools/fire_pot.png", // URL / host
+		"/items/tools/fire_pot.png",                         // absolute path
+		"items/../secrets/key.png",                          // traversal
+		"items/tools/fire_pot.png?token=secret",             // query string
+		"items/tools/fire_pot.exe",                          // wrong extension
+		"items/tools/Fire_Pot.png",                          // uppercase
+		"",                                                  // empty
+	}
+	for _, asset := range unsafe {
+		app := NewApp()
+		app.journal = newInMemoryDiagnosticJournal()
+		app.RecordDiagnosticClientAssetLoadFailure(asset)
+		if got := len(app.journal.Tail()); got != 0 {
+			t.Errorf("asset %q produced %d records, want 0", asset, got)
+		}
+	}
+}
+
+func TestAssetSanitizerExceptionDoesNotWeakenPathRedaction(t *testing.T) {
+	// A non-asset field carrying an icon-shaped path is still redacted, and an
+	// "asset" field whose value fails validation falls through to sanitize.
+	fields := sanitizeFields([]diagnosticField{
+		field("detail", "items/tools/fire_pot.png"),
+		field("asset", "/Users/alice/items/tools/fire_pot.png"),
+	})
+	if got := fields[0].Value; strings.Contains(got, "fire_pot.png") {
+		t.Errorf("non-asset path not redacted: %q", got)
+	}
+	if got := fields[1].Value; strings.Contains(got, "alice") {
+		t.Errorf("invalid asset value not redacted: %q", got)
+	}
+}
+
 func TestRecordDiagnosticClientErrorBoundsMessageAndNormalizesKind(t *testing.T) {
 	app := NewApp()
 	app.journal = newInMemoryDiagnosticJournal()

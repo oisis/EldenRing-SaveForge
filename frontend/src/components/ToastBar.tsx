@@ -138,14 +138,15 @@ function formatConsoleTime(time: string): string {
         : parsed.toLocaleTimeString('en-GB', {hour12: false});
 }
 
-// Keep each record as one DOM text node. Flex children made copied console
-// output split timestamps, levels, messages, and fields across lines. Long
-// records may still wrap visually, but clipboard text remains one log line.
-function formatConsoleLine(entry: ConsoleEntry): string {
-	const details = entry.details === '' ? '' : ` — ${entry.details}`;
-	const loading = entry.loading ? ' ...' : '';
-	return `${formatConsoleTime(entry.time)} ${entry.level.toUpperCase()} [${entry.source}/${entry.event}] ${entry.message}${loading}${details}`;
-}
+// Only the level word is colored; the rest of the record stays white. The
+// level is an inline <span> (not flex/grid or a block element), so the record
+// still copies as one line of text.
+const levelColorClass: Record<LogLevel, string> = {
+	error: 'text-red-500',
+	warn: 'text-orange-400',
+	info: 'text-green-500',
+	debug: 'text-blue-400',
+};
 
 export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
     const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -405,7 +406,7 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
                                 value={search}
                                 onChange={event => setSearch(event.target.value)}
                                 placeholder="Search"
-                                className="h-6 w-28 rounded border px-2 text-[9px] font-mono outline-none placeholder:opacity-50"
+                                className="h-6 w-56 rounded border px-2 text-[9px] font-mono outline-none placeholder:opacity-50"
                                 style={{ background: 'var(--sf-console-bg)', borderColor: 'var(--sf-console-border)', color: 'var(--sf-console-text)' }}
                             />
                             {consoleWidth > 0 && (
@@ -433,14 +434,20 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
                     {/* Log body — newest entries on top. Filtering is UI-only:
                         it never alters the durable journal. */}
                     <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2 font-mono text-[11px] space-y-0.5">
-                        {visibleConsoleEntries.slice().reverse().map(entry => (
-                            <div
-                                key={entry.id}
-                                className="break-words text-white"
-                            >
-                                {formatConsoleLine(entry)}
-                            </div>
-                        ))}
+                        {visibleConsoleEntries.slice().reverse().map(entry => {
+                            const details = entry.details === '' ? '' : ` — ${entry.details}`;
+                            const loading = entry.loading ? ' ...' : '';
+                            return (
+                                <div
+                                    key={entry.id}
+                                    className="break-words text-white"
+                                >
+                                    {`${formatConsoleTime(entry.time)} `}
+                                    <span className={levelColorClass[entry.level]}>{entry.level.toUpperCase()}</span>
+                                    {` [${entry.source}/${entry.event}] ${entry.message}${loading}${details}`}
+                                </div>
+                            );
+                        })}
                         {visibleConsoleEntries.length === 0 && (
                             <div className="text-center py-8" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.3 }}>
                                 {allConsoleEntries.length === 0 ? 'No log entries' : 'No matching log entries'}

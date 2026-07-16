@@ -105,6 +105,23 @@ func TestNewDiagnosticJournalWritesSessionStarted(t *testing.T) {
 	if got.Timestamp == "" {
 		t.Error("timestamp must be set")
 	}
+	// The first record must carry the running app_version so a crash in early
+	// startup still leaves it on record. Assert equality with the current
+	// appVersion (not a literal release) so a version bump never breaks this.
+	var version string
+	found := false
+	for _, f := range got.Fields {
+		if f.Key == "app_version" {
+			version = f.Value
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("session_started fields = %+v, want an app_version field", got.Fields)
+	}
+	if version != appVersion {
+		t.Errorf("app_version = %q, want %q", version, appVersion)
+	}
 }
 
 func TestDiagnosticJournalRecordShapeAndOrder(t *testing.T) {
@@ -318,6 +335,7 @@ func TestWailsJournalLoggerSkipsNoisyAssetLoadDebug(t *testing.T) {
 	sink := newWailsJournalLogger(j)
 
 	sink.Debug("[ExternalAssetHandler] Loading 'https://example.invalid/asset.png'")
+	sink.Debug("[AssetHandler] File '/items/tools/fire_pot.png' not found, serving '/index.html' by AssetHandler")
 	sink.Debug("application debug detail")
 
 	records := j.Tail()

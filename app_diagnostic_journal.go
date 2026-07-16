@@ -119,6 +119,15 @@ func sanitizeFields(fields []diagnosticField) []diagnosticField {
 			out[i] = diagnosticField{Key: f.Key, Value: "[redacted]"}
 			continue
 		}
+		// Narrow, deliberate exception: a strictly validated item-icon path
+		// (items/<category>/<file>.png) is kept verbatim so an asset_load_failed
+		// record stays diagnostic — the general path sanitizer would otherwise
+		// redact it. Any other "asset" value, or any non-matching syntax, still
+		// falls through to sanitize below.
+		if f.Key == "asset" && isValidIconAsset(f.Value) {
+			out[i] = f
+			continue
+		}
 		out[i] = diagnosticField{Key: f.Key, Value: sanitize(f.Value)}
 	}
 	return out
@@ -265,7 +274,9 @@ func newDiagnosticJournalInDir(dir string) (*DiagnosticJournal, error) {
 		return nil, fmt.Errorf("newDiagnosticJournalInDir: %w", err)
 	}
 	j := &DiagnosticJournal{f: f, path: path, tailMax: diagnosticTailMax}
-	if err := j.append(levelInfo, sourceApp, "session_started", "diagnostic session started", nil); err != nil {
+	// app_version is stamped here, at journal creation before wails.Run, so a
+	// crash in early startup still leaves the running version on record.
+	if err := j.append(levelInfo, sourceApp, "session_started", "diagnostic session started", []diagnosticField{field("app_version", appVersion)}); err != nil {
 		f.Close()
 		return nil, err
 	}
@@ -500,8 +511,33 @@ func (w *wailsJournalLogger) record(level diagnosticLevel, event, message string
 	}
 }
 
+// isNoisyWailsDebug reports whether a Wails debug line is asset-handler
+// fallback chatter with no diagnostic value. Both the internal and external
+// asset handlers emit a line per served asset (Loading / not found, serving),
+// producing dozens of redacted, path-shaped entries that never prove an icon
+// failed to reach the user. Only Debug() consults this — Warning/Error/Fatal
+// are always recorded.
 func isNoisyWailsDebug(message string) bool {
-	return strings.Contains(message, "[ExternalAssetHandler] Loading ")
+	return strings.Contains(message, "[ExternalAssetHandler]") ||
+		strings.Contains(message, "[AssetHandler]")
+}
+
+// reIconAsset matches the sole public, relative item-icon path the diagnostics
+// layer trusts verbatim: items/<category>/<file>.png, lowercase letters,
+// digits, '_', '-', '.' only. No leading slash, scheme, host, query string,
+// or absolute path can match. The explicit ".." check in isValidIconAsset
+// rejects traversal that the character class alone would admit.
+var reIconAsset = regexp.MustCompile(`^items/[a-z0-9._-]+/[a-z0-9._-]+\.png$`)
+
+// isValidIconAsset reports whether asset is a safe, public item-icon path.
+// It is the single validation rule shared by the client endpoint (which drops
+// an invalid asset without logging) and the journal's narrow sanitizer
+// exception (which keeps a valid asset readable). Anything else is untrusted.
+func isValidIconAsset(asset string) bool {
+	if strings.Contains(asset, "..") {
+		return false
+	}
+	return reIconAsset.MatchString(asset)
 }
 
 func (w *wailsJournalLogger) Print(message string) { w.record(levelInfo, "print", message) }

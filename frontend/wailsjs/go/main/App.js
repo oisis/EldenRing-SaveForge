@@ -398,6 +398,10 @@ export function RebuildBuildTemplateLibraryIndex() {
   return window['go']['main']['App']['RebuildBuildTemplateLibraryIndex']();
 }
 
+export function RecordDiagnosticClientAssetLoadFailure(arg1) {
+  return window['go']['main']['App']['RecordDiagnosticClientAssetLoadFailure'](arg1);
+}
+
 export function RecordDiagnosticClientError(arg1, arg2, arg3) {
   return window['go']['main']['App']['RecordDiagnosticClientError'](arg1, arg2, arg3);
 }

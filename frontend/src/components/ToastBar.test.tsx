@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getDiagnosticLogTail = vi.fn<() => Promise<string>>();
@@ -57,11 +57,19 @@ describe('ToastBar diagnostic console', () => {
         render(<ToastBar />);
         openConsole();
 
-        const infoLine = await screen.findByText(/INFO \[app\/save_loaded\] active save loaded/);
-        expect(infoLine).toHaveTextContent(/\d{2}:\d{2}:\d{2} INFO \[app\/save_loaded\] active save loaded — platform: PC/);
-        expect(infoLine.childElementCount).toBe(0);
-        expect(screen.getByText(/ERROR \[app\/save_write_failed\]/)).toBeInTheDocument();
-        expect(screen.getByText(/stage: write/)).toBeInTheDocument();
+        // The whole record is one line of text; only the level word is a
+        // separate inline <span>, colored per level, everything else white.
+        const infoLine = await screen.findByText(/\[app\/save_loaded\] active save loaded/);
+        expect(infoLine).toHaveTextContent(/^\d{2}:\d{2}:\d{2} INFO \[app\/save_loaded\] active save loaded — platform: PC$/);
+        expect(infoLine).toHaveClass('text-white');
+        const infoLevel = within(infoLine).getByText('INFO');
+        expect(infoLevel.tagName).toBe('SPAN');
+        expect(infoLevel).toHaveClass('text-green-500');
+
+        const errorLine = screen.getByText(/\[app\/save_write_failed\] save write failed/);
+        expect(errorLine).toHaveTextContent(/^\d{2}:\d{2}:\d{2} ERROR \[app\/save_write_failed\] save write failed — stage: write$/);
+        const errorLevel = within(errorLine).getByText('ERROR');
+        expect(errorLevel).toHaveClass('text-red-500');
         expect(screen.getByText('durable session log')).toBeInTheDocument();
     });
 
