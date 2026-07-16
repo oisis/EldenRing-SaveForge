@@ -5,10 +5,13 @@ import App from './App'
 import {ErrorBoundary} from './components/ErrorBoundary'
 import {SafetyModeProvider} from './state/safetyMode'
 import {FavoritesProvider} from './state/favorites'
+import {installDiagnosticClientErrorHandlers} from './lib/diagnosticClientErrors'
 
 const container = document.getElementById('root')
 
 const root = createRoot(container!)
+
+installDiagnosticClientErrorHandlers()
 
 root.render(
     <React.StrictMode>

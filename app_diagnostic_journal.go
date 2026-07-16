@@ -58,6 +58,9 @@ var (
 	// ssh://user:pass@host/...) and bare ssh:// URLs.
 	reCredURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]*@[^\s]*`)
 	reSSHURL  = regexp.MustCompile(`ssh://[^\s]+`)
+	// General URLs can expose an internal host in a browser/network error.
+	// Diagnostic events never need the destination, so redact the whole URL.
+	reURL = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.\-]*://[^\s]+`)
 	// Authorization headers: the value is a whitespace-separated scheme plus
 	// token (e.g. "Authorization: Bearer <token>"), so redact both words, not
 	// just the scheme. Runs before reSecretKV, which only takes one token.
@@ -93,6 +96,7 @@ func sanitize(s string) string {
 	}
 	s = reCredURL.ReplaceAllString(s, "[redacted-url]")
 	s = reSSHURL.ReplaceAllString(s, "[redacted-url]")
+	s = reURL.ReplaceAllString(s, "[redacted-url]")
 	s = reAuthHeader.ReplaceAllString(s, "$1=[redacted]")
 	s = reSecretKV.ReplaceAllString(s, "$1=[redacted]")
 	s = reUNCPath.ReplaceAllString(s, "[redacted-path]")

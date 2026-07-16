@@ -198,8 +198,15 @@ func (a *App) shutdown(_ context.Context) {
 // errors. Values must already be sanitized technical fields — never raw
 // save bytes, Steam IDs, credentials, SSH data, tokens, or full paths.
 func (a *App) journalLog(level diagnosticLevel, event, message string, fields ...diagnosticField) {
-	if err := a.journal.Log(level, sourceApp, event, message, fields...); err != nil {
-		fmt.Fprintf(os.Stderr, "diagnostic journal (app %s): %v\n", event, err)
+	a.journalLogFrom(level, sourceApp, event, message, fields...)
+}
+
+// journalLogFrom is journalLog with an explicit producer source. Only trusted
+// in-process producers use it; the frontend bridge supplies a fixed source and
+// cannot choose its own event name (see RecordDiagnosticClientError).
+func (a *App) journalLogFrom(level diagnosticLevel, source, event, message string, fields ...diagnosticField) {
+	if err := a.journal.Log(level, source, event, message, fields...); err != nil {
+		fmt.Fprintf(os.Stderr, "diagnostic journal (%s %s): %v\n", source, event, err)
 	}
 }
 

@@ -1,4 +1,5 @@
 import { Component, ReactNode } from 'react';
+import { reportDiagnosticClientError } from '../lib/diagnosticClientErrors';
 
 interface Props { children: ReactNode; }
 interface State { hasError: boolean; error: string; }
@@ -8,6 +9,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
     static getDerivedStateFromError(error: Error): State {
         return { hasError: true, error: error.message };
+    }
+
+    componentDidCatch(error: Error) {
+        reportDiagnosticClientError('render', error);
     }
 
     render() {

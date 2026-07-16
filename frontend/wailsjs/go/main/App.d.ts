@@ -206,6 +206,8 @@ export function PreviewBuildTemplateV2FromCharacter(arg1:number,arg2:string,arg3
 
 export function RebuildBuildTemplateLibraryIndex():Promise<Array<templates.LibraryTemplateEntry>>;
 
+export function RecordDiagnosticClientError(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
 
 export function RemoveFogOfWar(arg1:number):Promise<void>;
