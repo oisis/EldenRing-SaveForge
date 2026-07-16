@@ -212,6 +212,10 @@ export function RecordDiagnosticClientError(arg1:string,arg2:string,arg3:string)
 
 export function RecordDiagnosticClientNavigation(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function RecordDiagnosticIntegrityModalRepairOutcome(arg1:string):Promise<void>;
+
+export function RecordDiagnosticIntegrityModalShown():Promise<void>;
+
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
 
 export function RemoveFogOfWar(arg1:number):Promise<void>;

@@ -33,6 +33,8 @@ vi.mock('../wailsjs/go/main/App', () => {
         AnalyzeGaItemRepack: r(), ExecuteGaItemRepack: r(),
         SetDiagnosticDebugMode: r(),
         RecordDiagnosticClientNavigation: r(),
+        RecordDiagnosticIntegrityModalShown: r(),
+        RecordDiagnosticIntegrityModalRepairOutcome: r(),
     };
 });
 
@@ -72,7 +74,13 @@ vi.mock('./components/DatabaseTab', () => ({
 vi.mock('./components/AppearanceTab', () => ({ AppearanceTab: () => null }));
 vi.mock('./components/PvPTab', () => ({ PvPTab: () => null }));
 vi.mock('./components/SortOrderTab', () => ({ SortOrderTab: () => null }));
-vi.mock('./components/integrity/InventoryIntegrityModal', () => ({ InventoryIntegrityModal: () => null }));
+// The stub exposes the App-owned Repair callback so a test can drive
+// handleRepairIntegrity without the real modal.
+vi.mock('./components/integrity/InventoryIntegrityModal', () => ({
+    InventoryIntegrityModal: (props: { onRepair: () => void }) => (
+        <button onClick={props.onRepair}>integrity-repair</button>
+    ),
+}));
 vi.mock('./components/templates/TemplatesShellModal', () => ({ TemplatesShellModal: () => null }));
 // toast pulls ToastBar's log helpers at import; stub the whole module.
 vi.mock('./lib/toast', () => {
@@ -84,7 +92,7 @@ vi.mock('./components/ToastBar', () => ({ ToastBar: () => null }));
 
 import App from './App';
 import { SafetyModeProvider } from './state/safetyMode';
-import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation } from '../wailsjs/go/main/App';
+import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation, RecordDiagnosticIntegrityModalShown, RecordDiagnosticIntegrityModalRepairOutcome, RepairDuplicateInventoryIndices } from '../wailsjs/go/main/App';
 import toast from './lib/toast';
 
 const CAP = (physicalEmpty: number, cursorRoom: number, usable: number) => ({ physicalEmpty, cursorRoom, usable });
@@ -189,6 +197,64 @@ describe('App open-save button wording', () => {
         await new Promise(r => setTimeout(r, 0));
         expect(await screen.findByRole('button', { name: /^Open Save$/i })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /Change Save/i })).not.toBeInTheDocument();
+    });
+});
+
+describe('App inventory integrity diagnostics', () => {
+    beforeEach(() => localStorage.clear());
+    afterEach(() => vi.clearAllMocks());
+
+    const dirtyReport = {
+        clean: false,
+        slots: [{ slotIndex: 0, characterName: 'X', active: true, duplicateEntryCount: 1, conflictingIndexCount: 1, conflicts: [] }],
+    };
+
+    it('records the modal shown when a dirty report gates the save', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue(dirtyReport as never);
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+
+        await waitFor(() => expect(RecordDiagnosticIntegrityModalShown).toHaveBeenCalledTimes(1));
+    });
+
+    it('records resolved when repair clears the report', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport)
+            .mockResolvedValueOnce(dirtyReport as never)
+            .mockResolvedValueOnce({ clean: true, slots: [] } as never);
+        vi.mocked(RepairDuplicateInventoryIndices).mockResolvedValue({} as never);
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'integrity-repair' }));
+
+        await waitFor(() => expect(RecordDiagnosticIntegrityModalRepairOutcome).toHaveBeenCalledWith('resolved'));
+    });
+
+    it('records unresolved when repair leaves the report dirty', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue(dirtyReport as never);
+        vi.mocked(RepairDuplicateInventoryIndices).mockResolvedValue({} as never);
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'integrity-repair' }));
+
+        await waitFor(() => expect(RecordDiagnosticIntegrityModalRepairOutcome).toHaveBeenCalledWith('unresolved'));
+    });
+
+    it('records error when a repair call rejects', async () => {
+        vi.mocked(SelectAndOpenSave).mockResolvedValue('PC' as never);
+        vi.mocked(GetSaveInventoryIntegrityReport).mockResolvedValue(dirtyReport as never);
+        vi.mocked(RepairDuplicateInventoryIndices).mockRejectedValue(new Error('boom'));
+
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: /Open Save File/i }));
+        fireEvent.click(await screen.findByRole('button', { name: 'integrity-repair' }));
+
+        await waitFor(() => expect(RecordDiagnosticIntegrityModalRepairOutcome).toHaveBeenCalledWith('error'));
     });
 });
 

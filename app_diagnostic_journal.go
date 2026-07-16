@@ -202,6 +202,12 @@ type DiagnosticJournal struct {
 	// truth for journal verbosity — App holds no parallel policy — and is
 	// read/written only under mu.
 	debug bool
+	// debugConfigured records whether SetDebugEnabled has run at least once this
+	// session. It lets that method distinguish the first configuration of the
+	// level (always worth journalling, even for false) from a later repeat of an
+	// unchanged value, so the debug-mode change event is not duplicated when the
+	// frontend re-syncs the same value (e.g. React Strict Mode).
+	debugConfigured bool
 }
 
 // DefaultDiagnosticsDir returns the per-user diagnostics directory,
@@ -294,13 +300,23 @@ func newInMemoryDiagnosticJournal() *DiagnosticJournal {
 // drops them. Trace is always dropped regardless. It is the sole writer of
 // the journal's verbosity policy. A nil receiver is a safe no-op so headless
 // callers (tests, journal-unavailable startup) need no guard.
-func (j *DiagnosticJournal) SetDebugEnabled(enabled bool) {
+//
+// It returns true when this call is a state-defining event worth journalling:
+// the first configuration of the session (whatever the value) or a real
+// true↔false transition. A repeat of the already-configured value returns
+// false, so callers do not emit a duplicate change event. A nil receiver
+// returns false. The decision is made atomically under mu against the same
+// policy state it mutates, so it is the single source of truth.
+func (j *DiagnosticJournal) SetDebugEnabled(enabled bool) bool {
 	if j == nil {
-		return
+		return false
 	}
 	j.mu.Lock()
 	defer j.mu.Unlock()
+	changed := !j.debugConfigured || j.debug != enabled
+	j.debugConfigured = true
 	j.debug = enabled
+	return changed
 }
 
 // recordable reports whether a record at level passes the current verbosity

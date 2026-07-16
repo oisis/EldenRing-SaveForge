@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback, useRef} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation, RecordDiagnosticIntegrityModalShown, RecordDiagnosticIntegrityModalRepairOutcome} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -281,6 +281,10 @@ function App() {
         setIntegrityReport(report);
         setPendingPlatform(plat);
         setPlatform(null);
+        // Best-effort diagnostics: record that the repair modal is being shown for
+        // a dirty active save. The backend re-reads the report itself; a failure
+        // here must never affect the modal.
+        RecordDiagnosticIntegrityModalShown().catch(() => {});
     }, []);
 
     const handleOpenSave = async () => {
@@ -316,12 +320,15 @@ function App() {
                 setPendingPlatform(null);
                 setSaveLoadKey(k => k + 1);
                 refreshSlots();
+                RecordDiagnosticIntegrityModalRepairOutcome('resolved').catch(() => {});
                 toast.success('Inventory acquisition indices repaired successfully. Save the file to write repaired changes.');
             } else {
                 setIntegrityReport(rescan);
                 setIntegrityError('Repair did not resolve all duplicate inventory acquisition indices. Saving remains blocked.');
+                RecordDiagnosticIntegrityModalRepairOutcome('unresolved').catch(() => {});
             }
         } catch (err) {
+            RecordDiagnosticIntegrityModalRepairOutcome('error').catch(() => {});
             // A repair call rejected (possibly after one or more earlier
             // slots already succeeded). Refresh the report so the modal
             // reflects the actual remaining issues; never promote platform

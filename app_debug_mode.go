@@ -17,10 +17,13 @@ import (
 //     a.ctx is nil (tests, pre-startup).
 //  2. when a Wails context exists, retargets the runtime logger: DEBUG when
 //     enabled, INFO when disabled, so Wails-sourced debug lines reach the sink.
-//  3. records a sanitized, info-level change event. Info always passes the
-//     verbosity filter, so the event is durable even when disabling the mode.
+//  3. records a sanitized, info-level change event, but only when the journal
+//     reports this call actually configured or changed the level. Info always
+//     passes the verbosity filter, so the first configuration (including the
+//     initial false) and every real toggle are durable, while a repeated sync
+//     of the same value (e.g. React Strict Mode) emits no duplicate event.
 func (a *App) SetDiagnosticDebugMode(enabled bool) {
-	a.journal.SetDebugEnabled(enabled)
+	changed := a.journal.SetDebugEnabled(enabled)
 
 	if a.ctx != nil {
 		level := logger.INFO
@@ -30,6 +33,8 @@ func (a *App) SetDiagnosticDebugMode(enabled bool) {
 		runtime.LogSetLogLevel(a.ctx, level)
 	}
 
-	a.journalLog(levelInfo, "diagnostic_debug_mode_changed",
-		"diagnostic debug mode changed", field("enabled", strconv.FormatBool(enabled)))
+	if changed {
+		a.journalLog(levelInfo, "diagnostic_debug_mode_changed",
+			"diagnostic debug mode changed", field("enabled", strconv.FormatBool(enabled)))
+	}
 }

@@ -410,6 +410,14 @@ export function RecordDiagnosticClientNavigation(arg1, arg2, arg3) {
   return window['go']['main']['App']['RecordDiagnosticClientNavigation'](arg1, arg2, arg3);
 }
 
+export function RecordDiagnosticIntegrityModalRepairOutcome(arg1) {
+  return window['go']['main']['App']['RecordDiagnosticIntegrityModalRepairOutcome'](arg1);
+}
+
+export function RecordDiagnosticIntegrityModalShown() {
+  return window['go']['main']['App']['RecordDiagnosticIntegrityModalShown']();
+}
+
 export function RemoveFavoritePreset(arg1) {
   return window['go']['main']['App']['RemoveFavoritePreset'](arg1);
 }

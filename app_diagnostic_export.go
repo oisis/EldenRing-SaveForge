@@ -91,10 +91,46 @@ func (a *App) commitLoadedSave(candidate *core.SaveFile, path string, origin sav
 	snapshot := diagnosticSaveSnapshot(candidate, a.saveGeneration)
 	a.saveMu.Unlock()
 
-	a.journalLog(levelInfo, eventSaveLoaded, "active save loaded",
+	fields := []diagnosticField{
 		field("origin", string(origin)),
-		field("platform", platform))
+		field("platform", platform),
+	}
+	if name := safeSaveFileName(path); name != "" {
+		fields = append(fields, field("save_file", name))
+	}
+	a.journalLog(levelInfo, eventSaveLoaded, "active save loaded", fields...)
 	a.journalDebug(eventSaveStateLoaded, "privacy-safe save state captured after load", snapshot...)
+}
+
+// safeSaveFileName reduces a local save path to its bare basename when — and
+// only when — that basename is a plausible Elden Ring save file name, else "".
+// It never returns a directory, path separator, traversal, empty, or over-long
+// value, and only accepts the .sl2/.dat/.txt suffixes a save uses, so the
+// save_loaded record can name the loaded file without leaking the directory,
+// URL, host, or Steam ID around it. It does not weaken the journal's global
+// path sanitizer: a bare basename simply does not match those patterns, so no
+// exception for the "path" key is introduced.
+func safeSaveFileName(path string) string {
+	// Reject traversal on the raw input; a legitimate save path never contains
+	// "..". filepath.Base is host-separator only (it would keep a Windows path
+	// whole on POSIX), so split on both separators to reduce a path from either
+	// platform to its trailing segment.
+	if path == "" || strings.Contains(path, "..") {
+		return ""
+	}
+	name := path
+	if i := strings.LastIndexAny(name, `/\`); i >= 0 {
+		name = name[i+1:]
+	}
+	if name == "" || name == "." || len(name) > 128 || strings.ContainsAny(name, `/\`) {
+		return ""
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".sl2", ".dat", ".txt":
+		return name
+	default:
+		return ""
+	}
 }
 
 // journalDir returns the directory holding the current session file, or "" when

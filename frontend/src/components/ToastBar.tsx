@@ -433,7 +433,7 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
 
                     {/* Log body — newest entries on top. Filtering is UI-only:
                         it never alters the durable journal. */}
-                    <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2 font-mono text-[11px] space-y-0.5">
+                    <div className="flex-1 overflow-y-auto console-scrollbar px-3 py-2 font-mono text-[11px] space-y-0.5">
                         {visibleConsoleEntries.slice().reverse().map(entry => {
                             const details = entry.details === '' ? '' : ` — ${entry.details}`;
                             const loading = entry.loading ? ' ...' : '';

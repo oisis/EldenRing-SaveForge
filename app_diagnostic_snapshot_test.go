@@ -76,6 +76,11 @@ func TestCommitLoadedSaveRecordsDebugSnapshot(t *testing.T) {
 
 	for _, rec := range app.journal.Tail() {
 		for _, f := range rec.Fields {
+			// save_file deliberately carries the bare basename (see the
+			// safeSaveFileName tests); every other field must stay path-free.
+			if f.Key == "save_file" {
+				continue
+			}
 			if strings.Contains(f.Value, "alice") || strings.Contains(f.Value, "ER0000.sl2") {
 				t.Errorf("event %q leaked load path through %q", rec.Event, f.Value)
 			}

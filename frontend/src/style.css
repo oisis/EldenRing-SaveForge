@@ -192,6 +192,27 @@
   }
 }
 
+/* Console log scrollbar: slimmer and borderless so it never shows the white
+   card-coloured ring custom-scrollbar draws. Scoped to the ToastBar/Console log
+   body only — custom-scrollbar stays untouched for the rest of the app. */
+@utility console-scrollbar {
+  &::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: var(--color-primary);
+    border-radius: 6px;
+    border: none;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--color-primary), black 10%);
+  }
+}
+
 /* ═══════════════════════════════════════════════════
    ACCORDION MASONRY LAYOUT
    ═══════════════════════════════════════════════════ */

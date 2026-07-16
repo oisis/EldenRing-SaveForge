@@ -2251,14 +2251,83 @@ func (a *App) GetAoWAvailability(charIdx int) ([]vm.AoWAvailabilityEntry, error)
 // the save to disk — the caller decides when to persist via the regular
 // save/upload flow.
 func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexRepairReport, error) {
-	var empty core.InventoryIndexRepairReport
+	// The requested event records the user's intent and is journalled — and
+	// fsync'd, since every journal Log is durable — before the save mutation or
+	// any repair lock, so a crash mid-repair still leaves a durable trace that a
+	// repair began. It carries intent only: no pre-scan-derived actions, because
+	// a pre-scan needs the very locks we must not hold before this event.
+	a.journalLog(levelInfo, "inventory_integrity_repair_requested",
+		"inventory integrity repair requested",
+		field("character_index", strconv.Itoa(charIdx)),
+		field("action", "repair_duplicates"))
+
+	report, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, err := a.repairDuplicateInventoryIndicesLocked(charIdx)
+
+	outcome := "applied"
+	level := levelInfo
+	switch {
+	case err != nil:
+		outcome = "error"
+		level = levelError
+	case dupInv == 0 && dupPhysick == 0:
+		outcome = "no_changes"
+	}
+
+	// The finished event runs after every lock is released (a journal Sync must
+	// never run under saveMu or a slot lock) and describes the real result.
+	// attempted_actions names the core repair steps the backend actually
+	// reached — not what a pre-scan implied — so with outcome it honestly
+	// reports which steps started and whether the whole process succeeded. An
+	// error logs at levelError so the console's Error filter surfaces it.
+	a.journalLog(level, "inventory_integrity_repair_finished",
+		"inventory integrity repair finished",
+		field("character_index", strconv.Itoa(charIdx)),
+		field("duplicate_inventory_entries", strconv.Itoa(dupInv)),
+		field("duplicate_physick_entries", strconv.Itoa(dupPhysick)),
+		field("outcome", outcome),
+		field("changed_inventory_indices", strconv.Itoa(report.Changed)),
+		field("attempted_actions", repairAttemptedActions(attemptedReassign, attemptedPhysick)))
+
+	return report, err
+}
+
+// repairAttemptedActions renders the set of core repair steps that were
+// actually begun: index reassignment when core.RepairDuplicateInventoryIndices
+// was invoked, physick removal when core.RepairDuplicateWondrousPhysick was
+// invoked. It says nothing about whether a step completed — outcome carries
+// that. Both are safe, static action identifiers (no counts, handles, or item
+// data), and "none" marks a step that never started (no-op / early error).
+func repairAttemptedActions(attemptedReassign, attemptedPhysick bool) string {
+	actions := make([]string, 0, 2)
+	if attemptedReassign {
+		actions = append(actions, "reassign_duplicate_inventory_indices")
+	}
+	if attemptedPhysick {
+		actions = append(actions, "remove_duplicate_physick_entries")
+	}
+	if len(actions) == 0 {
+		return "none"
+	}
+	return strings.Join(actions, ",")
+}
+
+// repairDuplicateInventoryIndicesLocked performs the scan+repair under saveMu
+// and slotMu and returns the report, the pre-repair duplicate counts, and which
+// core repair steps were actually begun, so the caller can journal the outcome
+// after every lock is released. attemptedReassign/attemptedPhysick flip to true
+// the moment the corresponding core call is reached — the second only after the
+// first returned without error — so a caller never claims a step it skipped.
+// It preserves the exact return contract of the endpoint (empty report on the
+// no-save/invalid/no-op/repair-error paths, populated report on success and on
+// the post-repair-remains errors).
+func (a *App) repairDuplicateInventoryIndicesLocked(charIdx int) (report core.InventoryIndexRepairReport, dupInv, dupPhysick int, attemptedReassign, attemptedPhysick bool, err error) {
 	a.saveMu.RLock()
 	defer a.saveMu.RUnlock()
 	if a.save == nil {
-		return empty, fmt.Errorf("no save loaded")
+		return report, 0, 0, false, false, fmt.Errorf("no save loaded")
 	}
 	if charIdx < 0 || charIdx >= 10 {
-		return empty, fmt.Errorf("invalid character index")
+		return report, 0, 0, false, false, fmt.Errorf("invalid character index")
 	}
 	a.slotMu[charIdx].Lock()
 	defer a.slotMu[charIdx].Unlock()
@@ -2266,25 +2335,29 @@ func (a *App) RepairDuplicateInventoryIndices(charIdx int) (core.InventoryIndexR
 
 	pre := core.ScanDuplicateInventoryIndices(slot)
 	prePhysick := core.ScanDuplicateWondrousPhysick(slot)
-	if len(pre) == 0 && len(prePhysick) == 0 {
-		return empty, nil
+	dupInv = len(pre)
+	dupPhysick = len(prePhysick)
+	if dupInv == 0 && dupPhysick == 0 {
+		return report, dupInv, dupPhysick, false, false, nil
 	}
 
 	a.pushUndoLocked(charIdx)
-	report, err := core.RepairDuplicateInventoryIndices(slot)
+	attemptedReassign = true
+	report, err = core.RepairDuplicateInventoryIndices(slot)
 	if err != nil {
-		return empty, err
+		return core.InventoryIndexRepairReport{}, dupInv, dupPhysick, attemptedReassign, false, err
 	}
-	if _, err := core.RepairDuplicateWondrousPhysick(slot); err != nil {
-		return empty, err
+	attemptedPhysick = true
+	if _, err = core.RepairDuplicateWondrousPhysick(slot); err != nil {
+		return core.InventoryIndexRepairReport{}, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, err
 	}
 	if post := core.ScanDuplicateInventoryIndices(slot); len(post) > 0 {
-		return report, fmt.Errorf("RepairDuplicateInventoryIndices: %d duplicate(s) remain after repair", len(post))
+		return report, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d duplicate(s) remain after repair", len(post))
 	}
 	if post := core.ScanDuplicateWondrousPhysick(slot); len(post) > 0 {
-		return report, fmt.Errorf("RepairDuplicateInventoryIndices: %d Flask of Wondrous Physick record(s) remain after repair", len(post))
+		return report, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d Flask of Wondrous Physick record(s) remain after repair", len(post))
 	}
-	return report, nil
+	return report, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, nil
 }
 
 // Dummy method to force Wails to export types
