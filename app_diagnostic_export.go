@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -170,8 +171,13 @@ func (a *App) DiagnosticRecoveryStatus() (*DiagnosticRecoveryStatus, error) {
 // dialog returns a typed cancelled result with a nil error. An unavailable or
 // failed journal returns a safe diagnostic error, never a panic.
 func (a *App) ExportDiagnosticLog(scope string) (DiagnosticExportResult, error) {
+	if !validDiagnosticExportScope(scope) {
+		return DiagnosticExportResult{Scope: scope}, fmt.Errorf("invalid diagnostic export scope")
+	}
+	a.journalLog(levelInfo, "diagnostic_export_requested", "diagnostic export requested", field("scope", scope))
 	records, err := a.selectDiagnosticRecords(scope)
 	if err != nil {
+		a.journalLog(levelError, "diagnostic_export_failed", "diagnostic export failed", field("scope", scope), field("stage", "select_scope"))
 		return DiagnosticExportResult{Scope: scope}, err
 	}
 
@@ -185,9 +191,29 @@ func (a *App) ExportDiagnosticLog(scope string) (DiagnosticExportResult, error) 
 		},
 	})
 	if err != nil {
+		a.journalLog(levelError, "diagnostic_export_failed", "diagnostic export failed", field("scope", scope), field("stage", "dialog"))
 		return DiagnosticExportResult{Scope: scope}, err
 	}
-	return finishDiagnosticExport(scope, dest, records)
+	result, err := finishDiagnosticExport(scope, dest, records)
+	if err != nil {
+		a.journalLog(levelError, "diagnostic_export_failed", "diagnostic export failed", field("scope", scope), field("stage", "write"))
+		return result, err
+	}
+	if result.Cancelled {
+		a.journalLog(levelInfo, "diagnostic_export_cancelled", "diagnostic export cancelled", field("scope", scope))
+		return result, nil
+	}
+	a.journalLog(levelInfo, "diagnostic_export_finished", "diagnostic export finished", field("scope", scope), field("record_count", strconv.Itoa(result.RecordCount)))
+	return result, nil
+}
+
+func validDiagnosticExportScope(scope string) bool {
+	switch scope {
+	case exportScopeCurrentSession, exportScopeCurrentSave, exportScopePreviousUnclosed:
+		return true
+	default:
+		return false
+	}
 }
 
 // finishDiagnosticExport turns a chosen destination into a result. An empty
