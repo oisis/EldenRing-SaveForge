@@ -114,10 +114,13 @@ func (a *App) DownloadBackupFile(targetName, backupName string) (string, error) 
 // Passing "" as localPath after the load means WriteSave will require the user to choose
 // a destination (same behaviour as DownloadRemoteSave).
 func (a *App) LoadSaveFromPath(localPath string) (string, error) {
+	a.journalDebug("save_load_requested", "save load requested", field("origin", string(loadOriginLocalPath)))
 	save, err := core.LoadSave(localPath)
 	if err != nil {
+		a.journalDebug("save_load_failed", "save load failed", field("origin", string(loadOriginLocalPath)), field("stage", "parse"))
 		return "", fmt.Errorf("invalid save file: %w", err)
 	}
+	a.journalDebug("save_load_parsed", "save load parsed", field("origin", string(loadOriginLocalPath)), field("platform", string(save.Platform)))
 	a.commitLoadedSave(save, "", loadOriginLocalPath)
 	return string(save.Platform), nil
 }

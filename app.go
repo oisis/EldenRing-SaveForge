@@ -203,6 +203,13 @@ func (a *App) journalLog(level diagnosticLevel, event, message string, fields ..
 	}
 }
 
+// journalDebug records an optional, structured operation detail. DiagnosticJournal
+// owns the verbosity policy and drops this call before seq/file/tail work unless
+// Debug Mode is enabled; callers must still pass only privacy-safe metadata.
+func (a *App) journalDebug(event, message string, fields ...diagnosticField) {
+	a.journalLog(levelDebug, event, message, fields...)
+}
+
 func (a *App) logInfo(format string, args ...interface{}) {
 	if a.ctx == nil {
 		return // headless / test: no Wails runtime context to log or emit to
@@ -223,6 +230,7 @@ func (a *App) logError(format string, args ...interface{}) {
 
 // SelectAndOpenSave opens a native file dialog and loads the selected save
 func (a *App) SelectAndOpenSave() (string, error) {
+	a.journalDebug("save_load_requested", "save load requested", field("origin", string(loadOriginFileDialog)))
 	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select Elden Ring Save File",
 		Filters: []runtime.FileFilter{
@@ -231,16 +239,20 @@ func (a *App) SelectAndOpenSave() (string, error) {
 		},
 	})
 	if err != nil {
+		a.journalDebug("save_load_failed", "save load failed", field("origin", string(loadOriginFileDialog)), field("stage", "dialog"))
 		return "", err
 	}
 	if path == "" {
+		a.journalDebug("save_load_cancelled", "save load cancelled", field("origin", string(loadOriginFileDialog)))
 		return "", fmt.Errorf("no file selected")
 	}
 
 	save, err := core.LoadSave(path)
 	if err != nil {
+		a.journalDebug("save_load_failed", "save load failed", field("origin", string(loadOriginFileDialog)), field("stage", "parse"))
 		return "", err
 	}
+	a.journalDebug("save_load_parsed", "save load parsed", field("origin", string(loadOriginFileDialog)), field("platform", string(save.Platform)))
 	// Commit phase: exclusive saveMu blocks every reader/writer of the old
 	// a.save while the pointer swap + derived-state reset run. installLoadedSave
 	// also resets favSlotNames; favMu is intentionally NOT taken here — every
@@ -366,10 +378,13 @@ func (a *App) WriteSave() error {
 	a.saveMu.RLock()
 	if a.save == nil {
 		a.saveMu.RUnlock()
+		a.journalDebug("save_write_failed", "save write failed", field("stage", "no_active_save"))
 		return fmt.Errorf("no save loaded")
 	}
 	expected := a.save
+	platform := string(a.save.Platform)
 	a.saveMu.RUnlock()
+	a.journalDebug("save_write_requested", "save write requested", field("platform", platform))
 
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		Title: "Save Elden Ring Save File",
@@ -379,23 +394,32 @@ func (a *App) WriteSave() error {
 		},
 	})
 	if err != nil {
+		a.journalDebug("save_write_failed", "save write failed", field("stage", "dialog"))
 		return err
 	}
 	if path == "" {
+		a.journalDebug("save_write_cancelled", "save write cancelled")
 		return fmt.Errorf("no file selected")
 	}
 
 	// Backup only when the target file already exists (nothing to protect otherwise).
 	if _, statErr := os.Stat(path); statErr == nil {
 		if _, err := core.CreateBackup(path); err != nil {
+			a.journalDebug("save_write_failed", "save write failed", field("stage", "backup"))
 			return fmt.Errorf("backup failed, save aborted: %w", err)
 		}
+		a.journalDebug("save_write_backup_created", "save backup created")
 		if err := core.PruneBackups(path, 10); err != nil {
 			fmt.Printf("Warning: failed to prune old backups: %v\n", err)
 		}
 	}
 
-	return a.writeSaveCore(path, expected)
+	if err := a.writeSaveCore(path, expected); err != nil {
+		a.journalDebug("save_write_failed", "save write failed", field("stage", "write"))
+		return err
+	}
+	a.journalDebug("save_write_completed", "save write completed", field("platform", platform))
+	return nil
 }
 
 // writeSaveCore serializes a.save to disk in its current platform and resets
@@ -578,11 +602,32 @@ func (a *App) AddItemsToCharacterWithGameLimits(charIdx int, itemIDs []uint32, u
 	return a.addItemsToCharacter(charIdx, itemIDs, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty, true)
 }
 
-func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int, useGameLimits bool) (AddResult, error) {
-	result := AddResult{Requested: len(itemIDs)}
+func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int, useGameLimits bool) (result AddResult, retErr error) {
+	result = AddResult{Requested: len(itemIDs)}
+	a.journalDebug("items_add_requested", "item add requested",
+		field("character_index", strconv.Itoa(charIdx)),
+		field("requested", strconv.Itoa(len(itemIDs))),
+		field("game_limits", strconv.FormatBool(useGameLimits)))
 
 	a.saveMu.RLock()
-	defer a.saveMu.RUnlock()
+	defer func() {
+		a.saveMu.RUnlock()
+		outcome := "success"
+		if retErr != nil {
+			outcome = "error"
+		} else if result.CapHit != "" {
+			outcome = "capacity_rejected"
+		} else if result.Added == 0 {
+			outcome = "no_change"
+		}
+		a.journalDebug("items_add_finished", "item add finished",
+			field("character_index", strconv.Itoa(charIdx)),
+			field("outcome", outcome),
+			field("added", strconv.Itoa(result.Added)),
+			field("trimmed", strconv.Itoa(len(result.Trimmed))),
+			field("skipped_existing", strconv.Itoa(len(result.SkippedExisting))),
+			field("capacity_hit", result.CapHit))
+	}()
 	if a.save == nil {
 		return result, fmt.Errorf("no save loaded")
 	}
