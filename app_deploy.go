@@ -314,10 +314,15 @@ func (a *App) writeTempSave() (string, error) {
 		os.Remove(tmpPath)
 		return "", fmt.Errorf("no save loaded")
 	}
+	snapshot := diagnosticSaveSnapshot(a.save, a.saveGeneration)
 	serializeErr := a.save.SaveFile(tmpPath)
 	a.unlockAllSlots()
 	a.favMu.RUnlock()
 	a.saveMu.RUnlock()
+	if len(snapshot) > 0 {
+		a.journalDebug(eventSaveStateBeforeWrite, "privacy-safe save state captured before deploy serialization",
+			diagnosticSnapshotForSerialization(snapshot, "deploy_temp")...)
+	}
 
 	if serializeErr != nil {
 		os.Remove(tmpPath)

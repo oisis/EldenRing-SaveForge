@@ -88,11 +88,13 @@ func (a *App) commitLoadedSave(candidate *core.SaveFile, path string, origin sav
 	a.saveMu.Lock()
 	a.installLoadedSave(candidate, path)
 	platform := string(candidate.Platform)
+	snapshot := diagnosticSaveSnapshot(candidate, a.saveGeneration)
 	a.saveMu.Unlock()
 
 	a.journalLog(levelInfo, eventSaveLoaded, "active save loaded",
 		field("origin", string(origin)),
 		field("platform", platform))
+	a.journalDebug(eventSaveStateLoaded, "privacy-safe save state captured after load", snapshot...)
 }
 
 // journalDir returns the directory holding the current session file, or "" when

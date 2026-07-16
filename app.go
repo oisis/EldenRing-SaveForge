@@ -414,7 +414,12 @@ func (a *App) WriteSave() error {
 		}
 	}
 
-	if err := a.writeSaveCore(path, expected); err != nil {
+	snapshot, err := a.writeSaveCore(path, expected)
+	if len(snapshot) > 0 {
+		a.journalDebug(eventSaveStateBeforeWrite, "privacy-safe save state captured before file write",
+			diagnosticSnapshotForSerialization(snapshot, "file")...)
+	}
+	if err != nil {
 		a.journalDebug("save_write_failed", "save write failed", field("stage", "write"))
 		return err
 	}
@@ -433,24 +438,27 @@ func (a *App) WriteSave() error {
 // dialog. When a concurrent SelectAndOpenSave / DownloadRemoteSave
 // replaced a.save during the dialog wait, the identity check fails fast:
 // no file is written, the helper returns a user-facing error instead of
-// silently writing save B to a path picked for save A.
-func (a *App) writeSaveCore(path string, expected *core.SaveFile) error {
+// silently writing save B to a path picked for save A. Its first result is a
+// privacy-safe snapshot captured immediately before serialization; callers
+// must append it only after this method has released saveMu.
+func (a *App) writeSaveCore(path string, expected *core.SaveFile) ([]diagnosticField, error) {
 	a.saveMu.Lock()
 	defer a.saveMu.Unlock()
 
 	if a.save == nil {
-		return fmt.Errorf("no save loaded")
+		return nil, fmt.Errorf("no save loaded")
 	}
 	if a.save != expected {
-		return fmt.Errorf("active save changed while the save dialog was open; write to %q aborted to avoid overwriting it with the wrong save", path)
+		return nil, fmt.Errorf("active save changed while the save dialog was open; write to %q aborted to avoid overwriting it with the wrong save", path)
 	}
 
+	snapshot := diagnosticSaveSnapshot(a.save, a.saveGeneration)
 	if err := a.save.SaveFile(path); err != nil {
-		return err
+		return snapshot, err
 	}
 	a.lastSavePath = path
 	a.clearAllUndoStacks()
-	return nil
+	return snapshot, nil
 }
 
 // GetItemList returns a list of items for a given category, filtered by the loaded save's platform.
