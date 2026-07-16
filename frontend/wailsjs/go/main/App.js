@@ -422,6 +422,10 @@ export function RecordDiagnosticPostLoadDiagnosticsModalShown() {
   return window['go']['main']['App']['RecordDiagnosticPostLoadDiagnosticsModalShown']();
 }
 
+export function RecordDiagnosticWorldAction(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['RecordDiagnosticWorldAction'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function RemoveFavoritePreset(arg1) {
   return window['go']['main']['App']['RemoveFavoritePreset'](arg1);
 }

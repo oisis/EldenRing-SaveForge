@@ -1,5 +1,5 @@
 import {useCallback, useEffect, useState} from 'react';
-import {GetGraces, SetGraceVisited, GetBosses, SetBossDefeated, GetSummoningPools, SetSummoningPoolActivated, GetColosseums, SetColosseumUnlocked, GetMapProgress, SetMapFlag, SetMapRegionFlags, RevealAllMap, ResetMapExploration, RemoveFogOfWar, GetCookbooks, SetCookbookUnlocked, BulkSetCookbooksUnlocked, GetGestures, SetGestureUnlocked, BulkSetGesturesUnlocked, GetQuestNPCs, GetQuestProgress, SetQuestStep, GetBellBearings, SetBellBearingUnlocked, BulkSetBellBearings, GetWhetblades, SetWhetbladeUnlocked, GetUnlockedRegions, SetRegionUnlocked, BulkSetUnlockedRegions} from '../../wailsjs/go/main/App';
+import {GetGraces, SetGraceVisited, GetBosses, SetBossDefeated, GetSummoningPools, SetSummoningPoolActivated, GetColosseums, SetColosseumUnlocked, GetMapProgress, SetMapFlag, SetMapRegionFlags, RevealAllMap, ResetMapExploration, RemoveFogOfWar, GetCookbooks, SetCookbookUnlocked, BulkSetCookbooksUnlocked, GetGestures, SetGestureUnlocked, BulkSetGesturesUnlocked, GetQuestNPCs, GetQuestProgress, SetQuestStep, GetBellBearings, SetBellBearingUnlocked, BulkSetBellBearings, GetWhetblades, SetWhetbladeUnlocked, GetUnlockedRegions, SetRegionUnlocked, BulkSetUnlockedRegions, RecordDiagnosticWorldAction} from '../../wailsjs/go/main/App';
 import type {AddSettings} from '../App';
 import {db} from '../../wailsjs/go/models';
 import toast from '../lib/toast';
@@ -53,6 +53,14 @@ const ChkX = ({checked, onChange}: {checked: boolean; onChange: (v: boolean) => 
 
 const btnSm = "text-[11px] font-black uppercase tracking-widest text-muted-foreground border border-foreground/30 bg-foreground/5 px-2 py-0.5 rounded transition-all";
 
+const worldActionFailureReason = (error: unknown): string => {
+    const message = String(error).toLowerCase();
+    if (message.includes('no save loaded')) return 'no_active_save';
+    if (message.includes('invalid slot index')) return 'invalid_character';
+    if (message.includes('event flags offset')) return 'event_flags_unavailable';
+    return 'world_operation_failed';
+};
+
 export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, saveDataRevision = 0, onMutate, addSettings}: WorldTabProps) {
     const [graces, setGraces] = useState<db.GraceEntry[]>([]);
     const [bosses, setBosses] = useState<db.BossEntry[]>([]);
@@ -83,6 +91,19 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
     const [questLoading, setQuestLoading] = useState(false);
     const [activeSubTab, setActiveSubTab] = useState<'exploration' | 'progress' | 'unlocks'>('exploration');
 
+    const runWorldAction = async (action: string, requestedCount: number, mutate: () => Promise<void>) => {
+        // Keep the durable intent ahead of every save mutation. The backend
+        // accepts only a closed action vocabulary and aggregate counts.
+        await RecordDiagnosticWorldAction(action, 'requested', charIdx, requestedCount, 0, '').catch(() => {});
+        try {
+            await mutate();
+            RecordDiagnosticWorldAction(action, 'succeeded', charIdx, requestedCount, requestedCount, '').catch(() => {});
+        } catch (error) {
+            RecordDiagnosticWorldAction(action, 'error', charIdx, requestedCount, -1, worldActionFailureReason(error)).catch(() => {});
+            throw error;
+        }
+    };
+
     const loadExplorationData = useCallback(() => {
         setLoading(true);
         Promise.all([
@@ -95,7 +116,8 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
                 const entries = res || [];
                 const systemFlags = entries.filter(e => e.category === 'system' && !e.enabled);
                 if (systemFlags.length > 0) {
-                    await Promise.all(systemFlags.map(e => SetMapFlag(charIdx, e.id, true)));
+                    await runWorldAction('map_system_flags_normalized', systemFlags.length,
+                        () => Promise.all(systemFlags.map(e => SetMapFlag(charIdx, e.id, true))).then(() => undefined));
                     for (const sf of systemFlags) {
                         const idx = entries.findIndex(e => e.id === sf.id);
                         if (idx >= 0) entries[idx] = {...entries[idx], enabled: true};
@@ -129,61 +151,61 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
 
     // --- Grace logic ---
     const regions = graces.reduce((acc, g) => { const r = g.region || 'Unknown'; (acc[r] ??= []).push(g); return acc; }, {} as Record<string, db.GraceEntry[]>);
-    const handleGraceToggle = async (grace: db.GraceEntry, visited: boolean) => { await SetGraceVisited(charIdx, grace.id, visited); setGraces(prev => prev.map(g => g.id === grace.id ? {...g, visited} : g)); onMutate?.(); };
-    const handleUnlockRegionGraces = async (rg: db.GraceEntry[]) => { await Promise.all(rg.filter(g => !g.visited).map(g => SetGraceVisited(charIdx, g.id, true))); const ids = new Set(rg.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: true} : g)); onMutate?.(); };
-    const handleUnlockAllGraces = async () => { const u = graces.filter(g => !g.visited && (!skipBossArenas || !g.isBossArena) && (addSettings?.includeAshenCapital || g.region !== 'Leyndell, Ashen Capital')); if (!u.length) return; await Promise.all(u.map(g => SetGraceVisited(charIdx, g.id, true))); const ids = new Set(u.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: true} : g)); onMutate?.(); };
-    const handleLockAllGraces = async () => { const u = graces.filter(g => g.visited); if (!u.length) return; await Promise.all(u.map(g => SetGraceVisited(charIdx, g.id, false))); const ids = new Set(u.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: false} : g)); onMutate?.(); };
+    const handleGraceToggle = async (grace: db.GraceEntry, visited: boolean) => { await runWorldAction('grace_set', 1, () => SetGraceVisited(charIdx, grace.id, visited)); setGraces(prev => prev.map(g => g.id === grace.id ? {...g, visited} : g)); onMutate?.(); };
+    const handleUnlockRegionGraces = async (rg: db.GraceEntry[]) => { const targets = rg.filter(g => !g.visited); if (!targets.length) return; await runWorldAction('graces_unlock_region', targets.length, () => Promise.all(targets.map(g => SetGraceVisited(charIdx, g.id, true))).then(() => undefined)); const ids = new Set(rg.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: true} : g)); onMutate?.(); };
+    const handleUnlockAllGraces = async () => { const u = graces.filter(g => !g.visited && (!skipBossArenas || !g.isBossArena) && (addSettings?.includeAshenCapital || g.region !== 'Leyndell, Ashen Capital')); if (!u.length) return; await runWorldAction('graces_unlock_all', u.length, () => Promise.all(u.map(g => SetGraceVisited(charIdx, g.id, true))).then(() => undefined)); const ids = new Set(u.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: true} : g)); onMutate?.(); };
+    const handleLockAllGraces = async () => { const u = graces.filter(g => g.visited); if (!u.length) return; await runWorldAction('graces_lock_all', u.length, () => Promise.all(u.map(g => SetGraceVisited(charIdx, g.id, false))).then(() => undefined)); const ids = new Set(u.map(g => g.id)); setGraces(prev => prev.map(g => ids.has(g.id) ? {...g, visited: false} : g)); onMutate?.(); };
 
     // --- Boss logic ---
     const filteredBosses = bosses.filter(b => bossFilter === 'all' || b.type === bossFilter);
     const sortedFilteredBosses = [...filteredBosses].sort((a, b) => { if (bossSort === 'defeated' && a.defeated !== b.defeated) return a.defeated ? -1 : 1; return a.name.localeCompare(b.name); });
     const bossRegions = sortedFilteredBosses.reduce((acc, b) => { const r = b.region || 'Unknown'; (acc[r] ??= []).push(b); return acc; }, {} as Record<string, db.BossEntry[]>);
-    const handleBossToggle = async (boss: db.BossEntry, defeated: boolean) => { await SetBossDefeated(charIdx, boss.id, defeated); setBosses(prev => prev.map(b => b.id === boss.id ? {...b, defeated} : b)); onMutate?.(); };
-    const handleKillAll = async (rb: db.BossEntry[]) => { await Promise.all(rb.filter(b => !b.defeated).map(b => SetBossDefeated(charIdx, b.id, true))); const ids = new Set(rb.map(b => b.id)); setBosses(prev => prev.map(b => ids.has(b.id) ? {...b, defeated: true} : b)); onMutate?.(); };
-    const handleRespawnAll = async (rb: db.BossEntry[]) => { await Promise.all(rb.filter(b => b.defeated).map(b => SetBossDefeated(charIdx, b.id, false))); const ids = new Set(rb.map(b => b.id)); setBosses(prev => prev.map(b => ids.has(b.id) ? {...b, defeated: false} : b)); onMutate?.(); };
-    const handleGlobalKillAll = async () => { const a = filteredBosses.filter(b => !b.defeated); if (!a.length) return; await Promise.all(a.map(b => SetBossDefeated(charIdx, b.id, true))); const ids = new Set(a.map(b => b.id)); setBosses(prev => prev.map(b => ids.has(b.id) ? {...b, defeated: true} : b)); onMutate?.(); };
-    const handleGlobalRespawnAll = async () => { const d = filteredBosses.filter(b => b.defeated); if (!d.length) return; await Promise.all(d.map(b => SetBossDefeated(charIdx, b.id, false))); const ids = new Set(d.map(b => b.id)); setBosses(prev => prev.map(b => ids.has(b.id) ? {...b, defeated: false} : b)); onMutate?.(); };
+    const handleBossToggle = async (boss: db.BossEntry, defeated: boolean) => { await runWorldAction('boss_set_defeated', 1, () => SetBossDefeated(charIdx, boss.id, defeated)); setBosses(prev => prev.map(b => b.id === boss.id ? {...b, defeated} : b)); onMutate?.(); };
+    const handleKillAll = async (rb: db.BossEntry[]) => { const targets = rb.filter(b => !b.defeated); if (!targets.length) return; await runWorldAction('bosses_kill_region', targets.length, () => Promise.all(targets.map(b => SetBossDefeated(charIdx, b.id, true))).then(() => undefined)); const ids = new Set(rb.map(b => b.id)); setBosses(prev => prev.map(b => ids.has(b.id) ? {...b, defeated: true} : b)); onMutate?.(); };
+    const handleRespawnAll = async (rb: db.BossEntry[]) => { const targets = rb.filter(b => b.defeated); if (!targets.length) return; await runWorldAction('bosses_respawn_region', targets.length, () => Promise.all(targets.map(b => SetBossDefeated(charIdx, b.id, false))).then(() => undefined)); const ids = new Set(rb.map(b => b.id)); setBosses(prev => prev.map(b => ids.has(b.id) ? {...b, defeated: false} : b)); onMutate?.(); };
+    const handleGlobalKillAll = async () => { const a = filteredBosses.filter(b => !b.defeated); if (!a.length) return; await runWorldAction('bosses_kill_filtered', a.length, () => Promise.all(a.map(b => SetBossDefeated(charIdx, b.id, true))).then(() => undefined)); const ids = new Set(a.map(b => b.id)); setBosses(prev => prev.map(b => ids.has(b.id) ? {...b, defeated: true} : b)); onMutate?.(); };
+    const handleGlobalRespawnAll = async () => { const d = filteredBosses.filter(b => b.defeated); if (!d.length) return; await runWorldAction('bosses_respawn_filtered', d.length, () => Promise.all(d.map(b => SetBossDefeated(charIdx, b.id, false))).then(() => undefined)); const ids = new Set(d.map(b => b.id)); setBosses(prev => prev.map(b => ids.has(b.id) ? {...b, defeated: false} : b)); onMutate?.(); };
 
     // --- Pool logic ---
     const poolRegions = pools.reduce((acc, p) => { const r = p.region || 'Unknown'; (acc[r] ??= []).push(p); return acc; }, {} as Record<string, db.SummoningPoolEntry[]>);
-    const handlePoolToggle = async (pool: db.SummoningPoolEntry, activated: boolean) => { await SetSummoningPoolActivated(charIdx, pool.id, activated); setPools(prev => prev.map(p => p.id === pool.id ? {...p, activated} : p)); onMutate?.(); };
-    const handleActivateAllPools = async (rp: db.SummoningPoolEntry[]) => { await Promise.all(rp.filter(p => !p.activated).map(p => SetSummoningPoolActivated(charIdx, p.id, true))); const ids = new Set(rp.map(p => p.id)); setPools(prev => prev.map(p => ids.has(p.id) ? {...p, activated: true} : p)); onMutate?.(); };
-    const handleGlobalActivateAllPools = async () => { const i = pools.filter(p => !p.activated); if (!i.length) return; await Promise.all(i.map(p => SetSummoningPoolActivated(charIdx, p.id, true))); const ids = new Set(i.map(p => p.id)); setPools(prev => prev.map(p => ids.has(p.id) ? {...p, activated: true} : p)); onMutate?.(); };
-    const handleGlobalDeactivateAllPools = async () => { const a = pools.filter(p => p.activated); if (!a.length) return; await Promise.all(a.map(p => SetSummoningPoolActivated(charIdx, p.id, false))); const ids = new Set(a.map(p => p.id)); setPools(prev => prev.map(p => ids.has(p.id) ? {...p, activated: false} : p)); onMutate?.(); };
+    const handlePoolToggle = async (pool: db.SummoningPoolEntry, activated: boolean) => { await runWorldAction('summoning_pool_set', 1, () => SetSummoningPoolActivated(charIdx, pool.id, activated)); setPools(prev => prev.map(p => p.id === pool.id ? {...p, activated} : p)); onMutate?.(); };
+    const handleActivateAllPools = async (rp: db.SummoningPoolEntry[]) => { const targets = rp.filter(p => !p.activated); if (!targets.length) return; await runWorldAction('summoning_pools_activate_region', targets.length, () => Promise.all(targets.map(p => SetSummoningPoolActivated(charIdx, p.id, true))).then(() => undefined)); const ids = new Set(rp.map(p => p.id)); setPools(prev => prev.map(p => ids.has(p.id) ? {...p, activated: true} : p)); onMutate?.(); };
+    const handleGlobalActivateAllPools = async () => { const i = pools.filter(p => !p.activated); if (!i.length) return; await runWorldAction('summoning_pools_activate_all', i.length, () => Promise.all(i.map(p => SetSummoningPoolActivated(charIdx, p.id, true))).then(() => undefined)); const ids = new Set(i.map(p => p.id)); setPools(prev => prev.map(p => ids.has(p.id) ? {...p, activated: true} : p)); onMutate?.(); };
+    const handleGlobalDeactivateAllPools = async () => { const a = pools.filter(p => p.activated); if (!a.length) return; await runWorldAction('summoning_pools_deactivate_all', a.length, () => Promise.all(a.map(p => SetSummoningPoolActivated(charIdx, p.id, false))).then(() => undefined)); const ids = new Set(a.map(p => p.id)); setPools(prev => prev.map(p => ids.has(p.id) ? {...p, activated: false} : p)); onMutate?.(); };
 
     // --- Colosseum logic ---
-    const handleColosseumToggle = async (c: db.ColosseumEntry, unlocked: boolean) => { await SetColosseumUnlocked(charIdx, c.id, unlocked); setColosseums(prev => prev.map(x => x.id === c.id ? {...x, unlocked} : x)); onMutate?.(); };
-    const handleUnlockAllColosseums = async () => { const l = colosseums.filter(c => !c.unlocked); if (!l.length) return; await Promise.all(l.map(c => SetColosseumUnlocked(charIdx, c.id, true))); setColosseums(prev => prev.map(c => ({...c, unlocked: true}))); onMutate?.(); };
-    const handleLockAllColosseums = async () => { const u = colosseums.filter(c => c.unlocked); if (!u.length) return; await Promise.all(u.map(c => SetColosseumUnlocked(charIdx, c.id, false))); setColosseums(prev => prev.map(c => ({...c, unlocked: false}))); onMutate?.(); };
+    const handleColosseumToggle = async (c: db.ColosseumEntry, unlocked: boolean) => { await runWorldAction('colosseum_set', 1, () => SetColosseumUnlocked(charIdx, c.id, unlocked)); setColosseums(prev => prev.map(x => x.id === c.id ? {...x, unlocked} : x)); onMutate?.(); };
+    const handleUnlockAllColosseums = async () => { const l = colosseums.filter(c => !c.unlocked); if (!l.length) return; await runWorldAction('colosseums_unlock_all', l.length, () => Promise.all(l.map(c => SetColosseumUnlocked(charIdx, c.id, true))).then(() => undefined)); setColosseums(prev => prev.map(c => ({...c, unlocked: true}))); onMutate?.(); };
+    const handleLockAllColosseums = async () => { const u = colosseums.filter(c => c.unlocked); if (!u.length) return; await runWorldAction('colosseums_lock_all', u.length, () => Promise.all(u.map(c => SetColosseumUnlocked(charIdx, c.id, false))).then(() => undefined)); setColosseums(prev => prev.map(c => ({...c, unlocked: false}))); onMutate?.(); };
 
     // --- Gesture logic ---
-    const handleGestureToggle = async (g: db.GestureEntry, unlocked: boolean) => { await SetGestureUnlocked(charIdx, g.id, unlocked); setGesturesList(prev => prev.map(x => x.id === g.id ? {...x, unlocked} : x)); onMutate?.(); };
+    const handleGestureToggle = async (g: db.GestureEntry, unlocked: boolean) => { await runWorldAction('gesture_set', 1, () => SetGestureUnlocked(charIdx, g.id, unlocked)); setGesturesList(prev => prev.map(x => x.id === g.id ? {...x, unlocked} : x)); onMutate?.(); };
     // Visible list = all gestures unless showFlaggedItems is off, in which case ban_risk entries are hidden.
     // Unlock All operates on the visible list and additionally skips ban_risk (so even with the toggle on, a single click never adds cut/pre-order content unless the user picks them individually).
     // Lock All sends every known gesture so legacy "even body-type" garbage in the save also gets cleared.
     const visibleGestures = gestures.filter(g => showFlaggedItems || !g.flags?.includes('ban_risk'));
-    const handleUnlockAllGestures = async () => { const l = visibleGestures.filter(g => !g.unlocked && !g.flags?.includes('ban_risk')); if (!l.length) return; await BulkSetGesturesUnlocked(charIdx, l.map(g => g.id), true); const ids = new Set(l.map(g => g.id)); setGesturesList(prev => prev.map(g => ids.has(g.id) ? {...g, unlocked: true} : g)); onMutate?.(); };
-    const handleLockAllGestures = async () => { await BulkSetGesturesUnlocked(charIdx, gestures.map(g => g.id), false); setGesturesList(prev => prev.map(g => ({...g, unlocked: false}))); onMutate?.(); };
+    const handleUnlockAllGestures = async () => { const l = visibleGestures.filter(g => !g.unlocked && !g.flags?.includes('ban_risk')); if (!l.length) return; await runWorldAction('gestures_unlock_all', l.length, () => BulkSetGesturesUnlocked(charIdx, l.map(g => g.id), true)); const ids = new Set(l.map(g => g.id)); setGesturesList(prev => prev.map(g => ids.has(g.id) ? {...g, unlocked: true} : g)); onMutate?.(); };
+    const handleLockAllGestures = async () => { if (!gestures.length) return; await runWorldAction('gestures_lock_all', gestures.length, () => BulkSetGesturesUnlocked(charIdx, gestures.map(g => g.id), false)); setGesturesList(prev => prev.map(g => ({...g, unlocked: false}))); onMutate?.(); };
     const unlockedGestures = visibleGestures.filter(g => g.unlocked).length;
 
     // --- Cookbook logic ---
     const cookbookCategories = cookbooks.reduce((acc, c) => { const cat = c.category || 'Other'; (acc[cat] ??= []).push(c); return acc; }, {} as Record<string, db.CookbookEntry[]>);
-    const handleCookbookToggle = async (c: db.CookbookEntry, unlocked: boolean) => { await SetCookbookUnlocked(charIdx, c.id, unlocked); setCookbooks(prev => prev.map(x => x.id === c.id ? {...x, unlocked} : x)); onMutate?.(); };
-    const handleUnlockAllCookbooks = async () => { const l = cookbooks.filter(c => !c.unlocked); if (!l.length) return; await BulkSetCookbooksUnlocked(charIdx, l.map(c => c.id), true); setCookbooks(prev => prev.map(c => ({...c, unlocked: true}))); onMutate?.(); };
-    const handleLockAllCookbooks = async () => { const u = cookbooks.filter(c => c.unlocked); if (!u.length) return; await BulkSetCookbooksUnlocked(charIdx, u.map(c => c.id), false); setCookbooks(prev => prev.map(c => ({...c, unlocked: false}))); onMutate?.(); };
+    const handleCookbookToggle = async (c: db.CookbookEntry, unlocked: boolean) => { await runWorldAction('cookbook_set', 1, () => SetCookbookUnlocked(charIdx, c.id, unlocked)); setCookbooks(prev => prev.map(x => x.id === c.id ? {...x, unlocked} : x)); onMutate?.(); };
+    const handleUnlockAllCookbooks = async () => { const l = cookbooks.filter(c => !c.unlocked); if (!l.length) return; await runWorldAction('cookbooks_unlock_all', l.length, () => BulkSetCookbooksUnlocked(charIdx, l.map(c => c.id), true)); setCookbooks(prev => prev.map(c => ({...c, unlocked: true}))); onMutate?.(); };
+    const handleLockAllCookbooks = async () => { const u = cookbooks.filter(c => c.unlocked); if (!u.length) return; await runWorldAction('cookbooks_lock_all', u.length, () => BulkSetCookbooksUnlocked(charIdx, u.map(c => c.id), false)); setCookbooks(prev => prev.map(c => ({...c, unlocked: false}))); onMutate?.(); };
     const unlockedCookbooks = cookbooks.filter(c => c.unlocked).length;
 
     // --- Bell Bearing logic ---
     const bbCategories = bellBearings.reduce((acc, b) => { const cat = b.category || 'Other'; (acc[cat] ??= []).push(b); return acc; }, {} as Record<string, db.BellBearingEntry[]>);
-    const handleBBToggle = async (b: db.BellBearingEntry, unlocked: boolean) => { await SetBellBearingUnlocked(charIdx, b.id, unlocked); setBellBearings(prev => prev.map(x => x.id === b.id ? {...x, unlocked} : x)); onMutate?.(); };
-    const handleUnlockAllBBs = async () => { const l = bellBearings.filter(b => !b.unlocked); if (!l.length) return; await BulkSetBellBearings(charIdx, l.map(b => b.id), true); setBellBearings(prev => prev.map(b => ({...b, unlocked: true}))); onMutate?.(); };
-    const handleLockAllBBs = async () => { const u = bellBearings.filter(b => b.unlocked); if (!u.length) return; await BulkSetBellBearings(charIdx, u.map(b => b.id), false); setBellBearings(prev => prev.map(b => ({...b, unlocked: false}))); onMutate?.(); };
+    const handleBBToggle = async (b: db.BellBearingEntry, unlocked: boolean) => { await runWorldAction('bell_bearing_set', 1, () => SetBellBearingUnlocked(charIdx, b.id, unlocked)); setBellBearings(prev => prev.map(x => x.id === b.id ? {...x, unlocked} : x)); onMutate?.(); };
+    const handleUnlockAllBBs = async () => { const l = bellBearings.filter(b => !b.unlocked); if (!l.length) return; await runWorldAction('bell_bearings_unlock_all', l.length, () => BulkSetBellBearings(charIdx, l.map(b => b.id), true)); setBellBearings(prev => prev.map(b => ({...b, unlocked: true}))); onMutate?.(); };
+    const handleLockAllBBs = async () => { const u = bellBearings.filter(b => b.unlocked); if (!u.length) return; await runWorldAction('bell_bearings_lock_all', u.length, () => BulkSetBellBearings(charIdx, u.map(b => b.id), false)); setBellBearings(prev => prev.map(b => ({...b, unlocked: false}))); onMutate?.(); };
     const unlockedBBs = bellBearings.filter(b => b.unlocked).length;
 
     // --- Whetblade logic ---
-    const handleWBToggle = async (w: db.WhetbladeEntry, unlocked: boolean) => { await SetWhetbladeUnlocked(charIdx, w.id, unlocked); setWhetblades(prev => prev.map(x => x.id === w.id ? {...x, unlocked} : x)); onMutate?.(); };
-    const handleUnlockAllWBs = async () => { const l = whetblades.filter(w => !w.unlocked); if (!l.length) return; for (const w of l) { await SetWhetbladeUnlocked(charIdx, w.id, true); } setWhetblades(prev => prev.map(w => ({...w, unlocked: true}))); onMutate?.(); };
-    const handleLockAllWBs = async () => { const u = whetblades.filter(w => w.unlocked); if (!u.length) return; for (const w of u) { await SetWhetbladeUnlocked(charIdx, w.id, false); } setWhetblades(prev => prev.map(w => ({...w, unlocked: false}))); onMutate?.(); };
+    const handleWBToggle = async (w: db.WhetbladeEntry, unlocked: boolean) => { await runWorldAction('whetblade_set', 1, async () => { await SetWhetbladeUnlocked(charIdx, w.id, unlocked); }); setWhetblades(prev => prev.map(x => x.id === w.id ? {...x, unlocked} : x)); onMutate?.(); };
+    const handleUnlockAllWBs = async () => { const l = whetblades.filter(w => !w.unlocked); if (!l.length) return; await runWorldAction('whetblades_unlock_all', l.length, async () => { for (const w of l) await SetWhetbladeUnlocked(charIdx, w.id, true); }); setWhetblades(prev => prev.map(w => ({...w, unlocked: true}))); onMutate?.(); };
+    const handleLockAllWBs = async () => { const u = whetblades.filter(w => w.unlocked); if (!u.length) return; await runWorldAction('whetblades_lock_all', u.length, async () => { for (const w of u) await SetWhetbladeUnlocked(charIdx, w.id, false); }); setWhetblades(prev => prev.map(w => ({...w, unlocked: false}))); onMutate?.(); };
     const unlockedWBs = whetblades.filter(w => w.unlocked).length;
 
     // --- Quest logic ---
@@ -201,21 +223,21 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
     const handleSelectNPC = (npc: string) => { setSelectedNPC(npc); loadQuestProgress(npc, true); };
     const handleSetQuestStep = async (stepIndex: number) => {
         if (!selectedNPC) return;
-        await SetQuestStep(charIdx, selectedNPC, stepIndex);
+        await runWorldAction('quest_set_step', 1, () => SetQuestStep(charIdx, selectedNPC, stepIndex));
         await loadQuestProgress(selectedNPC);
         onMutate?.();
     };
     const handleUnsetQuestStep = async (step: db.QuestStep) => {
         if (!selectedNPC || !step.flags?.length) return;
-        for (const flag of step.flags) {
-            await SetMapFlag(charIdx, flag.id, flag.target !== 1);
-        }
+        await runWorldAction('quest_unset_step', step.flags.length, async () => {
+            for (const flag of step.flags) await SetMapFlag(charIdx, flag.id, flag.target !== 1);
+        });
         await loadQuestProgress(selectedNPC);
         onMutate?.();
     };
     const handleQuestFlagToggle = async (flag: db.QuestFlagState) => {
         if (!selectedNPC) return;
-        await SetMapFlag(charIdx, flag.id, !flag.current);
+        await runWorldAction('quest_toggle_flag', 1, () => SetMapFlag(charIdx, flag.id, !flag.current));
         await loadQuestProgress(selectedNPC);
         onMutate?.();
     };
@@ -227,15 +249,17 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
     const mapSystemEntries = mapEntries.filter(e => e.category === 'system');
     const mapAreas = mapRegionEntries.reduce((acc, e) => { const a = e.area || 'Unknown'; (acc[a] ??= []).push(e); return acc; }, {} as Record<string, db.MapEntry[]>);
     const handleMapRegionToggle = async (entry: db.MapEntry, enabled: boolean) => {
-        await SetMapRegionFlags(charIdx, entry.id, enabled);
-        if (enabled) await RemoveFogOfWar(charIdx);
+        await runWorldAction('map_region_set', 1, async () => {
+            await SetMapRegionFlags(charIdx, entry.id, enabled);
+            if (enabled) await RemoveFogOfWar(charIdx);
+        });
         const acquiredId = entry.id + 1000;
         setMapEntries(prev => prev.map(e => { if (e.id === entry.id) return {...e, enabled}; if (e.id === acquiredId && e.category === 'acquired') return {...e, enabled}; return e; }));
         onMutate?.();
     };
-    const handleSystemFlagToggle = async (entry: db.MapEntry, enabled: boolean) => { await SetMapFlag(charIdx, entry.id, enabled); setMapEntries(prev => prev.map(e => e.id === entry.id ? {...e, enabled} : e)); onMutate?.(); };
-    const handleRevealAllMap = async () => { await RevealAllMap(charIdx); await RemoveFogOfWar(charIdx); setMapEntries(prev => prev.map(e => ({...e, enabled: true}))); onMutate?.(); };
-    const handleResetMap = async () => { await ResetMapExploration(charIdx); loadExplorationData(); onMutate?.(); };
+    const handleSystemFlagToggle = async (entry: db.MapEntry, enabled: boolean) => { await runWorldAction('map_system_flag_set', 1, () => SetMapFlag(charIdx, entry.id, enabled)); setMapEntries(prev => prev.map(e => e.id === entry.id ? {...e, enabled} : e)); onMutate?.(); };
+    const handleRevealAllMap = async () => { await runWorldAction('map_reveal_all', mapEntries.filter(e => !e.enabled).length, async () => { await RevealAllMap(charIdx); await RemoveFogOfWar(charIdx); }); setMapEntries(prev => prev.map(e => ({...e, enabled: true}))); onMutate?.(); };
+    const handleResetMap = async () => { await runWorldAction('map_reset', 1, () => ResetMapExploration(charIdx)); loadExplorationData(); onMutate?.(); };
     const totalMapRegions = mapRegionEntries.length;
     const enabledMapRegions = mapRegionEntries.filter(e => e.enabled).length;
 
@@ -267,31 +291,31 @@ export function WorldTab({charIdx, platform, showFlaggedItems, saveLoadKey, save
     const unlockedRegionsCount = regionEntries.filter(r => r.unlocked).length;
 
     const handleRegionToggle = async (r: db.RegionEntry, unlocked: boolean) => {
-        await SetRegionUnlocked(charIdx, r.id, unlocked);
+        await runWorldAction('invasion_region_set', 1, () => SetRegionUnlocked(charIdx, r.id, unlocked));
         setRegionEntries(prev => prev.map(x => x.id === r.id ? {...x, unlocked} : x));
         onMutate?.();
     };
     const handleUnlockAreaRegions = async (area: string) => {
         const next = regionEntries.filter(r => r.unlocked || r.area === area).map(r => r.id);
-        await BulkSetUnlockedRegions(charIdx, next);
+        await runWorldAction('invasion_regions_unlock_area', regionEntries.filter(r => !r.unlocked && r.area === area).length, () => BulkSetUnlockedRegions(charIdx, next));
         setRegionEntries(prev => prev.map(r => r.area === area ? {...r, unlocked: true} : r));
         onMutate?.();
     };
     const handleLockAreaRegions = async (area: string) => {
         const next = regionEntries.filter(r => r.unlocked && r.area !== area).map(r => r.id);
-        await BulkSetUnlockedRegions(charIdx, next);
+        await runWorldAction('invasion_regions_lock_area', regionEntries.filter(r => r.unlocked && r.area === area).length, () => BulkSetUnlockedRegions(charIdx, next));
         setRegionEntries(prev => prev.map(r => r.area === area ? {...r, unlocked: false} : r));
         onMutate?.();
     };
     const handleUnlockAllRegions = async () => {
         if (!regionEntries.length) return;
-        await BulkSetUnlockedRegions(charIdx, regionEntries.map(r => r.id));
+        await runWorldAction('invasion_regions_unlock_all', regionEntries.filter(r => !r.unlocked).length, () => BulkSetUnlockedRegions(charIdx, regionEntries.map(r => r.id)));
         setRegionEntries(prev => prev.map(r => ({...r, unlocked: true})));
         onMutate?.();
     };
     const handleLockAllRegions = async () => {
         if (!regionEntries.some(r => r.unlocked)) return;
-        await BulkSetUnlockedRegions(charIdx, []);
+        await runWorldAction('invasion_regions_lock_all', regionEntries.filter(r => r.unlocked).length, () => BulkSetUnlockedRegions(charIdx, []));
         setRegionEntries(prev => prev.map(r => ({...r, unlocked: false})));
         onMutate?.();
     };

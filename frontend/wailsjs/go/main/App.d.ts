@@ -218,6 +218,8 @@ export function RecordDiagnosticIntegrityModalShown():Promise<void>;
 
 export function RecordDiagnosticPostLoadDiagnosticsModalShown():Promise<void>;
 
+export function RecordDiagnosticWorldAction(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:string):Promise<void>;
+
 export function RemoveFavoritePreset(arg1:number):Promise<void>;
 
 export function RemoveFogOfWar(arg1:number):Promise<void>;

@@ -44,6 +44,7 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.ScanRepairIssuesLoaded).toBe('function');
         expect(typeof App.ApplyRepairsLoaded).toBe('function');
         expect(typeof App.RecordDiagnosticPostLoadDiagnosticsModalShown).toBe('function');
+        expect(typeof App.RecordDiagnosticWorldAction).toBe('function');
     });
 
     it('exposes the regulation-backed Full Chaos add endpoint', () => {
