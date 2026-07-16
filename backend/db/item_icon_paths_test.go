@@ -8,17 +8,6 @@ import (
 	"testing"
 )
 
-// iconAllowlist enumerates ItemData IconPaths that intentionally have no icon
-// asset yet (no upstream art available). They must still obey the
-// items/<Category>/ routing rule; only the file-existence check is waived.
-var iconAllowlist = map[string]bool{
-	"items/gestures/fetal_position.png":                true,
-	"items/gestures/the_carian_oath.png":               true,
-	"items/gestures/the_two_fingers.png":               true,
-	"items/key_items/fugitive_warriors_recipe_[5].png": true,
-	"items/melee_armaments/unarmed.png":                true,
-}
-
 // numberedBellBearing matches non-canonical Bell Bearing icon paths that still
 // carry a trailing _N variant suffix. All numbered variants must resolve to the
 // canonical family icon (…_bell_bearing.png).
@@ -46,9 +35,6 @@ func TestItemIconPaths(t *testing.T) {
 				id, item.Name, item.IconPath)
 		}
 
-		if iconAllowlist[item.IconPath] {
-			continue
-		}
 		if _, err := os.Stat(filepath.Join(publicRoot, filepath.FromSlash(item.IconPath))); err != nil {
 			t.Errorf("item %#x (%q): icon file missing under %s: %s", id, item.Name, publicRoot, item.IconPath)
 		}

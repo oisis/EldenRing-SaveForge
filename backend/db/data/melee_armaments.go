@@ -2,7 +2,7 @@ package data
 
 var Weapons = map[uint32]ItemData{
 	0x00F58390: {Name: "Bolt of Gransax", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/melee_armaments/bolt_of_gransax.png"},
-	0x0001ADB0: {Name: "Unarmed", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/melee_armaments/unarmed.png"},
+	0x0001ADB0: {Name: "Unarmed", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 0, IconPath: "items/melee_armaments/missing_icon.png"},
 	0x000F4240: {Name: "Dagger", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/dagger.png"},
 	0x000F6950: {Name: "Black Knife", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 10, IconPath: "items/melee_armaments/black_knife.png"},
 	0x000F9060: {Name: "Parrying Dagger", Category: "melee_armaments", MaxInventory: 1, MaxStorage: 1, MaxUpgrade: 25, IconPath: "items/melee_armaments/parrying_dagger.png"},

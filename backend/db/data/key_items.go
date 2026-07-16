@@ -72,7 +72,7 @@ var KeyItems = map[uint32]ItemData{
 	0x40001FD8: {Name: "Mohg's Great Rune", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/mohgs_great_rune.png"},
 	0x40000087: {Name: "Phantom Great Rune", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/phantom_great_rune.png"},
 	0x401EA3CB: {Name: "Heart of Bayle", Category: "key_items", MaxInventory: 1, MaxStorage: 600, MaxUpgrade: 0, IconPath: "items/key_items/heart_of_bayle.png", Flags: []string{"dlc"}},
-	0x40002458: {Name: "Fugitive Warrior's Recipe [5]", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/fugitive_warriors_recipe_[5].png", Flags: []string{"cut_content", "ban_risk"}},
+	0x40002458: {Name: "Fugitive Warrior's Recipe [5]", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/missing_icon.png", Flags: []string{"cut_content", "ban_risk"}},
 	0x40002297: {Name: "Fire Monks' Prayerbook", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/fire_monks_prayerbook.png"},
 	0x401EA3CC: {Name: "Cross-Marked Map", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/cross_marked_map.png", Flags: []string{"dlc"}},
 	0x401EA3D3: {Name: "Black Syrup", Category: "key_items", MaxInventory: 1, MaxStorage: 0, MaxUpgrade: 0, IconPath: "items/key_items/black_syrup.png", Flags: []string{"dlc"}},
