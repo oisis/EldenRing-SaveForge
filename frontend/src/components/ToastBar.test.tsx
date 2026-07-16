@@ -57,23 +57,25 @@ describe('ToastBar diagnostic console', () => {
         render(<ToastBar />);
         openConsole();
 
-        expect(await screen.findByText('active save loaded')).toBeInTheDocument();
-        expect(screen.getByText(/\[app\/save_write_failed\]/)).toBeInTheDocument();
-        expect(screen.getByText('stage=write')).toBeInTheDocument();
+        const infoLine = await screen.findByText(/INFO \[app\/save_loaded\] active save loaded/);
+        expect(infoLine).toHaveTextContent(/\d{2}:\d{2}:\d{2} INFO \[app\/save_loaded\] active save loaded — platform: PC/);
+        expect(infoLine.childElementCount).toBe(0);
+        expect(screen.getByText(/ERROR \[app\/save_write_failed\]/)).toBeInTheDocument();
+        expect(screen.getByText(/stage: write/)).toBeInTheDocument();
         expect(screen.getByText('durable session log')).toBeInTheDocument();
     });
 
     it('filters by level and searches event, message, and fields', async () => {
         render(<ToastBar />);
         openConsole();
-        await screen.findByText('active save loaded');
+        await screen.findByText(/active save loaded/);
 
         fireEvent.change(screen.getByLabelText('Log level'), {target: {value: 'error'}});
-        expect(screen.queryByText('active save loaded')).not.toBeInTheDocument();
-        expect(screen.getByText('save write failed')).toBeInTheDocument();
+        expect(screen.queryByText(/active save loaded/)).not.toBeInTheDocument();
+        expect(screen.getByText(/save write failed/)).toBeInTheDocument();
 
-        fireEvent.change(screen.getByLabelText('Search logs'), {target: {value: 'stage=write'}});
-        expect(screen.getByText('save write failed')).toBeInTheDocument();
+        fireEvent.change(screen.getByLabelText('Search logs'), {target: {value: 'stage: write'}});
+        expect(screen.getByText(/save write failed/)).toBeInTheDocument();
 
         fireEvent.change(screen.getByLabelText('Search logs'), {target: {value: 'missing'}});
         await waitFor(() => expect(screen.getByText('No matching log entries')).toBeInTheDocument());

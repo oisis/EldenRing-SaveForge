@@ -1,7 +1,7 @@
 import {useState, useEffect, useCallback, useRef} from 'react';
 import {EventsOn} from '../wailsjs/runtime/runtime';
 import toast from './lib/toast';
-import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, SetDiagnosticDebugMode} from '../wailsjs/go/main/App';
+import {SelectAndOpenSave, GetSlotStates, CleanResidualSlot, SetSlotActivity, WriteSave, CloneSlot, DeleteSlot, GetCharacter, RevertSlot, GetUndoDepth, GetInfuseTypes, GetSlotCapacity, AuditLoadedSaveIssues, GetSaveInventoryIntegrityReport, RepairDuplicateInventoryIndices, CloseSave, RunDiagnosticsAllLoaded, GetAppVersion, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation} from '../wailsjs/go/main/App';
 import {main} from '../wailsjs/go/models';
 import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
@@ -619,6 +619,7 @@ function App() {
                             <button
                                 key={tab}
                                 onClick={() => {
+                                    if (tab !== activeTab) RecordDiagnosticClientNavigation('main_tab', activeTab, tab).catch(() => {});
                                     if (tab === 'inventory') setInventoryVersion(v => v + 1);
                                     setActiveTab(tab);
                                 }}
@@ -753,7 +754,11 @@ function App() {
                                                 ] as { id: 'database' | 'inventory' | 'sort_order'; label: string }[]).map(({ id, label }) => (
                                                     <button
                                                         key={id}
-                                                        onClick={() => { setInvView(id); if (id !== 'database') setDetailItem(null); }}
+                                                        onClick={() => {
+                                                            if (id !== invView) RecordDiagnosticClientNavigation('inventory_view', invView, id).catch(() => {});
+                                                            setInvView(id);
+                                                            if (id !== 'database') setDetailItem(null);
+                                                        }}
                                                         className={`px-4 py-1.5 rounded-md text-[10px] font-black uppercase tracking-wider transition-all ${
                                                             invView === id
                                                                 ? 'bg-green-700/80 shadow-sm text-white'

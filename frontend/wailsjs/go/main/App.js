@@ -402,6 +402,10 @@ export function RecordDiagnosticClientError(arg1, arg2, arg3) {
   return window['go']['main']['App']['RecordDiagnosticClientError'](arg1, arg2, arg3);
 }
 
+export function RecordDiagnosticClientNavigation(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RecordDiagnosticClientNavigation'](arg1, arg2, arg3);
+}
+
 export function RemoveFavoritePreset(arg1) {
   return window['go']['main']['App']['RemoveFavoritePreset'](arg1);
 }

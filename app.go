@@ -7,6 +7,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"unicode/utf16"
 
@@ -536,6 +537,96 @@ type AddResult struct {
 	GaItemRepackCTA *GaItemRepackCTA `json:"gaItemRepackCTA,omitempty"`
 }
 
+const diagnosticItemListMax = 20
+
+// diagnosticItemList resolves only canonical, public game-database names for
+// the diagnostic journal. It deliberately never reads item data from the save;
+// unknown IDs remain useful technical clues without exposing save content.
+func diagnosticItemList(itemIDs []uint32) string {
+	items := make([]string, 0, min(len(itemIDs), diagnosticItemListMax))
+	for _, id := range itemIDs[:min(len(itemIDs), diagnosticItemListMax)] {
+		item, _ := db.GetItemDataFuzzy(id)
+		if item.Name == "" {
+			items = append(items, fmt.Sprintf("Unknown item (0x%08X)", id))
+			continue
+		}
+		items = append(items, item.Name)
+	}
+	if extra := len(itemIDs) - len(items); extra > 0 {
+		items = append(items, fmt.Sprintf("… +%d more", extra))
+	}
+	return strings.Join(items, ", ")
+}
+
+func diagnosticAddDestination(inventoryQty, storageQty int) string {
+	switch {
+	case inventoryQty > 0 && storageQty > 0:
+		return "inventory + storage"
+	case inventoryQty > 0:
+		return "inventory"
+	case storageQty > 0:
+		return "storage"
+	default:
+		return "none"
+	}
+}
+
+type diagnosticAddedItem struct {
+	id                uint32
+	inventoryQty      int
+	storageQty        int
+	keyItemsTargetQty int
+}
+
+// diagnosticAddedItemList reports the quantities the add path actually
+// prepared for each location. It is assembled from transient operation state,
+// not from save bytes, and is bounded to keep a large batch readable.
+func diagnosticAddedItemList(items []diagnosticAddedItem) string {
+	parts := make([]string, 0, min(len(items), diagnosticItemListMax))
+	accepted := 0
+	for _, item := range items {
+		if item.inventoryQty == 0 && item.storageQty == 0 && item.keyItemsTargetQty == 0 {
+			continue
+		}
+		accepted++
+		if len(parts) == diagnosticItemListMax {
+			continue
+		}
+		itemData, _ := db.GetItemDataFuzzy(item.id)
+		name := itemData.Name
+		if name == "" {
+			name = fmt.Sprintf("Unknown item (0x%08X)", item.id)
+		}
+		locations := make([]string, 0, 3)
+		if item.inventoryQty > 0 {
+			locations = append(locations, fmt.Sprintf("inventory=%d", item.inventoryQty))
+		}
+		if item.storageQty > 0 {
+			locations = append(locations, fmt.Sprintf("storage=%d", item.storageQty))
+		}
+		if item.keyItemsTargetQty > 0 {
+			locations = append(locations, fmt.Sprintf("key items target=%d", item.keyItemsTargetQty))
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s)", name, strings.Join(locations, ", ")))
+	}
+	if extra := accepted - len(parts); extra > 0 {
+		parts = append(parts, fmt.Sprintf("… +%d more", extra))
+	}
+	if len(parts) == 0 {
+		return "none"
+	}
+	return strings.Join(parts, "; ")
+}
+
+func diagnosticContainerList(containers map[uint32]bool) string {
+	ids := make([]uint32, 0, len(containers))
+	for id := range containers {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return diagnosticItemList(ids)
+}
+
 // SlotState is the frontend's single source of truth for character-slot
 // occupancy. Residual means the game has cleared the active flag, but stale
 // character data still occupies the raw slot/profile-summary region.
@@ -619,9 +710,17 @@ func (a *App) AddItemsToCharacterWithGameLimits(charIdx int, itemIDs []uint32, u
 
 func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgrade10, infuseOffset, upgradeAsh, invQty, storageQty int, useGameLimits bool) (result AddResult, retErr error) {
 	result = AddResult{Requested: len(itemIDs)}
+	requestedItems := diagnosticItemList(itemIDs)
+	requestedDestination := diagnosticAddDestination(invQty, storageQty)
+	actualItems := "none"
+	containersUpdated := "none"
 	a.journalDebug("items_add_requested", "item add requested",
 		field("character_index", strconv.Itoa(charIdx)),
-		field("requested", strconv.Itoa(len(itemIDs))),
+		field("requested_count", strconv.Itoa(len(itemIDs))),
+		field("requested_items", requestedItems),
+		field("requested_destination", requestedDestination),
+		field("inventory_quantity", strconv.Itoa(invQty)),
+		field("storage_quantity", strconv.Itoa(storageQty)),
 		field("game_limits", strconv.FormatBool(useGameLimits)))
 
 	a.saveMu.RLock()
@@ -635,9 +734,17 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		} else if result.Added == 0 {
 			outcome = "no_change"
 		}
+		resultItems := "none"
+		updatedContainers := "none"
+		if retErr == nil && result.CapHit == "" && result.Added > 0 {
+			resultItems = actualItems
+			updatedContainers = containersUpdated
+		}
 		a.journalDebug("items_add_finished", "item add finished",
 			field("character_index", strconv.Itoa(charIdx)),
 			field("outcome", outcome),
+			field("result_items", resultItems),
+			field("containers_updated", updatedContainers),
 			field("added", strconv.Itoa(result.Added)),
 			field("trimmed", strconv.Itoa(len(result.Trimmed))),
 			field("skipped_existing", strconv.Itoa(len(result.SkippedExisting))),
@@ -902,6 +1009,17 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			keyTargetQty:   keyTargetQty,
 		})
 	}
+	diagnosticItems := make([]diagnosticAddedItem, 0, len(prepared))
+	for _, item := range prepared {
+		diagnosticItems = append(diagnosticItems, diagnosticAddedItem{
+			id:                item.finalID,
+			inventoryQty:      item.actualInv,
+			storageQty:        item.actualStorage,
+			keyItemsTargetQty: item.keyTargetQty,
+		})
+	}
+	actualItems = diagnosticAddedItemList(diagnosticItems)
+	containersUpdated = diagnosticContainerList(usedContainers)
 
 	// PRE-FLIGHT: check if all items fit.
 	var capacityItems []core.ItemToAdd

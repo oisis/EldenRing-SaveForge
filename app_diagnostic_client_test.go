@@ -39,3 +39,37 @@ func TestRecordDiagnosticClientErrorBoundsMessageAndNormalizesKind(t *testing.T)
 		t.Errorf("bounded message length/tail = %d/%q, want %d and ellipsis", len(got), string(got[len(got)-1:]), maxClientDiagnosticMessageRunes+1)
 	}
 }
+
+func TestRecordDiagnosticClientNavigationIsWhitelistedAndDebugOnly(t *testing.T) {
+	app := NewApp()
+	journal := newInMemoryDiagnosticJournal()
+	app.journal = journal
+
+	app.RecordDiagnosticClientNavigation("main_tab", "character", "tools")
+	if got := len(journal.Tail()); got != 0 {
+		t.Fatalf("navigation with debug disabled produced %d records, want 0", got)
+	}
+
+	journal.SetDebugEnabled(true)
+	app.RecordDiagnosticClientNavigation("main_tab", "character", "tools")
+	app.RecordDiagnosticClientNavigation("main_tab", "tools", "tools")
+	app.RecordDiagnosticClientNavigation("main_tab", "tools", "untrusted input")
+
+	records := journal.Tail()
+	if len(records) != 1 {
+		t.Fatalf("navigation records = %d, want 1", len(records))
+	}
+	record := records[0]
+	if record.Source != "frontend" || record.Event != "navigation_changed" {
+		t.Errorf("record source/event = %q/%q, want frontend/navigation_changed", record.Source, record.Event)
+	}
+	if got := operationField(record, "scope"); got != "main_tab" {
+		t.Errorf("scope = %q, want main_tab", got)
+	}
+	if got := operationField(record, "from"); got != "character" {
+		t.Errorf("from = %q, want character", got)
+	}
+	if got := operationField(record, "to"); got != "tools" {
+		t.Errorf("to = %q, want tools", got)
+	}
+}

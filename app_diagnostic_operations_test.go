@@ -64,6 +64,9 @@ func TestDebugOperationEventsAreSafeAndStructured(t *testing.T) {
 	if got := operationField(itemsFinished, "outcome"); got != "error" {
 		t.Errorf("items_add_finished outcome = %q, want error", got)
 	}
+	if got := operationField(itemsFinished, "result_items"); got != "none" {
+		t.Errorf("failed add result_items = %q, want none", got)
+	}
 	if got := operationField(itemsFinished, "requested"); got != "" {
 		t.Errorf("items_add_finished must not duplicate request payload, got %q", got)
 	}
@@ -78,5 +81,41 @@ func TestDebugOperationEventsAreSafeAndStructured(t *testing.T) {
 				t.Errorf("event %q leaked %q: %s", rec.Event, forbidden, serialized)
 			}
 		}
+	}
+}
+
+func TestDiagnosticAddedItemListLimitsAcceptedItems(t *testing.T) {
+	items := make([]diagnosticAddedItem, diagnosticItemListMax)
+	items = append(items, diagnosticAddedItem{id: firePotID, inventoryQty: 1})
+
+	if got := diagnosticAddedItemList(items); got != "Fire Pot (inventory=1)" {
+		t.Errorf("diagnosticAddedItemList = %q, want accepted item beyond skipped prefix", got)
+	}
+}
+
+func TestDebugItemAddEventsNameItemsAndDestinations(t *testing.T) {
+	app := remembranceGameLimitsFixture()
+	journal := newInMemoryDiagnosticJournal()
+	journal.SetDebugEnabled(true)
+	app.journal = journal
+
+	if _, err := app.AddItemsToCharacter(0, []uint32{firePotID}, 0, 0, 0, 0, 2, 3); err != nil {
+		t.Fatalf("AddItemsToCharacter: %v", err)
+	}
+
+	requested := operationEvent(t, journal.Tail(), "items_add_requested")
+	if got := operationField(requested, "requested_items"); got != "Fire Pot" {
+		t.Errorf("requested_items = %q, want Fire Pot", got)
+	}
+	if got := operationField(requested, "requested_destination"); got != "inventory + storage" {
+		t.Errorf("requested_destination = %q, want inventory + storage", got)
+	}
+
+	finished := operationEvent(t, journal.Tail(), "items_add_finished")
+	if got := operationField(finished, "result_items"); got != "Fire Pot (inventory=2, storage=3)" {
+		t.Errorf("result_items = %q, want actual item quantities and locations", got)
+	}
+	if got := operationField(finished, "containers_updated"); got != "Cracked Pot" {
+		t.Errorf("containers_updated = %q, want Cracked Pot", got)
 	}
 }

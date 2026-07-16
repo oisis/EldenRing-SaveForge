@@ -32,6 +32,7 @@ vi.mock('../wailsjs/go/main/App', () => {
         GetAppVersion: r(), ScanRepairIssuesLoaded: r(),
         AnalyzeGaItemRepack: r(), ExecuteGaItemRepack: r(),
         SetDiagnosticDebugMode: r(),
+        RecordDiagnosticClientNavigation: r(),
     };
 });
 
@@ -83,7 +84,7 @@ vi.mock('./components/ToastBar', () => ({ ToastBar: () => null }));
 
 import App from './App';
 import { SafetyModeProvider } from './state/safetyMode';
-import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave, SetDiagnosticDebugMode } from '../wailsjs/go/main/App';
+import { SelectAndOpenSave, GetSaveInventoryIntegrityReport, AnalyzeGaItemRepack, ExecuteGaItemRepack, WriteSave, SetDiagnosticDebugMode, RecordDiagnosticClientNavigation } from '../wailsjs/go/main/App';
 import toast from './lib/toast';
 
 const CAP = (physicalEmpty: number, cursorRoom: number, usable: number) => ({ physicalEmpty, cursorRoom, usable });
@@ -131,6 +132,12 @@ describe('App navigation wording', () => {
         renderApp('safe');
         expect(screen.getByRole('button', { name: 'Game Items' })).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /^Inventory$/ })).not.toBeInTheDocument();
+    });
+
+    it('records a main-tab transition for the diagnostic journal', async () => {
+        renderApp('safe');
+        fireEvent.click(screen.getByRole('button', { name: 'tools' }));
+        await waitFor(() => expect(RecordDiagnosticClientNavigation).toHaveBeenCalledWith('main_tab', 'character', 'tools'));
     });
 
     it('names the equipment submenu view Inventory once a save is loaded', async () => {

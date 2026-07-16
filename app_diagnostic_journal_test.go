@@ -312,6 +312,23 @@ func TestWailsJournalLoggerMapsLevels(t *testing.T) {
 	}
 }
 
+func TestWailsJournalLoggerSkipsNoisyAssetLoadDebug(t *testing.T) {
+	j := newInMemoryDiagnosticJournal()
+	j.SetDebugEnabled(true)
+	sink := newWailsJournalLogger(j)
+
+	sink.Debug("[ExternalAssetHandler] Loading 'https://example.invalid/asset.png'")
+	sink.Debug("application debug detail")
+
+	records := j.Tail()
+	if len(records) != 1 {
+		t.Fatalf("record count = %d, want 1", len(records))
+	}
+	if got := records[0].Message; got != "application debug detail" {
+		t.Errorf("recorded message = %q, want application debug detail", got)
+	}
+}
+
 func TestWailsJournalLoggerSurvivesJournalWriteFailure(t *testing.T) {
 	dir := t.TempDir()
 	j, err := newDiagnosticJournalInDir(dir)

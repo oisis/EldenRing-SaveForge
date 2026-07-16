@@ -113,7 +113,7 @@ function parseDiagnosticTail(encoded: string): ConsoleEntry[] {
             source: record.source,
             event: record.event,
             message: record.message,
-            details: record.fields?.map(field => `${field.key}=${field.value}`).join(' ') ?? '',
+            details: record.fields?.map(field => `${field.key}: ${field.value}`).join(' · ') ?? '',
         }];
     });
 }
@@ -136,6 +136,15 @@ function formatConsoleTime(time: string): string {
     return Number.isNaN(parsed.getTime())
         ? time
         : parsed.toLocaleTimeString('en-GB', {hour12: false});
+}
+
+// Keep each record as one DOM text node. Flex children made copied console
+// output split timestamps, levels, messages, and fields across lines. Long
+// records may still wrap visually, but clipboard text remains one log line.
+function formatConsoleLine(entry: ConsoleEntry): string {
+	const details = entry.details === '' ? '' : ` — ${entry.details}`;
+	const loading = entry.loading ? ' ...' : '';
+	return `${formatConsoleTime(entry.time)} ${entry.level.toUpperCase()} [${entry.source}/${entry.event}] ${entry.message}${loading}${details}`;
 }
 
 export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
@@ -434,19 +443,11 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
                         it never alters the durable journal. */}
                     <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-2 font-mono text-[11px] space-y-0.5">
                         {visibleConsoleEntries.slice().reverse().map(entry => (
-                            <div key={entry.id} className="flex gap-2">
-                                <span className="flex-shrink-0" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.7 }}>{formatConsoleTime(entry.time)}</span>
-                                <span className={`uppercase font-bold flex-shrink-0 w-10 ${levelColor(entry.level)}`}>
-                                    {entry.level}
-                                </span>
-                                <span className="min-w-0" style={{ color: 'var(--sf-console-text)' }}>
-                                    <span className="mr-1" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.75 }}>[{entry.source}/{entry.event}]</span>
-                                    {entry.message}
-                                    {entry.loading && <LoadingDots />}
-                                    {entry.details !== '' && (
-                                        <span className="ml-1 break-all" style={{ color: 'var(--sf-console-text-dim)', opacity: 0.8 }}>{entry.details}</span>
-                                    )}
-                                </span>
+                            <div
+                                key={entry.id}
+                                className={`break-words ${levelColor(entry.level)}`}
+                            >
+                                {formatConsoleLine(entry)}
                             </div>
                         ))}
                         {visibleConsoleEntries.length === 0 && (

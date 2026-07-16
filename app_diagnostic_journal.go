@@ -482,7 +482,8 @@ func (j *DiagnosticJournal) Close() error {
 //
 // On a journal write failure it falls back to stderr — never to the Wails
 // runtime logger — so a logging error can neither crash the app nor
-// recurse back into this sink.
+// recurse back into this sink. The sink also omits known, high-volume asset
+// load chatter that carries no diagnostic value for a user-reported issue.
 type wailsJournalLogger struct {
 	journal *DiagnosticJournal
 }
@@ -499,9 +500,18 @@ func (w *wailsJournalLogger) record(level diagnosticLevel, event, message string
 	}
 }
 
-func (w *wailsJournalLogger) Print(message string)   { w.record(levelInfo, "print", message) }
-func (w *wailsJournalLogger) Trace(message string)   { w.record(levelTrace, "trace", message) }
-func (w *wailsJournalLogger) Debug(message string)   { w.record(levelDebug, "debug", message) }
+func isNoisyWailsDebug(message string) bool {
+	return strings.Contains(message, "[ExternalAssetHandler] Loading ")
+}
+
+func (w *wailsJournalLogger) Print(message string) { w.record(levelInfo, "print", message) }
+func (w *wailsJournalLogger) Trace(message string) { w.record(levelTrace, "trace", message) }
+func (w *wailsJournalLogger) Debug(message string) {
+	if isNoisyWailsDebug(message) {
+		return
+	}
+	w.record(levelDebug, "debug", message)
+}
 func (w *wailsJournalLogger) Info(message string)    { w.record(levelInfo, "info", message) }
 func (w *wailsJournalLogger) Warning(message string) { w.record(levelWarn, "warning", message) }
 func (w *wailsJournalLogger) Error(message string)   { w.record(levelError, "error", message) }
