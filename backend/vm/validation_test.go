@@ -2,7 +2,38 @@ package vm
 
 import (
 	"testing"
+	"unicode/utf16"
 )
+
+// TestNormalizeCharacterName pins the fixed 16-code-unit UTF-16 CharacterName
+// normalization shared by ApplyVMToParsedSlot and the SaveCharacter diagnostics:
+// short names pad, over-length names truncate at the buffer boundary.
+func TestNormalizeCharacterName(t *testing.T) {
+	decode := func(buf [16]uint16) string {
+		n := 0
+		for n < len(buf) && buf[n] != 0 {
+			n++
+		}
+		return string(utf16.Decode(buf[:n]))
+	}
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"short pads", "Hero", "Hero"},
+		{"empty", "", ""},
+		{"exactly 16", "0123456789ABCDEF", "0123456789ABCDEF"},
+		{"truncates past 16", "0123456789ABCDEFGHIJ", "0123456789ABCDEF"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := decode(NormalizeCharacterName(tt.in)); got != tt.want {
+				t.Errorf("NormalizeCharacterName(%q) decoded = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
 
 func TestRecalculateLevel(t *testing.T) {
 	tests := []struct {
@@ -228,8 +259,8 @@ func TestClampToClassMinimums_UnknownClass(t *testing.T) {
 func TestAllClassBaseStatsConsistent(t *testing.T) {
 	// Verify that every starting class's base stats produce the correct level
 	classData := []struct {
-		classID uint8
-		level   uint32
+		classID                                 uint8
+		level                                   uint32
 		vig, mnd, end, str, dex, int_, fai, arc uint32
 	}{
 		{0, 9, 15, 10, 11, 14, 13, 9, 9, 7},

@@ -340,6 +340,23 @@ func mapItems(data core.EquipInventoryData, gaMap map[uint32]uint32, gaItemsByHa
 
 	return items
 }
+
+// characterNameLen is the fixed CharacterName buffer size, in UTF-16 code units.
+const characterNameLen = 16
+
+// NormalizeCharacterName encodes name as UTF-16 then truncates/pads it to the
+// fixed CharacterName buffer the save format uses. It is the single source of
+// truth for how a character name is persisted, shared by ApplyVMToParsedSlot and
+// diagnostics so a logged "final name" cannot drift from what is written.
+func NormalizeCharacterName(name string) [characterNameLen]uint16 {
+	var buf [characterNameLen]uint16
+	u16 := utf16.Encode([]rune(name))
+	for i := 0; i < characterNameLen && i < len(u16); i++ {
+		buf[i] = u16[i]
+	}
+	return buf
+}
+
 func ApplyVMToParsedSlot(vm *CharacterViewModel, slot *core.SaveSlot) error {
 	data := &slot.Player
 	data.Level = vm.Level
@@ -362,14 +379,7 @@ func ApplyVMToParsedSlot(vm *CharacterViewModel, slot *core.SaveSlot) error {
 	data.ScadutreeBlessing = vm.ScadutreeBlessing
 	data.ShadowRealmBlessing = vm.ShadowRealmBlessing
 
-	u16 := utf16.Encode([]rune(vm.Name))
-	for i := 0; i < 16; i++ {
-		if i < len(u16) {
-			data.CharacterName[i] = u16[i]
-		} else {
-			data.CharacterName[i] = 0
-		}
-	}
+	data.CharacterName = NormalizeCharacterName(vm.Name)
 
 	// Update Inventory (with write-back to slot.Data)
 	if err := updateItemsAndSync(vm.Inventory, &slot.Inventory, slot, false); err != nil {

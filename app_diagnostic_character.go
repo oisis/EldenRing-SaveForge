@@ -116,8 +116,9 @@ type characterFieldPlan struct {
 // whose normalized submitted target differs from the current slot value.
 // Normalization for soul_memory / talisman_slots / clear_count reuses the same
 // vm helpers ApplyVMToParsedSlot applies, so planned values cannot drift from
-// what the writer persists. Operational side effects (Memory Stones inventory,
-// NG+ flags, containers, quantities, ProfileSummary, appearance, favorites) are
+// what the writer persists. NG+ flags and ProfileSummary are handled by the
+// dedicated side-effect planner below; the remaining operational side effects
+// (Memory Stones inventory, containers, quantities, appearance, favorites) are
 // deliberately out of scope here.
 func planCharacterSaveChanges(cur core.PlayerGameData, submitted *vm.CharacterViewModel) []characterFieldPlan {
 	u32 := func(v uint32) string { return strconv.FormatUint(uint64(v), 10) }
@@ -182,7 +183,7 @@ func finishedChangeRecords(plans []characterFieldPlan, post core.PlayerGameData)
 // stack whose count is capped by the game and mirrored into world pickup event
 // flags. SaveCharacter journals the three semantic values below, never raw slot
 // bytes or flag buffers. The shared clamp/guard helpers (normalizeMemoryStones,
-// memoryStonesFlagsAvailable, maxMemoryStones) live in app_appearance.go next to
+// hasEventFlagsRegion, maxMemoryStones) live in app_appearance.go next to
 // the writer that owns that behavior.
 const (
 	memoryStonesItemID = 0x4000272E // item ID (key into BolsteringPickupFlags)
@@ -232,7 +233,7 @@ func readMemoryStonesCommonQuantity(slot *core.SaveSlot) string {
 // flags are currently set — a semantic count only, never the raw flag bytes.
 func readMemoryStonesPickupFlagsSet(slot *core.SaveSlot) string {
 	count := 0
-	if memoryStonesFlagsAvailable(slot) {
+	if hasEventFlagsRegion(slot) {
 		flags := slot.Data[slot.EventFlagsOffset:]
 		for _, f := range data.BolsteringPickupFlags[memoryStonesItemID] {
 			if val, err := db.GetEventFlag(flags, f); err == nil && val {
@@ -277,7 +278,7 @@ func planMemoryStonesSaveChanges(slot *core.SaveSlot, requested uint32) []memory
 	// never moves. When the region is unavailable, fall the planned value back to
 	// the current readable count so the field self-excludes (before == planned).
 	plannedPickup := readMemoryStonesPickupFlagsSet(slot)
-	if memoryStonesFlagsAvailable(slot) {
+	if hasEventFlagsRegion(slot) {
 		plannedPickup = count
 	}
 
@@ -319,6 +320,116 @@ func memoryStonesFinishedRecords(plans []memoryStonesFieldPlan, slot *core.SaveS
 	out := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
 		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot)}
+	}
+	return out
+}
+
+// sideEffectPlan is one Clear Count side effect (an NG+ event flag or a
+// ProfileSummary field) whose target differs from the current value. Unlike the
+// scalar/Memory Stones plans, the finished value can live in the slot's flag
+// buffer or the save's ProfileSummary, so read is a self-contained closure that
+// pulls the field's live post-operation value from wherever it belongs.
+type sideEffectPlan struct {
+	field   string
+	before  string
+	planned string
+	read    func() string
+}
+
+// finalCharacterName reports the exact truncated name SaveCharacter will persist
+// for a ProfileSummary plan, without mutating the slot first. It reuses the
+// writer's own vm.NormalizeCharacterName so the plan can never drift from what
+// ApplyVMToParsedSlot writes, then decodes the fixed-width UTF-16 buffer back to
+// a string the same way the summary reader does.
+func finalCharacterName(name string) string {
+	buf := vm.NormalizeCharacterName(name)
+	return core.UTF16ToString(buf[:])
+}
+
+// readNGPlusFlag reports NG+ event flag flagID as the scalar "true"/"false",
+// reading live from the slot's Event Flags region. It uses the same
+// availability guard as the writer and, like the existing flag readers, treats
+// an unavailable region or a read error as an unset flag.
+func (a *App) readNGPlusFlag(index int, flagID uint32) string {
+	slot := &a.save.Slots[index]
+	if hasEventFlagsRegion(slot) {
+		if val, err := db.GetEventFlag(slot.Data[slot.EventFlagsOffset:], flagID); err == nil && val {
+			return "true"
+		}
+	}
+	return "false"
+}
+
+// planClearCountSideEffects builds the plans for SaveCharacter's Clear Count
+// side effects: NG+ event flags 50-57 and the ProfileSummary level/name mirror.
+// Everything is planned against the pre-mutation state; each read closure pulls
+// the field's live value back after the operation so the finished phase reports
+// what actually landed (or, on failure, the unchanged pre-error value). Only
+// fields whose target differs from the current value are returned.
+func (a *App) planClearCountSideEffects(index int, submitted *vm.CharacterViewModel) []sideEffectPlan {
+	slot := &a.save.Slots[index]
+	var plans []sideEffectPlan
+
+	// NG+ flags: exactly the flag matching the normalized clear count is true.
+	// Mutable only when the slot exposes a valid Event Flags region — the same
+	// guard the writer uses; otherwise emit nothing.
+	if hasEventFlagsRegion(slot) {
+		normalized := vm.NormalizeClearCount(submitted.ClearCount)
+		for i := uint32(0); i <= 7; i++ {
+			flagID := 50 + i
+			target := strconv.FormatBool(i == normalized)
+			before := a.readNGPlusFlag(index, flagID)
+			if before == target {
+				continue
+			}
+			plans = append(plans, sideEffectPlan{
+				field:   "ng_plus_flag_" + strconv.FormatUint(uint64(flagID), 10),
+				before:  before,
+				planned: target,
+				read:    func() string { return a.readNGPlusFlag(index, flagID) },
+			})
+		}
+	}
+
+	// ProfileSummary mirrors the final character level and the final persisted
+	// (truncated) name SaveCharacter assigns.
+	ps := &a.save.ProfileSummaries[index]
+	if levelBefore, levelPlanned := strconv.FormatUint(uint64(ps.Level), 10), strconv.FormatUint(uint64(submitted.Level), 10); levelBefore != levelPlanned {
+		plans = append(plans, sideEffectPlan{
+			field:   "profile_summary_level",
+			before:  levelBefore,
+			planned: levelPlanned,
+			read:    func() string { return strconv.FormatUint(uint64(a.save.ProfileSummaries[index].Level), 10) },
+		})
+	}
+	if nameBefore, namePlanned := core.UTF16ToString(ps.CharacterName[:]), finalCharacterName(submitted.Name); nameBefore != namePlanned {
+		plans = append(plans, sideEffectPlan{
+			field:   "profile_summary_name",
+			before:  nameBefore,
+			planned: namePlanned,
+			read:    func() string { return core.UTF16ToString(a.save.ProfileSummaries[index].CharacterName[:]) },
+		})
+	}
+	return plans
+}
+
+// sideEffectPlannedRecords maps side-effect plans to before/planned records (the
+// before phase ignores After, the planned phase uses it), mirroring the scalar
+// and Memory Stones record mappers.
+func sideEffectPlannedRecords(plans []sideEffectPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.planned}
+	}
+	return out
+}
+
+// sideEffectFinishedRecords maps side-effect plans to finished records, invoking
+// each plan's read closure to capture the field's actual post-operation value.
+func sideEffectFinishedRecords(plans []sideEffectPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read()}
 	}
 	return out
 }

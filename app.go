@@ -338,8 +338,10 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 	// slot. Only fields whose normalized target differs are logged.
 	plans := planCharacterSaveChanges(a.save.Slots[index].Player, &charVM)
 	msPlans := planMemoryStonesSaveChanges(&a.save.Slots[index], charVM.MemoryStones)
-	if len(plans) > 0 || len(msPlans) > 0 {
+	sePlans := a.planClearCountSideEffects(index, &charVM)
+	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 {
 		records := append(plannedChangeRecords(plans), memoryStonesPlannedRecords(msPlans)...)
+		records = append(records, sideEffectPlannedRecords(sePlans)...)
 		a.journalCharacterChangeBefore(actionSaveCharacter, index, records)
 		a.journalCharacterChangePlanned(actionSaveCharacter, index, records)
 	}
@@ -370,7 +372,7 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 		slot.SyncPlayerToData()
 
 		// 2. Sync NG+ event flags (50-57) with ClearCount
-		if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+		if hasEventFlagsRegion(slot) {
 			flags := slot.Data[slot.EventFlagsOffset:]
 			for i := uint32(0); i <= 7; i++ {
 				_ = db.SetEventFlag(flags, 50+i, i == slot.Player.ClearCount)
@@ -386,13 +388,14 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	// Emit finished records for every planned field using the field values that
 	// actually landed in the slot at this exit point (post-rollback on failure).
-	if len(plans) > 0 || len(msPlans) > 0 {
+	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 {
 		outcome := characterChangeSuccess
 		if err != nil {
 			outcome = characterChangeError
 		}
 		finished := append(finishedChangeRecords(plans, a.save.Slots[index].Player),
 			memoryStonesFinishedRecords(msPlans, &a.save.Slots[index])...)
+		finished = append(finished, sideEffectFinishedRecords(sePlans)...)
 		a.journalCharacterChangeFinished(actionSaveCharacter, index, outcome, stage, finished)
 	}
 

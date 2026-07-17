@@ -86,6 +86,11 @@ func TestSaveCharacterDiagnosticSuccessAllFields(t *testing.T) {
 		"arcane":         "10",
 		"talisman_slots": "3",
 		"clear_count":    "7",
+		// Clear Count side effects: no valid Event Flags region on this fixture, so
+		// the NG+ flags stay silent, but the ProfileSummary mirror tracks the final
+		// level and persisted name.
+		"profile_summary_level": "100",
+		"profile_summary_name":  "TestHero",
 	}
 
 	records := characterRecords(app.journal.Tail())
@@ -113,7 +118,7 @@ func TestSaveCharacterDiagnosticSuccessAllFields(t *testing.T) {
 
 		// before phase carries the old value and omits after.
 		wantBefore := "0"
-		if field == "name" {
+		if field == "name" || field == "profile_summary_name" {
 			wantBefore = ""
 		}
 		if got := operationField(phases[0], "before"); got != wantBefore {

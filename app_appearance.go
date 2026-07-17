@@ -188,10 +188,11 @@ func normalizeMemoryStones(desired uint32) uint32 {
 	return desired
 }
 
-// memoryStonesFlagsAvailable reports whether the slot exposes a usable Event
-// Flags region — the guard applyMemoryStonesToSlot uses before touching pickup
-// flags. When it is false the writer leaves the pickup flags untouched.
-func memoryStonesFlagsAvailable(slot *core.SaveSlot) bool {
+// hasEventFlagsRegion reports whether the slot exposes a usable Event Flags
+// region — the shared guard used before any code touches event flags (Memory
+// Stones pickup flags, NG+ flags, and their diagnostics). When it is false the
+// writer leaves those flags untouched.
+func hasEventFlagsRegion(slot *core.SaveSlot) bool {
 	return slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data)
 }
 
@@ -212,7 +213,7 @@ func (a *App) applyMemoryStonesToSlot(slot *core.SaveSlot, desired uint32) error
 			return fmt.Errorf("add memory stone: %w", err)
 		}
 	}
-	if memoryStonesFlagsAvailable(slot) {
+	if hasEventFlagsRegion(slot) {
 		flags := slot.Data[slot.EventFlagsOffset:]
 		flagList := data.BolsteringPickupFlags[0x4000272E]
 		sorted := make([]uint32, len(flagList))

@@ -274,7 +274,7 @@ func TestSaveCharacterMemoryStonesDiagnosticNoEventFlagsRegion(t *testing.T) {
 	app := remembranceGameLimitsFixture()
 	slot := &app.save.Slots[0]
 	// Deliberately no withEventFlagsRegion: EventFlagsOffset stays 0 (invalid).
-	if memoryStonesFlagsAvailable(slot) {
+	if hasEventFlagsRegion(slot) {
 		t.Fatal("fixture unexpectedly exposes a valid Event Flags region")
 	}
 	enableDebugJournal(t, app)
