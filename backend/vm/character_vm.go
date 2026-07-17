@@ -124,6 +124,24 @@ type CharacterViewModel struct {
 	ClassBaseStats      map[string]uint32     `json:"classBaseStats"`
 }
 
+// NormalizeItemQuantity returns the physical quantity ApplyVMToParsedSlot
+// persists for a submitted item in the given section: the requested Quantity
+// clamped to the item's per-section max (MaxStorage for Storage, MaxInventory
+// otherwise), and only when that limit is non-zero. Single source of truth
+// shared by updateItemsAndSync and the Character diagnostic quantity planner so
+// a planned quantity can never drift from what the writer stores.
+func NormalizeItemQuantity(item ItemViewModel, isStorage bool) uint32 {
+	qty := item.Quantity
+	limit := item.MaxInventory
+	if isStorage {
+		limit = item.MaxStorage
+	}
+	if limit > 0 && qty > limit {
+		qty = limit
+	}
+	return qty
+}
+
 func MapParsedSlotToVM(slot *core.SaveSlot) (*CharacterViewModel, error) {
 	data := slot.Player
 	vm := &CharacterViewModel{
@@ -454,16 +472,7 @@ func updateItemsAndSync(vmItems []ItemViewModel, data *core.EquipInventoryData, 
 			continue
 		}
 		if vmItem, ok := vmMap[handle]; ok {
-			qty := vmItem.Quantity
-			if isStorage {
-				if vmItem.MaxStorage > 0 && qty > vmItem.MaxStorage {
-					qty = vmItem.MaxStorage
-				}
-			} else {
-				if vmItem.MaxInventory > 0 && qty > vmItem.MaxInventory {
-					qty = vmItem.MaxInventory
-				}
-			}
+			qty := NormalizeItemQuantity(vmItem, isStorage)
 			data.CommonItems[i].Quantity = qty
 			off := commonStart + i*12 + 4
 			if err := ssa.WriteU32(off, qty); err != nil {
@@ -480,10 +489,9 @@ func updateItemsAndSync(vmItems []ItemViewModel, data *core.EquipInventoryData, 
 				continue
 			}
 			if vmItem, ok := vmMap[handle]; ok {
-				qty := vmItem.Quantity
-				if vmItem.MaxInventory > 0 && qty > vmItem.MaxInventory {
-					qty = vmItem.MaxInventory
-				}
+				// Key Items live only in Inventory, so they always clamp to the
+				// Inventory limit.
+				qty := NormalizeItemQuantity(vmItem, false)
 				data.KeyItems[i].Quantity = qty
 				off := keyStart + i*12 + 4
 				if err := ssa.WriteU32(off, qty); err != nil {

@@ -339,9 +339,11 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 	plans := planCharacterSaveChanges(a.save.Slots[index].Player, &charVM)
 	msPlans := planMemoryStonesSaveChanges(&a.save.Slots[index], charVM.MemoryStones)
 	sePlans := a.planClearCountSideEffects(index, &charVM)
-	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 {
+	iqPlans := planItemQuantityChanges(&a.save.Slots[index], &charVM)
+	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 || len(iqPlans) > 0 {
 		records := append(plannedChangeRecords(plans), memoryStonesPlannedRecords(msPlans)...)
 		records = append(records, sideEffectPlannedRecords(sePlans)...)
+		records = append(records, itemQuantityPlannedRecords(iqPlans)...)
 		a.journalCharacterChangeBefore(actionSaveCharacter, index, records)
 		a.journalCharacterChangePlanned(actionSaveCharacter, index, records)
 	}
@@ -388,7 +390,7 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	// Emit finished records for every planned field using the field values that
 	// actually landed in the slot at this exit point (post-rollback on failure).
-	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 {
+	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 || len(iqPlans) > 0 {
 		outcome := characterChangeSuccess
 		if err != nil {
 			outcome = characterChangeError
@@ -396,6 +398,7 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 		finished := append(finishedChangeRecords(plans, a.save.Slots[index].Player),
 			memoryStonesFinishedRecords(msPlans, &a.save.Slots[index])...)
 		finished = append(finished, sideEffectFinishedRecords(sePlans)...)
+		finished = append(finished, itemQuantityFinishedRecords(iqPlans, &a.save.Slots[index])...)
 		a.journalCharacterChangeFinished(actionSaveCharacter, index, outcome, stage, finished)
 	}
 

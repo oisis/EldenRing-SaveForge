@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
@@ -430,6 +431,108 @@ func sideEffectFinishedRecords(plans []sideEffectPlan) []characterFieldChange {
 	out := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
 		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read()}
+	}
+	return out
+}
+
+// itemQuantityPlan is one physical Inventory/Storage item row whose normalized
+// submitted quantity differs from its current physical Quantity. read pulls the
+// same row's live physical Quantity back out of the post-operation slot so the
+// finished phase reports what actually landed (or, on error, the unchanged
+// pre-error value). The field name embeds the physical row and handle so two
+// rows sharing a handle produce distinct, non-colliding records.
+type itemQuantityPlan struct {
+	field   string
+	before  string
+	planned string
+	read    func(*core.SaveSlot) string
+}
+
+// itemVMByHandle indexes submitted items by Handle exactly as updateItemsAndSync
+// does (last write wins on a duplicate handle), so the planner resolves the same
+// ItemViewModel the writer will apply to each physical row.
+func itemVMByHandle(items []vm.ItemViewModel) map[uint32]vm.ItemViewModel {
+	m := make(map[uint32]vm.ItemViewModel, len(items))
+	for _, it := range items {
+		m[it.Handle] = it
+	}
+	return m
+}
+
+// planItemSection builds the quantity plans for one physical section (Inventory
+// Common/Key or Storage Common). It mirrors the writer's scope: only live rows
+// mapped by a submitted item, skipping empty/invalid handles and the Memory
+// Stone stack (which has its own memory_stones* logging), and only rows whose
+// normalized planned quantity differs from the current physical Quantity. read
+// re-selects the same section+row from the post-operation slot.
+func planItemSection(records []core.InventoryItem, submitted map[uint32]vm.ItemViewModel, isStorage bool, prefix string, section func(*core.SaveSlot) []core.InventoryItem) []itemQuantityPlan {
+	var plans []itemQuantityPlan
+	for row := range records {
+		rec := records[row]
+		handle := rec.GaItemHandle
+		if handle == core.GaHandleEmpty || handle == core.GaHandleInvalid || handle == memoryStonesHandle {
+			continue
+		}
+		vmItem, ok := submitted[handle]
+		if !ok {
+			continue
+		}
+		planned := vm.NormalizeItemQuantity(vmItem, isStorage)
+		if planned == rec.Quantity {
+			continue
+		}
+		row := row
+		plans = append(plans, itemQuantityPlan{
+			field:   fmt.Sprintf("%s_row_%d_handle_0x%08X_quantity", prefix, row, handle),
+			before:  strconv.FormatUint(uint64(rec.Quantity), 10),
+			planned: strconv.FormatUint(uint64(planned), 10),
+			read: func(s *core.SaveSlot) string {
+				sec := section(s)
+				if row < len(sec) {
+					return strconv.FormatUint(uint64(sec[row].Quantity), 10)
+				}
+				return strconv.FormatUint(uint64(rec.Quantity), 10)
+			},
+		})
+	}
+	return plans
+}
+
+// planItemQuantityChanges builds the ordered quantity plans for the three
+// physical sections ApplyVMToParsedSlot writes directly — Inventory Common,
+// Inventory Key and Storage Common — against the pre-mutation slot. Container
+// auto-sync and Event Flags are deliberately out of scope here.
+func planItemQuantityChanges(slot *core.SaveSlot, submitted *vm.CharacterViewModel) []itemQuantityPlan {
+	invMap := itemVMByHandle(submitted.Inventory)
+	storMap := itemVMByHandle(submitted.Storage)
+
+	var plans []itemQuantityPlan
+	plans = append(plans, planItemSection(slot.Inventory.CommonItems, invMap, false, "inventory_common",
+		func(s *core.SaveSlot) []core.InventoryItem { return s.Inventory.CommonItems })...)
+	plans = append(plans, planItemSection(slot.Inventory.KeyItems, invMap, false, "inventory_key",
+		func(s *core.SaveSlot) []core.InventoryItem { return s.Inventory.KeyItems })...)
+	plans = append(plans, planItemSection(slot.Storage.CommonItems, storMap, true, "storage_common",
+		func(s *core.SaveSlot) []core.InventoryItem { return s.Storage.CommonItems })...)
+	return plans
+}
+
+// itemQuantityPlannedRecords maps quantity plans to before/planned records (the
+// before phase ignores After, the planned phase uses it), mirroring the scalar,
+// Memory Stones and side-effect record mappers.
+func itemQuantityPlannedRecords(plans []itemQuantityPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.planned}
+	}
+	return out
+}
+
+// itemQuantityFinishedRecords maps quantity plans to finished records, reading
+// each row's actual physical Quantity back out of the post-operation slot.
+func itemQuantityFinishedRecords(plans []itemQuantityPlan, slot *core.SaveSlot) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot)}
 	}
 	return out
 }
