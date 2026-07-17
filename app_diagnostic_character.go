@@ -4,6 +4,8 @@ import (
 	"strconv"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 	"github.com/oisis/EldenRing-SaveForge/backend/vm"
 )
 
@@ -172,6 +174,151 @@ func finishedChangeRecords(plans []characterFieldPlan, post core.PlayerGameData)
 	out := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
 		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(post)}
+	}
+	return out
+}
+
+// Memory Stones live outside the scalar profile fields: they are an inventory
+// stack whose count is capped by the game and mirrored into world pickup event
+// flags. SaveCharacter journals the three semantic values below, never raw slot
+// bytes or flag buffers. The shared clamp/guard helpers (normalizeMemoryStones,
+// memoryStonesFlagsAvailable, maxMemoryStones) live in app_appearance.go next to
+// the writer that owns that behavior.
+const (
+	memoryStonesItemID = 0x4000272E // item ID (key into BolsteringPickupFlags)
+	memoryStonesHandle = 0xB000272E // GaItemHandle of the Memory Stone stack in a parsed slot
+	memoryStonesAbsent = "absent"   // memory_stones_common_quantity when no Common Items record holds the stone
+)
+
+// memoryStonesEffective mirrors character_vm.go: the count the Character VM
+// shows is the Common Items stack quantity, falling back to Key Items only when
+// no live Common Items stack is present.
+func memoryStonesEffective(slot *core.SaveSlot) uint32 {
+	var eff uint32
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle == memoryStonesHandle {
+			eff = item.Quantity & 0x7FFFFFFF
+			break
+		}
+	}
+	if eff == 0 {
+		for _, item := range slot.Inventory.KeyItems {
+			if item.GaItemHandle == memoryStonesHandle {
+				eff = item.Quantity & 0x7FFFFFFF
+				break
+			}
+		}
+	}
+	return eff
+}
+
+// readMemoryStonesEffective is the journal reader for the effective count.
+func readMemoryStonesEffective(slot *core.SaveSlot) string {
+	return strconv.FormatUint(uint64(memoryStonesEffective(slot)), 10)
+}
+
+// readMemoryStonesCommonQuantity reports the physical Common Items stack
+// quantity, or "absent" when no Common Items record holds the stone.
+func readMemoryStonesCommonQuantity(slot *core.SaveSlot) string {
+	for _, item := range slot.Inventory.CommonItems {
+		if item.GaItemHandle == memoryStonesHandle {
+			return strconv.FormatUint(uint64(item.Quantity&0x7FFFFFFF), 10)
+		}
+	}
+	return memoryStonesAbsent
+}
+
+// readMemoryStonesPickupFlagsSet reports how many Memory Stones pickup event
+// flags are currently set — a semantic count only, never the raw flag bytes.
+func readMemoryStonesPickupFlagsSet(slot *core.SaveSlot) string {
+	count := 0
+	if memoryStonesFlagsAvailable(slot) {
+		flags := slot.Data[slot.EventFlagsOffset:]
+		for _, f := range data.BolsteringPickupFlags[memoryStonesItemID] {
+			if val, err := db.GetEventFlag(flags, f); err == nil && val {
+				count++
+			}
+		}
+	}
+	return strconv.Itoa(count)
+}
+
+// memoryStonesFieldPlan is one in-scope Memory Stones field whose normalized
+// intended value differs from the current slot value. read pulls the field's
+// live value back out of the post-operation slot for the finished phase.
+type memoryStonesFieldPlan struct {
+	field   string
+	before  string
+	planned string
+	read    func(*core.SaveSlot) string
+}
+
+// planMemoryStonesSaveChanges builds the ordered list of Memory Stones fields
+// whose normalized target differs from the pre-mutation slot. planned values
+// reuse the same clamp applyMemoryStonesToSlot applies, so a plan can never
+// drift from what the writer persists. Only fields that actually change are
+// returned, so a canonical, unchanged state emits nothing.
+func planMemoryStonesSaveChanges(slot *core.SaveSlot, requested uint32) []memoryStonesFieldPlan {
+	normalized := normalizeMemoryStones(requested)
+	count := strconv.FormatUint(uint64(normalized), 10)
+
+	// The writer creates or updates a Common Items stack only when it ends up
+	// non-empty (desired > 0) or a stack already exists; otherwise the stone
+	// stays absent from Common Items.
+	commonExists := readMemoryStonesCommonQuantity(slot) != memoryStonesAbsent
+	plannedCommon := memoryStonesAbsent
+	if commonExists || normalized > 0 {
+		plannedCommon = count
+	}
+
+	// Pickup flags are only mutable when the slot exposes a valid Event Flags
+	// region; otherwise the writer leaves them untouched, so planning the
+	// requested count would emit a phantom "planned" change whose finished value
+	// never moves. When the region is unavailable, fall the planned value back to
+	// the current readable count so the field self-excludes (before == planned).
+	plannedPickup := readMemoryStonesPickupFlagsSet(slot)
+	if memoryStonesFlagsAvailable(slot) {
+		plannedPickup = count
+	}
+
+	specs := []struct {
+		field   string
+		planned string
+		read    func(*core.SaveSlot) string
+	}{
+		{"memory_stones", count, readMemoryStonesEffective},
+		{"memory_stones_common_quantity", plannedCommon, readMemoryStonesCommonQuantity},
+		{"memory_stones_pickup_flags_set", plannedPickup, readMemoryStonesPickupFlagsSet},
+	}
+
+	var plans []memoryStonesFieldPlan
+	for _, s := range specs {
+		before := s.read(slot)
+		if before == s.planned {
+			continue
+		}
+		plans = append(plans, memoryStonesFieldPlan{field: s.field, before: before, planned: s.planned, read: s.read})
+	}
+	return plans
+}
+
+// memoryStonesPlannedRecords maps Memory Stones plans to before/planned records
+// (the before phase ignores After, the planned phase uses it), mirroring
+// plannedChangeRecords for the scalar plans.
+func memoryStonesPlannedRecords(plans []memoryStonesFieldPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.planned}
+	}
+	return out
+}
+
+// memoryStonesFinishedRecords maps Memory Stones plans to finished records,
+// reading each field's actual value back out of the post-operation slot.
+func memoryStonesFinishedRecords(plans []memoryStonesFieldPlan, slot *core.SaveSlot) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot)}
 	}
 	return out
 }

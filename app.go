@@ -332,12 +332,14 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 	// Items container.
 	containerRollback := core.SnapshotSlot(&a.save.Slots[index])
 
-	// Plan the in-scope direct profile/attribute field changes against the
-	// pre-mutation slot, then emit before/planned records BEFORE the writer
-	// touches the slot. Only fields whose normalized target differs are logged.
+	// Plan the in-scope direct profile/attribute field changes and the Memory
+	// Stones semantic fields against the pre-mutation slot, then emit all before
+	// records followed by all planned records BEFORE the writer touches the
+	// slot. Only fields whose normalized target differs are logged.
 	plans := planCharacterSaveChanges(a.save.Slots[index].Player, &charVM)
-	if len(plans) > 0 {
-		records := plannedChangeRecords(plans)
+	msPlans := planMemoryStonesSaveChanges(&a.save.Slots[index], charVM.MemoryStones)
+	if len(plans) > 0 || len(msPlans) > 0 {
+		records := append(plannedChangeRecords(plans), memoryStonesPlannedRecords(msPlans)...)
 		a.journalCharacterChangeBefore(actionSaveCharacter, index, records)
 		a.journalCharacterChangePlanned(actionSaveCharacter, index, records)
 	}
@@ -384,13 +386,14 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	// Emit finished records for every planned field using the field values that
 	// actually landed in the slot at this exit point (post-rollback on failure).
-	if len(plans) > 0 {
+	if len(plans) > 0 || len(msPlans) > 0 {
 		outcome := characterChangeSuccess
 		if err != nil {
 			outcome = characterChangeError
 		}
-		a.journalCharacterChangeFinished(actionSaveCharacter, index, outcome, stage,
-			finishedChangeRecords(plans, a.save.Slots[index].Player))
+		finished := append(finishedChangeRecords(plans, a.save.Slots[index].Player),
+			memoryStonesFinishedRecords(msPlans, &a.save.Slots[index])...)
+		a.journalCharacterChangeFinished(actionSaveCharacter, index, outcome, stage, finished)
 	}
 
 	return err

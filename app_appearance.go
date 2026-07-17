@@ -173,12 +173,32 @@ func (a *App) GetCharacterAppearancePreset(charIndex int) (*PresetInfo, error) {
 	return &info, nil
 }
 
+// maxMemoryStones is the in-game maximum Memory Stone count. It lives next to
+// the writer that enforces it; the diagnostic planner reuses the shared clamp
+// below so a logged plan can never disagree with what the writer persists.
+const maxMemoryStones = 8
+
+// normalizeMemoryStones clamps a requested Memory Stone count to the game
+// maximum. Single source of truth shared by applyMemoryStonesToSlot and the
+// SaveCharacter Memory Stones diagnostic planner.
+func normalizeMemoryStones(desired uint32) uint32 {
+	if desired > maxMemoryStones {
+		return maxMemoryStones
+	}
+	return desired
+}
+
+// memoryStonesFlagsAvailable reports whether the slot exposes a usable Event
+// Flags region — the guard applyMemoryStonesToSlot uses before touching pickup
+// flags. When it is false the writer leaves the pickup flags untouched.
+func memoryStonesFlagsAvailable(slot *core.SaveSlot) bool {
+	return slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data)
+}
+
 // applyMemoryStonesToSlot sets the quantity of memory stones in a slot to the desired count,
 // adding them if absent, and syncs the corresponding pickup event flags.
 func (a *App) applyMemoryStonesToSlot(slot *core.SaveSlot, desired uint32) error {
-	if desired > 8 {
-		desired = 8
-	}
+	desired = normalizeMemoryStones(desired)
 	stoneFound := false
 	for i := range slot.Inventory.CommonItems {
 		if slot.Inventory.CommonItems[i].GaItemHandle == 0xB000272E {
@@ -192,7 +212,7 @@ func (a *App) applyMemoryStonesToSlot(slot *core.SaveSlot, desired uint32) error
 			return fmt.Errorf("add memory stone: %w", err)
 		}
 	}
-	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+	if memoryStonesFlagsAvailable(slot) {
 		flags := slot.Data[slot.EventFlagsOffset:]
 		flagList := data.BolsteringPickupFlags[0x4000272E]
 		sorted := make([]uint32, len(flagList))
