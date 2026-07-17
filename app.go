@@ -340,10 +340,12 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 	msPlans := planMemoryStonesSaveChanges(&a.save.Slots[index], charVM.MemoryStones)
 	sePlans := a.planClearCountSideEffects(index, &charVM)
 	iqPlans := planItemQuantityChanges(&a.save.Slots[index], &charVM)
-	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 || len(iqPlans) > 0 {
+	ccPlans := a.planContainerSideEffects(index, &charVM)
+	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 || len(iqPlans) > 0 || len(ccPlans) > 0 {
 		records := append(plannedChangeRecords(plans), memoryStonesPlannedRecords(msPlans)...)
 		records = append(records, sideEffectPlannedRecords(sePlans)...)
 		records = append(records, itemQuantityPlannedRecords(iqPlans)...)
+		records = append(records, containerPlannedRecords(ccPlans)...)
 		a.journalCharacterChangeBefore(actionSaveCharacter, index, records)
 		a.journalCharacterChangePlanned(actionSaveCharacter, index, records)
 	}
@@ -390,7 +392,7 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 
 	// Emit finished records for every planned field using the field values that
 	// actually landed in the slot at this exit point (post-rollback on failure).
-	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 || len(iqPlans) > 0 {
+	if len(plans) > 0 || len(msPlans) > 0 || len(sePlans) > 0 || len(iqPlans) > 0 || len(ccPlans) > 0 {
 		outcome := characterChangeSuccess
 		if err != nil {
 			outcome = characterChangeError
@@ -399,6 +401,7 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 			memoryStonesFinishedRecords(msPlans, &a.save.Slots[index])...)
 		finished = append(finished, sideEffectFinishedRecords(sePlans)...)
 		finished = append(finished, itemQuantityFinishedRecords(iqPlans, &a.save.Slots[index])...)
+		finished = append(finished, containerFinishedRecords(ccPlans, &a.save.Slots[index])...)
 		a.journalCharacterChangeFinished(actionSaveCharacter, index, outcome, stage, finished)
 	}
 
@@ -1354,16 +1357,31 @@ func upsertInventoryContainerQuantity(slot *core.SaveSlot, itemID, qty uint32) e
 	return core.AddItemsToSlot(slot, []uint32{itemID}, int(qty), 0, false)
 }
 
-// syncContainerKeyItems reconciles containers (Cracked/Ritual/Hefty Pot,
-// Perfume Bottle) against the current slot state after a manual inventory edit
-// (Character → Inventory → Save Changes, via SaveCharacter). Each container's
-// quantity is raised to cover the total active Inventory units of its gated
-// family; a family present only in Storage forces at least one container.
-// Quantities are never lowered. Existing records are updated in their physical
-// section; missing records are added to canonical Inventory.CommonItems.
-// On a confirmed increase the container's pickup/vendor flags are set for the
-// saved quantity. Returns an error if a container record cannot be written.
-func syncContainerKeyItems(slot *core.SaveSlot) error {
+// containerSyncAction is one container syncContainerKeyItems will raise, together
+// with the exact pickup/vendor event flags the writer sets for that raised
+// quantity. It is the single shared synchronization plan: both the writer below
+// and the SaveCharacter container diagnostics compute it from planContainerSync,
+// so the log can never predict a side effect the writer would not perform, nor
+// miss one it would.
+type containerSyncAction struct {
+	itemID      uint32   // canonical container key item ID (key into data maps)
+	current     int      // container quantity before the sync (0 when absent)
+	finalQty    int      // raised quantity; always > current
+	pickupFlags []uint32 // pickup flags [0..finalQty-1], capped at the flag list
+	vendorFlags []uint32 // ContainerVendorPurchaseFlags[itemID]
+}
+
+// planContainerSync computes, without mutating the slot, every container whose
+// quantity must be raised and the flags that must follow. It is the extracted
+// heart of the container synchronization semantics: gated units are totalled
+// only from Inventory.CommonItems; a family present only in Storage forces at
+// least one container; quantities never drop; a container is planned only when
+// its final quantity exceeds the current one. Pickup flags run 0..finalQty-1
+// (capped at the flag list) and vendor flags come from data; both are attached
+// only when the slot exposes a valid Event Flags region, because the writer
+// cannot set them otherwise. Actions are ordered by ascending item ID so the
+// plan (and the diagnostics built from it) is deterministic.
+func planContainerSync(slot *core.SaveSlot) []containerSyncAction {
 	itemID := func(h uint32) uint32 {
 		if id, ok := slot.GaMap[h]; ok && id != 0 {
 			return id
@@ -1400,6 +1418,9 @@ func syncContainerKeyItems(slot *core.SaveSlot) error {
 	for cID := range storageContainers {
 		needed[cID] = true
 	}
+
+	withFlags := hasEventFlagsRegion(slot)
+	var actions []containerSyncAction
 	for cID := range needed {
 		current := inventoryContainerQuantity(slot, cID)
 		finalQty := invByContainer[cID]
@@ -1409,27 +1430,51 @@ func syncContainerKeyItems(slot *core.SaveSlot) error {
 		if storageContainers[cID] && finalQty < 1 {
 			finalQty = 1
 		}
-		if finalQty > current {
-			if err := upsertInventoryContainerQuantity(slot, cID, uint32(finalQty)); err != nil {
-				return err
+		if finalQty <= current {
+			continue
+		}
+		act := containerSyncAction{itemID: cID, current: current, finalQty: finalQty}
+		if withFlags {
+			if flagList, ok := data.ContainerPickupFlags[cID]; ok {
+				n := finalQty
+				if n > len(flagList) {
+					n = len(flagList)
+				}
+				act.pickupFlags = append([]uint32(nil), flagList[:n]...)
 			}
-			// Container written successfully — set pickup/vendor flags for the
-			// saved quantity (mirrors the Add path) so the game won't re-offer the
-			// world pickups. Best-effort: a missing flags region is not fatal.
-			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-				flags := slot.Data[slot.EventFlagsOffset:]
-				if flagList, ok := data.ContainerPickupFlags[cID]; ok {
-					n := finalQty
-					if n > len(flagList) {
-						n = len(flagList)
-					}
-					for i := 0; i < n; i++ {
-						_ = db.SetEventFlag(flags, flagList[i], true)
-					}
-				}
-				for _, f := range data.ContainerVendorPurchaseFlags[cID] {
-					_ = db.SetEventFlag(flags, f, true)
-				}
+			act.vendorFlags = append([]uint32(nil), data.ContainerVendorPurchaseFlags[cID]...)
+		}
+		actions = append(actions, act)
+	}
+	sort.Slice(actions, func(i, j int) bool { return actions[i].itemID < actions[j].itemID })
+	return actions
+}
+
+// syncContainerKeyItems reconciles containers (Cracked/Ritual/Hefty Pot,
+// Perfume Bottle) against the current slot state after a manual inventory edit
+// (Character → Inventory → Save Changes, via SaveCharacter). Each container's
+// quantity is raised to cover the total active Inventory units of its gated
+// family; a family present only in Storage forces at least one container.
+// Quantities are never lowered. Existing records are updated in their physical
+// section; missing records are added to canonical Inventory.CommonItems.
+// On a confirmed increase the container's pickup/vendor flags are set for the
+// saved quantity. Returns an error if a container record cannot be written.
+func syncContainerKeyItems(slot *core.SaveSlot) error {
+	for _, act := range planContainerSync(slot) {
+		if err := upsertInventoryContainerQuantity(slot, act.itemID, uint32(act.finalQty)); err != nil {
+			return err
+		}
+		// Container written successfully — set pickup/vendor flags for the saved
+		// quantity (mirrors the Add path) so the game won't re-offer the world
+		// pickups. Best-effort: planContainerSync already leaves the flag lists
+		// empty when no Event Flags region is available.
+		if hasEventFlagsRegion(slot) {
+			flags := slot.Data[slot.EventFlagsOffset:]
+			for _, f := range act.pickupFlags {
+				_ = db.SetEventFlag(flags, f, true)
+			}
+			for _, f := range act.vendorFlags {
+				_ = db.SetEventFlag(flags, f, true)
 			}
 		}
 	}

@@ -536,3 +536,154 @@ func itemQuantityFinishedRecords(plans []itemQuantityPlan, slot *core.SaveSlot) 
 	}
 	return out
 }
+
+// Container auto-sync (Cracked/Ritual/Hefty Pot, Perfume Bottle) is a
+// SaveCharacter side effect driven off the edited Inventory/Storage quantities,
+// not a field the caller submits. The three semantic values logged per touched
+// container are the container quantity and each pickup/vendor event flag the
+// writer sets — never raw slot bytes or flag buffers.
+const containerAbsent = "absent" // container_*_quantity when no inventory record holds the container
+
+// containerItemHandle maps a canonical container item ID to its inventory goods
+// handle exactly as inventoryContainerQuantity / upsertInventoryContainerQuantity do.
+func containerItemHandle(itemID uint32) uint32 {
+	return db.ItemIDToHandlePrefix(itemID) | (itemID & 0x0FFFFFFF)
+}
+
+// readContainerQuantity reports the container's physical quantity, or "absent"
+// when no Inventory record (canonical CommonItems or legacy KeyItems) holds it.
+// It mirrors inventoryContainerQuantity's max-across-records reading but keeps
+// the absent case distinct from a real zero.
+func readContainerQuantity(slot *core.SaveSlot, itemID uint32) string {
+	handle := containerItemHandle(itemID)
+	found := false
+	qty := uint32(0)
+	for _, it := range slot.Inventory.CommonItems {
+		if it.GaItemHandle == handle {
+			found = true
+			if q := it.Quantity & 0x7FFFFFFF; q > qty {
+				qty = q
+			}
+		}
+	}
+	for _, it := range slot.Inventory.KeyItems {
+		if it.GaItemHandle == handle {
+			found = true
+			if q := it.Quantity & 0x7FFFFFFF; q > qty {
+				qty = q
+			}
+		}
+	}
+	if !found {
+		return containerAbsent
+	}
+	return strconv.FormatUint(uint64(qty), 10)
+}
+
+// readContainerFlag reports event flag flagID as the scalar "true"/"false",
+// reading live from the slot's Event Flags region. Like the other flag readers,
+// an unavailable region or a read error is treated as an unset flag.
+func readContainerFlag(slot *core.SaveSlot, flagID uint32) string {
+	if hasEventFlagsRegion(slot) {
+		if val, err := db.GetEventFlag(slot.Data[slot.EventFlagsOffset:], flagID); err == nil && val {
+			return "true"
+		}
+	}
+	return "false"
+}
+
+// containerFieldPlan is one container-sync side effect (a container quantity or
+// one pickup/vendor flag) whose target differs from the current value. read
+// pulls the field's live value back out of the post-operation real slot so the
+// finished phase reports what actually landed (or, on rollback, the restored
+// pre-error value).
+type containerFieldPlan struct {
+	field   string
+	before  string
+	planned string
+	read    func(*core.SaveSlot) string
+}
+
+// planContainerSideEffects predicts the container auto-sync SaveCharacter will
+// perform. It projects the submitted VM onto a deep copy of the slot via the
+// writer's own ApplyVMToParsedSlot, then feeds that projection to the shared
+// planContainerSync, so the prediction sees exactly the post-edit inventory the
+// real writer will reconcile — without touching the real slot, charVM, undo, or
+// the write order. If the projection fails ApplyVMToParsedSlot the real save
+// aborts at apply_vm before container sync runs, so no container plans are
+// emitted. before/finished values are read from the REAL slot; only the set of
+// planned actions comes from the projection. A flag whose target already matches
+// its current state self-excludes, and no flag records are emitted when the slot
+// has no Event Flags region (planContainerSync leaves the flag lists empty).
+func (a *App) planContainerSideEffects(index int, submitted *vm.CharacterViewModel) []containerFieldPlan {
+	real := &a.save.Slots[index]
+
+	clone := core.CloneSlot(real)
+	proj := *submitted // value copy: ApplyVMToParsedSlot writes back normalized scalars
+	if err := vm.ApplyVMToParsedSlot(&proj, clone); err != nil {
+		return nil
+	}
+
+	var plans []containerFieldPlan
+	for _, act := range planContainerSync(clone) {
+		itemID := act.itemID
+		// The quantity record is logged only when the real container quantity
+		// actually differs from the synced final value. A VM that lowers a
+		// container which the sync then raises straight back to its starting
+		// quantity nets zero semantic change (before == planned == finished), so
+		// it self-excludes here; the direct physical row still logs the writer's
+		// full 3 -> 1 -> 3 attempt via the Task 4C.1 quantity plan.
+		if before, planned := readContainerQuantity(real, itemID), strconv.Itoa(act.finalQty); before != planned {
+			plans = append(plans, containerFieldPlan{
+				field:   fmt.Sprintf("container_0x%08X_quantity", itemID),
+				before:  before,
+				planned: planned,
+				read:    func(s *core.SaveSlot) string { return readContainerQuantity(s, itemID) },
+			})
+		}
+		for _, f := range act.pickupFlags {
+			plans = appendContainerFlagPlan(plans, real, itemID, f, "pickup")
+		}
+		for _, f := range act.vendorFlags {
+			plans = appendContainerFlagPlan(plans, real, itemID, f, "vendor")
+		}
+	}
+	return plans
+}
+
+// appendContainerFlagPlan appends a container flag plan when the writer will
+// flip the flag (planned "true" differs from the current state); a flag already
+// set self-excludes, so only genuine changes are logged.
+func appendContainerFlagPlan(plans []containerFieldPlan, real *core.SaveSlot, itemID, flagID uint32, kind string) []containerFieldPlan {
+	before := readContainerFlag(real, flagID)
+	if before == "true" {
+		return plans
+	}
+	return append(plans, containerFieldPlan{
+		field:   fmt.Sprintf("container_0x%08X_%s_flag_%d", itemID, kind, flagID),
+		before:  before,
+		planned: "true",
+		read:    func(s *core.SaveSlot) string { return readContainerFlag(s, flagID) },
+	})
+}
+
+// containerPlannedRecords maps container plans to before/planned records (the
+// before phase ignores After, the planned phase uses it), mirroring the scalar,
+// Memory Stones, side-effect and quantity record mappers.
+func containerPlannedRecords(plans []containerFieldPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.planned}
+	}
+	return out
+}
+
+// containerFinishedRecords maps container plans to finished records, reading each
+// field's actual value back out of the post-operation real slot.
+func containerFinishedRecords(plans []containerFieldPlan, slot *core.SaveSlot) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot)}
+	}
+	return out
+}
