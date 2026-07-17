@@ -49,7 +49,8 @@ const (
 // Central sanitization boundary. Every record's message and field values
 // pass through sanitize/sanitizeFields before persistence and before the
 // tail can observe them, so no producer (app or the Wails sink) can leak a
-// filesystem path, Steam ID, token/password/secret/credential, or
+// filesystem path, Steam ID, PSN/account identifier,
+// token/password/secret/credential, or
 // credential-bearing URL into the durable log. The patterns are deliberately
 // broad in the redact direction: it is safer to over-redact a stray path
 // than to persist a real one.
@@ -67,6 +68,12 @@ var (
 	reAuthHeader = regexp.MustCompile(`(?i)\b(authorization)\s*[:=]\s*\S+(?:\s+\S+)?`)
 	// key=value / key: value pairs whose key names a secret.
 	reSecretKV = regexp.MustCompile(`(?i)\b(token|password|passwd|pwd|secret|credential|authorization|api[_\-]?key)\s*[:=]\s*\S+`)
+	// key=value / key: value pairs whose key names a PSN or generic account
+	// identity (psn*, account*, online_id/online-id, user_id/user-id). Like
+	// reSecretKV but for identity labels rather than credentials: the label is
+	// kept, the value redacted. A PSN/account id is not always 17 digits, so
+	// reSteamID cannot be relied on to catch it.
+	reAccountKV = regexp.MustCompile(`(?i)\b(psn[\w-]*|account[\w-]*|online[_-]?id|user[_-]?id)\s*[:=]\s*\S+`)
 	// UNC (\\server\share\...), Windows drive-letter, and POSIX absolute
 	// paths (two or more segments so a lone '/' in prose is left alone).
 	reUNCPath   = regexp.MustCompile(`\\\\[^\s]+`)
@@ -83,6 +90,8 @@ var sensitiveFieldKeys = []string{
 	"path", "steam", "token", "password", "secret",
 	"credential", "authorization", "host", "address",
 	"api_key", "api-key", "apikey",
+	// PSN and generic account identity keys.
+	"psn", "account", "online_id", "online-id", "user_id", "user-id",
 }
 
 // sanitize redacts sensitive substrings from a free-text value. URLs are
@@ -99,6 +108,7 @@ func sanitize(s string) string {
 	s = reURL.ReplaceAllString(s, "[redacted-url]")
 	s = reAuthHeader.ReplaceAllString(s, "$1=[redacted]")
 	s = reSecretKV.ReplaceAllString(s, "$1=[redacted]")
+	s = reAccountKV.ReplaceAllString(s, "$1=[redacted]")
 	s = reUNCPath.ReplaceAllString(s, "[redacted-path]")
 	s = reWinPath.ReplaceAllString(s, "[redacted-path]")
 	s = rePosixPath.ReplaceAllString(s, "[redacted-path]")

@@ -499,6 +499,77 @@ func TestDiagnosticJournalSanitizesSensitiveValues(t *testing.T) {
 	}
 }
 
+func TestDiagnosticJournalRedactsPSNAndAccountIdentifiers(t *testing.T) {
+	dir := t.TempDir()
+	j, err := newDiagnosticJournalInDir(dir)
+	if err != nil {
+		t.Fatalf("newDiagnosticJournalInDir: %v", err)
+	}
+	// Labelled free-text identifiers: PSN and account values must be redacted
+	// regardless of the label separator, and even when the value is not a
+	// 17-digit Steam ID.
+	for i, msg := range []string{
+		"psn_online_id=SomeGamerTag99",
+		"psn_id: 3210987654321098",
+		"account_id=9876543210987654",
+		"online_id=NightMaiden",
+		"user_id=alice-42",
+	} {
+		if err := j.Log(levelInfo, sourceApp, "op", msg); err != nil {
+			t.Fatalf("Log %d: %v", i, err)
+		}
+	}
+	// Structured identity fields are redacted by key, while an ordinary
+	// character_name field must remain usable.
+	if err := j.Log(levelInfo, sourceApp, "op", "profile",
+		field("psn", "SecretPSN"),
+		field("account_id", "AccountIdentifier"),
+		field("online_id", "OnlineHandle"),
+		field("user_id", "UserIdentifier"),
+		field("character_name", "Tarnished"),
+	); err != nil {
+		t.Fatalf("Log fields: %v", err)
+	}
+	if err := j.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	leaked := []string{
+		"SomeGamerTag99", "3210987654321098", "9876543210987654",
+		"NightMaiden", "alice-42",
+		"SecretPSN", "AccountIdentifier", "OnlineHandle", "UserIdentifier",
+	}
+
+	// Absent from the persisted JSONL...
+	raw := readSessionRaw(t, dir)
+	for _, v := range leaked {
+		if strings.Contains(raw, v) {
+			t.Errorf("session file leaked identifier %q", v)
+		}
+	}
+	// ...and absent from the in-memory tail.
+	var tailJSON strings.Builder
+	for _, rec := range j.Tail() {
+		b, err := json.Marshal(rec)
+		if err != nil {
+			t.Fatalf("marshal tail record: %v", err)
+		}
+		tailJSON.Write(b)
+	}
+	for _, v := range leaked {
+		if strings.Contains(tailJSON.String(), v) {
+			t.Errorf("tail leaked identifier %q", v)
+		}
+	}
+	// A normal character_name value must survive both persistence and the tail.
+	if !strings.Contains(raw, "Tarnished") {
+		t.Error("character_name value was redacted but must remain visible")
+	}
+	if !strings.Contains(tailJSON.String(), "Tarnished") {
+		t.Error("character_name value missing from tail but must remain visible")
+	}
+}
+
 func TestDiagnosticJournalPreservesSafeValues(t *testing.T) {
 	dir := t.TempDir()
 	j, err := newDiagnosticJournalInDir(dir)
