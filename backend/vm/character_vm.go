@@ -29,6 +29,36 @@ func runesCostForLevel(level uint32) uint32 {
 	return uint32(total)
 }
 
+// NormalizeSoulMemory returns the Soul Memory that will actually be persisted
+// for a character at the given level: the requested value floored to the
+// minimum runes required to reach that level. ApplyVMToParsedSlot and the
+// Character diagnostic planner both call this so the planned and persisted
+// values cannot drift.
+func NormalizeSoulMemory(level, soulMemory uint32) uint32 {
+	if minSM := runesCostForLevel(level); soulMemory < minSM {
+		return minSM
+	}
+	return soulMemory
+}
+
+// NormalizeTalismanSlots clamps the additional talisman-slot count to the game
+// maximum of 3. Single source of truth shared with ApplyVMToParsedSlot.
+func NormalizeTalismanSlots(slots uint8) uint8 {
+	if slots > 3 {
+		return 3
+	}
+	return slots
+}
+
+// NormalizeClearCount clamps the NG+ cycle to the game maximum of 7. Single
+// source of truth shared with ApplyVMToParsedSlot.
+func NormalizeClearCount(count uint32) uint32 {
+	if count > 7 {
+		return 7
+	}
+	return count
+}
+
 type ItemViewModel struct {
 	Handle           uint32   `json:"handle"`
 	ID               uint32   `json:"id"`
@@ -315,11 +345,8 @@ func ApplyVMToParsedSlot(vm *CharacterViewModel, slot *core.SaveSlot) error {
 	data.Level = vm.Level
 	data.Class = vm.Class
 	data.Souls = vm.Souls
-	data.SoulMemory = vm.SoulMemory
-	if minSM := runesCostForLevel(data.Level); data.SoulMemory < minSM {
-		data.SoulMemory = minSM
-		vm.SoulMemory = minSM
-	}
+	data.SoulMemory = NormalizeSoulMemory(data.Level, vm.SoulMemory)
+	vm.SoulMemory = data.SoulMemory
 	data.Vigor = vm.Vigor
 	data.Mind = vm.Mind
 	data.Endurance = vm.Endurance
@@ -328,13 +355,9 @@ func ApplyVMToParsedSlot(vm *CharacterViewModel, slot *core.SaveSlot) error {
 	data.Intelligence = vm.Intelligence
 	data.Faith = vm.Faith
 	data.Arcane = vm.Arcane
-	if vm.TalismanSlots > 3 {
-		vm.TalismanSlots = 3
-	}
+	vm.TalismanSlots = NormalizeTalismanSlots(vm.TalismanSlots)
 	data.TalismanSlots = vm.TalismanSlots
-	if vm.ClearCount > 7 {
-		vm.ClearCount = 7
-	}
+	vm.ClearCount = NormalizeClearCount(vm.ClearCount)
 	data.ClearCount = vm.ClearCount
 	data.ScadutreeBlessing = vm.ScadutreeBlessing
 	data.ShadowRealmBlessing = vm.ShadowRealmBlessing

@@ -332,43 +332,68 @@ func (a *App) SaveCharacter(index int, charVM vm.CharacterViewModel) error {
 	// Items container.
 	containerRollback := core.SnapshotSlot(&a.save.Slots[index])
 
-	// 1. Update the slot data
-	if err := vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index]); err != nil {
-		return err
+	// Plan the in-scope direct profile/attribute field changes against the
+	// pre-mutation slot, then emit before/planned records BEFORE the writer
+	// touches the slot. Only fields whose normalized target differs are logged.
+	plans := planCharacterSaveChanges(a.save.Slots[index].Player, &charVM)
+	if len(plans) > 0 {
+		records := plannedChangeRecords(plans)
+		a.journalCharacterChangeBefore(actionSaveCharacter, index, records)
+		a.journalCharacterChangePlanned(actionSaveCharacter, index, records)
 	}
 
-	slot := &a.save.Slots[index]
-
-	// 1b. Keep pot/perfume containers in sync with the edited Inventory/Storage
-	// quantities (Character → Inventory → Save Changes). Roll the whole slot back
-	// if the container cannot be written.
-	if err := syncContainerKeyItems(slot); err != nil {
-		core.RestoreSlot(slot, containerRollback)
-		return fmt.Errorf("SaveCharacter: sync containers: %w", err)
-	}
-
-	if err := a.applyMemoryStonesToSlot(slot, charVM.MemoryStones); err != nil {
-		return err
-	}
-
-	// Flush slot.Player → slot.Data so that subsequent operations
-	// (AddItemsToSlotBatch, RebuildSlotFull) that re-parse slot.Data
-	// see the correct stats instead of the pre-edit binary values.
-	slot.SyncPlayerToData()
-
-	// 2. Sync NG+ event flags (50-57) with ClearCount
-	if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-		flags := slot.Data[slot.EventFlagsOffset:]
-		for i := uint32(0); i <= 7; i++ {
-			_ = db.SetEventFlag(flags, 50+i, i == slot.Player.ClearCount)
+	stage, err := func() (string, error) {
+		// 1. Update the slot data
+		if err := vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index]); err != nil {
+			return characterStageApplyVM, err
 		}
+
+		slot := &a.save.Slots[index]
+
+		// 1b. Keep pot/perfume containers in sync with the edited Inventory/Storage
+		// quantities (Character → Inventory → Save Changes). Roll the whole slot back
+		// if the container cannot be written.
+		if err := syncContainerKeyItems(slot); err != nil {
+			core.RestoreSlot(slot, containerRollback)
+			return characterStageSyncContainers, fmt.Errorf("SaveCharacter: sync containers: %w", err)
+		}
+
+		if err := a.applyMemoryStonesToSlot(slot, charVM.MemoryStones); err != nil {
+			return characterStageMemoryStones, err
+		}
+
+		// Flush slot.Player → slot.Data so that subsequent operations
+		// (AddItemsToSlotBatch, RebuildSlotFull) that re-parse slot.Data
+		// see the correct stats instead of the pre-edit binary values.
+		slot.SyncPlayerToData()
+
+		// 2. Sync NG+ event flags (50-57) with ClearCount
+		if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
+			flags := slot.Data[slot.EventFlagsOffset:]
+			for i := uint32(0); i <= 7; i++ {
+				_ = db.SetEventFlag(flags, 50+i, i == slot.Player.ClearCount)
+			}
+		}
+
+		// 3. Update ProfileSummary (for the menu)
+		a.save.ProfileSummaries[index].Level = a.save.Slots[index].Player.Level
+		copy(a.save.ProfileSummaries[index].CharacterName[:], a.save.Slots[index].Player.CharacterName[:])
+
+		return characterStageCompleted, nil
+	}()
+
+	// Emit finished records for every planned field using the field values that
+	// actually landed in the slot at this exit point (post-rollback on failure).
+	if len(plans) > 0 {
+		outcome := characterChangeSuccess
+		if err != nil {
+			outcome = characterChangeError
+		}
+		a.journalCharacterChangeFinished(actionSaveCharacter, index, outcome, stage,
+			finishedChangeRecords(plans, a.save.Slots[index].Player))
 	}
 
-	// 3. Update ProfileSummary (for the menu)
-	a.save.ProfileSummaries[index].Level = a.save.Slots[index].Player.Level
-	copy(a.save.ProfileSummaries[index].CharacterName[:], a.save.Slots[index].Player.CharacterName[:])
-
-	return nil
+	return err
 }
 
 // WriteSave writes the current save state to a file.
