@@ -1131,138 +1131,33 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	a.pushUndoLocked(charIdx)
 	snapshot := core.SnapshotSlot(slot)
 
-	// MUTATE: batch add all items (one RebuildSlotFull instead of N).
-	if len(capacityItems) > 0 {
-		if err := core.AddItemsToSlotBatch(slot, capacityItems); err != nil {
-			core.RestoreSlot(slot, snapshot)
-			return result, fmt.Errorf("rollback after batch add: %w", err)
-		}
-	}
-
-	// KEY-ITEM STACK BUMPS: raise already-owned stackable key item rows in place
-	// (issue 7). Runs after the batch add so it writes into the final slot.Data
-	// (RebuildSlotFull may have re-parsed the slot). The KeyItems section is not
-	// touched by the batch adder, so the recorded rows stay valid.
+	// MUTATE: build the mutation plan once, then apply it to the real slot. The
+	// plan captures every already-computed input the mutation tail consumes, so
+	// a later diagnostic planner can apply the identical plan to core.CloneSlot.
+	// Any executor failure restores the pre-mutation snapshot here; the executor
+	// itself owns no locking, undo, journal or rollback.
+	planItems := make([]itemAddPlanItem, 0, len(prepared))
 	for _, p := range prepared {
-		if p.keyTargetQty <= 0 {
-			continue
-		}
-		if err := setInventoryKeyItemQuantity(slot, p.keyRow, uint32(p.keyTargetQty)); err != nil {
-			core.RestoreSlot(slot, snapshot)
-			return result, fmt.Errorf("rollback after key item qty update: %w", err)
-		}
+		planItems = append(planItems, itemAddPlanItem{
+			baseID:        p.baseID,
+			actualInv:     p.actualInv,
+			actualStorage: p.actualStorage,
+			keyRow:        p.keyRow,
+			keyTargetQty:  p.keyTargetQty,
+		})
 	}
-
-	// POST-FLAGS: event flags, tutorial IDs (safe to set after batch add).
-	for _, p := range prepared {
-		if flagID, ok := data.AoWItemToFlagID[p.baseID]; ok {
-			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-				if err := db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], flagID, true); err != nil {
-					runtime.LogWarningf(a.ctx, "event flag AoW %d: %v", flagID, err)
-				}
-			}
-		}
-		if flagID, ok := data.WorldPickupFlagID[p.baseID]; ok {
-			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-				if err := db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], flagID, true); err != nil {
-					runtime.LogWarningf(a.ctx, "event flag pickup %d: %v", flagID, err)
-				}
-			}
-		}
-		if flagList, ok := data.BolsteringPickupFlags[p.baseID]; ok {
-			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-				flags := slot.Data[slot.EventFlagsOffset:]
-				sorted := make([]uint32, len(flagList))
-				copy(sorted, flagList)
-				sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
-				qty := p.actualInv + p.actualStorage
-				set := 0
-				for _, f := range sorted {
-					if set >= qty {
-						break
-					}
-					if val, err := db.GetEventFlag(flags, f); err == nil && !val {
-						if err := db.SetEventFlag(flags, f, true); err != nil {
-							runtime.LogWarningf(a.ctx, "bolstering pickup flag %d: %v", f, err)
-						} else {
-							set++
-						}
-					}
-				}
-			}
-		}
-		if tutorialID, ok := data.AboutTutorialID[p.baseID]; ok {
-			if err := core.AppendTutorialID(slot, tutorialID); err != nil {
-				runtime.LogWarningf(a.ctx, "tutorial ID %d: %v", tutorialID, err)
-			}
-		}
-		if companions := data.CompanionEventFlagsForItem(p.baseID); len(companions) > 0 {
-			if slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
-				eflags := slot.Data[slot.EventFlagsOffset:]
-				for _, f := range companions {
-					if err := db.SetEventFlag(eflags, f, true); err != nil {
-						runtime.LogWarningf(a.ctx, "companion flag %d for item 0x%08X: %v", f, p.baseID, err)
-					}
-				}
-			}
-		}
+	plan := itemAddMutationPlan{
+		batch:               capacityItems,
+		items:               planItems,
+		usedContainers:      usedContainers,
+		storageContainers:   storageContainers,
+		existingByContainer: existingByContainer,
 	}
-
-	// Auto-add / update container quantities.
-	for cID := range usedContainers {
-		desired := existingByContainer[cID]
-		current := inventoryContainerQuantity(slot, cID)
-		finalQty := desired
-		if current > finalQty {
-			finalQty = current
-		}
-		// A Storage-only add consumes no per-unit container but still needs one
-		// container present to hold the family; never below the existing count.
-		if storageContainers[cID] && finalQty < 1 {
-			finalQty = 1
-		}
-		if finalQty > current {
-			if err := upsertInventoryContainerQuantity(slot, cID, uint32(finalQty)); err != nil {
-				core.RestoreSlot(slot, snapshot)
-				return result, fmt.Errorf("rollback after container upsert: %w", err)
-			}
-		}
-
-		if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
-			continue
-		}
-		flags := slot.Data[slot.EventFlagsOffset:]
-		if flagList, ok := data.ContainerPickupFlags[cID]; ok {
-			n := finalQty
-			if n > len(flagList) {
-				n = len(flagList)
-			}
-			for i := 0; i < n; i++ {
-				if err := db.SetEventFlag(flags, flagList[i], true); err != nil {
-					runtime.LogWarningf(a.ctx, "container pickup flag %d: %v", flagList[i], err)
-				}
-			}
-		}
-
-		if vendorFlags, ok := data.ContainerVendorPurchaseFlags[cID]; ok {
-			for _, f := range vendorFlags {
-				if err := db.SetEventFlag(flags, f, true); err != nil {
-					runtime.LogWarningf(a.ctx, "vendor purchase flag %d: %v", f, err)
-				}
-			}
-		}
-	}
-
-	// RECONCILE: fix storage header count (blind +1 increment may drift).
-	core.ReconcileStorageHeader(slot)
-
-	// POST-VALIDATION: check invariants after mutation. The pre-flight guard
-	// guarantees the slot was free of duplicate acquisition indices on entry,
-	// so any duplicate detected here was introduced by this add and must roll
-	// back the entire batch.
-	if violations := core.ValidatePostMutation(slot); len(violations) > 0 {
+	if err := applyItemAddMutationPlan(slot, plan, func(format string, args ...any) {
+		runtime.LogWarningf(a.ctx, format, args...)
+	}); err != nil {
 		core.RestoreSlot(slot, snapshot)
-		return result, fmt.Errorf("rollback: post-mutation validation failed: %s", violations[0].Error())
+		return result, err
 	}
 
 	// SUCCESS: compute final capacity and return.
