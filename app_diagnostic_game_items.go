@@ -482,6 +482,60 @@ func planGameItemsAddFlagRecords(before, planned *core.SaveSlot, plan itemAddMut
 	return plans
 }
 
+// planGameItemsAddBolsteringRecords derives the bolstering pickup flag side
+// effects of a Database Add — the world-pickup flags the writer marks so a
+// bolstering material added through the editor no longer respawns in the world —
+// by comparing the pre-mutation real slot (before) against the plan-applied
+// clone (planned). Per plan.items entry that carries a data.BolsteringPickupFlags
+// list, it walks a sorted-ascending copy of that list (mirroring the writer,
+// which sorts before consuming its `set` counter) and emits one lifecycle per
+// flag the clone actually flipped (before != planned), in ascending flag-ID
+// order.
+//
+// The clone comparison — not the requested inv/storage quantity — is the sole
+// authority on which flags the writer's counter reached: an already-set leading
+// flag self-excludes and never consumes the count, so the planner cannot drift
+// from the writer by predicting flags from quantity. Records vanish entirely
+// when the slot has no Event Flags region (the clone leaves every flag unset). A
+// field is deduplicated by name, so a submitted ID repeated within one request
+// still yields at most one lifecycle per physical flag. The real slot is never
+// replayed or mutated; read pulls each flag back out of the post-execution real
+// slot for the finished phase. Only the shared container flag reader is reused;
+// the plan vehicle and mapping are Game Items-owned.
+func planGameItemsAddBolsteringRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []gameItemSideEffectPlan {
+	var plans []gameItemSideEffectPlan
+	seen := make(map[string]bool)
+	for _, it := range plan.items {
+		flagList, ok := data.BolsteringPickupFlags[it.baseID]
+		if !ok {
+			continue
+		}
+		sorted := make([]uint32, len(flagList))
+		copy(sorted, flagList)
+		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
+		for _, flagID := range sorted {
+			field := fmt.Sprintf("item_0x%08X_bolstering_pickup_flag_%d", it.baseID, flagID)
+			if seen[field] {
+				continue
+			}
+			b := readContainerFlag(before, flagID)
+			p := readContainerFlag(planned, flagID)
+			if b == p {
+				continue
+			}
+			seen[field] = true
+			fID := flagID
+			plans = append(plans, gameItemSideEffectPlan{
+				field:   field,
+				before:  b,
+				planned: p,
+				read:    func(s *core.SaveSlot) string { return readContainerFlag(s, fID) },
+			})
+		}
+	}
+	return plans
+}
+
 // appendGameItemContainerFlagPlan appends a container flag plan only when the
 // clone flipped the flag (before != planned). Unlike the Character helper it
 // reads the planned value straight from the applied clone rather than assuming
