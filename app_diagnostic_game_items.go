@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"sort"
 	"strconv"
@@ -593,6 +594,49 @@ func planGameItemsAddTutorialRecords(before, planned *core.SaveSlot, plan itemAd
 		})
 	}
 	return plans
+}
+
+// giStorageHeaderUnavailable is the stable storage_header_count value returned
+// when the slot has no valid 4-byte storage-header region at StorageBoxOffset.
+// It is a non-numeric sentinel so it never collides with a real decimal count,
+// which also means an unavailable header self-excludes: when both the real slot
+// and the clone read unavailable, before == planned and no lifecycle is emitted.
+const giStorageHeaderUnavailable = "unavailable"
+
+// readStorageHeaderCount reads the physical 4-byte storage-header count scalar
+// directly from slot.Data at slot.StorageBoxOffset as an unsigned decimal
+// integer. It is bounds-safe: a slot with no valid storage-header region reads
+// as the unavailable sentinel, and no raw bytes ever leak into the value.
+func readStorageHeaderCount(slot *core.SaveSlot) string {
+	if slot.StorageBoxOffset <= 0 || slot.StorageBoxOffset+4 > len(slot.Data) {
+		return giStorageHeaderUnavailable
+	}
+	return giDec(binary.LittleEndian.Uint32(slot.Data[slot.StorageBoxOffset:]))
+}
+
+// planGameItemsAddStorageHeaderRecords derives the storage-header side effect of
+// a Database Add — the physical 4-byte count scalar at StorageBoxOffset that the
+// executor rewrites via core.ReconcileStorageHeader after container
+// synchronization — by comparing the pre-mutation real slot (before) against the
+// plan-applied clone (planned). It emits one lifecycle only when the scalar
+// actually changed (before != planned): a canonical header already equal to its
+// physical row count self-excludes, and an unavailable header (no valid region
+// in either slot) reads unavailable in both and self-excludes too. The real slot
+// is never replayed or mutated; read pulls the scalar back out of the
+// post-execution real slot for the finished phase. Only the shared
+// gameItemSideEffectPlan vehicle is reused; the reader is Game Items-owned.
+func planGameItemsAddStorageHeaderRecords(before, planned *core.SaveSlot) []gameItemSideEffectPlan {
+	b := readStorageHeaderCount(before)
+	p := readStorageHeaderCount(planned)
+	if b == p {
+		return nil
+	}
+	return []gameItemSideEffectPlan{{
+		field:   "storage_header_count",
+		before:  b,
+		planned: p,
+		read:    readStorageHeaderCount,
+	}}
 }
 
 // appendGameItemContainerFlagPlan appends a container flag plan only when the
