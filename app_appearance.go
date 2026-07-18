@@ -135,8 +135,18 @@ func (a *App) SetCharacterGender(charIndex int, targetGender uint8) error {
 		return fmt.Errorf("FaceData blob out of bounds: start=0x%X", fd)
 	}
 
+	// Diagnostics: same before -> planned -> finished cycle as ApplyPresetToCharacter,
+	// planned against the pre-write slot and read back from the real slot afterwards.
+	// Only fields the gender's default preset actually changes are logged.
+	plans := planApplyAppearance(slot, fd, resolved)
+	planned := appearancePlannedRecords(plans)
+	a.journalCharacterChangeBefore(actionSetCharacterGender, charIndex, planned)
+	a.journalCharacterChangePlanned(actionSetCharacterGender, charIndex, planned)
+
 	a.pushUndoLocked(charIndex)
 	applyResolvedAppearance(slot, fd, resolved)
+
+	a.journalCharacterChangeFinished(actionSetCharacterGender, charIndex, characterChangeSuccess, characterStageCompleted, appearanceFinishedRecords(plans, slot, fd))
 	return nil
 }
 

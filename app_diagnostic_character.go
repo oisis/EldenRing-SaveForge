@@ -22,6 +22,13 @@ const actionSaveCharacter = "save_character"
 // treats an appearance write like any other Character mutation.
 const actionApplyAppearancePreset = "apply_appearance_preset"
 
+// actionSetCharacterGender is the action tag every SetCharacterGender Appearance
+// diagnostic record carries. It reuses the same character_change_* lifecycle and
+// planApplyAppearance planner as actionApplyAppearancePreset — the only
+// difference is the action label, since a gender switch is an appearance write of
+// the target gender's default preset.
+const actionSetCharacterGender = "set_character_gender"
+
 // Closed technical stages a SaveCharacter mutation can terminate at. A finished
 // record reports exactly one of these so a diagnostics reader never has to parse
 // free-text stage names. completed is the only success stage.
