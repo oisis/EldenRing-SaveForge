@@ -1034,35 +1034,19 @@ func whetbladeAlreadyOwned(slot *core.SaveSlot, flagID uint32, flags []byte) boo
 	return check(slot.Inventory.CommonItems) || check(slot.Inventory.KeyItems)
 }
 
-// SetWhetbladeUnlocked sets or clears the unlock flag for a whetblade,
-// manages the inventory item, related affinity flags, and the AoW menu flag.
-// Returns true if the whetblade was already unlocked/owned before this call.
-func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) (bool, error) {
-	a.saveMu.RLock()
-	defer a.saveMu.RUnlock()
-	if a.save == nil {
-		return false, fmt.Errorf("no save loaded")
-	}
-	if slotIndex < 0 || slotIndex >= 10 {
-		return false, fmt.Errorf("invalid slot index")
-	}
-	a.slotMu[slotIndex].Lock()
-	defer a.slotMu[slotIndex].Unlock()
-
-	a.pushUndoLocked(slotIndex)
-
-	slot := &a.save.Slots[slotIndex]
-	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
-		return false, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
-	}
-
+// applyWhetbladeUnlock performs the whetblade mutation on a single slot: the main
+// whetblade flag (whose error aborts before any further change, matching the
+// original single-item path), related affinity flags, the inventory item, the
+// Whetstone Knife Storm Stomp bonus + its duplication flag, and the AoW menu flag.
+// Shared by the single-item entry point and Debug Mode's clone so a planned diff
+// cannot drift from the applied mutation. Caller holds the slot lock and has
+// validated EventFlagsOffset.
+func applyWhetbladeUnlock(slot *core.SaveSlot, flagID uint32, unlocked bool) error {
 	flags := slot.Data[slot.EventFlagsOffset:]
-
-	alreadyOwned := whetbladeAlreadyOwned(slot, flagID, flags)
 
 	// 1. Set the whetblade event flag.
 	if err := db.SetEventFlag(flags, flagID, unlocked); err != nil {
-		return false, err
+		return err
 	}
 
 	// 2. Set related affinity flags (e.g., Keen, Quality for Iron Whetblade).
@@ -1111,6 +1095,62 @@ func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) 
 		if !anyUnlocked {
 			_ = db.SetEventFlag(flags, data.AoWMenuUnlockedFlag, false)
 		}
+	}
+
+	return nil
+}
+
+// whetbladeUnlockFlagCandidates is the full set of Event Flags the whetblade
+// mutation may touch: the main flag, its related affinity flags, the Storm Stomp
+// duplication flag (Whetstone Knife only) and the AoW menu flag. Only flags the
+// operation actually owns are listed; planGameItemsMutation self-excludes any
+// whose before == planned (e.g. the menu flag on a lock while another whetblade
+// stays active).
+func whetbladeUnlockFlagCandidates(flagID uint32) []uint32 {
+	flagIDs := []uint32{flagID}
+	flagIDs = append(flagIDs, data.WhetbladeRelatedFlags[flagID]...)
+	if flagID == data.WhetstoneKnifeFlag {
+		flagIDs = append(flagIDs, data.StormStompDupFlag)
+	}
+	flagIDs = append(flagIDs, data.AoWMenuUnlockedFlag)
+	return flagIDs
+}
+
+// SetWhetbladeUnlocked sets or clears the unlock flag for a whetblade,
+// manages the inventory item, related affinity flags, and the AoW menu flag.
+// Returns true if the whetblade was already unlocked/owned before this call.
+// The mutation runs through the Game Items unlock lifecycle so Debug Mode
+// captures its before -> planned -> finished records without changing the
+// returned (alreadyOwned, error) contract.
+func (a *App) SetWhetbladeUnlocked(slotIndex int, flagID uint32, unlocked bool) (bool, error) {
+	a.saveMu.RLock()
+	defer a.saveMu.RUnlock()
+	if a.save == nil {
+		return false, fmt.Errorf("no save loaded")
+	}
+	if slotIndex < 0 || slotIndex >= 10 {
+		return false, fmt.Errorf("invalid slot index")
+	}
+	a.slotMu[slotIndex].Lock()
+	defer a.slotMu[slotIndex].Unlock()
+
+	a.pushUndoLocked(slotIndex)
+
+	slot := &a.save.Slots[slotIndex]
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		return false, fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
+	}
+
+	flags := slot.Data[slot.EventFlagsOffset:]
+
+	// alreadyOwned is read from the real slot before any mutation, exactly as the
+	// original single-item path did.
+	alreadyOwned := whetbladeAlreadyOwned(slot, flagID, flags)
+
+	if err := a.journalUnlockMutation(actionGameItemsUnlockWhetblade, slotIndex, slot, whetbladeUnlockFlagCandidates(flagID), func(s *core.SaveSlot) error {
+		return applyWhetbladeUnlock(s, flagID, unlocked)
+	}); err != nil {
+		return false, err
 	}
 
 	return alreadyOwned, nil
