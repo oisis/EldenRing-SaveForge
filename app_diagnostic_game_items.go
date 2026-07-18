@@ -151,9 +151,14 @@ const (
 	giCounterInvAcq
 	giCounterStoreEquip
 	giCounterStoreAcq
+	giGaItemUnk2
+	giGaItemUnk3
+	giGaItemAoWHandle
+	giGaItemUnk5
 )
 
-// giAbsent marks an item_id whose row holds no resolvable live item.
+// giAbsent marks a semantically unavailable field: an unresolved inventory
+// item_id, or a GaItem field not serialized by that record's type.
 const giAbsent = "absent"
 
 // gameItemFieldPlan is one in-scope direct core field a Database Add changed.
@@ -266,13 +271,36 @@ func readGameItemField(slot *core.SaveSlot, sec giSection, row int, kind giKind)
 			return giAbsent
 		}
 		g := slot.GaItems[row]
-		if kind == giHandle {
+		switch kind {
+		case giHandle:
 			return giHex(g.Handle)
+		case giItemID:
+			if g.IsEmpty() {
+				return giAbsent
+			}
+			return giHex(g.ItemID)
+		case giGaItemUnk2:
+			if g.IsEmpty() || core.GaItemRecordSize(g.ItemID) < core.GaRecordArmor {
+				return giAbsent
+			}
+			return strconv.FormatInt(int64(g.Unk2), 10)
+		case giGaItemUnk3:
+			if g.IsEmpty() || core.GaItemRecordSize(g.ItemID) < core.GaRecordArmor {
+				return giAbsent
+			}
+			return strconv.FormatInt(int64(g.Unk3), 10)
+		case giGaItemAoWHandle:
+			if g.IsEmpty() || core.GaItemRecordSize(g.ItemID) < core.GaRecordWeapon {
+				return giAbsent
+			}
+			return giHex(g.AoWGaItemHandle)
+		case giGaItemUnk5:
+			if g.IsEmpty() || core.GaItemRecordSize(g.ItemID) < core.GaRecordWeapon {
+				return giAbsent
+			}
+			return giDec(uint32(g.Unk5))
 		}
-		if g.IsEmpty() {
-			return giAbsent
-		}
-		return giHex(g.ItemID)
+		return ""
 	default:
 		rows := giInvRows(slot, sec)
 		if row < 0 || row >= len(rows) {
@@ -366,6 +394,10 @@ func planGameItemsDirectRecords(before, planned *core.SaveSlot, derived map[uint
 	for row := 0; row < nGa; row++ {
 		add(fmt.Sprintf("gaitem_row_%d_handle", row), giSecGaItem, row, giHandle)
 		add(fmt.Sprintf("gaitem_row_%d_item_id", row), giSecGaItem, row, giItemID)
+		add(fmt.Sprintf("gaitem_row_%d_unk2", row), giSecGaItem, row, giGaItemUnk2)
+		add(fmt.Sprintf("gaitem_row_%d_unk3", row), giSecGaItem, row, giGaItemUnk3)
+		add(fmt.Sprintf("gaitem_row_%d_aow_gaitem_handle", row), giSecGaItem, row, giGaItemAoWHandle)
+		add(fmt.Sprintf("gaitem_row_%d_unk5", row), giSecGaItem, row, giGaItemUnk5)
 	}
 
 	add("inventory_next_equip_index", giSecCounter, 0, giCounterInvEquip)
@@ -866,14 +898,11 @@ func planGameItemsMutation(before, planned *core.SaveSlot, flagIDs []uint32) gam
 	}
 }
 
-// planGameItemsDeduplicate projects the full GaItem-dedup lifecycle: the direct
-// physical rows the removed record vacates, then the GaItem-specific semantic
-// state (GaMap value changes and allocation cursors). No container/header/flag
-// side effects apply to a dedup, so those stay empty. before is the pre-repair
-// real slot; planned is the post-repair candidate the endpoint is about to
-// publish, so the candidate doubles as the planned projection and no second
-// replay writer is needed.
-func planGameItemsDeduplicate(before, planned *core.SaveSlot) gameItemMutationPlans {
+// planGameItemsGaItemStructuralMutation projects the lifecycle shared by GaItem
+// structural mutations: direct serialized records first, then GaMap and cursor
+// state. The caller supplies the already-validated candidate it is about to
+// publish, so this projection never needs a second writer replay.
+func planGameItemsGaItemStructuralMutation(before, planned *core.SaveSlot) gameItemMutationPlans {
 	return gameItemMutationPlans{
 		direct:      planGameItemsDirectRecords(before, planned, nil),
 		gaItemState: planGameItemsGaItemState(before, planned),

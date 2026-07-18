@@ -188,12 +188,22 @@ func (a *App) ExecuteGaItemRepack(req GaItemRepackExecuteRequest) (GaItemRepackE
 		return a.gaItemRepackDiscardCandidate(result, slot, original, gaItemRepackFailure("validation", "postcondition_mismatch", "The repack result did not match the approved allocation analysis.")), nil
 	}
 
+	debug := a.journal.debugEnabled()
+	var plans gameItemMutationPlans
+	if debug {
+		plans = planGameItemsGaItemStructuralMutation(slot, candidate)
+		a.journalGameItemsMutationBefore(actionGameItemsGaItemRepack, charIdx, plans)
+	}
+
 	// The snapshot is pushed only after every candidate postcondition passes.
 	// pushUndoSnapshotLocked invalidates remaining tokens and increments the
 	// slot revision before this single assignment publishes the candidate.
 	a.pushUndoLocked(charIdx)
 	a.save.Slots[charIdx] = *candidate
 	a.invalidateGaItemRepackTokensLocked(charIdx)
+	if debug {
+		a.journalGameItemsMutationFinished(actionGameItemsGaItemRepack, charIdx, characterChangeSuccess, characterStageCompleted, plans, slot)
+	}
 
 	after := mapGaItemCapacity(coreResult.After)
 	result.Outcome = "success"

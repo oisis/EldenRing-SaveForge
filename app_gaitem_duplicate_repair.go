@@ -166,7 +166,7 @@ func (a *App) ExecuteGaItemDuplicateRepair(req GaItemDuplicateExecuteRequest) (G
 	debug := a.journal.debugEnabled()
 	var plans gameItemMutationPlans
 	if debug {
-		plans = planGameItemsDeduplicate(slot, candidate)
+		plans = planGameItemsGaItemStructuralMutation(slot, candidate)
 		a.journalGameItemsMutationBefore(actionGameItemsGaItemDeduplicate, charIdx, plans)
 	}
 
