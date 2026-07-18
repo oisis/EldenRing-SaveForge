@@ -139,6 +139,17 @@ func (a *App) ApplyMirrorFavoriteToCharacter(charIndex, mirrorSlotIndex int) err
 		return fmt.Errorf("FaceData blob out of bounds: start=0x%X", fd)
 	}
 
+	// Diagnostics: plan the Appearance changes from the raw Mirror slot against the
+	// pre-write character slot, emit all before then all planned records before the
+	// undo snapshot, then read the real slot back for the finished phase below. Only
+	// fields this writer actually changes are logged; voice_type is not (the writer
+	// leaves it untouched, unlike direct preset Apply).
+	mirror := ud[mirrorOff : mirrorOff+core.FavSlotSize]
+	plans := planApplyMirrorFavorite(slot, fd, mirror)
+	planned := appearancePlannedRecords(plans)
+	a.journalCharacterChangeBefore(actionApplyMirrorFavorite, charIndex, planned)
+	a.journalCharacterChangePlanned(actionApplyMirrorFavorite, charIndex, planned)
+
 	a.pushUndoLocked(charIndex)
 
 	// Model IDs (32 B): preset[0x24..0x44] → slot[fd+0x10..0x30]
@@ -171,6 +182,7 @@ func (a *App) ApplyMirrorFavoriteToCharacter(charIndex, mirrorSlotIndex int) err
 		slot.Player.Gender = 0 // female
 	}
 
+	a.journalCharacterChangeFinished(actionApplyMirrorFavorite, charIndex, characterChangeSuccess, characterStageCompleted, appearanceFinishedRecords(plans, slot, fd))
 	return nil
 }
 

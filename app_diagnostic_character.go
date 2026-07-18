@@ -29,6 +29,13 @@ const actionApplyAppearancePreset = "apply_appearance_preset"
 // the target gender's default preset.
 const actionSetCharacterGender = "set_character_gender"
 
+// actionApplyMirrorFavorite is the action tag every ApplyMirrorFavoriteToCharacter
+// Appearance diagnostic record carries. It reuses the character_change_* lifecycle
+// and appearanceFieldPlan mappers, but plans from the raw Mirror Favorites slot
+// bytes via planApplyMirrorFavorite instead of a resolvedAppearance — the Mirror
+// writer copies raw model/hex data verbatim and never touches voice_type.
+const actionApplyMirrorFavorite = "apply_mirror_favorite"
+
 // Closed technical stages a SaveCharacter mutation can terminate at. A finished
 // record reports exactly one of these so a diagnostics reader never has to parse
 // free-text stage names. completed is the only success stage.
@@ -814,6 +821,101 @@ func planApplyAppearance(slot *core.SaveSlot, fd int, r resolvedAppearance) []ap
 			before:  before,
 			planned: planned,
 			read:    func(sl *core.SaveSlot, _ int) string { return dec(uint32(sl.Player.VoiceType)) },
+		})
+	}
+
+	return plans
+}
+
+// planApplyMirrorFavorite builds the ordered list of Appearance fields
+// ApplyMirrorFavoriteToCharacter changes, planned from the raw Mirror Favorites
+// slot bytes (mirror = the FavSlotSize-byte slot) rather than a resolvedAppearance.
+// It reuses appearanceFieldPlan, readAppearanceModel and the shared before/planned/
+// finished mappers, so it only supplies the planned source. Unlike planApplyAppearance
+// the eight models are raw uint32 LE straight from the Mirror slot (not clamped to
+// uint8), the three fixed-width hex blocks are copied verbatim, the writer always
+// zeroes the two apply-flag bytes, gender comes from the Mirror body-type inversion
+// (FavOffBodyType==0 -> Gender 1, else Gender 0), and voice_type is never planned
+// because the writer leaves it untouched. Only fields whose target differs from the
+// current slot value are returned, so re-applying an identical Mirror slot emits nothing.
+func planApplyMirrorFavorite(slot *core.SaveSlot, fd int, mirror []byte) []appearanceFieldPlan {
+	var plans []appearanceFieldPlan
+
+	modelSpecs := []struct {
+		field  string
+		offset int
+	}{
+		{"appearance_face_model", core.FDOffFaceModel},
+		{"appearance_hair_model", core.FDOffHairModel},
+		{"appearance_eye_model", core.FDOffEyeModel},
+		{"appearance_eyebrow_model", core.FDOffEyebrowModel},
+		{"appearance_beard_model", core.FDOffBeardModel},
+		{"appearance_eyepatch_model", core.FDOffEyepatchModel},
+		{"appearance_decal_model", core.FDOffDecalModel},
+		{"appearance_eyelash_model", core.FDOffEyelashModel},
+	}
+	for i, s := range modelSpecs {
+		offset := s.offset
+		before := readAppearanceModel(slot, fd, offset)
+		planned := strconv.FormatUint(uint64(binary.LittleEndian.Uint32(mirror[core.FavOffModelIDs+i*4:])), 10)
+		if before == planned {
+			continue
+		}
+		plans = append(plans, appearanceFieldPlan{
+			field:   s.field,
+			before:  before,
+			planned: planned,
+			read:    func(sl *core.SaveSlot, f int) string { return readAppearanceModel(sl, f, offset) },
+		})
+	}
+
+	hexSpecs := []struct {
+		field  string
+		offset int
+		src    int
+		length int
+	}{
+		{"appearance_face_shape_hex", core.FDOffFaceShape, core.FavOffFaceShape, 64},
+		{"appearance_body_proportions_hex", core.FDOffHead, core.FavOffBody, 7},
+		{"appearance_skin_cosmetics_hex", core.FDOffSkinR, core.FavOffSkin, 91},
+	}
+	for _, s := range hexSpecs {
+		offset, length := s.offset, s.length
+		before := hex.EncodeToString(slot.Data[fd+offset : fd+offset+length])
+		planned := hex.EncodeToString(mirror[s.src : s.src+length])
+		if before == planned {
+			continue
+		}
+		plans = append(plans, appearanceFieldPlan{
+			field:   s.field,
+			before:  before,
+			planned: planned,
+			read:    func(sl *core.SaveSlot, f int) string { return hex.EncodeToString(sl.Data[f+offset : f+offset+length]) },
+		})
+	}
+
+	// Apply-flag bytes at fd+0x125..fd+0x126: the writer always zeroes them, so the
+	// planned value is fixed and the field self-excludes only when both are already zero.
+	if before := hex.EncodeToString(slot.Data[fd+0x125 : fd+0x127]); before != "0000" {
+		plans = append(plans, appearanceFieldPlan{
+			field:   "appearance_apply_flags_hex",
+			before:  before,
+			planned: "0000",
+			read:    func(sl *core.SaveSlot, f int) string { return hex.EncodeToString(sl.Data[f+0x125 : f+0x127]) },
+		})
+	}
+
+	// Gender from the Mirror body-type inversion (mirrors the writer's own logic).
+	planned := "0"
+	if mirror[core.FavOffBodyType] == 0 {
+		planned = "1"
+	}
+	if before := strconv.FormatUint(uint64(slot.Player.Gender), 10); before != planned {
+		plans = append(plans, appearanceFieldPlan{
+			field:   "gender",
+			before:  before,
+			planned: planned,
+			read:    func(sl *core.SaveSlot, _ int) string { return strconv.FormatUint(uint64(sl.Player.Gender), 10) },
 		})
 	}
 
