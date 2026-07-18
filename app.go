@@ -1127,15 +1127,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		}
 	}
 
-	// SNAPSHOT: deep copy slot state before mutation.
-	a.pushUndoLocked(charIdx)
-	snapshot := core.SnapshotSlot(slot)
-
-	// MUTATE: build the mutation plan once, then apply it to the real slot. The
-	// plan captures every already-computed input the mutation tail consumes, so
-	// a later diagnostic planner can apply the identical plan to core.CloneSlot.
-	// Any executor failure restores the pre-mutation snapshot here; the executor
-	// itself owns no locking, undo, journal or rollback.
+	// MUTATE: build the mutation plan once. The plan captures every already-
+	// computed input the mutation tail consumes, so the diagnostic planner can
+	// apply the identical plan to core.CloneSlot before the real executor runs.
 	planItems := make([]itemAddPlanItem, 0, len(prepared))
 	for _, p := range prepared {
 		planItems = append(planItems, itemAddPlanItem{
@@ -1153,11 +1147,40 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		storageContainers:   storageContainers,
 		existingByContainer: existingByContainer,
 	}
+
+	// DIAGNOSTICS: apply the identical plan to a clone and capture every changed
+	// direct core record. before values come from the still-unmutated real slot,
+	// planned values from the clone. Emitted before pushUndoLocked and the real
+	// executor; only built in Debug Mode, since the clone add duplicates the whole
+	// mutation and is pure overhead otherwise.
+	var giPlans []gameItemFieldPlan
+	if a.journal.debugEnabled() {
+		clone := core.CloneSlot(slot)
+		_ = applyItemAddMutationPlan(clone, plan, func(string, ...any) {})
+		giPlans = planGameItemsAddRecords(slot, clone, plan)
+		records := gameItemPlannedRecords(giPlans)
+		a.journalGameItemChangeBefore(actionGameItemsAdd, charIdx, records)
+		a.journalGameItemChangePlanned(actionGameItemsAdd, charIdx, records)
+	}
+
+	// SNAPSHOT: deep copy slot state before mutation.
+	a.pushUndoLocked(charIdx)
+	snapshot := core.SnapshotSlot(slot)
+
+	// MUTATE: apply the plan to the real slot. Any executor failure restores the
+	// pre-mutation snapshot here; the executor itself owns no locking, undo,
+	// journal or rollback.
 	if err := applyItemAddMutationPlan(slot, plan, func(format string, args ...any) {
 		runtime.LogWarningf(a.ctx, format, args...)
 	}); err != nil {
 		core.RestoreSlot(slot, snapshot)
+		if len(giPlans) > 0 {
+			a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeError, stageGameItemsApplyAddPlan, gameItemFinishedRecords(giPlans, slot))
+		}
 		return result, err
+	}
+	if len(giPlans) > 0 {
+		a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeSuccess, characterStageCompleted, gameItemFinishedRecords(giPlans, slot))
 	}
 
 	// SUCCESS: compute final capacity and return.

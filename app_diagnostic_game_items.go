@@ -1,5 +1,22 @@
 package main
 
+import (
+	"fmt"
+	"strconv"
+
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
+)
+
+// actionGameItemsAdd is the internal action tag for a Database Add mutation
+// (AddItemsToCharacter / AddItemsToCharacterWithGameLimits) in the Game Items
+// lifecycle journal.
+const actionGameItemsAdd = "add_items"
+
+// stageGameItemsApplyAddPlan is the finished-phase stage reported when the real
+// executor (applyItemAddMutationPlan) fails and the slot was rolled back.
+const stageGameItemsApplyAddPlan = "apply_add_plan"
+
 // Lifecycle event names for a single Game Items field mutation. Like the
 // Character lifecycle, a future Game Items mutation endpoint emits, per changed
 // field, one record for each phase in this order: before -> planned -> finished.
@@ -37,4 +54,281 @@ func (a *App) journalGameItemChangePlanned(action string, characterIndex int, ch
 // attempted) value.
 func (a *App) journalGameItemChangeFinished(action string, characterIndex int, outcome characterChangeOutcome, stage string, changes []characterFieldChange) {
 	a.journalChangeRecords(eventGameItemsChangeFinished, "game items change finished", action, characterIndex, changes, changeFinishedTail(outcome, stage))
+}
+
+// debugEnabled reports whether debug-level records are currently admitted. The
+// Database Add planner consults it to skip the clone-and-replay overhead (a full
+// duplicate mutation) when Debug Mode is off; a nil receiver is a safe false.
+func (j *DiagnosticJournal) debugEnabled() bool {
+	if j == nil {
+		return false
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.debug
+}
+
+// giSection identifies which fixed-size core record array a Game Items field
+// lives in. Combined with a physical row it forms the stable field identity, so
+// an empty row becoming populated is visible without an unstable Handle in the
+// field name.
+type giSection uint8
+
+const (
+	giSecInventoryCommon giSection = iota
+	giSecInventoryKey
+	giSecStorageCommon
+	giSecGaItem
+	giSecCounter
+)
+
+// giKind identifies which scalar of a record (or which trailing counter) a
+// field reads. The counter kinds carry the whole field on their own; the
+// section is giSecCounter and the row is unused.
+type giKind uint8
+
+const (
+	giHandle giKind = iota
+	giItemID
+	giQuantity
+	giIndex
+	giCounterInvEquip
+	giCounterInvAcq
+	giCounterStoreEquip
+	giCounterStoreAcq
+)
+
+// giAbsent marks an item_id whose row holds no resolvable live item.
+const giAbsent = "absent"
+
+// gameItemFieldPlan is one in-scope direct core field a Database Add changed.
+// before/planned are captured against the pre-mutation slot and the plan-applied
+// clone; section/row/kind re-read the same field from the real post-execution
+// slot for the finished phase, so finished reports what actually landed.
+type gameItemFieldPlan struct {
+	name    string
+	before  string
+	planned string
+	section giSection
+	row     int
+	kind    giKind
+}
+
+func giHex(v uint32) string { return fmt.Sprintf("0x%08X", v) }
+func giDec(v uint32) string { return strconv.FormatUint(uint64(v), 10) }
+
+// giResolveItemID maps a live inventory/storage handle to its uppercase item ID,
+// or giAbsent when the row has no resolvable live item (empty/invalid handle or
+// an unmapped handle that resolves to nothing). Mirrors the handle→id resolution
+// the add path and container planner use (GaMap first, then HandleToItemID).
+func giResolveItemID(slot *core.SaveSlot, handle uint32) string {
+	if handle == core.GaHandleEmpty || handle == core.GaHandleInvalid {
+		return giAbsent
+	}
+	if id, ok := slot.GaMap[handle]; ok && id != 0 {
+		return giHex(id)
+	}
+	if id := db.HandleToItemID(handle); id != 0 {
+		return giHex(id)
+	}
+	return giAbsent
+}
+
+// derivedContainerHandles returns the physical inventory handles of every
+// container touched only as a side effect of adding a gated item (Fire Pot ->
+// Cracked Pot). Those container mutations are container side effects, out of
+// scope for Task 2B, so their direct rows are excluded from the lifecycle. A
+// container that was itself in plan.batch is a primary Database Add of that
+// container and is deliberately kept. The handle is derived exactly as the
+// writer (upsertInventoryContainerQuantity) computes it.
+func derivedContainerHandles(plan itemAddMutationPlan) map[uint32]bool {
+	if len(plan.usedContainers) == 0 {
+		return nil
+	}
+	explicit := make(map[uint32]bool, len(plan.batch))
+	for _, it := range plan.batch {
+		explicit[it.ItemID] = true
+	}
+	out := make(map[uint32]bool)
+	for cID := range plan.usedContainers {
+		if explicit[cID] {
+			continue
+		}
+		out[db.ItemIDToHandlePrefix(cID)|(cID&0x0FFFFFFF)] = true
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// giInvRowHandle returns the raw GaItemHandle at a physical inventory/storage
+// row, or GaHandleEmpty when the row is out of range.
+func giInvRowHandle(slot *core.SaveSlot, sec giSection, row int) uint32 {
+	rows := giInvRows(slot, sec)
+	if row < 0 || row >= len(rows) {
+		return core.GaHandleEmpty
+	}
+	return rows[row].GaItemHandle
+}
+
+// giInvRows returns the InventoryItem array backing an inventory/storage section.
+func giInvRows(slot *core.SaveSlot, sec giSection) []core.InventoryItem {
+	switch sec {
+	case giSecInventoryCommon:
+		return slot.Inventory.CommonItems
+	case giSecInventoryKey:
+		return slot.Inventory.KeyItems
+	case giSecStorageCommon:
+		return slot.Storage.CommonItems
+	}
+	return nil
+}
+
+// readGameItemField reads one direct scalar field from slot in the formatting the
+// journal contract requires: handles and item IDs as uppercase 0x%08X, quantities
+// / row indexes / counters as decimal, item_id as giAbsent when no live item. An
+// out-of-range row reads as an empty record so a shrinking array still diffs.
+func readGameItemField(slot *core.SaveSlot, sec giSection, row int, kind giKind) string {
+	switch sec {
+	case giSecCounter:
+		switch kind {
+		case giCounterInvEquip:
+			return giDec(slot.Inventory.NextEquipIndex)
+		case giCounterInvAcq:
+			return giDec(slot.Inventory.NextAcquisitionSortId)
+		case giCounterStoreEquip:
+			return giDec(slot.Storage.NextEquipIndex)
+		case giCounterStoreAcq:
+			return giDec(slot.Storage.NextAcquisitionSortId)
+		}
+		return ""
+	case giSecGaItem:
+		if row < 0 || row >= len(slot.GaItems) {
+			if kind == giHandle {
+				return giHex(core.GaHandleEmpty)
+			}
+			return giAbsent
+		}
+		g := slot.GaItems[row]
+		if kind == giHandle {
+			return giHex(g.Handle)
+		}
+		if g.IsEmpty() {
+			return giAbsent
+		}
+		return giHex(g.ItemID)
+	default:
+		rows := giInvRows(slot, sec)
+		if row < 0 || row >= len(rows) {
+			switch kind {
+			case giHandle:
+				return giHex(core.GaHandleEmpty)
+			case giItemID:
+				return giAbsent
+			default:
+				return giDec(0)
+			}
+		}
+		it := rows[row]
+		switch kind {
+		case giHandle:
+			return giHex(it.GaItemHandle)
+		case giItemID:
+			return giResolveItemID(slot, it.GaItemHandle)
+		case giQuantity:
+			return giDec(it.Quantity)
+		case giIndex:
+			return giDec(it.Index)
+		}
+	}
+	return ""
+}
+
+// planGameItemsAddRecords diffs every in-scope direct scalar field between the
+// pre-mutation slot (before) and the plan-applied clone (planned), returning one
+// gameItemFieldPlan per changed field in a stable order: inventory common, key,
+// storage common, GaItems, then the four counters. A field is emitted only when
+// before != planned. Rows belonging to a derived container (a container raised
+// only as a side effect of adding a gated item, never itself in plan.batch) are
+// excluded: container mutations are out of scope for Task 2B. The plan is the
+// immutable source of that container context.
+func planGameItemsAddRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []gameItemFieldPlan {
+	var plans []gameItemFieldPlan
+	add := func(name string, sec giSection, row int, kind giKind) {
+		b := readGameItemField(before, sec, row, kind)
+		p := readGameItemField(planned, sec, row, kind)
+		if b == p {
+			return
+		}
+		plans = append(plans, gameItemFieldPlan{name: name, before: b, planned: p, section: sec, row: row, kind: kind})
+	}
+
+	derived := derivedContainerHandles(plan)
+
+	invSections := []struct {
+		sec    giSection
+		prefix string
+	}{
+		{giSecInventoryCommon, "inventory_common"},
+		{giSecInventoryKey, "inventory_key"},
+		{giSecStorageCommon, "storage_common"},
+	}
+	for _, s := range invSections {
+		n := len(giInvRows(before, s.sec))
+		if m := len(giInvRows(planned, s.sec)); m > n {
+			n = m
+		}
+		// Containers are written only to the inventory sections; storage rows are
+		// never touched by the container sync, so exclusion applies there only.
+		checkDerived := derived != nil && (s.sec == giSecInventoryCommon || s.sec == giSecInventoryKey)
+		for row := 0; row < n; row++ {
+			if checkDerived {
+				if derived[giInvRowHandle(before, s.sec, row)] || derived[giInvRowHandle(planned, s.sec, row)] {
+					continue
+				}
+			}
+			add(fmt.Sprintf("%s_row_%d_handle", s.prefix, row), s.sec, row, giHandle)
+			add(fmt.Sprintf("%s_row_%d_item_id", s.prefix, row), s.sec, row, giItemID)
+			add(fmt.Sprintf("%s_row_%d_quantity", s.prefix, row), s.sec, row, giQuantity)
+			add(fmt.Sprintf("%s_row_%d_index", s.prefix, row), s.sec, row, giIndex)
+		}
+	}
+
+	nGa := len(before.GaItems)
+	if m := len(planned.GaItems); m > nGa {
+		nGa = m
+	}
+	for row := 0; row < nGa; row++ {
+		add(fmt.Sprintf("gaitem_row_%d_handle", row), giSecGaItem, row, giHandle)
+		add(fmt.Sprintf("gaitem_row_%d_item_id", row), giSecGaItem, row, giItemID)
+	}
+
+	add("inventory_next_equip_index", giSecCounter, 0, giCounterInvEquip)
+	add("inventory_next_acquisition_sort_id", giSecCounter, 0, giCounterInvAcq)
+	add("storage_next_equip_index", giSecCounter, 0, giCounterStoreEquip)
+	add("storage_next_acquisition_sort_id", giSecCounter, 0, giCounterStoreAcq)
+
+	return plans
+}
+
+// gameItemPlannedRecords maps plans to before/planned change records. The before
+// phase ignores After; the planned phase uses it — both share this list.
+func gameItemPlannedRecords(plans []gameItemFieldPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.name, Before: p.before, After: p.planned}
+	}
+	return out
+}
+
+// gameItemFinishedRecords maps plans to finished records, re-reading each field's
+// actual value out of the post-execution slot so After reflects what really
+// landed rather than the planned value.
+func gameItemFinishedRecords(plans []gameItemFieldPlan, post *core.SaveSlot) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.name, Before: p.before, After: readGameItemField(post, p.section, p.row, p.kind)}
+	}
+	return out
 }
