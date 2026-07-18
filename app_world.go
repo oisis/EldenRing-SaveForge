@@ -1391,14 +1391,36 @@ func (a *App) RevealAllMap(slotIndex int) error {
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
+	return a.journalWorldSlotMutation(actionWorldRevealAllMap, slotIndex, slot,
+		applyRevealAllMap,
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{
+				flags:        planWorldEventFlags(before, planned, worldRevealMapFlagIDs()),
+				mapFragments: planWorldMapFragments(before, planned, mapFragmentFlagIDs()),
+				exploration:  planWorldExplorationField(before, planned, "map_dlc_tiles_hex", readWorldDLCTiles),
+			}
+		})
+}
+
+func applyRevealAllMap(slot *core.SaveSlot) error {
 	if err := revealBaseMap(slot); err != nil {
 		return fmt.Errorf("base map: %w", err)
 	}
 	if err := revealDLCMap(slot); err != nil {
 		return fmt.Errorf("DLC map: %w", err)
 	}
-
 	return nil
+}
+
+func worldRevealMapFlagIDs() []uint32 {
+	ids := make([]uint32, 0, len(data.MapSystem)+len(data.MapVisible))
+	for id := range data.MapSystem {
+		ids = append(ids, id)
+	}
+	for id := range data.MapVisible {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // revealBaseMap sets base game system flags, visible flags, and adds map fragment items.
@@ -1516,26 +1538,45 @@ func (a *App) ResetMapExploration(slotIndex int) error {
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	flags := slot.Data[slot.EventFlagsOffset:]
+	return a.journalWorldSlotMutation(actionWorldResetMapExploration, slotIndex, slot,
+		applyResetMapExploration,
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{
+				flags:        planWorldEventFlags(before, planned, worldResetMapFlagIDs()),
+				mapFragments: planWorldMapFragments(before, planned, mapFragmentFlagIDs()),
+			}
+		})
+}
 
-	// Clear visible flags + remove map fragment items
+func applyResetMapExploration(slot *core.SaveSlot) error {
+	flags := slot.Data[slot.EventFlagsOffset:]
 	for id := range data.MapVisible {
 		_ = db.SetEventFlag(flags, id, false)
 		if itemID, ok := data.MapFragmentItems[id]; ok {
 			core.RemoveItemByBaseID(slot, itemID)
 		}
 	}
-	// Clear acquired flags
 	for id := range data.MapAcquired {
 		_ = db.SetEventFlag(flags, id, false)
 	}
-	// Clear unsafe sub-region flags
 	for id := range data.MapUnsafe {
 		_ = db.SetEventFlag(flags, id, false)
 	}
-	// Note: system flags (62000, 62001, 82001, 82002) are preserved
-
 	return nil
+}
+
+func worldResetMapFlagIDs() []uint32 {
+	ids := make([]uint32, 0, len(data.MapVisible)+len(data.MapAcquired)+len(data.MapUnsafe))
+	for id := range data.MapVisible {
+		ids = append(ids, id)
+	}
+	for id := range data.MapAcquired {
+		ids = append(ids, id)
+	}
+	for id := range data.MapUnsafe {
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 // RemoveFogOfWar fills the exploration bitfield with 0xFF, removing all Fog of War.
@@ -1555,21 +1596,25 @@ func (a *App) RemoveFogOfWar(slotIndex int) error {
 	a.pushUndoLocked(slotIndex)
 
 	slot := &a.save.Slots[slotIndex]
+	return a.journalWorldSlotMutation(actionWorldRemoveFogOfWar, slotIndex, slot,
+		applyRemoveFogOfWar,
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{exploration: planWorldExplorationField(before, planned, "fog_of_war_hex", readWorldFogOfWar)}
+		})
+}
+
+func applyRemoveFogOfWar(slot *core.SaveSlot) error {
 	afterRegs, err := resolveAfterRegs(slot)
 	if err != nil {
 		return err
 	}
-
 	fowStart := afterRegs + core.FoWBlobStart
 	fowEnd := afterRegs + core.FoWBlobEnd
-
 	if fowEnd >= len(slot.Data)-0x80 {
 		return fmt.Errorf("FoW bitfield range out of bounds (0x%X)", fowEnd)
 	}
-
 	for i := fowStart; i <= fowEnd; i++ {
 		slot.Data[i] = 0xFF
 	}
-
 	return nil
 }

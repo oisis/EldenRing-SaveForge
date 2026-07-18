@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strconv"
@@ -22,6 +23,9 @@ const (
 	actionWorldSetRegionUnlocked         = "set_region_unlocked"
 	actionWorldBulkSetUnlockedRegions    = "bulk_set_unlocked_regions"
 	actionWorldSetQuestStep              = "set_quest_step"
+	actionWorldRevealAllMap              = "reveal_all_map"
+	actionWorldResetMapExploration       = "reset_map_exploration"
+	actionWorldRemoveFogOfWar            = "remove_fog_of_war"
 
 	stageWorldApply = "apply_world"
 )
@@ -45,18 +49,22 @@ type worldFieldPlan struct {
 	read    func(*core.SaveSlot) string
 }
 
-// worldMutationPlans keeps the stable World field order: Event Flags, gesture
-// slots, then unlocked-region membership. Future World writers append only
-// fields they own to these groups, while the lifecycle helpers preserve global
-// phase grouping.
+// worldMutationPlans keeps the stable World field order: Event Flags, map
+// fragments, exploration blocks, gesture slots, then unlocked-region
+// membership. Future World writers append only fields they own to these groups,
+// while the lifecycle helpers preserve global phase grouping.
 type worldMutationPlans struct {
-	flags    []worldFieldPlan
-	gestures []worldFieldPlan
-	regions  []worldFieldPlan
+	flags        []worldFieldPlan
+	mapFragments []worldFieldPlan
+	exploration  []worldFieldPlan
+	gestures     []worldFieldPlan
+	regions      []worldFieldPlan
 }
 
 func (p worldMutationPlans) records() []characterFieldChange {
-	plans := append(append([]worldFieldPlan(nil), p.flags...), p.gestures...)
+	plans := append(append([]worldFieldPlan(nil), p.flags...), p.mapFragments...)
+	plans = append(plans, p.exploration...)
+	plans = append(plans, p.gestures...)
 	plans = append(plans, p.regions...)
 	records := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
@@ -66,7 +74,9 @@ func (p worldMutationPlans) records() []characterFieldChange {
 }
 
 func (p worldMutationPlans) finished(slot *core.SaveSlot) []characterFieldChange {
-	plans := append(append([]worldFieldPlan(nil), p.flags...), p.gestures...)
+	plans := append(append([]worldFieldPlan(nil), p.flags...), p.mapFragments...)
+	plans = append(plans, p.exploration...)
+	plans = append(plans, p.gestures...)
 	plans = append(plans, p.regions...)
 	records := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
@@ -131,6 +141,93 @@ func planWorldGestureSlots(before, planned *core.SaveSlot) []worldFieldPlan {
 		})
 	}
 	return plans
+}
+
+func readWorldMapFragmentOwned(slot *core.SaveSlot, itemID uint32) string {
+	hasItem := func(items []core.InventoryItem) bool {
+		for _, item := range items {
+			if item.Quantity > 0 && db.HandleToItemID(item.GaItemHandle) == itemID {
+				return true
+			}
+		}
+		return false
+	}
+	if hasItem(slot.Inventory.CommonItems) || hasItem(slot.Inventory.KeyItems) || hasItem(slot.Storage.CommonItems) || hasItem(slot.Storage.KeyItems) {
+		return "true"
+	}
+	return "false"
+}
+
+func mapFragmentFlagIDs() []uint32 {
+	ids := make([]uint32, 0, len(data.MapFragmentItems))
+	for flagID := range data.MapFragmentItems {
+		ids = append(ids, flagID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	return ids
+}
+
+// planWorldMapFragments records semantic ownership of each map fragment the
+// action may add or remove. Physical rows may move during inventory writes;
+// item identity is therefore the stable World-side diagnostic field.
+func planWorldMapFragments(before, planned *core.SaveSlot, visibleFlagIDs []uint32) []worldFieldPlan {
+	flagIDs := append([]uint32(nil), visibleFlagIDs...)
+	sort.Slice(flagIDs, func(i, j int) bool { return flagIDs[i] < flagIDs[j] })
+	plans := make([]worldFieldPlan, 0, len(flagIDs))
+	for i, flagID := range flagIDs {
+		if i > 0 && flagID == flagIDs[i-1] {
+			continue
+		}
+		itemID, ok := data.MapFragmentItems[flagID]
+		if !ok {
+			continue
+		}
+		b := readWorldMapFragmentOwned(before, itemID)
+		p := readWorldMapFragmentOwned(planned, itemID)
+		if b == p {
+			continue
+		}
+		readItemID := itemID
+		plans = append(plans, worldFieldPlan{
+			field:   fmt.Sprintf("map_fragment_0x%08X_owned", itemID),
+			before:  b,
+			planned: p,
+			read:    func(s *core.SaveSlot) string { return readWorldMapFragmentOwned(s, readItemID) },
+		})
+	}
+	return plans
+}
+
+func readWorldExplorationRange(slot *core.SaveSlot, start, end int) string {
+	if start < 0 || end < start || end >= len(slot.Data)-0x80 {
+		return "unavailable"
+	}
+	return hex.EncodeToString(slot.Data[start : end+1])
+}
+
+func readWorldFogOfWar(slot *core.SaveSlot) string {
+	afterRegs, err := resolveAfterRegs(slot)
+	if err != nil {
+		return "unavailable"
+	}
+	return readWorldExplorationRange(slot, afterRegs+core.FoWBlobStart, afterRegs+core.FoWBlobEnd)
+}
+
+func readWorldDLCTiles(slot *core.SaveSlot) string {
+	afterRegs, err := resolveAfterRegs(slot)
+	if err != nil {
+		return "unavailable"
+	}
+	return readWorldExplorationRange(slot, afterRegs+core.DLCTileZeroStart, afterRegs+core.DLCTileZeroEnd-1)
+}
+
+func planWorldExplorationField(before, planned *core.SaveSlot, field string, read func(*core.SaveSlot) string) []worldFieldPlan {
+	b := read(before)
+	p := read(planned)
+	if b == p {
+		return nil
+	}
+	return []worldFieldPlan{{field: field, before: b, planned: p, read: read}}
 }
 
 func readWorldUnlockedRegion(slot *core.SaveSlot, regionID uint32) string {
