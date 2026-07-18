@@ -1154,6 +1154,7 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	// executor; only built in Debug Mode, since the clone add duplicates the whole
 	// mutation and is pure overhead otherwise.
 	var giPlans []gameItemFieldPlan
+	var giInventoryHeaderPlans []gameItemSideEffectPlan
 	var giFlagPlans []gameItemSideEffectPlan
 	var giBolsteringPlans []gameItemSideEffectPlan
 	var giTutorialPlans []gameItemSideEffectPlan
@@ -1163,18 +1164,22 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		clone := core.CloneSlot(slot)
 		_ = applyItemAddMutationPlan(clone, plan, func(string, ...any) {})
 		giPlans = planGameItemsAddRecords(slot, clone, plan)
+		giInventoryHeaderPlans = planGameItemsAddInventoryHeaderRecords(slot, clone)
 		giFlagPlans = planGameItemsAddFlagRecords(slot, clone, plan)
 		giBolsteringPlans = planGameItemsAddBolsteringRecords(slot, clone, plan)
 		giTutorialPlans = planGameItemsAddTutorialRecords(slot, clone, plan)
 		giContainerPlans = planGameItemsAddContainerRecords(slot, clone, plan)
 		giStorageHeaderPlans = planGameItemsAddStorageHeaderRecords(slot, clone)
-		// Direct physical rows first, then direct item-driven Event Flags, then
-		// bolstering pickup flags, then TutorialData appends, then container side
-		// effects, then the storage-header count reconciled last — matching the
-		// executor's order (batch add -> POST-FLAGS -> container upserts ->
+		// Direct physical rows first, then the held-inventory CommonItems count
+		// header the batch add increments in place when it allocates a new record,
+		// then direct item-driven Event Flags, then bolstering pickup flags, then
+		// TutorialData appends, then container side effects, then the storage-header
+		// count reconciled last — matching the executor's order (batch add /
+		// addToInventory count bump -> POST-FLAGS -> container upserts ->
 		// ReconcileStorageHeader) inside one global phase grouping: all before ->
 		// all planned -> all finished.
-		records := append(gameItemPlannedRecords(giPlans), gameItemSideEffectPlannedRecords(giFlagPlans)...)
+		records := append(gameItemPlannedRecords(giPlans), gameItemSideEffectPlannedRecords(giInventoryHeaderPlans)...)
+		records = append(records, gameItemSideEffectPlannedRecords(giFlagPlans)...)
 		records = append(records, gameItemSideEffectPlannedRecords(giBolsteringPlans)...)
 		records = append(records, gameItemSideEffectPlannedRecords(giTutorialPlans)...)
 		records = append(records, gameItemSideEffectPlannedRecords(giContainerPlans)...)
@@ -1194,8 +1199,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		runtime.LogWarningf(a.ctx, format, args...)
 	}); err != nil {
 		core.RestoreSlot(slot, snapshot)
-		if len(giPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giTutorialPlans) > 0 || len(giContainerPlans) > 0 || len(giStorageHeaderPlans) > 0 {
-			finished := append(gameItemFinishedRecords(giPlans, slot), gameItemSideEffectFinishedRecords(giFlagPlans, slot)...)
+		if len(giPlans) > 0 || len(giInventoryHeaderPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giTutorialPlans) > 0 || len(giContainerPlans) > 0 || len(giStorageHeaderPlans) > 0 {
+			finished := append(gameItemFinishedRecords(giPlans, slot), gameItemSideEffectFinishedRecords(giInventoryHeaderPlans, slot)...)
+			finished = append(finished, gameItemSideEffectFinishedRecords(giFlagPlans, slot)...)
 			finished = append(finished, gameItemSideEffectFinishedRecords(giBolsteringPlans, slot)...)
 			finished = append(finished, gameItemSideEffectFinishedRecords(giTutorialPlans, slot)...)
 			finished = append(finished, gameItemSideEffectFinishedRecords(giContainerPlans, slot)...)
@@ -1204,8 +1210,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		}
 		return result, err
 	}
-	if len(giPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giTutorialPlans) > 0 || len(giContainerPlans) > 0 || len(giStorageHeaderPlans) > 0 {
-		finished := append(gameItemFinishedRecords(giPlans, slot), gameItemSideEffectFinishedRecords(giFlagPlans, slot)...)
+	if len(giPlans) > 0 || len(giInventoryHeaderPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giTutorialPlans) > 0 || len(giContainerPlans) > 0 || len(giStorageHeaderPlans) > 0 {
+		finished := append(gameItemFinishedRecords(giPlans, slot), gameItemSideEffectFinishedRecords(giInventoryHeaderPlans, slot)...)
+		finished = append(finished, gameItemSideEffectFinishedRecords(giFlagPlans, slot)...)
 		finished = append(finished, gameItemSideEffectFinishedRecords(giBolsteringPlans, slot)...)
 		finished = append(finished, gameItemSideEffectFinishedRecords(giTutorialPlans, slot)...)
 		finished = append(finished, gameItemSideEffectFinishedRecords(giContainerPlans, slot)...)

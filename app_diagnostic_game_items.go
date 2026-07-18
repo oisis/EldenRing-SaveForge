@@ -639,6 +639,63 @@ func planGameItemsAddStorageHeaderRecords(before, planned *core.SaveSlot) []game
 	}}
 }
 
+// giInventoryHeaderUnavailable is the stable inventory_common_header_count value
+// returned when the slot has no valid 4-byte held-inventory CommonItems count
+// region at MagicOffset + InvStartFromMagic - 4. A non-numeric sentinel so it
+// never collides with a real decimal count and self-excludes: when both the real
+// slot and the clone read unavailable, before == planned and no lifecycle emits.
+const giInventoryHeaderUnavailable = "unavailable"
+
+// readInventoryCommonHeaderCount reads the physical 4-byte held-inventory
+// CommonItems count scalar ("common_item_count") directly from slot.Data at
+// slot.MagicOffset + core.InvStartFromMagic - 4 as an unsigned decimal integer.
+// This is the header the Database Add writer (core addToInventory) increments in
+// place by one each time it allocates a NEW Inventory.CommonItems record — a
+// distinct scalar from the storage header and, unlike it, never reconciled on the
+// add path. It is bounds-safe: a slot with no valid magic region (MagicOffset<=0)
+// or whose header location falls outside slot.Data reads as the unavailable
+// sentinel, mirroring core.ReconcileInventoryHeader's own guard, and no raw bytes
+// ever leak into the value.
+func readInventoryCommonHeaderCount(slot *core.SaveSlot) string {
+	if slot.MagicOffset <= 0 {
+		return giInventoryHeaderUnavailable
+	}
+	off := slot.MagicOffset + core.InvStartFromMagic - 4
+	if off < 0 || off+4 > len(slot.Data) {
+		return giInventoryHeaderUnavailable
+	}
+	return giDec(binary.LittleEndian.Uint32(slot.Data[off:]))
+}
+
+// planGameItemsAddInventoryHeaderRecords derives the held-inventory CommonItems
+// count-header side effect of a Database Add — the physical "common_item_count"
+// scalar at MagicOffset + InvStartFromMagic - 4 that the writer (core
+// addToInventory) increments by one whenever it allocates a NEW
+// Inventory.CommonItems record — by comparing the pre-mutation real slot (before)
+// against the plan-applied clone (planned). Unlike the storage header, this
+// scalar is NOT reconciled on the add path: the writer bumps it in place, so the
+// lifecycle reports the raw incremented value (e.g. a stale 42 becomes 43), never
+// a recomputed count. It emits one lifecycle only when the scalar actually changed
+// (before != planned): an in-place stack update of an existing record allocates no
+// new record and self-excludes, and an unavailable header (no valid region in
+// either slot) reads unavailable in both and self-excludes too. The real slot is
+// never replayed or mutated; read pulls the scalar back out of the post-execution
+// real slot for the finished phase. Only the shared gameItemSideEffectPlan vehicle
+// is reused; the reader is Game Items-owned.
+func planGameItemsAddInventoryHeaderRecords(before, planned *core.SaveSlot) []gameItemSideEffectPlan {
+	b := readInventoryCommonHeaderCount(before)
+	p := readInventoryCommonHeaderCount(planned)
+	if b == p {
+		return nil
+	}
+	return []gameItemSideEffectPlan{{
+		field:   "inventory_common_header_count",
+		before:  b,
+		planned: p,
+		read:    readInventoryCommonHeaderCount,
+	}}
+}
+
 // appendGameItemContainerFlagPlan appends a container flag plan only when the
 // clone flipped the flag (before != planned). Unlike the Character helper it
 // reads the planned value straight from the applied clone rather than assuming
