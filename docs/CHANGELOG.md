@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.4] - 2026-07-19
+
+### feat(diagnostics): trace Character and Game Items mutations in Debug Mode
+
+Debug Mode now records every changed Character field and Game Items operation
+as a privacy-safe `before → planned → finished` lifecycle. Coverage includes
+Database add/remove/unlock actions, Inventory Workspace edits and saves,
+auto-repairs, and GaItem duplicate repair and optimisation. Finished records
+read the real post-operation state, including error and rollback paths where
+they exist, so support logs distinguish a plan from what actually landed.
+
+Diagnostics redact PSN and account identifiers in addition to existing secret,
+path, token, and credential protection.
+
+### fix(database): correct standard weapon upgrade caps
+
+Troll's Golden Sword, Crystal Knife, and Ghostflame Torch now use the correct
+maximum upgrade level of +25.
+
 ## [1.5.3] - 2026-07-16
 
 ### feat(diagnostics): add durable, privacy-safe support logs
