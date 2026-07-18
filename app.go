@@ -1480,29 +1480,52 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 	// full duplicate removal and pure overhead when Debug Mode is off.
 	var giPlans []gameItemFieldPlan
 	var giInvHeaderPlans, giStorageHeaderPlans []gameItemSideEffectPlan
+	var giCleanupFlagPlans []gameItemSideEffectPlan
 	if a.journal.debugEnabled() {
 		clone := core.CloneSlot(slot)
+		cloneRemoveSucceeded := true
 		for _, handle := range handles {
 			if err := core.RemoveItemFromSlot(clone, handle, fromInventory, fromStorage); err != nil {
+				cloneRemoveSucceeded = false
 				break
 			}
+		}
+		if cloneRemoveSucceeded {
+			applyRemoveItemFlagCleanup(clone, bolsteringRemovals, companionRemovals, nil)
 		}
 		giPlans = planGameItemsDirectRecords(slot, clone, nil)
 		giInvHeaderPlans = planGameItemsAddInventoryHeaderRecords(slot, clone)
 		giStorageHeaderPlans = planGameItemsAddStorageHeaderRecords(slot, clone)
+		giCleanupFlagPlans = planGameItemsRemoveCleanupFlagRecords(slot, clone, bolsteringRemovals, companionRemovals)
 		records := append(gameItemPlannedRecords(giPlans), gameItemSideEffectPlannedRecords(giInvHeaderPlans)...)
 		records = append(records, gameItemSideEffectPlannedRecords(giStorageHeaderPlans)...)
+		records = append(records, gameItemSideEffectPlannedRecords(giCleanupFlagPlans)...)
 		a.journalGameItemChangeBefore(actionGameItemsRemove, charIdx, records)
 		a.journalGameItemChangePlanned(actionGameItemsRemove, charIdx, records)
 	}
 
 	for _, handle := range handles {
 		if err := core.RemoveItemFromSlot(slot, handle, fromInventory, fromStorage); err != nil {
-			a.journalGameItemsRemoveFinished(charIdx, characterChangeError, stageGameItemsRemoveItem, giPlans, giInvHeaderPlans, giStorageHeaderPlans, slot)
+			a.journalGameItemsRemoveFinished(charIdx, characterChangeError, stageGameItemsRemoveItem, giPlans, giInvHeaderPlans, giStorageHeaderPlans, giCleanupFlagPlans, slot)
 			return err
 		}
 	}
 
+	applyRemoveItemFlagCleanup(slot, bolsteringRemovals, companionRemovals, func(itemID, flagID uint32, err error) {
+		runtime.LogWarningf(a.ctx, "clear companion flag %d for item 0x%08X: %v", flagID, itemID, err)
+	})
+
+	// SUCCESS: emit finished after all remove-side-effect code has run, re-reading
+	// the physical fields (untouched by the flag cleanup) from the real slot.
+	a.journalGameItemsRemoveFinished(charIdx, characterChangeSuccess, characterStageCompleted, giPlans, giInvHeaderPlans, giStorageHeaderPlans, giCleanupFlagPlans, slot)
+	return nil
+}
+
+// applyRemoveItemFlagCleanup performs the existing post-remove Event Flags
+// cleanup. It is shared by the real slot and Debug Mode's clone so planned flag
+// records cannot drift from the actual mutation. A nil companionWarning keeps
+// clone replay silent; the real caller preserves the existing warning text.
+func applyRemoveItemFlagCleanup(slot *core.SaveSlot, bolsteringRemovals map[uint32]int, companionRemovals map[uint32]bool, companionWarning func(itemID, flagID uint32, err error)) {
 	// Restore pickup flags for removed bolstering materials (highest flag ID first).
 	if len(bolsteringRemovals) > 0 && slot.EventFlagsOffset > 0 && slot.EventFlagsOffset < len(slot.Data) {
 		flags := slot.Data[slot.EventFlagsOffset:]
@@ -1538,18 +1561,13 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 			}
 			if !remaining {
 				for _, f := range data.CompanionEventFlagsForItem(itemID) {
-					if err := db.SetEventFlag(eflags, f, false); err != nil {
-						runtime.LogWarningf(a.ctx, "clear companion flag %d for item 0x%08X: %v", f, itemID, err)
+					if err := db.SetEventFlag(eflags, f, false); err != nil && companionWarning != nil {
+						companionWarning(itemID, f, err)
 					}
 				}
 			}
 		}
 	}
-
-	// SUCCESS: emit finished after all remove-side-effect code has run, re-reading
-	// the physical fields (untouched by the flag cleanup) from the real slot.
-	a.journalGameItemsRemoveFinished(charIdx, characterChangeSuccess, characterStageCompleted, giPlans, giInvHeaderPlans, giStorageHeaderPlans, slot)
-	return nil
 }
 
 // MoveItemsBetweenInventoryAndStorage relocates inventory records between

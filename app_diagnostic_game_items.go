@@ -9,6 +9,7 @@ import (
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
+	"github.com/oisis/EldenRing-SaveForge/backend/editor"
 )
 
 // actionGameItemsAdd is the internal action tag for a Database Add mutation
@@ -20,6 +21,25 @@ const actionGameItemsAdd = "add_items"
 // (RemoveItemsFromCharacter) in the Game Items lifecycle journal.
 const actionGameItemsRemove = "remove_items"
 
+// Action tags for the four single-item unlock operations exposed by the Game
+// Items Database tab. They deliberately identify the user-visible operation,
+// rather than the shared World-tab implementation that happens to own it.
+const (
+	actionGameItemsUnlockCookbook    = "unlock_cookbook"
+	actionGameItemsUnlockWhetblade   = "unlock_whetblade"
+	actionGameItemsUnlockBellBearing = "unlock_bell_bearing"
+	actionGameItemsUnlockMapFragment = "unlock_map_fragment"
+	actionGameItemsWorkspaceMove     = "workspace_move_item"
+	actionGameItemsWorkspaceTransfer = "workspace_transfer_item"
+	actionGameItemsWorkspaceReorder  = "workspace_reorder_items"
+	actionGameItemsWorkspaceAdd      = "workspace_add_item"
+	actionGameItemsWorkspaceWeapon   = "workspace_update_weapon"
+	actionGameItemsWorkspaceRemove   = "workspace_remove_item"
+	actionGameItemsWorkspaceSave     = "workspace_save"
+	actionGameItemsGaItemDeduplicate = "gaitem_deduplicate"
+	actionGameItemsGaItemRepack      = "gaitem_repack"
+)
+
 // stageGameItemsApplyAddPlan is the finished-phase stage reported when the real
 // executor (applyItemAddMutationPlan) fails and the slot was rolled back.
 const stageGameItemsApplyAddPlan = "apply_add_plan"
@@ -28,6 +48,13 @@ const stageGameItemsApplyAddPlan = "apply_add_plan"
 // core.RemoveItemFromSlot call fails and the real slot is left partially mutated
 // (RemoveItemsFromCharacter performs no rollback).
 const stageGameItemsRemoveItem = "remove_item"
+
+const stageGameItemsUnlock = "apply_unlock"
+
+const (
+	stageGameItemsWorkspace     = "apply_workspace"
+	stageGameItemsWorkspaceSave = "save_workspace"
+)
 
 // Lifecycle event names for a single Game Items field mutation. Like the
 // Character lifecycle, a future Game Items mutation endpoint emits, per changed
@@ -74,12 +101,13 @@ func (a *App) journalGameItemChangeFinished(action string, characterIndex int, o
 // actually landed. It is a no-op when no field changed, so a no-op removal emits
 // nothing. RemoveItemsFromCharacter performs no rollback, so on error the same
 // re-read simply reports the partial state.
-func (a *App) journalGameItemsRemoveFinished(charIdx int, outcome characterChangeOutcome, stage string, direct []gameItemFieldPlan, invHeader, storageHeader []gameItemSideEffectPlan, slot *core.SaveSlot) {
-	if len(direct) == 0 && len(invHeader) == 0 && len(storageHeader) == 0 {
+func (a *App) journalGameItemsRemoveFinished(charIdx int, outcome characterChangeOutcome, stage string, direct []gameItemFieldPlan, invHeader, storageHeader, cleanupFlags []gameItemSideEffectPlan, slot *core.SaveSlot) {
+	if len(direct) == 0 && len(invHeader) == 0 && len(storageHeader) == 0 && len(cleanupFlags) == 0 {
 		return
 	}
 	finished := append(gameItemFinishedRecords(direct, slot), gameItemSideEffectFinishedRecords(invHeader, slot)...)
 	finished = append(finished, gameItemSideEffectFinishedRecords(storageHeader, slot)...)
+	finished = append(finished, gameItemSideEffectFinishedRecords(cleanupFlags, slot)...)
 	a.journalGameItemChangeFinished(actionGameItemsRemove, charIdx, outcome, stage, finished)
 }
 
@@ -570,6 +598,70 @@ func planGameItemsAddBolsteringRecords(before, planned *core.SaveSlot, plan item
 	return plans
 }
 
+// planGameItemsRemoveCleanupFlagRecords records only the Event Flags changed by
+// RemoveItemsFromCharacter after its physical removals succeed: bolstering
+// pickup flags restored for removed materials and companion flags cleared after
+// the last matching GaItem disappears. The clone has already run the same shared
+// cleanup as the real slot, so before-vs-clone is the sole authority; no flag is
+// predicted from requested quantities or handles.
+//
+// Diagnostic output is deterministic even though the writer intentionally keeps
+// its historical map iteration: bolstering item IDs then companion item IDs are
+// ascending, as are flag IDs within each item. A field self-excludes unless the
+// clone actually changed it, and no Event Flags region naturally produces no
+// records because both reads are false.
+func planGameItemsRemoveCleanupFlagRecords(before, planned *core.SaveSlot, bolsteringRemovals map[uint32]int, companionRemovals map[uint32]bool) []gameItemSideEffectPlan {
+	var plans []gameItemSideEffectPlan
+	seen := make(map[string]bool)
+	appendFlag := func(itemID, flagID uint32, kind string) {
+		field := fmt.Sprintf("item_0x%08X_%s_flag_%d", itemID, kind, flagID)
+		if seen[field] {
+			return
+		}
+		beforeValue := readContainerFlag(before, flagID)
+		plannedValue := readContainerFlag(planned, flagID)
+		if beforeValue == plannedValue {
+			return
+		}
+		seen[field] = true
+		readFlagID := flagID
+		plans = append(plans, gameItemSideEffectPlan{
+			field:   field,
+			before:  beforeValue,
+			planned: plannedValue,
+			read:    func(s *core.SaveSlot) string { return readContainerFlag(s, readFlagID) },
+		})
+	}
+
+	bolsteringIDs := make([]uint32, 0, len(bolsteringRemovals))
+	for itemID := range bolsteringRemovals {
+		bolsteringIDs = append(bolsteringIDs, itemID)
+	}
+	sort.Slice(bolsteringIDs, func(i, j int) bool { return bolsteringIDs[i] < bolsteringIDs[j] })
+	for _, itemID := range bolsteringIDs {
+		flagIDs := append([]uint32(nil), data.BolsteringPickupFlags[itemID]...)
+		sort.Slice(flagIDs, func(i, j int) bool { return flagIDs[i] < flagIDs[j] })
+		for _, flagID := range flagIDs {
+			appendFlag(itemID, flagID, "bolstering_pickup")
+		}
+	}
+
+	companionIDs := make([]uint32, 0, len(companionRemovals))
+	for itemID := range companionRemovals {
+		companionIDs = append(companionIDs, itemID)
+	}
+	sort.Slice(companionIDs, func(i, j int) bool { return companionIDs[i] < companionIDs[j] })
+	for _, itemID := range companionIDs {
+		flagIDs := append([]uint32(nil), data.CompanionEventFlagsForItem(itemID)...)
+		sort.Slice(flagIDs, func(i, j int) bool { return flagIDs[i] < flagIDs[j] })
+		for _, flagID := range flagIDs {
+			appendFlag(itemID, flagID, "companion")
+		}
+	}
+
+	return plans
+}
+
 // readTutorialMembership reports whether tutorialID is registered in the slot's
 // TutorialData block as the scalar "true"/"false", reading live through the
 // exported core API (core.HasTutorialID). TutorialData is not an Event Flags
@@ -746,4 +838,220 @@ func appendGameItemContainerFlagPlan(plans []gameItemSideEffectPlan, before, pla
 		planned: p,
 		read:    func(s *core.SaveSlot) string { return readContainerFlag(s, flagID) },
 	})
+}
+
+// gameItemMutationPlans is the common lifecycle projection for the Database
+// tab's unlock operations. Those operations change a small declared set of
+// Event Flags and may add/remove normal inventory rows; the direct scanner and
+// header readers retain the same physical representation used by Database Add
+// and Remove.
+type gameItemMutationPlans struct {
+	direct        []gameItemFieldPlan
+	invHeader     []gameItemSideEffectPlan
+	storageHeader []gameItemSideEffectPlan
+	flags         []gameItemSideEffectPlan
+}
+
+func planGameItemsMutation(before, planned *core.SaveSlot, flagIDs []uint32) gameItemMutationPlans {
+	return gameItemMutationPlans{
+		direct:        planGameItemsDirectRecords(before, planned, nil),
+		invHeader:     planGameItemsAddInventoryHeaderRecords(before, planned),
+		storageHeader: planGameItemsAddStorageHeaderRecords(before, planned),
+		flags:         planGameItemsEventFlagRecords(before, planned, flagIDs),
+	}
+}
+
+// planGameItemsEventFlagRecords logs only the flags an operation owns. IDs are
+// sorted and deduplicated so a map-backed input can never make the journal
+// order nondeterministic. A missing Event Flags region reads false on both
+// slots, therefore naturally self-excludes.
+func planGameItemsEventFlagRecords(before, planned *core.SaveSlot, flagIDs []uint32) []gameItemSideEffectPlan {
+	ids := append([]uint32(nil), flagIDs...)
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	var plans []gameItemSideEffectPlan
+	var previous uint32
+	for i, flagID := range ids {
+		if i > 0 && flagID == previous {
+			continue
+		}
+		previous = flagID
+		beforeValue := readContainerFlag(before, flagID)
+		plannedValue := readContainerFlag(planned, flagID)
+		if beforeValue == plannedValue {
+			continue
+		}
+		readFlagID := flagID
+		plans = append(plans, gameItemSideEffectPlan{
+			field:   fmt.Sprintf("event_flag_%d", flagID),
+			before:  beforeValue,
+			planned: plannedValue,
+			read:    func(s *core.SaveSlot) string { return readContainerFlag(s, readFlagID) },
+		})
+	}
+	return plans
+}
+
+func (p gameItemMutationPlans) records() []characterFieldChange {
+	records := append(gameItemPlannedRecords(p.direct), gameItemSideEffectPlannedRecords(p.invHeader)...)
+	records = append(records, gameItemSideEffectPlannedRecords(p.storageHeader)...)
+	return append(records, gameItemSideEffectPlannedRecords(p.flags)...)
+}
+
+func (p gameItemMutationPlans) finished(slot *core.SaveSlot) []characterFieldChange {
+	records := append(gameItemFinishedRecords(p.direct, slot), gameItemSideEffectFinishedRecords(p.invHeader, slot)...)
+	records = append(records, gameItemSideEffectFinishedRecords(p.storageHeader, slot)...)
+	return append(records, gameItemSideEffectFinishedRecords(p.flags, slot)...)
+}
+
+func (a *App) journalGameItemsMutationBefore(action string, charIdx int, plans gameItemMutationPlans) {
+	records := plans.records()
+	a.journalGameItemChangeBefore(action, charIdx, records)
+	a.journalGameItemChangePlanned(action, charIdx, records)
+}
+
+func (a *App) journalGameItemsMutationFinished(action string, charIdx int, outcome characterChangeOutcome, stage string, plans gameItemMutationPlans, slot *core.SaveSlot) {
+	a.journalGameItemChangeFinished(action, charIdx, outcome, stage, plans.finished(slot))
+}
+
+const workspaceAbsent = "absent"
+
+// workspaceItemPlan is a lifecycle field for an in-memory Inventory Workspace
+// item. It is deliberately separate from gameItemFieldPlan: until the final
+// Save, workspace edits do not have a physical save-slot row to re-read.
+type workspaceItemPlan struct {
+	field   string
+	before  string
+	planned string
+	uid     string
+	kind    string
+}
+
+func cloneWorkspaceSnapshot(in editor.InventoryWorkspaceSnapshot) editor.InventoryWorkspaceSnapshot {
+	out := in
+	out.InventoryItems = append([]editor.EditableItem(nil), in.InventoryItems...)
+	out.StorageItems = append([]editor.EditableItem(nil), in.StorageItems...)
+	return out
+}
+
+func workspaceItemsByUID(snapshot editor.InventoryWorkspaceSnapshot) map[string]editor.EditableItem {
+	out := make(map[string]editor.EditableItem, len(snapshot.InventoryItems)+len(snapshot.StorageItems))
+	for _, item := range snapshot.InventoryItems {
+		out[item.UID] = item
+	}
+	for _, item := range snapshot.StorageItems {
+		out[item.UID] = item
+	}
+	return out
+}
+
+func workspaceItemValue(item editor.EditableItem, present bool, kind string) string {
+	if !present {
+		return workspaceAbsent
+	}
+	switch kind {
+	case "source":
+		return string(item.Source)
+	case "container":
+		return string(item.Container)
+	case "position":
+		return strconv.Itoa(item.Position)
+	case "item_id":
+		return giHex(item.ItemID)
+	case "base_item_id":
+		return giHex(item.BaseItemID)
+	case "quantity":
+		return giDec(item.Quantity)
+	case "acquisition_index":
+		return giDec(item.AcquisitionIndex)
+	case "current_upgrade":
+		return strconv.Itoa(item.CurrentUpgrade)
+	case "infusion_name":
+		return item.InfusionName
+	case "pending_aow_item_id":
+		return giHex(item.PendingAoWItemID)
+	case "pending_aow_name":
+		return item.PendingAoWName
+	case "pending_aow_clear":
+		return strconv.FormatBool(item.PendingAoWClear)
+	case "has_pending_weapon_patch":
+		return strconv.FormatBool(item.HasPendingWeaponPatch)
+	}
+	return ""
+}
+
+var workspaceMutableKinds = []string{
+	"source", "container", "position", "item_id", "base_item_id", "quantity",
+	"acquisition_index", "current_upgrade", "infusion_name", "pending_aow_item_id",
+	"pending_aow_name", "pending_aow_clear", "has_pending_weapon_patch",
+}
+
+// planWorkspaceItemChanges produces a stable semantic diff for RAM-only
+// workspace mutations. Names and UI metadata are intentionally omitted: they
+// are DB-derived display data, not mutable workspace state. UID is a local
+// record identity, never an account identifier, and lets additions/removals be
+// represented without pretending an unsaved item already has a save handle.
+func planWorkspaceItemChanges(before, planned editor.InventoryWorkspaceSnapshot) []workspaceItemPlan {
+	beforeItems := workspaceItemsByUID(before)
+	plannedItems := workspaceItemsByUID(planned)
+	uids := make([]string, 0, len(beforeItems)+len(plannedItems))
+	seen := make(map[string]bool, len(beforeItems)+len(plannedItems))
+	for uid := range beforeItems {
+		seen[uid] = true
+		uids = append(uids, uid)
+	}
+	for uid := range plannedItems {
+		if !seen[uid] {
+			uids = append(uids, uid)
+		}
+	}
+	sort.Strings(uids)
+
+	var plans []workspaceItemPlan
+	for _, uid := range uids {
+		beforeItem, beforeOK := beforeItems[uid]
+		plannedItem, plannedOK := plannedItems[uid]
+		for _, kind := range workspaceMutableKinds {
+			beforeValue := workspaceItemValue(beforeItem, beforeOK, kind)
+			plannedValue := workspaceItemValue(plannedItem, plannedOK, kind)
+			if beforeValue == plannedValue {
+				continue
+			}
+			plans = append(plans, workspaceItemPlan{
+				field:   "workspace_item_" + uid + "_" + kind,
+				before:  beforeValue,
+				planned: plannedValue,
+				uid:     uid,
+				kind:    kind,
+			})
+		}
+	}
+	return plans
+}
+
+func workspacePlannedRecords(plans []workspaceItemPlan) []characterFieldChange {
+	records := make([]characterFieldChange, len(plans))
+	for i, plan := range plans {
+		records[i] = characterFieldChange{Field: plan.field, Before: plan.before, After: plan.planned}
+	}
+	return records
+}
+
+func workspaceFinishedRecords(plans []workspaceItemPlan, snapshot editor.InventoryWorkspaceSnapshot) []characterFieldChange {
+	items := workspaceItemsByUID(snapshot)
+	records := make([]characterFieldChange, len(plans))
+	for i, plan := range plans {
+		item, ok := items[plan.uid]
+		records[i] = characterFieldChange{Field: plan.field, Before: plan.before, After: workspaceItemValue(item, ok, plan.kind)}
+	}
+	return records
+}
+
+func (a *App) journalWorkspaceBefore(action string, charIdx int, plans []workspaceItemPlan) {
+	records := workspacePlannedRecords(plans)
+	a.journalGameItemChangeBefore(action, charIdx, records)
+	a.journalGameItemChangePlanned(action, charIdx, records)
+}
+
+func (a *App) journalWorkspaceFinished(action string, charIdx int, outcome characterChangeOutcome, stage string, plans []workspaceItemPlan, snapshot editor.InventoryWorkspaceSnapshot) {
+	a.journalGameItemChangeFinished(action, charIdx, outcome, stage, workspaceFinishedRecords(plans, snapshot))
 }
