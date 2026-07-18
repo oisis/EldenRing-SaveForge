@@ -35,6 +35,7 @@ const (
 	actionGameItemsWorkspaceAdd      = "workspace_add_item"
 	actionGameItemsWorkspaceWeapon   = "workspace_update_weapon"
 	actionGameItemsWorkspaceRemove   = "workspace_remove_item"
+	actionGameItemsWorkspaceRepair   = "workspace_auto_repair"
 	actionGameItemsWorkspaceSave     = "workspace_save"
 	actionGameItemsGaItemDeduplicate = "gaitem_deduplicate"
 	actionGameItemsGaItemRepack      = "gaitem_repack"

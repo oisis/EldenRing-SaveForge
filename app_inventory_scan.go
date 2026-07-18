@@ -129,7 +129,9 @@ func (a *App) RepairInventoryWorkspaceItem(sessionID, uid, code string) (editor.
 		if err != nil {
 			return empty, err
 		}
-		repairErr := editor.AutoRepairWorkspaceItem(&sess.Workspace, uid, code)
+		repairErr := a.journalWorkspaceMutation(actionGameItemsWorkspaceRepair, sess.CharacterIndex, &sess.Workspace, func(ws *editor.InventoryWorkspaceSnapshot) error {
+			return editor.AutoRepairWorkspaceItem(ws, uid, code)
+		})
 		sess.Unlock()
 		if repairErr != nil {
 			return empty, fmt.Errorf("RepairInventoryWorkspaceItem: %w", repairErr)
@@ -154,10 +156,13 @@ func (a *App) RepairInventoryWorkspaceItems(sessionID string, repairs []Workspac
 		if err != nil {
 			return empty, err
 		}
-		for _, r := range repairs {
-			// Best-effort: ignore per-item errors so the rest still apply.
-			_ = editor.AutoRepairWorkspaceItem(&sess.Workspace, r.UID, r.Code)
-		}
+		_ = a.journalWorkspaceMutation(actionGameItemsWorkspaceRepair, sess.CharacterIndex, &sess.Workspace, func(ws *editor.InventoryWorkspaceSnapshot) error {
+			for _, r := range repairs {
+				// Best-effort: ignore per-item errors so the rest still apply.
+				_ = editor.AutoRepairWorkspaceItem(ws, r.UID, r.Code)
+			}
+			return nil
+		})
 		sess.Unlock()
 	}
 	snap, err := a.SaveInventoryWorkspaceChanges(sessionID)
