@@ -536,6 +536,65 @@ func planGameItemsAddBolsteringRecords(before, planned *core.SaveSlot, plan item
 	return plans
 }
 
+// readTutorialMembership reports whether tutorialID is registered in the slot's
+// TutorialData block as the scalar "true"/"false", reading live through the
+// exported core API (core.HasTutorialID). TutorialData is not an Event Flags
+// region: an unavailable/invalid block surfaces a parser error from core, which
+// is treated as "false" here so no parser error text or raw TutorialData bytes
+// ever leak into a journal value.
+func readTutorialMembership(slot *core.SaveSlot, tutorialID uint32) string {
+	if has, err := core.HasTutorialID(slot, tutorialID); err == nil && has {
+		return "true"
+	}
+	return "false"
+}
+
+// planGameItemsAddTutorialRecords derives the TutorialData side effects of a
+// Database Add — the tutorial IDs the writer appends via core.AppendTutorialID so
+// a tutorial-bound "About *" item no longer drops on the ground — by comparing
+// the pre-mutation real slot (before) against the plan-applied clone (planned).
+// Per plan.items entry mapped in data.AboutTutorialID, it emits one lifecycle
+// only when the clone shows an added membership (before != planned): an
+// already-registered ID self-excludes. This task logs the semantic TutorialData
+// membership exposed by the exported core read API, not raw TutorialData bytes:
+// when the block is unreadable/malformed, core.ReadTutorialIDs rejects it in both
+// the before slot and the clone, so there is no observable membership transition
+// and no tutorial_id lifecycle is emitted — regardless of whatever raw bytes
+// core.AppendTutorialID may have written to the malformed header. Deduplicated by
+// physical tutorial ID, so a repeated mapping or submitted ID yields at most one
+// lifecycle. The real slot is never replayed or mutated; read pulls membership
+// back out of the post-execution real slot for the finished phase. Only the
+// exported core read API is reused; the plan vehicle and mapping are Game
+// Items-owned.
+func planGameItemsAddTutorialRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []gameItemSideEffectPlan {
+	var plans []gameItemSideEffectPlan
+	seen := make(map[string]bool)
+	for _, it := range plan.items {
+		tutorialID, ok := data.AboutTutorialID[it.baseID]
+		if !ok {
+			continue
+		}
+		field := fmt.Sprintf("tutorial_id_%d", tutorialID)
+		if seen[field] {
+			continue
+		}
+		b := readTutorialMembership(before, tutorialID)
+		p := readTutorialMembership(planned, tutorialID)
+		if b == p {
+			continue
+		}
+		seen[field] = true
+		tID := tutorialID
+		plans = append(plans, gameItemSideEffectPlan{
+			field:   field,
+			before:  b,
+			planned: p,
+			read:    func(s *core.SaveSlot) string { return readTutorialMembership(s, tID) },
+		})
+	}
+	return plans
+}
+
 // appendGameItemContainerFlagPlan appends a container flag plan only when the
 // clone flipped the flag (before != planned). Unlike the Character helper it
 // reads the planned value straight from the applied clone rather than assuming

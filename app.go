@@ -1156,6 +1156,7 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	var giPlans []gameItemFieldPlan
 	var giFlagPlans []gameItemSideEffectPlan
 	var giBolsteringPlans []gameItemSideEffectPlan
+	var giTutorialPlans []gameItemSideEffectPlan
 	var giContainerPlans []gameItemSideEffectPlan
 	if a.journal.debugEnabled() {
 		clone := core.CloneSlot(slot)
@@ -1163,13 +1164,16 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		giPlans = planGameItemsAddRecords(slot, clone, plan)
 		giFlagPlans = planGameItemsAddFlagRecords(slot, clone, plan)
 		giBolsteringPlans = planGameItemsAddBolsteringRecords(slot, clone, plan)
+		giTutorialPlans = planGameItemsAddTutorialRecords(slot, clone, plan)
 		giContainerPlans = planGameItemsAddContainerRecords(slot, clone, plan)
 		// Direct physical rows first, then direct item-driven Event Flags, then
-		// bolstering pickup flags, then container side effects — matching the
-		// executor's order (batch add -> POST-FLAGS -> container upserts) inside
-		// one global phase grouping: all before -> all planned -> all finished.
+		// bolstering pickup flags, then TutorialData appends, then container side
+		// effects — matching the executor's order (batch add -> POST-FLAGS ->
+		// container upserts) inside one global phase grouping: all before -> all
+		// planned -> all finished.
 		records := append(gameItemPlannedRecords(giPlans), gameItemSideEffectPlannedRecords(giFlagPlans)...)
 		records = append(records, gameItemSideEffectPlannedRecords(giBolsteringPlans)...)
+		records = append(records, gameItemSideEffectPlannedRecords(giTutorialPlans)...)
 		records = append(records, gameItemSideEffectPlannedRecords(giContainerPlans)...)
 		a.journalGameItemChangeBefore(actionGameItemsAdd, charIdx, records)
 		a.journalGameItemChangePlanned(actionGameItemsAdd, charIdx, records)
@@ -1186,17 +1190,19 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		runtime.LogWarningf(a.ctx, format, args...)
 	}); err != nil {
 		core.RestoreSlot(slot, snapshot)
-		if len(giPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giContainerPlans) > 0 {
+		if len(giPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giTutorialPlans) > 0 || len(giContainerPlans) > 0 {
 			finished := append(gameItemFinishedRecords(giPlans, slot), gameItemSideEffectFinishedRecords(giFlagPlans, slot)...)
 			finished = append(finished, gameItemSideEffectFinishedRecords(giBolsteringPlans, slot)...)
+			finished = append(finished, gameItemSideEffectFinishedRecords(giTutorialPlans, slot)...)
 			finished = append(finished, gameItemSideEffectFinishedRecords(giContainerPlans, slot)...)
 			a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeError, stageGameItemsApplyAddPlan, finished)
 		}
 		return result, err
 	}
-	if len(giPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giContainerPlans) > 0 {
+	if len(giPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giTutorialPlans) > 0 || len(giContainerPlans) > 0 {
 		finished := append(gameItemFinishedRecords(giPlans, slot), gameItemSideEffectFinishedRecords(giFlagPlans, slot)...)
 		finished = append(finished, gameItemSideEffectFinishedRecords(giBolsteringPlans, slot)...)
+		finished = append(finished, gameItemSideEffectFinishedRecords(giTutorialPlans, slot)...)
 		finished = append(finished, gameItemSideEffectFinishedRecords(giContainerPlans, slot)...)
 		a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeSuccess, characterStageCompleted, finished)
 	}
