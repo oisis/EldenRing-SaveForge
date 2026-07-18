@@ -743,14 +743,28 @@ func (a *App) SetQuestStep(slotIndex int, npcName string, stepIndex int) error {
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	flags := slot.Data[slot.EventFlagsOffset:]
 	step := questSteps[stepIndex]
+	flagIDs := make([]uint32, len(step.Flags))
+	for i, flag := range step.Flags {
+		flagIDs[i] = flag.ID
+	}
+	return a.journalWorldSlotMutation(actionWorldSetQuestStep, slotIndex, slot,
+		func(s *core.SaveSlot) error { return applyQuestStep(s, step) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{flags: planWorldEventFlags(before, planned, flagIDs)}
+		})
+}
+
+// applyQuestStep writes a validated step's flags to one slot. The public
+// endpoint resolves the NPC and step before this helper is used, so Debug Mode's
+// clone and the real slot execute the same ordered sequence of flag writes.
+func applyQuestStep(slot *core.SaveSlot, step data.QuestStep) error {
+	flags := slot.Data[slot.EventFlagsOffset:]
 	for _, flag := range step.Flags {
 		if err := db.SetEventFlag(flags, flag.ID, flag.Value == 1); err != nil {
 			return fmt.Errorf("failed to set flag %d: %w", flag.ID, err)
 		}
 	}
-
 	return nil
 }
 

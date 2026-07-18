@@ -21,6 +21,7 @@ const (
 	actionWorldSetMapFlag                = "set_map_flag"
 	actionWorldSetRegionUnlocked         = "set_region_unlocked"
 	actionWorldBulkSetUnlockedRegions    = "bulk_set_unlocked_regions"
+	actionWorldSetQuestStep              = "set_quest_step"
 
 	stageWorldApply = "apply_world"
 )
