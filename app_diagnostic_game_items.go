@@ -850,6 +850,11 @@ type gameItemMutationPlans struct {
 	invHeader     []gameItemSideEffectPlan
 	storageHeader []gameItemSideEffectPlan
 	flags         []gameItemSideEffectPlan
+	// gaItemState holds the GaItem-specific semantic records (GaMap value changes
+	// then GaItem allocation cursors) that a GaItem structural mutation (dedup,
+	// and later repack) logs after its direct physical rows. It stays nil for the
+	// unlock/save callers, so their lifecycle output is byte-for-byte unchanged.
+	gaItemState []gameItemSideEffectPlan
 }
 
 func planGameItemsMutation(before, planned *core.SaveSlot, flagIDs []uint32) gameItemMutationPlans {
@@ -859,6 +864,107 @@ func planGameItemsMutation(before, planned *core.SaveSlot, flagIDs []uint32) gam
 		storageHeader: planGameItemsAddStorageHeaderRecords(before, planned),
 		flags:         planGameItemsEventFlagRecords(before, planned, flagIDs),
 	}
+}
+
+// planGameItemsDeduplicate projects the full GaItem-dedup lifecycle: the direct
+// physical rows the removed record vacates, then the GaItem-specific semantic
+// state (GaMap value changes and allocation cursors). No container/header/flag
+// side effects apply to a dedup, so those stay empty. before is the pre-repair
+// real slot; planned is the post-repair candidate the endpoint is about to
+// publish, so the candidate doubles as the planned projection and no second
+// replay writer is needed.
+func planGameItemsDeduplicate(before, planned *core.SaveSlot) gameItemMutationPlans {
+	return gameItemMutationPlans{
+		direct:      planGameItemsDirectRecords(before, planned, nil),
+		gaItemState: planGameItemsGaItemState(before, planned),
+	}
+}
+
+// planGameItemsGaItemState is the extensible GaItem-specific semantic projection
+// shared by GaItem structural mutations (dedup now, repack in Task 8B): the
+// GaMap value changes (ascending handle) followed by the GaItem allocation
+// cursor changes. It is empty when neither actually changed, so adding it to an
+// otherwise-empty plan emits nothing.
+func planGameItemsGaItemState(before, planned *core.SaveSlot) []gameItemSideEffectPlan {
+	return append(planGameItemsGaMapRecords(before, planned), planGameItemsGaItemCursorRecords(before, planned)...)
+}
+
+// gaMapEntryValue reads one GaMap handle semantically: a present mapping is the
+// mapped item_id as uppercase 0x%08X, a missing handle is giAbsent. This keeps a
+// removed entry (0x%08X -> absent) and an added entry (absent -> 0x%08X) distinct
+// from a real 0x00000000 mapping, which giHex(s.GaMap[handle]) could not.
+func gaMapEntryValue(slot *core.SaveSlot, handle uint32) string {
+	if id, ok := slot.GaMap[handle]; ok {
+		return giHex(id)
+	}
+	return giAbsent
+}
+
+// planGameItemsGaMapRecords logs one lifecycle per GaMap handle whose mapping
+// actually changed (before != planned), iterated by ascending handle so Go map
+// order never leaks into the journal. It walks the union of before/planned keys
+// so a removed entry (0x%08X -> absent) and an added entry (absent -> 0x%08X) are
+// logged as well as a changed value. read pulls the mapping back out of the
+// post-execution real slot for the finished phase through the same reader.
+func planGameItemsGaMapRecords(before, planned *core.SaveSlot) []gameItemSideEffectPlan {
+	seen := make(map[uint32]bool, len(before.GaMap)+len(planned.GaMap))
+	handles := make([]uint32, 0, len(before.GaMap)+len(planned.GaMap))
+	for h := range before.GaMap {
+		if !seen[h] {
+			seen[h] = true
+			handles = append(handles, h)
+		}
+	}
+	for h := range planned.GaMap {
+		if !seen[h] {
+			seen[h] = true
+			handles = append(handles, h)
+		}
+	}
+	sort.Slice(handles, func(i, j int) bool { return handles[i] < handles[j] })
+
+	var plans []gameItemSideEffectPlan
+	for _, h := range handles {
+		b := gaMapEntryValue(before, h)
+		p := gaMapEntryValue(planned, h)
+		if b == p {
+			continue
+		}
+		handle := h
+		plans = append(plans, gameItemSideEffectPlan{
+			field:   fmt.Sprintf("gaitem_map_handle_0x%08X_item_id", handle),
+			before:  b,
+			planned: p,
+			read:    func(s *core.SaveSlot) string { return gaMapEntryValue(s, handle) },
+		})
+	}
+	return plans
+}
+
+// planGameItemsGaItemCursorRecords logs one lifecycle per GaItem allocation
+// cursor whose value actually changed. Indexes are decimal, handles uppercase
+// 0x%08X; an unchanged cursor self-excludes. read pulls each cursor back out of
+// the post-execution real slot for the finished phase.
+func planGameItemsGaItemCursorRecords(before, planned *core.SaveSlot) []gameItemSideEffectPlan {
+	cursors := []struct {
+		field string
+		read  func(*core.SaveSlot) string
+	}{
+		{"gaitem_next_aow_index", func(s *core.SaveSlot) string { return strconv.Itoa(s.NextAoWIndex) }},
+		{"gaitem_next_armament_index", func(s *core.SaveSlot) string { return strconv.Itoa(s.NextArmamentIndex) }},
+		{"gaitem_next_handle", func(s *core.SaveSlot) string { return giHex(s.NextGaItemHandle) }},
+		{"gaitem_part_handle", func(s *core.SaveSlot) string { return giHex(uint32(s.PartGaItemHandle)) }},
+	}
+	var plans []gameItemSideEffectPlan
+	for _, c := range cursors {
+		b := c.read(before)
+		p := c.read(planned)
+		if b == p {
+			continue
+		}
+		plans = append(plans, gameItemSideEffectPlan{field: c.field, before: b, planned: p, read: c.read})
+	}
+	return plans
 }
 
 // planGameItemsEventFlagRecords logs only the flags an operation owns. IDs are
@@ -894,13 +1000,15 @@ func planGameItemsEventFlagRecords(before, planned *core.SaveSlot, flagIDs []uin
 func (p gameItemMutationPlans) records() []characterFieldChange {
 	records := append(gameItemPlannedRecords(p.direct), gameItemSideEffectPlannedRecords(p.invHeader)...)
 	records = append(records, gameItemSideEffectPlannedRecords(p.storageHeader)...)
-	return append(records, gameItemSideEffectPlannedRecords(p.flags)...)
+	records = append(records, gameItemSideEffectPlannedRecords(p.flags)...)
+	return append(records, gameItemSideEffectPlannedRecords(p.gaItemState)...)
 }
 
 func (p gameItemMutationPlans) finished(slot *core.SaveSlot) []characterFieldChange {
 	records := append(gameItemFinishedRecords(p.direct, slot), gameItemSideEffectFinishedRecords(p.invHeader, slot)...)
 	records = append(records, gameItemSideEffectFinishedRecords(p.storageHeader, slot)...)
-	return append(records, gameItemSideEffectFinishedRecords(p.flags, slot)...)
+	records = append(records, gameItemSideEffectFinishedRecords(p.flags, slot)...)
+	return append(records, gameItemSideEffectFinishedRecords(p.gaItemState, slot)...)
 }
 
 func (a *App) journalGameItemsMutationBefore(action string, charIdx int, plans gameItemMutationPlans) {

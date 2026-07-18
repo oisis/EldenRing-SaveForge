@@ -159,11 +159,28 @@ func (a *App) ExecuteGaItemDuplicateRepair(req GaItemDuplicateExecuteRequest) (G
 		return a.gaItemDedupDiscardCandidate(result, slot, original, gaItemRepackFailure("transform", "repair_failed", err.Error())), nil
 	}
 
+	// The candidate is both the exact planned projection and the value about to be
+	// published, so Debug Mode reuses it directly — no second replay writer. The
+	// plan is built only after the core repair and every postcondition passed, and
+	// only when Debug Mode is on, so a discarded candidate emits no lifecycle.
+	debug := a.journal.debugEnabled()
+	var plans gameItemMutationPlans
+	if debug {
+		plans = planGameItemsDeduplicate(slot, candidate)
+		a.journalGameItemsMutationBefore(actionGameItemsGaItemDeduplicate, charIdx, plans)
+	}
+
 	// The snapshot is pushed only after the candidate passes every core
 	// postcondition; pushUndoLocked invalidates tokens and bumps the revision.
 	a.pushUndoLocked(charIdx)
 	a.save.Slots[charIdx] = *candidate
 	a.invalidateGaItemDedupTokensLocked(charIdx)
+
+	// slot still points at a.save.Slots[charIdx], now holding the published
+	// candidate, so the finished phase reads the real slot exactly once.
+	if debug {
+		a.journalGameItemsMutationFinished(actionGameItemsGaItemDeduplicate, charIdx, characterChangeSuccess, characterStageCompleted, plans, slot)
+	}
 
 	result.Outcome = "success"
 	return result, nil
