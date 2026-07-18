@@ -338,7 +338,9 @@ func (a *App) AddInventoryWorkspaceItem(sessionID string, spec editor.AddItemSpe
 	if err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
-	if err := editor.AddItem(&sess.Workspace, spec, ck, targetPosition); err != nil {
+	if err := a.journalWorkspaceMutation(actionGameItemsWorkspaceAdd, sess.CharacterIndex, &sess.Workspace, func(ws *editor.InventoryWorkspaceSnapshot) error {
+		return editor.AddItem(ws, spec, ck, targetPosition)
+	}); err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	return sess.Workspace, nil
@@ -359,7 +361,9 @@ func (a *App) UpdateInventoryWorkspaceWeapon(sessionID, itemUID string, patch ed
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	defer sess.Unlock()
-	if err := editor.UpdateWeapon(&sess.Workspace, itemUID, patch); err != nil {
+	if err := a.journalWorkspaceMutation(actionGameItemsWorkspaceWeapon, sess.CharacterIndex, &sess.Workspace, func(ws *editor.InventoryWorkspaceSnapshot) error {
+		return editor.UpdateWeapon(ws, itemUID, patch)
+	}); err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	return sess.Workspace, nil
@@ -374,7 +378,9 @@ func (a *App) RemoveInventoryWorkspaceItem(sessionID, itemUID string) (editor.In
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	defer sess.Unlock()
-	if err := editor.RemoveItem(&sess.Workspace, itemUID); err != nil {
+	if err := a.journalWorkspaceMutation(actionGameItemsWorkspaceRemove, sess.CharacterIndex, &sess.Workspace, func(ws *editor.InventoryWorkspaceSnapshot) error {
+		return editor.RemoveItem(ws, itemUID)
+	}); err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	return sess.Workspace, nil
