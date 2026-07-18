@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db"
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
@@ -18,6 +19,8 @@ const (
 	actionWorldSetGestureUnlocked        = "set_gesture_unlocked"
 	actionWorldBulkSetGesturesUnlocked   = "bulk_set_gestures_unlocked"
 	actionWorldSetMapFlag                = "set_map_flag"
+	actionWorldSetRegionUnlocked         = "set_region_unlocked"
+	actionWorldBulkSetUnlockedRegions    = "bulk_set_unlocked_regions"
 
 	stageWorldApply = "apply_world"
 )
@@ -220,4 +223,13 @@ func worldColosseumFlagIDs(colosseumID uint32, unlocked bool) []uint32 {
 		flagIDs = append(flagIDs, data.ColosseumGlobalFlags...)
 	}
 	return flagIDs
+}
+
+func worldKnownRegionIDs() []uint32 {
+	entries := db.GetAllRegions()
+	ids := make([]uint32, len(entries))
+	for i, entry := range entries {
+		ids[i] = entry.ID
+	}
+	return ids
 }

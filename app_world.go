@@ -290,7 +290,11 @@ func (a *App) SetRegionUnlocked(slotIndex int, regionID uint32, unlocked bool) e
 	if unlocked && !already {
 		next = append(next, regionID)
 	}
-	return core.SetUnlockedRegions(slot, next)
+	return a.journalWorldSlotMutation(actionWorldSetRegionUnlocked, slotIndex, slot,
+		func(s *core.SaveSlot) error { return core.SetUnlockedRegions(s, next) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{regions: planWorldUnlockedRegions(before, planned, []uint32{regionID})}
+		})
 }
 
 // mergeUnlockedRegions computes the new raw unlocked_regions list for a World-tab
@@ -341,7 +345,12 @@ func (a *App) BulkSetUnlockedRegions(slotIndex int, regionIDs []uint32) error {
 	if slot.Version == 0 {
 		return fmt.Errorf("slot %d is empty", slotIndex)
 	}
-	return core.SetUnlockedRegions(slot, mergeUnlockedRegions(regionIDs, slot.UnlockedRegions))
+	next := mergeUnlockedRegions(regionIDs, slot.UnlockedRegions)
+	return a.journalWorldSlotMutation(actionWorldBulkSetUnlockedRegions, slotIndex, slot,
+		func(s *core.SaveSlot) error { return core.SetUnlockedRegions(s, next) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{regions: planWorldUnlockedRegions(before, planned, worldKnownRegionIDs())}
+		})
 }
 
 // GetColosseums returns all colosseums with unlock state from the specified character slot
