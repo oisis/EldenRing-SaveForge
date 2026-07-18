@@ -63,31 +63,37 @@ func (a *App) SetGraceVisited(slotIndex int, graceID uint32, visited bool) error
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
+	return a.journalWorldSlotMutation(actionWorldSetGraceVisited, slotIndex, slot,
+		func(s *core.SaveSlot) error { return applyGraceVisited(s, graceID, visited) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{flags: planWorldEventFlags(before, planned, worldGraceFlagIDs(graceID, visited))}
+		})
+}
+
+// applyGraceVisited performs the complete grace write on one slot. It is shared
+// by the real mutation and Debug Mode's clone so planned effects include the
+// entrance-door and SET-only companion flags without duplicating writer logic.
+func applyGraceVisited(slot *core.SaveSlot, graceID uint32, visited bool) error {
 	flags := slot.Data[slot.EventFlagsOffset:]
 	if err := db.SetEventFlag(flags, graceID, visited); err != nil {
 		return fmt.Errorf("failed to set grace %d: %w", graceID, err)
 	}
 
-	// Automatically open/close dungeon entrance door when toggling catacomb/hero's grave graces
 	if gd, ok := data.Graces[graceID]; ok && gd.DoorFlag != 0 {
 		if err := db.SetEventFlag(flags, gd.DoorFlag, visited); err != nil {
 			return fmt.Errorf("failed to set door flag %d: %w", gd.DoorFlag, err)
 		}
 	}
 
-	// SET-only: companion flags are set on activation but never cleared on deactivation.
-	// They may also be set by item companion flags or normal game progression — clearing
-	// them on visited=false would regress saves that obtained the flags through other paths.
+	// SET-only: companion flags are set on activation but never cleared on
+	// deactivation because they can represent independent progression.
 	if visited {
-		if companions := data.CompanionEventFlagsForGrace(graceID); len(companions) > 0 {
-			for _, f := range companions {
-				if err := db.SetEventFlag(flags, f, true); err != nil {
-					fmt.Printf("Warning: companion flag %d for grace %d: %v\n", f, graceID, err)
-				}
+		for _, f := range data.CompanionEventFlagsForGrace(graceID) {
+			if err := db.SetEventFlag(flags, f, true); err != nil {
+				fmt.Printf("Warning: companion flag %d for grace %d: %v\n", f, graceID, err)
 			}
 		}
 	}
-
 	return nil
 }
 
@@ -141,8 +147,15 @@ func (a *App) SetBossDefeated(slotIndex int, bossID uint32, defeated bool) error
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	flags := slot.Data[slot.EventFlagsOffset:]
-	if err := db.SetEventFlag(flags, bossID, defeated); err != nil {
+	return a.journalWorldSlotMutation(actionWorldSetBossDefeated, slotIndex, slot,
+		func(s *core.SaveSlot) error { return applyBossDefeated(s, bossID, defeated) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{flags: planWorldEventFlags(before, planned, []uint32{bossID})}
+		})
+}
+
+func applyBossDefeated(slot *core.SaveSlot, bossID uint32, defeated bool) error {
+	if err := db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], bossID, defeated); err != nil {
 		return fmt.Errorf("failed to set boss %d: %w", bossID, err)
 	}
 	return nil
@@ -198,8 +211,15 @@ func (a *App) SetSummoningPoolActivated(slotIndex int, poolID uint32, activated 
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	flags := slot.Data[slot.EventFlagsOffset:]
-	if err := db.SetEventFlag(flags, poolID, activated); err != nil {
+	return a.journalWorldSlotMutation(actionWorldSetSummoningPoolActivated, slotIndex, slot,
+		func(s *core.SaveSlot) error { return applySummoningPoolActivated(s, poolID, activated) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{flags: planWorldEventFlags(before, planned, []uint32{poolID})}
+		})
+}
+
+func applySummoningPoolActivated(slot *core.SaveSlot, poolID uint32, activated bool) error {
+	if err := db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], poolID, activated); err != nil {
 		return fmt.Errorf("failed to set summoning pool %d: %w", poolID, err)
 	}
 	return nil
@@ -374,12 +394,18 @@ func (a *App) SetColosseumUnlocked(slotIndex int, colosseumID uint32, unlocked b
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	flags := slot.Data[slot.EventFlagsOffset:]
+	return a.journalWorldSlotMutation(actionWorldSetColosseumUnlocked, slotIndex, slot,
+		func(s *core.SaveSlot) error { return applyColosseumUnlocked(s, colosseumID, unlocked) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{flags: planWorldEventFlags(before, planned, worldColosseumFlagIDs(colosseumID, unlocked))}
+		})
+}
 
-	// Set the primary Activate flag plus every per-colosseum derivative
-	// (MapPOI, NPC, Gate). Without the gate flag the matchmaking menu
-	// reports the arena as unlocked but the physical entrance stays closed
-	// (see tmp/coloseum-debug/ for the RE that established this set).
+// applyColosseumUnlocked writes the primary, derivative, and unlock-only global
+// flags for one colosseum. Its reuse for the clone keeps diagnostics aligned
+// with the real matchmaking/map mutation.
+func applyColosseumUnlocked(slot *core.SaveSlot, colosseumID uint32, unlocked bool) error {
+	flags := slot.Data[slot.EventFlagsOffset:]
 	flagSet, ok := data.ColosseumFlagSets[colosseumID]
 	if !ok {
 		flagSet = data.ColosseumFlagSet{Activate: colosseumID}
@@ -392,10 +418,6 @@ func (a *App) SetColosseumUnlocked(slotIndex int, colosseumID uint32, unlocked b
 			return fmt.Errorf("failed to set colosseum flag %d: %w", id, err)
 		}
 	}
-
-	// Globals fire once any colosseum is unlocked; we set them on unlock
-	// but never clear them, because they double as broader progression
-	// markers and clearing risks regressing unrelated systems.
 	if unlocked {
 		for _, id := range data.ColosseumGlobalFlags {
 			if err := db.SetEventFlag(flags, id, true); err != nil {
@@ -483,6 +505,15 @@ func (a *App) SetGestureUnlocked(slotIndex int, gestureID uint32, unlocked bool)
 		return fmt.Errorf("gesture data offset 0x%X out of bounds", gestureDataOff)
 	}
 
+	return a.journalWorldSlotMutation(actionWorldSetGestureUnlocked, slotIndex, slot,
+		func(s *core.SaveSlot) error { return applyGestureUnlocked(s, gestureID, unlocked) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{gestures: planWorldGestureSlots(before, planned)}
+		})
+}
+
+func applyGestureUnlocked(slot *core.SaveSlot, gestureID uint32, unlocked bool) error {
+	gestureDataOff := slot.StorageBoxOffset + core.DynStorageBox
 	gestureSlots := readGestureSlots(slot.Data, gestureDataOff)
 	purgeUnknownGestures(gestureSlots)
 
@@ -490,7 +521,7 @@ func (a *App) SetGestureUnlocked(slotIndex int, gestureID uint32, unlocked bool)
 		for _, gID := range gestureSlots {
 			if gID == gestureID {
 				writeGestureSlots(slot.Data, gestureDataOff, gestureSlots)
-				return nil // already present (still flush purge)
+				return nil
 			}
 		}
 		for i, gID := range gestureSlots {
@@ -560,6 +591,15 @@ func (a *App) BulkSetGesturesUnlocked(slotIndex int, gestureIDs []uint32, unlock
 		return fmt.Errorf("gesture data offset 0x%X out of bounds", gestureDataOff)
 	}
 
+	return a.journalWorldSlotMutation(actionWorldBulkSetGesturesUnlocked, slotIndex, slot,
+		func(s *core.SaveSlot) error { return applyBulkGesturesUnlocked(s, gestureIDs, unlocked) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{gestures: planWorldGestureSlots(before, planned)}
+		})
+}
+
+func applyBulkGesturesUnlocked(slot *core.SaveSlot, gestureIDs []uint32, unlocked bool) error {
+	gestureDataOff := slot.StorageBoxOffset + core.DynStorageBox
 	gestureSlots := readGestureSlots(slot.Data, gestureDataOff)
 	purgeUnknownGestures(gestureSlots)
 
@@ -589,8 +629,6 @@ func (a *App) BulkSetGesturesUnlocked(slotIndex int, gestureIDs []uint32, unlock
 			}
 		}
 	} else {
-		// Even legacy IDs were already cleared by purgeUnknownGestures above,
-		// so Lock All only needs to wipe the canonical IDs the caller listed.
 		removeSet := make(map[uint32]bool, len(gestureIDs))
 		for _, id := range gestureIDs {
 			removeSet[id] = true
@@ -1295,8 +1333,15 @@ func (a *App) SetMapFlag(slotIndex int, flagID uint32, enabled bool) error {
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	flags := slot.Data[slot.EventFlagsOffset:]
-	if err := db.SetEventFlag(flags, flagID, enabled); err != nil {
+	return a.journalWorldSlotMutation(actionWorldSetMapFlag, slotIndex, slot,
+		func(s *core.SaveSlot) error { return applyMapFlag(s, flagID, enabled) },
+		func(before, planned *core.SaveSlot) worldMutationPlans {
+			return worldMutationPlans{flags: planWorldEventFlags(before, planned, []uint32{flagID})}
+		})
+}
+
+func applyMapFlag(slot *core.SaveSlot, flagID uint32, enabled bool) error {
+	if err := db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], flagID, enabled); err != nil {
 		return fmt.Errorf("failed to set map flag %d: %w", flagID, err)
 	}
 	return nil

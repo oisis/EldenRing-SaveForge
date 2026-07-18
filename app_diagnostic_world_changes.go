@@ -1,11 +1,25 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"sort"
 	"strconv"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
+)
+
+const (
+	actionWorldSetGraceVisited           = "set_grace_visited"
+	actionWorldSetBossDefeated           = "set_boss_defeated"
+	actionWorldSetSummoningPoolActivated = "set_summoning_pool_activated"
+	actionWorldSetColosseumUnlocked      = "set_colosseum_unlocked"
+	actionWorldSetGestureUnlocked        = "set_gesture_unlocked"
+	actionWorldBulkSetGesturesUnlocked   = "bulk_set_gestures_unlocked"
+	actionWorldSetMapFlag                = "set_map_flag"
+
+	stageWorldApply = "apply_world"
 )
 
 // Lifecycle event names for World-tab field mutations. Their record contract is
@@ -27,16 +41,19 @@ type worldFieldPlan struct {
 	read    func(*core.SaveSlot) string
 }
 
-// worldMutationPlans keeps the stable World field order: Event Flags before
-// unlocked-region membership. Future World writers append only fields they own
-// to these groups, while the lifecycle helpers preserve global phase grouping.
+// worldMutationPlans keeps the stable World field order: Event Flags, gesture
+// slots, then unlocked-region membership. Future World writers append only
+// fields they own to these groups, while the lifecycle helpers preserve global
+// phase grouping.
 type worldMutationPlans struct {
-	flags   []worldFieldPlan
-	regions []worldFieldPlan
+	flags    []worldFieldPlan
+	gestures []worldFieldPlan
+	regions  []worldFieldPlan
 }
 
 func (p worldMutationPlans) records() []characterFieldChange {
-	plans := append(append([]worldFieldPlan(nil), p.flags...), p.regions...)
+	plans := append(append([]worldFieldPlan(nil), p.flags...), p.gestures...)
+	plans = append(plans, p.regions...)
 	records := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
 		records[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.planned}
@@ -45,7 +62,8 @@ func (p worldMutationPlans) records() []characterFieldChange {
 }
 
 func (p worldMutationPlans) finished(slot *core.SaveSlot) []characterFieldChange {
-	plans := append(append([]worldFieldPlan(nil), p.flags...), p.regions...)
+	plans := append(append([]worldFieldPlan(nil), p.flags...), p.gestures...)
+	plans = append(plans, p.regions...)
 	records := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
 		records[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot)}
@@ -76,6 +94,36 @@ func planWorldEventFlags(before, planned *core.SaveSlot, flagIDs []uint32) []wor
 			before:  b,
 			planned: p,
 			read:    func(s *core.SaveSlot) string { return readContainerFlag(s, readFlagID) },
+		})
+	}
+	return plans
+}
+
+func readWorldGestureSlot(slot *core.SaveSlot, index int) string {
+	off := slot.StorageBoxOffset + core.DynStorageBox + index*4
+	if index < 0 || off < 0 || off+4 > len(slot.Data) {
+		return "unavailable"
+	}
+	return strconv.FormatUint(uint64(binary.LittleEndian.Uint32(slot.Data[off:off+4])), 10)
+}
+
+// planWorldGestureSlots reports every physical GestureGameData slot changed by
+// the writer, including purged legacy entries. The raw u32 is deliberately
+// scalar and stable: it distinguishes the empty sentinel from an empty zero.
+func planWorldGestureSlots(before, planned *core.SaveSlot) []worldFieldPlan {
+	plans := make([]worldFieldPlan, 0, 64)
+	for index := 0; index < 64; index++ {
+		b := readWorldGestureSlot(before, index)
+		p := readWorldGestureSlot(planned, index)
+		if b == p {
+			continue
+		}
+		readIndex := index
+		plans = append(plans, worldFieldPlan{
+			field:   "gesture_slot_" + strconv.Itoa(index) + "_id",
+			before:  b,
+			planned: p,
+			read:    func(s *core.SaveSlot) string { return readWorldGestureSlot(s, readIndex) },
 		})
 	}
 	return plans
@@ -126,4 +174,50 @@ func (a *App) journalWorldMutationBefore(action string, charIdx int, plans world
 
 func (a *App) journalWorldMutationFinished(action string, charIdx int, outcome characterChangeOutcome, stage string, plans worldMutationPlans, slot *core.SaveSlot) {
 	a.journalChangeRecords(eventWorldChangeFinished, "world change finished", action, charIdx, plans.finished(slot), changeFinishedTail(outcome, stage))
+}
+
+// journalWorldSlotMutation applies one World writer to an independent clone for
+// its planned projection and exactly once to the real slot. The writer itself is
+// shared, so the journal cannot model behavior that differs from the mutation.
+// Callers hold the slot lock, have already taken their undo snapshot, and have
+// completed operation-specific bounds validation.
+func (a *App) journalWorldSlotMutation(action string, charIdx int, slot *core.SaveSlot, apply func(*core.SaveSlot) error, plan func(before, planned *core.SaveSlot) worldMutationPlans) error {
+	if !a.journal.debugEnabled() {
+		return apply(slot)
+	}
+
+	clone := core.CloneSlot(slot)
+	_ = apply(clone)
+	plans := plan(slot, clone)
+	a.journalWorldMutationBefore(action, charIdx, plans)
+
+	if err := apply(slot); err != nil {
+		a.journalWorldMutationFinished(action, charIdx, characterChangeError, stageWorldApply, plans, slot)
+		return err
+	}
+	a.journalWorldMutationFinished(action, charIdx, characterChangeSuccess, characterStageCompleted, plans, slot)
+	return nil
+}
+
+func worldGraceFlagIDs(graceID uint32, visited bool) []uint32 {
+	flagIDs := []uint32{graceID}
+	if grace, ok := data.Graces[graceID]; ok && grace.DoorFlag != 0 {
+		flagIDs = append(flagIDs, grace.DoorFlag)
+	}
+	if visited {
+		flagIDs = append(flagIDs, data.CompanionEventFlagsForGrace(graceID)...)
+	}
+	return flagIDs
+}
+
+func worldColosseumFlagIDs(colosseumID uint32, unlocked bool) []uint32 {
+	flagSet, ok := data.ColosseumFlagSets[colosseumID]
+	if !ok {
+		flagSet = data.ColosseumFlagSet{Activate: colosseumID}
+	}
+	flagIDs := flagSet.AllFlags()
+	if unlocked {
+		flagIDs = append(flagIDs, data.ColosseumGlobalFlags...)
+	}
+	return flagIDs
 }
