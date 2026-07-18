@@ -235,7 +235,9 @@ func (a *App) MoveInventoryWorkspaceItem(sessionID, itemUID, targetContainer str
 	if err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
-	if err := editor.MoveItem(&sess.Workspace, itemUID, ck, targetPosition); err != nil {
+	if err := a.journalWorkspaceMutation(actionGameItemsWorkspaceMove, sess.CharacterIndex, &sess.Workspace, func(ws *editor.InventoryWorkspaceSnapshot) error {
+		return editor.MoveItem(ws, itemUID, ck, targetPosition)
+	}); err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	return sess.Workspace, nil
@@ -256,7 +258,9 @@ func (a *App) TransferInventoryWorkspaceItem(sessionID, itemUID, targetContainer
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	// Sentinel above any realistic slice length — MoveItem clamps to append.
-	if err := editor.MoveItem(&sess.Workspace, itemUID, ck, 1<<30); err != nil {
+	if err := a.journalWorkspaceMutation(actionGameItemsWorkspaceTransfer, sess.CharacterIndex, &sess.Workspace, func(ws *editor.InventoryWorkspaceSnapshot) error {
+		return editor.MoveItem(ws, itemUID, ck, 1<<30)
+	}); err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	return sess.Workspace, nil
@@ -278,10 +282,46 @@ func (a *App) ReorderInventoryWorkspaceItems(sessionID string, inventoryUIDs, st
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	defer sess.Unlock()
-	if err := editor.ReorderItems(&sess.Workspace, inventoryUIDs, storageUIDs); err != nil {
+	if err := a.journalWorkspaceMutation(actionGameItemsWorkspaceReorder, sess.CharacterIndex, &sess.Workspace, func(ws *editor.InventoryWorkspaceSnapshot) error {
+		return editor.ReorderItems(ws, inventoryUIDs, storageUIDs)
+	}); err != nil {
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 	return sess.Workspace, nil
+}
+
+// journalWorkspaceMutation runs a RAM-only Inventory Workspace mutation through
+// the Game Items before -> planned -> finished lifecycle when Debug Mode is on,
+// and always performs exactly one real mutation on ws (the session's live
+// workspace). apply is a snapshot-only writer that performs precisely the
+// operation's editor mutation. With Debug Mode on it runs first on an
+// independent clone to project the planned diff, then once on the real ws, so
+// the clone and the real workspace share one mutation implementation and planned
+// can never drift from what actually lands. With Debug Mode off no clone is taken
+// and no records are emitted — a single real mutation runs.
+//
+// The caller holds the session lock, so ws is exclusively owned for the call.
+// The operation is RAM-only: slot.Data is never touched, no save/slot lock is
+// taken, and no undo is pushed. On a real mutation error after work has begun the
+// finished phase reports the actual post-error workspace under stage
+// apply_workspace; on success it reports stage completed. An operation that
+// rejects its input before mutating leaves before == planned, so
+// planWorkspaceItemChanges is empty and no records are emitted.
+func (a *App) journalWorkspaceMutation(action string, charIdx int, ws *editor.InventoryWorkspaceSnapshot, apply func(*editor.InventoryWorkspaceSnapshot) error) error {
+	if !a.journal.debugEnabled() {
+		return apply(ws)
+	}
+	before := cloneWorkspaceSnapshot(*ws)
+	planned := cloneWorkspaceSnapshot(*ws)
+	_ = apply(&planned)
+	plans := planWorkspaceItemChanges(before, planned)
+	a.journalWorkspaceBefore(action, charIdx, plans)
+	if err := apply(ws); err != nil {
+		a.journalWorkspaceFinished(action, charIdx, characterChangeError, stageGameItemsWorkspace, plans, *ws)
+		return err
+	}
+	a.journalWorkspaceFinished(action, charIdx, characterChangeSuccess, characterStageCompleted, plans, *ws)
+	return nil
 }
 
 // AddInventoryWorkspaceItem inserts a new editable item into the
