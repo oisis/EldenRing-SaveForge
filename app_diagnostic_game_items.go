@@ -335,6 +335,43 @@ func gameItemFinishedRecords(plans []gameItemFieldPlan, post *core.SaveSlot) []c
 	return out
 }
 
+// gameItemSideEffectPlan is one Game Items side effect whose target differs from
+// the current value: a container quantity, a container pickup/vendor flag, or a
+// direct item-driven Event Flag (AoW / world pickup / companion). before/planned
+// are captured against the pre-mutation real slot and the plan-applied clone;
+// read pulls the field's live value back out of the post-execution real slot for
+// the finished phase. Game Items owns this type so the container/flag planners
+// never depend on a Character-owned plan type — only the shared semantic readers
+// (readContainerQuantity / readContainerFlag) are reused.
+type gameItemSideEffectPlan struct {
+	field   string
+	before  string
+	planned string
+	read    func(*core.SaveSlot) string
+}
+
+// gameItemSideEffectPlannedRecords maps side-effect plans to before/planned
+// change records (the before phase ignores After, the planned phase uses it),
+// mirroring gameItemPlannedRecords for the direct physical fields.
+func gameItemSideEffectPlannedRecords(plans []gameItemSideEffectPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.planned}
+	}
+	return out
+}
+
+// gameItemSideEffectFinishedRecords maps side-effect plans to finished records,
+// reading each field's actual value back out of the post-execution real slot so
+// After reflects what really landed (or, on rollback, the restored value).
+func gameItemSideEffectFinishedRecords(plans []gameItemSideEffectPlan, slot *core.SaveSlot) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot)}
+	}
+	return out
+}
+
 // planGameItemsAddContainerRecords derives the container side effects of a
 // Database Add — the semantic container quantity plus each pickup/vendor event
 // flag the writer synchronizes — by comparing the pre-mutation real slot
@@ -352,7 +389,7 @@ func gameItemFinishedRecords(plans []gameItemFieldPlan, post *core.SaveSlot) []c
 // it in) emits both quantity and flags. Every field self-excludes when its
 // before value already equals the planned value, and flag records disappear
 // entirely when no Event Flags region exists (the clone leaves them unset).
-func planGameItemsAddContainerRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []containerFieldPlan {
+func planGameItemsAddContainerRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []gameItemSideEffectPlan {
 	if len(plan.usedContainers) == 0 {
 		return nil
 	}
@@ -368,12 +405,12 @@ func planGameItemsAddContainerRecords(before, planned *core.SaveSlot, plan itemA
 	}
 	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 
-	var plans []containerFieldPlan
+	var plans []gameItemSideEffectPlan
 	for _, cID := range ids {
 		itemID := cID
 		if !explicit[itemID] {
 			if b, p := readContainerQuantity(before, itemID), readContainerQuantity(planned, itemID); b != p {
-				plans = append(plans, containerFieldPlan{
+				plans = append(plans, gameItemSideEffectPlan{
 					field:   fmt.Sprintf("container_0x%08X_quantity", itemID),
 					before:  b,
 					planned: p,
@@ -391,18 +428,72 @@ func planGameItemsAddContainerRecords(before, planned *core.SaveSlot, plan itemA
 	return plans
 }
 
+// planGameItemsAddFlagRecords derives the direct item-driven Event Flag side
+// effects of a Database Add — the Ash of War duplication flag, the world-pickup
+// flag, and each companion flag — by comparing the pre-mutation real slot
+// (before) against the plan-applied clone (planned). It walks plan.items in the
+// writer's order and, per item, inspects exactly the three direct mappings the
+// executor's POST-FLAGS block sets: AoWItemToFlagID, WorldPickupFlagID and
+// CompanionEventFlagsForItem, in that order and in each mapping's natural order.
+// Bolstering pickups, tutorial IDs and container flags are out of scope and are
+// left to their own planners.
+//
+// A field is emitted only when the clone actually flipped the flag (before !=
+// planned): a flag already set self-excludes, and no records appear at all when
+// the slot has no Event Flags region (the clone leaves every flag unset). The
+// real slot is never replayed or mutated for diagnostics; read pulls each flag
+// back out of the post-execution real slot for the finished phase. Repeated
+// submitted IDs that resolve to the same <item, source kind, flag> tuple are
+// deduplicated by field name so one flag never yields two lifecycle entries. It
+// reuses only the shared container flag reader for value semantics; the plan
+// vehicle and mappers are Game Items-owned.
+func planGameItemsAddFlagRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []gameItemSideEffectPlan {
+	var plans []gameItemSideEffectPlan
+	seen := make(map[string]bool)
+	add := func(itemID, flagID uint32, kind string) {
+		field := fmt.Sprintf("item_0x%08X_%s_flag_%d", itemID, kind, flagID)
+		if seen[field] {
+			return
+		}
+		b := readContainerFlag(before, flagID)
+		p := readContainerFlag(planned, flagID)
+		if b == p {
+			return
+		}
+		seen[field] = true
+		plans = append(plans, gameItemSideEffectPlan{
+			field:   field,
+			before:  b,
+			planned: p,
+			read:    func(s *core.SaveSlot) string { return readContainerFlag(s, flagID) },
+		})
+	}
+	for _, it := range plan.items {
+		if flagID, ok := data.AoWItemToFlagID[it.baseID]; ok {
+			add(it.baseID, flagID, "aow")
+		}
+		if flagID, ok := data.WorldPickupFlagID[it.baseID]; ok {
+			add(it.baseID, flagID, "world_pickup")
+		}
+		for _, f := range data.CompanionEventFlagsForItem(it.baseID) {
+			add(it.baseID, f, "companion")
+		}
+	}
+	return plans
+}
+
 // appendGameItemContainerFlagPlan appends a container flag plan only when the
 // clone flipped the flag (before != planned). Unlike the Character helper it
 // reads the planned value straight from the applied clone rather than assuming
 // "true", so a flag the writer never reaches (beyond finalQty) or one that was
 // already set self-excludes.
-func appendGameItemContainerFlagPlan(plans []containerFieldPlan, before, planned *core.SaveSlot, itemID, flagID uint32, kind string) []containerFieldPlan {
+func appendGameItemContainerFlagPlan(plans []gameItemSideEffectPlan, before, planned *core.SaveSlot, itemID, flagID uint32, kind string) []gameItemSideEffectPlan {
 	b := readContainerFlag(before, flagID)
 	p := readContainerFlag(planned, flagID)
 	if b == p {
 		return plans
 	}
-	return append(plans, containerFieldPlan{
+	return append(plans, gameItemSideEffectPlan{
 		field:   fmt.Sprintf("container_0x%08X_%s_flag_%d", itemID, kind, flagID),
 		before:  b,
 		planned: p,
