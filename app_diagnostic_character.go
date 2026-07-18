@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"strconv"
 
@@ -13,6 +15,12 @@ import (
 // actionSaveCharacter is the action tag every SaveCharacter-originated Character
 // diagnostic record carries.
 const actionSaveCharacter = "save_character"
+
+// actionApplyAppearancePreset is the action tag every ApplyPresetToCharacter
+// Appearance diagnostic record carries. It reuses the character_change_*
+// lifecycle events (before -> planned -> finished) so a diagnostics reader
+// treats an appearance write like any other Character mutation.
+const actionApplyAppearancePreset = "apply_appearance_preset"
 
 // Closed technical stages a SaveCharacter mutation can terminate at. A finished
 // record reports exactly one of these so a diagnostics reader never has to parse
@@ -684,6 +692,144 @@ func containerFinishedRecords(plans []containerFieldPlan, slot *core.SaveSlot) [
 	out := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
 		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot)}
+	}
+	return out
+}
+
+// appearanceFieldPlan is one Appearance value ApplyPresetToCharacter changes: an
+// eight-model raw PartsId, one of the three fixed-width FaceData hex blocks, the
+// two sex-flag bytes applyResolvedAppearance zeroes, or the gender/voice scalars.
+// before/planned are captured from the pre-write slot against the resolved
+// payload; read pulls the field's live value back out of the FaceData blob (fd)
+// so the finished phase reports what applyResolvedAppearance actually wrote.
+type appearanceFieldPlan struct {
+	field   string
+	before  string
+	planned string
+	read    func(slot *core.SaveSlot, fd int) string
+}
+
+// readAppearanceModel reads a model PartsId back as decimal from the FaceData
+// blob, matching applyResolvedAppearance's uint32-LE write at fd+offset.
+func readAppearanceModel(slot *core.SaveSlot, fd, offset int) string {
+	return strconv.FormatUint(uint64(binary.LittleEndian.Uint32(slot.Data[fd+offset:])), 10)
+}
+
+// planApplyAppearance builds the ordered list of Appearance fields whose resolved
+// target differs from the current slot value. Every value is a scalar decimal or
+// a lowercase, unprefixed hex string — never a raw []byte, map, or interface — so
+// only privacy-safe technical values reach the journal. planned values come from
+// the same resolvedAppearance applyResolvedAppearance writes, so a plan can never
+// drift from what the writer persists; the two sex-flag bytes are always zeroed
+// by the writer, so their planned value is a fixed "0000". Only fields that
+// actually change are returned, so re-applying an identical preset emits nothing.
+func planApplyAppearance(slot *core.SaveSlot, fd int, r resolvedAppearance) []appearanceFieldPlan {
+	dec := func(v uint32) string { return strconv.FormatUint(uint64(v), 10) }
+
+	var plans []appearanceFieldPlan
+
+	modelSpecs := []struct {
+		field  string
+		offset int
+		id     uint8
+	}{
+		{"appearance_face_model", core.FDOffFaceModel, r.Models[0]},
+		{"appearance_hair_model", core.FDOffHairModel, r.Models[1]},
+		{"appearance_eye_model", core.FDOffEyeModel, r.Models[2]},
+		{"appearance_eyebrow_model", core.FDOffEyebrowModel, r.Models[3]},
+		{"appearance_beard_model", core.FDOffBeardModel, r.Models[4]},
+		{"appearance_eyepatch_model", core.FDOffEyepatchModel, r.Models[5]},
+		{"appearance_decal_model", core.FDOffDecalModel, r.Models[6]},
+		{"appearance_eyelash_model", core.FDOffEyelashModel, r.Models[7]},
+	}
+	for _, s := range modelSpecs {
+		offset := s.offset
+		before := readAppearanceModel(slot, fd, offset)
+		planned := dec(uint32(s.id))
+		if before == planned {
+			continue
+		}
+		plans = append(plans, appearanceFieldPlan{
+			field:   s.field,
+			before:  before,
+			planned: planned,
+			read:    func(sl *core.SaveSlot, f int) string { return readAppearanceModel(sl, f, offset) },
+		})
+	}
+
+	hexSpecs := []struct {
+		field   string
+		offset  int
+		length  int
+		planned string
+	}{
+		{"appearance_face_shape_hex", core.FDOffFaceShape, 64, hex.EncodeToString(r.FaceShape[:])},
+		{"appearance_body_proportions_hex", core.FDOffHead, 7, hex.EncodeToString(r.Body[:])},
+		{"appearance_skin_cosmetics_hex", core.FDOffSkinR, 91, hex.EncodeToString(r.Skin[:])},
+	}
+	for _, s := range hexSpecs {
+		offset, length := s.offset, s.length
+		before := hex.EncodeToString(slot.Data[fd+offset : fd+offset+length])
+		if before == s.planned {
+			continue
+		}
+		plans = append(plans, appearanceFieldPlan{
+			field:   s.field,
+			before:  before,
+			planned: s.planned,
+			read:    func(sl *core.SaveSlot, f int) string { return hex.EncodeToString(sl.Data[f+offset : f+offset+length]) },
+		})
+	}
+
+	// Sex-flag bytes at fd+0x125..fd+0x126: applyResolvedAppearance always zeroes
+	// them, so the planned value is fixed and the field self-excludes only when the
+	// slot already holds two zero bytes.
+	if before := hex.EncodeToString(slot.Data[fd+0x125 : fd+0x127]); before != "0000" {
+		plans = append(plans, appearanceFieldPlan{
+			field:   "appearance_apply_flags_hex",
+			before:  before,
+			planned: "0000",
+			read:    func(sl *core.SaveSlot, f int) string { return hex.EncodeToString(sl.Data[f+0x125 : f+0x127]) },
+		})
+	}
+
+	if before, planned := dec(uint32(slot.Player.Gender)), dec(uint32(r.BodyType)); before != planned {
+		plans = append(plans, appearanceFieldPlan{
+			field:   "gender",
+			before:  before,
+			planned: planned,
+			read:    func(sl *core.SaveSlot, _ int) string { return dec(uint32(sl.Player.Gender)) },
+		})
+	}
+	if before, planned := dec(uint32(slot.Player.VoiceType)), dec(uint32(r.VoiceType)); before != planned {
+		plans = append(plans, appearanceFieldPlan{
+			field:   "voice_type",
+			before:  before,
+			planned: planned,
+			read:    func(sl *core.SaveSlot, _ int) string { return dec(uint32(sl.Player.VoiceType)) },
+		})
+	}
+
+	return plans
+}
+
+// appearancePlannedRecords maps Appearance plans to before/planned records (the
+// before phase ignores After, the planned phase uses it), mirroring the scalar,
+// Memory Stones, side-effect, quantity and container record mappers.
+func appearancePlannedRecords(plans []appearanceFieldPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.planned}
+	}
+	return out
+}
+
+// appearanceFinishedRecords maps Appearance plans to finished records, reading
+// each field's actual value back out of the post-write FaceData blob (fd).
+func appearanceFinishedRecords(plans []appearanceFieldPlan, slot *core.SaveSlot, fd int) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot, fd)}
 	}
 	return out
 }

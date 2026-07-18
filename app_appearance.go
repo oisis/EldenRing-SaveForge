@@ -77,8 +77,18 @@ func (a *App) ApplyPresetToCharacter(charIndex int, presetName string) error {
 		return fmt.Errorf("FaceData blob out of bounds: start=0x%X", fd)
 	}
 
+	// Diagnostics: plan the Appearance changes against the pre-write slot, emit all
+	// before then all planned records, apply, then read the real slot back for the
+	// finished phase. Only fields the preset actually changes are logged.
+	plans := planApplyAppearance(slot, fd, resolved)
+	planned := appearancePlannedRecords(plans)
+	a.journalCharacterChangeBefore(actionApplyAppearancePreset, charIndex, planned)
+	a.journalCharacterChangePlanned(actionApplyAppearancePreset, charIndex, planned)
+
 	a.pushUndoLocked(charIndex)
 	applyResolvedAppearance(slot, fd, resolved)
+
+	a.journalCharacterChangeFinished(actionApplyAppearancePreset, charIndex, characterChangeSuccess, characterStageCompleted, appearanceFinishedRecords(plans, slot, fd))
 	return nil
 }
 
