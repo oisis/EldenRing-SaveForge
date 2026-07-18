@@ -466,6 +466,36 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 	// revert the entire save via the existing undo button.
 	a.pushUndoLocked(sess.CharacterIndex)
 
+	// Debug Mode lifecycle for the RAM → save boundary. This projects the
+	// PHYSICAL rows the commit will change (inventory/storage records, GaItem
+	// rows, next-equip / next-acquisition counters, inventory/storage headers)
+	// by running the identical editor.ApplyWorkspaceSave once on an independent
+	// clone of the slot — plus an independent clone of the workspace and
+	// baseline the writer reads — so the plan can never drift from what actually
+	// lands and the real workspace is never touched by the projection. The
+	// RAM-side workspace fields are already traced by the Task 6A/6B endpoints,
+	// so this stage deliberately logs only durable slot state. With Debug Mode
+	// off no clone is taken, no records are emitted, and exactly the one real
+	// save path below runs.
+	debug := a.journal.debugEnabled()
+	var savePlans gameItemMutationPlans
+	if debug {
+		plannedSlot := core.CloneSlot(slot)
+		plannedWorkspace := cloneWorkspaceSnapshot(sess.Workspace)
+		plannedBaseline := make(map[string]editor.ContainerKind, len(sess.BaselineEditableHandles))
+		for uid, ck := range sess.BaselineEditableHandles {
+			plannedBaseline[uid] = ck
+		}
+		// Ignore the clone writer's result: the real writer below owns the
+		// error and rollback. If the clone rejects before mutating, plannedSlot
+		// is byte-identical to slot and planGameItemsMutation emits nothing, so
+		// no plan is fabricated for a mutation that never ran. flagIDs is empty:
+		// a workspace save owns no Event Flags.
+		_, _ = editor.ApplyWorkspaceSave(plannedSlot, &plannedWorkspace, plannedBaseline)
+		savePlans = planGameItemsMutation(slot, plannedSlot, nil)
+		a.journalGameItemsMutationBefore(actionGameItemsWorkspaceSave, sess.CharacterIndex, savePlans)
+	}
+
 	_, err = editor.ApplyWorkspaceSave(slot, &sess.Workspace, sess.BaselineEditableHandles)
 	if err != nil {
 		// Determine whether to rollback. Rejection errors return
@@ -473,6 +503,11 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 		// changed slot. Restore unconditionally to be safe — it's a
 		// no-op for byte-identical data.
 		core.RestoreSlot(slot, rollback)
+		if debug {
+			// Real slot is restored; finished reads the actual post-rollback
+			// state through the same physical readers.
+			a.journalGameItemsMutationFinished(actionGameItemsWorkspaceSave, sess.CharacterIndex, characterChangeError, stageGameItemsWorkspaceSave, savePlans, slot)
+		}
 		return editor.InventoryWorkspaceSnapshot{}, err
 	}
 
@@ -480,6 +515,9 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 	fresh, err := editor.BuildSnapshot(slot, sess.ID, sess.CharacterIndex)
 	if err != nil {
 		core.RestoreSlot(slot, rollback)
+		if debug {
+			a.journalGameItemsMutationFinished(actionGameItemsWorkspaceSave, sess.CharacterIndex, characterChangeError, stageGameItemsWorkspaceSave, savePlans, slot)
+		}
 		return editor.InventoryWorkspaceSnapshot{}, fmt.Errorf("SaveInventoryWorkspaceChanges: rebuild snapshot: %w", err)
 	}
 	fresh.Validation = editor.Validate(fresh)
@@ -501,6 +539,12 @@ func (a *App) SaveInventoryWorkspaceChanges(sessionID string) (editor.InventoryW
 		if it.Source == editor.ItemSourceOriginal && it.OriginalHandle != 0 {
 			sess.BaselineEditableHandles[it.UID] = editor.ContainerStorage
 		}
+	}
+
+	if debug {
+		// Success: finished reads the persisted physical slot so After reflects
+		// what actually landed, not the projected clone.
+		a.journalGameItemsMutationFinished(actionGameItemsWorkspaceSave, sess.CharacterIndex, characterChangeSuccess, characterStageCompleted, savePlans, slot)
 	}
 
 	return sess.Workspace, nil
