@@ -251,49 +251,94 @@ func (a *App) WriteSelectedToFavorites(charIndex int, presetNames []string) (int
 		copy(unkBlock[:], slot.Data[fd+core.FDOffUnknownBlock:fd+core.FDOffUnknownBlock+64])
 	}
 
-	written := 0
+	// Build every target slot buffer up front through the shared writer/planner
+	// helper. The exact bytes the loop copies are the same bytes the diagnostic
+	// planner treats as the planned state, so a plan can never drift from the
+	// write. Only actually-written presets (resolved[i] != nil) are planned, at
+	// their real safeIdx, exactly as the write loop below.
+	type favWrite struct {
+		safeIdx int
+		slotOff int
+		buf     []byte
+		name    string
+	}
+	var writes []favWrite
+	var plans []favoriteFieldPlan
 	for i, name := range presetNames {
 		r := resolved[i]
 		if r == nil {
 			continue
 		}
-
 		safeIdx := freeSlots[i]
 		slotOff := core.FavBaseOffset + safeIdx*core.FavSlotSize
-
-		buf := make([]byte, core.FavSlotSize)
-
-		// Slot header
-		binary.LittleEndian.PutUint16(buf[0x00:], core.FavHeaderMagicU16)
-		binary.LittleEndian.PutUint32(buf[0x04:], core.FavHeaderUnk)
-		buf[core.FavOffBodyFlag] = 1
-		if r.BodyType == 1 {
-			buf[core.FavOffBodyType] = 0 // male in Favorites
-		} else {
-			buf[core.FavOffBodyType] = 1 // female in Favorites
+		buf := buildFavoriteSlotBuffer(r, unkBlock)
+		// The existing free-slot guard only checks FavOffAlignment, so a truncated
+		// UserData10 can select a slot whose full 304 bytes are out of bounds. The
+		// writer's copy(ud[slotOff:], buf) stays safely partial for that slot, but
+		// the planner must not slice the full range — plan it only when the whole
+		// FavSlotSize fits, so no field plans (and thus no finished closures) exist
+		// for a truncated slot.
+		if slotOff+core.FavSlotSize <= len(ud) {
+			plans = append(plans, planWriteFavoriteSlot(safeIdx, slotOff, ud[slotOff:slotOff+core.FavSlotSize], buf)...)
 		}
+		writes = append(writes, favWrite{safeIdx: safeIdx, slotOff: slotOff, buf: buf, name: name})
+	}
 
-		// FACE block header
-		copy(buf[core.FavOffMagic:], []byte("FACE"))
-		binary.LittleEndian.PutUint32(buf[core.FavOffAlignment:], 4)
-		binary.LittleEndian.PutUint32(buf[core.FavOffInnerSize:], 0x120)
+	// Emit all before then all planned records before the first mutation of
+	// UserData10, so a diagnostics reader sees the pristine slot bytes.
+	a.journalCharacterChangeBefore(actionWriteFavorites, charIndex, favoritePlannedRecords(plans))
+	a.journalCharacterChangePlanned(actionWriteFavorites, charIndex, favoritePlannedRecords(plans))
 
-		// Eight resolved model IDs — shared with direct Apply so Add and Apply
-		// can never diverge. Type A = UI-1 + hair lookup, Type B = verified
-		// female mapping (incl. DecalModel).
-		for m, id := range r.Models {
-			binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+m*4:], uint32(id))
-		}
-
-		copy(buf[core.FavOffFaceShape:], r.FaceShape[:])
-		copy(buf[core.FavOffUnkBlock:], unkBlock[:])
-		copy(buf[core.FavOffBody:], r.Body[:])
-		copy(buf[core.FavOffSkin:], r.Skin[:])
-
-		copy(ud[slotOff:], buf)
-		a.favSlotNames[safeIdx] = name
+	written := 0
+	for _, w := range writes {
+		copy(ud[w.slotOff:], w.buf)
+		a.favSlotNames[w.safeIdx] = w.name
 		written++
 	}
 
+	// Read the real UserData10 back and emit the finished phase for every planned
+	// field. With no actually-written presets, plans is empty and nothing is
+	// emitted (before/planned/finished all iterate an empty list).
+	a.journalCharacterChangeFinished(actionWriteFavorites, charIndex, characterChangeSuccess, characterStageCompleted, favoriteFinishedRecords(plans, a.save.UserData10.Data))
+
 	return written, nil
+}
+
+// buildFavoriteSlotBuffer builds the exact 304-byte (FavSlotSize) target buffer
+// for one Favorites slot from a resolved appearance and the character's unknown
+// block. It is the single source of truth for the slot bytes: WriteSelectedToFavorites
+// copies this buffer verbatim and the diagnostic planner treats it as the planned
+// state, so the two can never diverge. The byte layout is unchanged from the
+// previous inline writer.
+func buildFavoriteSlotBuffer(r *resolvedAppearance, unkBlock [64]byte) []byte {
+	buf := make([]byte, core.FavSlotSize)
+
+	// Slot header
+	binary.LittleEndian.PutUint16(buf[0x00:], core.FavHeaderMagicU16)
+	binary.LittleEndian.PutUint32(buf[0x04:], core.FavHeaderUnk)
+	buf[core.FavOffBodyFlag] = 1
+	if r.BodyType == 1 {
+		buf[core.FavOffBodyType] = 0 // male in Favorites
+	} else {
+		buf[core.FavOffBodyType] = 1 // female in Favorites
+	}
+
+	// FACE block header
+	copy(buf[core.FavOffMagic:], []byte("FACE"))
+	binary.LittleEndian.PutUint32(buf[core.FavOffAlignment:], 4)
+	binary.LittleEndian.PutUint32(buf[core.FavOffInnerSize:], 0x120)
+
+	// Eight resolved model IDs — shared with direct Apply so Add and Apply
+	// can never diverge. Type A = UI-1 + hair lookup, Type B = verified
+	// female mapping (incl. DecalModel).
+	for m, id := range r.Models {
+		binary.LittleEndian.PutUint32(buf[core.FavOffModelIDs+m*4:], uint32(id))
+	}
+
+	copy(buf[core.FavOffFaceShape:], r.FaceShape[:])
+	copy(buf[core.FavOffUnkBlock:], unkBlock[:])
+	copy(buf[core.FavOffBody:], r.Body[:])
+	copy(buf[core.FavOffSkin:], r.Skin[:])
+
+	return buf
 }

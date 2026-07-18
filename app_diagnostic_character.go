@@ -36,6 +36,14 @@ const actionSetCharacterGender = "set_character_gender"
 // writer copies raw model/hex data verbatim and never touches voice_type.
 const actionApplyMirrorFavorite = "apply_mirror_favorite"
 
+// actionWriteFavorites is the action tag every WriteSelectedToFavorites diagnostic
+// record carries. It reuses the character_change_* lifecycle, but plans one whole
+// 304-byte Favorites slot per written preset — a header hex string, eight raw
+// model IDs and five fixed-length hex blocks that together cover the entire
+// FavSlotSize — via planWriteFavoriteSlot. The character index is the source
+// character the appearance/unknown-block bytes are read from.
+const actionWriteFavorites = "write_favorites"
+
 // Closed technical stages a SaveCharacter mutation can terminate at. A finished
 // record reports exactly one of these so a diagnostics reader never has to parse
 // free-text stage names. completed is the only success stage.
@@ -939,6 +947,118 @@ func appearanceFinishedRecords(plans []appearanceFieldPlan, slot *core.SaveSlot,
 	out := make([]characterFieldChange, len(plans))
 	for i, p := range plans {
 		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(slot, fd)}
+	}
+	return out
+}
+
+// favoriteFieldPlan is one field of a single Favorites slot WriteSelectedToFavorites
+// writes: the slot header hex, one of the eight raw model IDs, or one of the five
+// fixed-length hex blocks. Every value is a scalar decimal or a lowercase,
+// unprefixed hex string — never a raw []byte — so only privacy-safe technical
+// values reach the journal. before/planned are captured from the pristine
+// UserData10 slot bytes against the shared writer buffer; read pulls the field's
+// live value back out of the post-write UserData10 so the finished phase reports
+// what actually landed.
+type favoriteFieldPlan struct {
+	field   string
+	before  string
+	planned string
+	read    func(ud []byte) string
+}
+
+// planWriteFavoriteSlot builds the ordered field plans for one written Favorites
+// slot at absolute index idx (slotOff = its UserData10 byte offset). before is the
+// pristine slot bytes (FavSlotSize long, offset-0 based); planned is the shared
+// buildFavoriteSlotBuffer output. The fields together cover the entire FavSlotSize:
+// header_hex [0:FavOffModelIDs], eight uint32-LE model IDs, then face_shape (64B),
+// unknown_block (64B), body_proportions (7B), skin_cosmetics (91B) and the
+// trailing bytes from FavOffSkin+91 to FavSlotSize. Only fields whose planned
+// value differs from before are returned, so a re-write of an identical slot emits
+// nothing. read re-reads live UserData10 at the same slotOff, so a plan can never
+// drift from what the writer persists.
+func planWriteFavoriteSlot(idx, slotOff int, before, planned []byte) []favoriteFieldPlan {
+	prefix := fmt.Sprintf("favorite_slot_%d_", idx)
+	decAt := func(b []byte, off int) string {
+		return strconv.FormatUint(uint64(binary.LittleEndian.Uint32(b[off:])), 10)
+	}
+	hexAt := func(b []byte, start, length int) string {
+		return hex.EncodeToString(b[start : start+length])
+	}
+
+	var plans []favoriteFieldPlan
+	add := func(field, bef, plan string, read func(ud []byte) string) {
+		if bef == plan {
+			return
+		}
+		plans = append(plans, favoriteFieldPlan{field: field, before: bef, planned: plan, read: read})
+	}
+
+	// Header: everything before the model IDs, as a single hex string.
+	{
+		start, length := 0, core.FavOffModelIDs
+		add(prefix+"header_hex", hexAt(before, start, length), hexAt(planned, start, length),
+			func(ud []byte) string { return hexAt(ud[slotOff:], start, length) })
+	}
+
+	// Eight raw model IDs as uint32 LE decimal (never clamped to uint8).
+	modelSpecs := []struct {
+		name string
+		m    int
+	}{
+		{"face_model", 0},
+		{"hair_model", 1},
+		{"eye_model", 2},
+		{"eyebrow_model", 3},
+		{"beard_model", 4},
+		{"eyepatch_model", 5},
+		{"decal_model", 6},
+		{"eyelash_model", 7},
+	}
+	for _, s := range modelSpecs {
+		off := core.FavOffModelIDs + s.m*4
+		add(prefix+s.name, decAt(before, off), decAt(planned, off),
+			func(ud []byte) string { return decAt(ud[slotOff:], off) })
+	}
+
+	// Five fixed-length hex blocks; trailing_hex covers all remaining bytes up to
+	// FavSlotSize so the fields exactly partition the whole slot.
+	hexSpecs := []struct {
+		name   string
+		start  int
+		length int
+	}{
+		{"face_shape_hex", core.FavOffFaceShape, 64},
+		{"unknown_block_hex", core.FavOffUnkBlock, 64},
+		{"body_proportions_hex", core.FavOffBody, 7},
+		{"skin_cosmetics_hex", core.FavOffSkin, 91},
+		{"trailing_hex", core.FavOffSkin + 91, core.FavSlotSize - (core.FavOffSkin + 91)},
+	}
+	for _, s := range hexSpecs {
+		start, length := s.start, s.length
+		add(prefix+s.name, hexAt(before, start, length), hexAt(planned, start, length),
+			func(ud []byte) string { return hexAt(ud[slotOff:], start, length) })
+	}
+
+	return plans
+}
+
+// favoritePlannedRecords maps Favorites plans to before/planned records (the
+// before phase ignores After, the planned phase uses it), mirroring the other
+// record mappers.
+func favoritePlannedRecords(plans []favoriteFieldPlan) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.planned}
+	}
+	return out
+}
+
+// favoriteFinishedRecords maps Favorites plans to finished records, reading each
+// field's actual value back out of the post-write UserData10 (ud).
+func favoriteFinishedRecords(plans []favoriteFieldPlan, ud []byte) []characterFieldChange {
+	out := make([]characterFieldChange, len(plans))
+	for i, p := range plans {
+		out[i] = characterFieldChange{Field: p.field, Before: p.before, After: p.read(ud)}
 	}
 	return out
 }
