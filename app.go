@@ -1472,8 +1472,33 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 		}
 	}
 
+	// DIAGNOSTICS: in Debug Mode only, replay the same removals on a clone (same
+	// input order and fromInventory/fromStorage booleans, stopping on the first
+	// error exactly as the real loop does) and capture the changed direct records
+	// and the two count headers. before comes from the still-unmutated real slot,
+	// planned from the clone. Emitted before the real removal loop; the clone is a
+	// full duplicate removal and pure overhead when Debug Mode is off.
+	var giPlans []gameItemFieldPlan
+	var giInvHeaderPlans, giStorageHeaderPlans []gameItemSideEffectPlan
+	if a.journal.debugEnabled() {
+		clone := core.CloneSlot(slot)
+		for _, handle := range handles {
+			if err := core.RemoveItemFromSlot(clone, handle, fromInventory, fromStorage); err != nil {
+				break
+			}
+		}
+		giPlans = planGameItemsDirectRecords(slot, clone, nil)
+		giInvHeaderPlans = planGameItemsAddInventoryHeaderRecords(slot, clone)
+		giStorageHeaderPlans = planGameItemsAddStorageHeaderRecords(slot, clone)
+		records := append(gameItemPlannedRecords(giPlans), gameItemSideEffectPlannedRecords(giInvHeaderPlans)...)
+		records = append(records, gameItemSideEffectPlannedRecords(giStorageHeaderPlans)...)
+		a.journalGameItemChangeBefore(actionGameItemsRemove, charIdx, records)
+		a.journalGameItemChangePlanned(actionGameItemsRemove, charIdx, records)
+	}
+
 	for _, handle := range handles {
 		if err := core.RemoveItemFromSlot(slot, handle, fromInventory, fromStorage); err != nil {
+			a.journalGameItemsRemoveFinished(charIdx, characterChangeError, stageGameItemsRemoveItem, giPlans, giInvHeaderPlans, giStorageHeaderPlans, slot)
 			return err
 		}
 	}
@@ -1521,6 +1546,9 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 		}
 	}
 
+	// SUCCESS: emit finished after all remove-side-effect code has run, re-reading
+	// the physical fields (untouched by the flag cleanup) from the real slot.
+	a.journalGameItemsRemoveFinished(charIdx, characterChangeSuccess, characterStageCompleted, giPlans, giInvHeaderPlans, giStorageHeaderPlans, slot)
 	return nil
 }
 

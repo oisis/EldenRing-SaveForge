@@ -16,9 +16,18 @@ import (
 // lifecycle journal.
 const actionGameItemsAdd = "add_items"
 
+// actionGameItemsRemove is the internal action tag for a Database Remove mutation
+// (RemoveItemsFromCharacter) in the Game Items lifecycle journal.
+const actionGameItemsRemove = "remove_items"
+
 // stageGameItemsApplyAddPlan is the finished-phase stage reported when the real
 // executor (applyItemAddMutationPlan) fails and the slot was rolled back.
 const stageGameItemsApplyAddPlan = "apply_add_plan"
+
+// stageGameItemsRemoveItem is the finished-phase stage reported when a single
+// core.RemoveItemFromSlot call fails and the real slot is left partially mutated
+// (RemoveItemsFromCharacter performs no rollback).
+const stageGameItemsRemoveItem = "remove_item"
 
 // Lifecycle event names for a single Game Items field mutation. Like the
 // Character lifecycle, a future Game Items mutation endpoint emits, per changed
@@ -57,6 +66,21 @@ func (a *App) journalGameItemChangePlanned(action string, characterIndex int, ch
 // attempted) value.
 func (a *App) journalGameItemChangeFinished(action string, characterIndex int, outcome characterChangeOutcome, stage string, changes []characterFieldChange) {
 	a.journalChangeRecords(eventGameItemsChangeFinished, "game items change finished", action, characterIndex, changes, changeFinishedTail(outcome, stage))
+}
+
+// journalGameItemsRemoveFinished emits the finished phase for a Database Remove:
+// direct physical rows first, then the two count headers, re-reading every field
+// out of the (possibly partially mutated) real slot so After reflects what
+// actually landed. It is a no-op when no field changed, so a no-op removal emits
+// nothing. RemoveItemsFromCharacter performs no rollback, so on error the same
+// re-read simply reports the partial state.
+func (a *App) journalGameItemsRemoveFinished(charIdx int, outcome characterChangeOutcome, stage string, direct []gameItemFieldPlan, invHeader, storageHeader []gameItemSideEffectPlan, slot *core.SaveSlot) {
+	if len(direct) == 0 && len(invHeader) == 0 && len(storageHeader) == 0 {
+		return
+	}
+	finished := append(gameItemFinishedRecords(direct, slot), gameItemSideEffectFinishedRecords(invHeader, slot)...)
+	finished = append(finished, gameItemSideEffectFinishedRecords(storageHeader, slot)...)
+	a.journalGameItemChangeFinished(actionGameItemsRemove, charIdx, outcome, stage, finished)
 }
 
 // debugEnabled reports whether debug-level records are currently admitted. The
@@ -257,6 +281,17 @@ func readGameItemField(slot *core.SaveSlot, sec giSection, row int, kind giKind)
 // excluded: container mutations are out of scope for Task 2B. The plan is the
 // immutable source of that container context.
 func planGameItemsAddRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []gameItemFieldPlan {
+	return planGameItemsDirectRecords(before, planned, derivedContainerHandles(plan))
+}
+
+// planGameItemsDirectRecords is the shared low-level direct-record scanner behind
+// both Add and Remove. It diffs every direct scalar field between before and
+// planned in the same stable order (inventory common, key, storage common,
+// GaItems, then the four counters), emitting one gameItemFieldPlan per changed
+// field. The optional derived map excludes the inventory rows of derived
+// containers (Task 2B's Add-only exclusion); pass nil to scan every changed
+// direct record, as Remove does.
+func planGameItemsDirectRecords(before, planned *core.SaveSlot, derived map[uint32]bool) []gameItemFieldPlan {
 	var plans []gameItemFieldPlan
 	add := func(name string, sec giSection, row int, kind giKind) {
 		b := readGameItemField(before, sec, row, kind)
@@ -266,8 +301,6 @@ func planGameItemsAddRecords(before, planned *core.SaveSlot, plan itemAddMutatio
 		}
 		plans = append(plans, gameItemFieldPlan{name: name, before: b, planned: p, section: sec, row: row, kind: kind})
 	}
-
-	derived := derivedContainerHandles(plan)
 
 	invSections := []struct {
 		sec    giSection
