@@ -81,11 +81,27 @@ func (a *App) RemoveFavoritePreset(slotIndex int) error {
 		return nil
 	}
 
+	// Diagnostics: plan the whole-slot zeroing from the pristine slot bytes against
+	// an all-zero FavSlotSize buffer, then emit all before + all planned records
+	// before the loop mutates UserData10. Reuses the Task 5D planWriteFavoriteSlot /
+	// favorite*Records so the 14-field 304-byte partition is never duplicated; the
+	// planner captures before/planned as strings immediately, so the shared before
+	// slice is safe to keep aliasing ud through the zeroing below. RemoveFavoritePreset
+	// has no target character, so character_index=-1 is the explicit "no character"
+	// marker; the removed slot index lives in every field name.
+	plans := planWriteFavoriteSlot(slotIndex, off, ud[off:off+core.FavSlotSize], make([]byte, core.FavSlotSize))
+	a.journalCharacterChangeBefore(actionRemoveFavorite, -1, favoritePlannedRecords(plans))
+	a.journalCharacterChangePlanned(actionRemoveFavorite, -1, favoritePlannedRecords(plans))
+
 	// Zero out the entire slot
 	for i := 0; i < core.FavSlotSize; i++ {
 		ud[off+i] = 0
 	}
 	delete(a.favSlotNames, slotIndex)
+
+	// Read the real UserData10 back and emit the finished phase for every planned
+	// field — the whole slot is now zero, so every finished value is the planned zero.
+	a.journalCharacterChangeFinished(actionRemoveFavorite, -1, characterChangeSuccess, characterStageCompleted, favoriteFinishedRecords(plans, a.save.UserData10.Data))
 	return nil
 }
 

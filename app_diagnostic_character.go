@@ -44,6 +44,16 @@ const actionApplyMirrorFavorite = "apply_mirror_favorite"
 // character the appearance/unknown-block bytes are read from.
 const actionWriteFavorites = "write_favorites"
 
+// actionRemoveFavorite is the action tag every RemoveFavoritePreset diagnostic
+// record carries. It reuses the same character_change_* lifecycle and the Task 5D
+// planWriteFavoriteSlot / favorite*Records helpers — planning the pristine slot
+// bytes against an all-zero 304-byte buffer, so the whole-slot zeroing is logged as
+// the same 14-field partition a write emits. RemoveFavoritePreset has no target
+// character (it mutates the global UserData10 Mirror), so its records carry
+// character_index=-1 as the explicit "no character" marker; the removed slot index
+// lives in every field name.
+const actionRemoveFavorite = "remove_favorite"
+
 // Closed technical stages a SaveCharacter mutation can terminate at. A finished
 // record reports exactly one of these so a diagnostics reader never has to parse
 // free-text stage names. completed is the only success stage.
