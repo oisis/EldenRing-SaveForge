@@ -112,11 +112,14 @@ func TestSomberWeapons_MaxUpgradeIs10(t *testing.T) {
 // items on the standard smithing path. Each of these has reinforceTypeId in
 // the standard +25 ranges and must keep MaxUpgrade=25.
 var standardControls = []struct {
-	ID    uint32
-	Name  string
-	Map   map[uint32]ItemData
+	ID   uint32
+	Name string
+	Map  map[uint32]ItemData
 }{
 	{0x001E8480, "Longsword", Weapons},
+	{0x00100590, "Crystal Knife", Weapons},
+	{0x003D7E30, "Troll's Golden Sword", Weapons},
+	{0x016EF950, "Ghostflame Torch", Shields},
 	{0x02631D50, "Composite Bow", RangedAndCatalysts},
 	{0x02719C40, "Longbow", RangedAndCatalysts},
 	{0x02906EE0, "Light Crossbow", RangedAndCatalysts},
