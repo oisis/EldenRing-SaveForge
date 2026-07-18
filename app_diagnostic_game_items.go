@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db"
+	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
 // actionGameItemsAdd is the internal action tag for a Database Add mutation
@@ -331,4 +333,79 @@ func gameItemFinishedRecords(plans []gameItemFieldPlan, post *core.SaveSlot) []c
 		out[i] = characterFieldChange{Field: p.name, Before: p.before, After: readGameItemField(post, p.section, p.row, p.kind)}
 	}
 	return out
+}
+
+// planGameItemsAddContainerRecords derives the container side effects of a
+// Database Add — the semantic container quantity plus each pickup/vendor event
+// flag the writer synchronizes — by comparing the pre-mutation real slot
+// (before) against the plan-applied clone (planned). It reuses the Character
+// diagnostics' semantic readers (readContainerQuantity / readContainerFlag) so
+// the field naming and formatting match, and never touches or replays the real
+// slot. Containers are iterated in ascending numeric order so Go map iteration
+// order never leaks into the log.
+//
+// A container that the user explicitly requested (present in plan.batch) emits
+// no container_*_quantity: Task 2B already logs its direct physical row as the
+// primary add, so re-logging the same quantity here would duplicate the change.
+// Its pickup/vendor flags are still genuine synchronization side effects, so
+// they are emitted. A derived container (used only because a gated item pulled
+// it in) emits both quantity and flags. Every field self-excludes when its
+// before value already equals the planned value, and flag records disappear
+// entirely when no Event Flags region exists (the clone leaves them unset).
+func planGameItemsAddContainerRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []containerFieldPlan {
+	if len(plan.usedContainers) == 0 {
+		return nil
+	}
+
+	explicit := make(map[uint32]bool, len(plan.batch))
+	for _, it := range plan.batch {
+		explicit[it.ItemID] = true
+	}
+
+	ids := make([]uint32, 0, len(plan.usedContainers))
+	for cID := range plan.usedContainers {
+		ids = append(ids, cID)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	var plans []containerFieldPlan
+	for _, cID := range ids {
+		itemID := cID
+		if !explicit[itemID] {
+			if b, p := readContainerQuantity(before, itemID), readContainerQuantity(planned, itemID); b != p {
+				plans = append(plans, containerFieldPlan{
+					field:   fmt.Sprintf("container_0x%08X_quantity", itemID),
+					before:  b,
+					planned: p,
+					read:    func(s *core.SaveSlot) string { return readContainerQuantity(s, itemID) },
+				})
+			}
+		}
+		for _, f := range data.ContainerPickupFlags[itemID] {
+			plans = appendGameItemContainerFlagPlan(plans, before, planned, itemID, f, "pickup")
+		}
+		for _, f := range data.ContainerVendorPurchaseFlags[itemID] {
+			plans = appendGameItemContainerFlagPlan(plans, before, planned, itemID, f, "vendor")
+		}
+	}
+	return plans
+}
+
+// appendGameItemContainerFlagPlan appends a container flag plan only when the
+// clone flipped the flag (before != planned). Unlike the Character helper it
+// reads the planned value straight from the applied clone rather than assuming
+// "true", so a flag the writer never reaches (beyond finalQty) or one that was
+// already set self-excludes.
+func appendGameItemContainerFlagPlan(plans []containerFieldPlan, before, planned *core.SaveSlot, itemID, flagID uint32, kind string) []containerFieldPlan {
+	b := readContainerFlag(before, flagID)
+	p := readContainerFlag(planned, flagID)
+	if b == p {
+		return plans
+	}
+	return append(plans, containerFieldPlan{
+		field:   fmt.Sprintf("container_0x%08X_%s_flag_%d", itemID, kind, flagID),
+		before:  b,
+		planned: p,
+		read:    func(s *core.SaveSlot) string { return readContainerFlag(s, flagID) },
+	})
 }

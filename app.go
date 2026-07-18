@@ -1154,11 +1154,15 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	// executor; only built in Debug Mode, since the clone add duplicates the whole
 	// mutation and is pure overhead otherwise.
 	var giPlans []gameItemFieldPlan
+	var giContainerPlans []containerFieldPlan
 	if a.journal.debugEnabled() {
 		clone := core.CloneSlot(slot)
 		_ = applyItemAddMutationPlan(clone, plan, func(string, ...any) {})
 		giPlans = planGameItemsAddRecords(slot, clone, plan)
-		records := gameItemPlannedRecords(giPlans)
+		giContainerPlans = planGameItemsAddContainerRecords(slot, clone, plan)
+		// Direct physical rows first, then container side effects, kept in the
+		// same global phase grouping: all before -> all planned -> all finished.
+		records := append(gameItemPlannedRecords(giPlans), containerPlannedRecords(giContainerPlans)...)
 		a.journalGameItemChangeBefore(actionGameItemsAdd, charIdx, records)
 		a.journalGameItemChangePlanned(actionGameItemsAdd, charIdx, records)
 	}
@@ -1174,13 +1178,15 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		runtime.LogWarningf(a.ctx, format, args...)
 	}); err != nil {
 		core.RestoreSlot(slot, snapshot)
-		if len(giPlans) > 0 {
-			a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeError, stageGameItemsApplyAddPlan, gameItemFinishedRecords(giPlans, slot))
+		if len(giPlans) > 0 || len(giContainerPlans) > 0 {
+			finished := append(gameItemFinishedRecords(giPlans, slot), containerFinishedRecords(giContainerPlans, slot)...)
+			a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeError, stageGameItemsApplyAddPlan, finished)
 		}
 		return result, err
 	}
-	if len(giPlans) > 0 {
-		a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeSuccess, characterStageCompleted, gameItemFinishedRecords(giPlans, slot))
+	if len(giPlans) > 0 || len(giContainerPlans) > 0 {
+		finished := append(gameItemFinishedRecords(giPlans, slot), containerFinishedRecords(giContainerPlans, slot)...)
+		a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeSuccess, characterStageCompleted, finished)
 	}
 
 	// SUCCESS: compute final capacity and return.
