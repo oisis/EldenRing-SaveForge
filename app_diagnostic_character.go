@@ -97,49 +97,64 @@ type characterFieldChange struct {
 	After  string // planned value (planned phase) or actual value (finished phase)
 }
 
-// journalCharacterChangeBefore records the pre-change state of each field, one
-// debug record per field, before any new value is computed. Only "before" is
-// meaningful at this phase, so "after" is omitted.
-func (a *App) journalCharacterChangeBefore(action string, characterIndex int, changes []characterFieldChange) {
+// journalChangeRecords is the single low-level per-field emission loop shared by
+// the Character and Game Items before/planned/finished helpers. It emits exactly
+// one debug record per change, in caller order, always leading with the
+// action/character_index/field/before fields, then appending the phase-specific
+// tail (nil for the before phase, so it never carries an after field). Every
+// record routes through journalDebug, so Debug Mode gating and the central
+// sanitizer apply uniformly and no second sanitizer is needed.
+func (a *App) journalChangeRecords(event, message, action string, characterIndex int, changes []characterFieldChange, tail func(characterFieldChange) []diagnosticField) {
 	for _, ch := range changes {
-		a.journalDebug(eventCharacterChangeBefore, "character change before",
+		fields := []diagnosticField{
 			field("action", action),
 			field("character_index", strconv.Itoa(characterIndex)),
 			field("field", ch.Field),
 			field("before", ch.Before),
-		)
+		}
+		if tail != nil {
+			fields = append(fields, tail(ch)...)
+		}
+		a.journalDebug(event, message, fields...)
 	}
+}
+
+// changePlannedTail is the planned-phase tail: only the intended new value.
+func changePlannedTail(ch characterFieldChange) []diagnosticField {
+	return []diagnosticField{field("after", ch.After)}
+}
+
+// changeFinishedTail is the finished-phase tail: the actual value plus the
+// terminal outcome and stage. outcome/stage are captured per call, so the same
+// values decorate every field's finished record.
+func changeFinishedTail(outcome characterChangeOutcome, stage string) func(characterFieldChange) []diagnosticField {
+	return func(ch characterFieldChange) []diagnosticField {
+		return []diagnosticField{
+			field("after", ch.After),
+			field("outcome", string(outcome)),
+			field("stage", stage),
+		}
+	}
+}
+
+// journalCharacterChangeBefore records the pre-change state of each field, one
+// debug record per field, before any new value is computed. Only "before" is
+// meaningful at this phase, so "after" is omitted.
+func (a *App) journalCharacterChangeBefore(action string, characterIndex int, changes []characterFieldChange) {
+	a.journalChangeRecords(eventCharacterChangeBefore, "character change before", action, characterIndex, changes, nil)
 }
 
 // journalCharacterChangePlanned records the intended new value of each field,
 // one debug record per field, after it is computed but before it is applied.
 func (a *App) journalCharacterChangePlanned(action string, characterIndex int, changes []characterFieldChange) {
-	for _, ch := range changes {
-		a.journalDebug(eventCharacterChangePlanned, "character change planned",
-			field("action", action),
-			field("character_index", strconv.Itoa(characterIndex)),
-			field("field", ch.Field),
-			field("before", ch.Before),
-			field("after", ch.After),
-		)
-	}
+	a.journalChangeRecords(eventCharacterChangePlanned, "character change planned", action, characterIndex, changes, changePlannedTail)
 }
 
 // journalCharacterChangeFinished records the terminal state of each field, one
 // debug record per field, once the mutation has run. outcome and stage report
 // how and where it ended; After holds the actual applied (or attempted) value.
 func (a *App) journalCharacterChangeFinished(action string, characterIndex int, outcome characterChangeOutcome, stage string, changes []characterFieldChange) {
-	for _, ch := range changes {
-		a.journalDebug(eventCharacterChangeFinished, "character change finished",
-			field("action", action),
-			field("character_index", strconv.Itoa(characterIndex)),
-			field("field", ch.Field),
-			field("before", ch.Before),
-			field("after", ch.After),
-			field("outcome", string(outcome)),
-			field("stage", stage),
-		)
-	}
+	a.journalChangeRecords(eventCharacterChangeFinished, "character change finished", action, characterIndex, changes, changeFinishedTail(outcome, stage))
 }
 
 // characterFieldPlan is one in-scope direct profile/attribute field that a
