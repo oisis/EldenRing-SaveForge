@@ -754,10 +754,69 @@ func (a *App) GetCookbooks(slotIndex int) ([]db.CookbookEntry, error) {
 	return cookbooks, nil
 }
 
-// SetCookbookUnlocked sets or clears the unlock flag for a cookbook.
-// Delegates to the internal locked worker so this entry point does not
-// re-enter the public BulkSetCookbooksUnlocked — once slotMu is added the
-// re-entry would double-acquire the per-slot lock.
+// journalUnlockMutation runs a Database-tab single-item unlock through the Game
+// Items before -> planned -> finished lifecycle when Debug Mode is on, and always
+// performs exactly one real mutation. apply is a slot-only writer that performs
+// precisely the operation's mutation; it runs first on a clone to project the
+// planned diff and then on the real slot, so the two share one implementation and
+// planned can never drift from what actually lands. flagIDs are the Event Flags
+// the operation owns. With Debug Mode off no clone is taken and no records are
+// emitted — a single real mutation runs.
+//
+// The caller holds saveMu.RLock + slotMu[slotIndex], has already taken its single
+// pushUndoLocked snapshot, and has validated the slot's Event Flags region. On a
+// real mutation error after work has begun, the finished phase reports the actual
+// post-error slot under stage apply_unlock; on success it reports stage completed.
+func (a *App) journalUnlockMutation(action string, slotIndex int, slot *core.SaveSlot, flagIDs []uint32, apply func(*core.SaveSlot) error) error {
+	if !a.journal.debugEnabled() {
+		return apply(slot)
+	}
+	clone := core.CloneSlot(slot)
+	_ = apply(clone)
+	plans := planGameItemsMutation(slot, clone, flagIDs)
+	a.journalGameItemsMutationBefore(action, slotIndex, plans)
+	if err := apply(slot); err != nil {
+		a.journalGameItemsMutationFinished(action, slotIndex, characterChangeError, stageGameItemsUnlock, plans, slot)
+		return err
+	}
+	a.journalGameItemsMutationFinished(action, slotIndex, characterChangeSuccess, characterStageCompleted, plans, slot)
+	return nil
+}
+
+// applyCookbookUnlock performs the cookbook mutation on a single slot: a
+// best-effort event flag per cookbook plus the batched inventory add (unlock) or
+// per-cookbook removal (lock). Shared by the bulk worker, the single-item entry
+// point and Debug Mode's clone so a planned diff cannot drift from the applied
+// mutation. Caller holds the slot lock and has validated EventFlagsOffset.
+func applyCookbookUnlock(slot *core.SaveSlot, cookbookIDs []uint32, unlocked bool) {
+	flags := slot.Data[slot.EventFlagsOffset:]
+
+	// Collect item IDs to add in batch.
+	var itemsToAdd []uint32
+
+	for _, cookbookID := range cookbookIDs {
+		_ = db.SetEventFlag(flags, cookbookID, unlocked) // best-effort; inventory op is independent
+
+		if itemID, ok := data.CookbookFlagToItemID[cookbookID]; ok {
+			if unlocked {
+				itemsToAdd = append(itemsToAdd, itemID)
+			} else {
+				core.RemoveItemByBaseID(slot, itemID)
+			}
+		}
+	}
+
+	if len(itemsToAdd) > 0 {
+		_ = core.AddItemsToSlot(slot, itemsToAdd, 1, 0, false)
+	}
+}
+
+// SetCookbookUnlocked sets or clears the unlock flag for a single cookbook and
+// keeps the matching inventory item in sync. It performs its own single
+// pushUndoLocked and validation rather than re-entering the public
+// BulkSetCookbooksUnlocked (which would double-acquire the per-slot lock), and
+// routes the mutation through the Game Items unlock lifecycle so Debug Mode
+// captures its before -> planned -> finished records.
 func (a *App) SetCookbookUnlocked(slotIndex int, cookbookID uint32, unlocked bool) error {
 	a.saveMu.RLock()
 	defer a.saveMu.RUnlock()
@@ -769,7 +828,17 @@ func (a *App) SetCookbookUnlocked(slotIndex int, cookbookID uint32, unlocked boo
 	}
 	a.slotMu[slotIndex].Lock()
 	defer a.slotMu[slotIndex].Unlock()
-	return a.bulkSetCookbooksUnlockedLocked(slotIndex, []uint32{cookbookID}, unlocked)
+
+	a.pushUndoLocked(slotIndex)
+	slot := &a.save.Slots[slotIndex]
+	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
+		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
+	}
+	cookbookIDs := []uint32{cookbookID}
+	return a.journalUnlockMutation(actionGameItemsUnlockCookbook, slotIndex, slot, cookbookIDs, func(s *core.SaveSlot) error {
+		applyCookbookUnlock(s, cookbookIDs, unlocked)
+		return nil
+	})
 }
 
 // BulkSetCookbooksUnlocked sets event flags AND adds/removes inventory items for multiple cookbooks.
@@ -803,27 +872,7 @@ func (a *App) bulkSetCookbooksUnlockedLocked(slotIndex int, cookbookIDs []uint32
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	flags := slot.Data[slot.EventFlagsOffset:]
-
-	// Collect item IDs to add in batch.
-	var itemsToAdd []uint32
-
-	for _, cookbookID := range cookbookIDs {
-		_ = db.SetEventFlag(flags, cookbookID, unlocked) // best-effort; inventory op is independent
-
-		if itemID, ok := data.CookbookFlagToItemID[cookbookID]; ok {
-			if unlocked {
-				itemsToAdd = append(itemsToAdd, itemID)
-			} else {
-				core.RemoveItemByBaseID(slot, itemID)
-			}
-		}
-	}
-
-	if len(itemsToAdd) > 0 {
-		_ = core.AddItemsToSlot(slot, itemsToAdd, 1, 0, false)
-	}
-
+	applyCookbookUnlock(slot, cookbookIDs, unlocked)
 	return nil
 }
 
@@ -881,6 +930,17 @@ func (a *App) SetBellBearingUnlocked(slotIndex int, flagID uint32, unlocked bool
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
+	return a.journalUnlockMutation(actionGameItemsUnlockBellBearing, slotIndex, slot, []uint32{flagID}, func(s *core.SaveSlot) error {
+		return applyBellBearingUnlock(s, flagID, unlocked)
+	})
+}
+
+// applyBellBearingUnlock performs the bell bearing mutation on a single slot: set
+// the acquisition flag (propagating a SetEventFlag error exactly as the original
+// inline path did), then apply the inventory side effect. Shared by the real
+// slot and Debug Mode's clone so a planned diff cannot drift from the applied
+// mutation. Caller holds the slot lock and has validated EventFlagsOffset.
+func applyBellBearingUnlock(slot *core.SaveSlot, flagID uint32, unlocked bool) error {
 	if err := db.SetEventFlag(slot.Data[slot.EventFlagsOffset:], flagID, unlocked); err != nil {
 		return err
 	}
@@ -1144,6 +1204,18 @@ func (a *App) SetMapRegionFlags(slotIndex int, visibleFlagID uint32, enabled boo
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
+	return a.journalUnlockMutation(actionGameItemsUnlockMapFragment, slotIndex, slot, []uint32{visibleFlagID}, func(s *core.SaveSlot) error {
+		return applyMapRegionUnlock(s, visibleFlagID, enabled)
+	})
+}
+
+// applyMapRegionUnlock performs the map region mutation on a single slot: set the
+// visible flag (wrapping a SetEventFlag error exactly as the original inline path
+// did) and add/remove the matching map fragment item. Only the visible flag is
+// touched — the acquired (63xxx) flag is not written by this operation. Shared by
+// the real slot and Debug Mode's clone so a planned diff cannot drift from the
+// applied mutation. Caller holds the slot lock and has validated EventFlagsOffset.
+func applyMapRegionUnlock(slot *core.SaveSlot, visibleFlagID uint32, enabled bool) error {
 	flags := slot.Data[slot.EventFlagsOffset:]
 
 	// Set visible flag
