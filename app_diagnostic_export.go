@@ -171,39 +171,64 @@ func (a *App) DiagnosticRecoveryStatus() (*DiagnosticRecoveryStatus, error) {
 // dialog returns a typed cancelled result with a nil error. An unavailable or
 // failed journal returns a safe diagnostic error, never a panic.
 func (a *App) ExportDiagnosticLog(scope string) (DiagnosticExportResult, error) {
+	// The real destination chooser is the native Wails save dialog, invoked with
+	// the exact same title, default filename and filters as before. Computing the
+	// timestamped default name inside the callback keeps it evaluated at the same
+	// point (after scope validation and record selection) as the pre-seam code.
+	return a.exportDiagnosticLog(scope, func() (string, error) {
+		defaultName := fmt.Sprintf("saveforge-diagnostics-%s.zip", time.Now().UTC().Format("20060102T150405Z"))
+		return runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+			Title:           "Export Diagnostic Log",
+			DefaultFilename: defaultName,
+			Filters: []runtime.FileFilter{
+				{DisplayName: "Zip Archive (*.zip)", Pattern: "*.zip"},
+				{DisplayName: "All Files (*.*)", Pattern: "*.*"},
+			},
+		})
+	})
+}
+
+// exportDiagnosticLog is the context-free driver behind ExportDiagnosticLog.
+// chooseDest resolves the export destination ("" == user cancelled); the public
+// entry point supplies the real native dialog, tests supply a deterministic
+// callback. The normal diagnostic_export_* events, the DiagnosticExportResult and
+// the cancelled/error semantics are preserved bit-for-bit; the debug-only Tools
+// operation lifecycle (requested before validation, finished on every return
+// path) is layered on top without touching them.
+func (a *App) exportDiagnosticLog(scope string, chooseDest func() (string, error)) (DiagnosticExportResult, error) {
+	a.journalToolsOperationRequested(actionToolsExportDiagnosticLog)
+
 	if !validDiagnosticExportScope(scope) {
+		a.journalToolsOperationFinished(actionToolsExportDiagnosticLog, characterChangeError, toolsStageInvalidScope)
 		return DiagnosticExportResult{Scope: scope}, fmt.Errorf("invalid diagnostic export scope")
 	}
 	a.journalLog(levelInfo, "diagnostic_export_requested", "diagnostic export requested", field("scope", scope))
 	records, err := a.selectDiagnosticRecords(scope)
 	if err != nil {
 		a.journalLog(levelError, "diagnostic_export_failed", "diagnostic export failed", field("scope", scope), field("stage", "select_scope"))
+		a.journalToolsOperationFinished(actionToolsExportDiagnosticLog, characterChangeError, toolsStageSelectScope)
 		return DiagnosticExportResult{Scope: scope}, err
 	}
 
-	defaultName := fmt.Sprintf("saveforge-diagnostics-%s.zip", time.Now().UTC().Format("20060102T150405Z"))
-	dest, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		Title:           "Export Diagnostic Log",
-		DefaultFilename: defaultName,
-		Filters: []runtime.FileFilter{
-			{DisplayName: "Zip Archive (*.zip)", Pattern: "*.zip"},
-			{DisplayName: "All Files (*.*)", Pattern: "*.*"},
-		},
-	})
+	dest, err := chooseDest()
 	if err != nil {
 		a.journalLog(levelError, "diagnostic_export_failed", "diagnostic export failed", field("scope", scope), field("stage", "dialog"))
+		a.journalToolsOperationFinished(actionToolsExportDiagnosticLog, characterChangeError, toolsStageDialog)
 		return DiagnosticExportResult{Scope: scope}, err
 	}
 	result, err := finishDiagnosticExport(scope, dest, records)
 	if err != nil {
 		a.journalLog(levelError, "diagnostic_export_failed", "diagnostic export failed", field("scope", scope), field("stage", "write"))
+		a.journalToolsOperationFinished(actionToolsExportDiagnosticLog, characterChangeError, toolsStageWrite)
 		return result, err
 	}
 	if result.Cancelled {
 		a.journalLog(levelInfo, "diagnostic_export_cancelled", "diagnostic export cancelled", field("scope", scope))
+		a.journalToolsOperationFinished(actionToolsExportDiagnosticLog, characterChangeSuccess, toolsStageCancelled)
 		return result, nil
 	}
 	a.journalLog(levelInfo, "diagnostic_export_finished", "diagnostic export finished", field("scope", scope), field("record_count", strconv.Itoa(result.RecordCount)))
+	a.journalToolsOperationFinished(actionToolsExportDiagnosticLog, characterChangeSuccess, toolsStageCompleted)
 	return result, nil
 }
 

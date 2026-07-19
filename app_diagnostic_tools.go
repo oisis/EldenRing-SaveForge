@@ -298,6 +298,38 @@ func (a *App) journalToolsRepairApplyFinished(charIdx int, outcome characterChan
 	a.journalChangeRecords(eventToolsChangeFinished, "tools change finished", actionToolsApplyRepairsLoaded, charIdx, plans.finished(slot), changeFinishedTail(outcome, stage))
 }
 
+// actionToolsScanRepairIssuesLoaded tags the operation lifecycle for
+// ScanRepairIssuesLoaded. Closed and backend-owned — never derived from renderer
+// input. The scan is read-only with respect to the slot and Inventory Workspace,
+// so it emits ONLY the operation lifecycle (requested/finished), never the
+// per-field tools_change_*.
+const actionToolsScanRepairIssuesLoaded = "tools_scan_repair_issues_loaded"
+
+// toolsStageBuildSnapshot is the sole scan-specific closed stage: a failure while
+// building the throwaway validation snapshot. The other scan stages reuse the
+// shared no_active_save / invalid_character / empty_slot / completed vocabulary.
+const toolsStageBuildSnapshot = "build_snapshot"
+
+// actionToolsExportDiagnosticLog tags the operation lifecycle for
+// ExportDiagnosticLog. Closed and backend-owned — never derived from renderer
+// input. The export writes an external ZIP and never mutates a save, so it emits
+// ONLY the operation lifecycle (requested/finished), never the per-field
+// tools_change_*. It rides alongside the existing always-on diagnostic_export_*
+// events without changing them.
+const actionToolsExportDiagnosticLog = "tools_export_diagnostic_log"
+
+// Closed technical stages an ExportDiagnosticLog tools_operation_finished may
+// report. A finished export reuses the shared toolsStageCompleted; the rest mark
+// the exact terminal point of a call. None carries a scope, path, record count or
+// error text — only the closed stage label.
+const (
+	toolsStageInvalidScope = "invalid_scope"
+	toolsStageSelectScope  = "select_scope"
+	toolsStageDialog       = "dialog"
+	toolsStageWrite        = "write"
+	toolsStageCancelled    = "cancelled"
+)
+
 // repairApplyOperationResult maps a batch report to the closed operation outcome
 // and stage, shared by the finished field records and the tools_operation_finished
 // event so both agree. A failed target dominates (error/apply_repairs_loaded) even

@@ -335,6 +335,13 @@ func buildRepairIssueReport(slotIndex int, charName string, slot *core.SaveSlot,
 	}
 }
 
+// buildValidationSnapshot is editor.BuildSnapshot behind an unexported package
+// var so the build_snapshot failure stage — otherwise unreachable, since
+// BuildSnapshot only errors on a nil slot the endpoint already rejects — has a
+// deterministic test seam. Production always runs editor.BuildSnapshot.
+// ponytail: package-var seam; the only way to exercise the build_snapshot stage.
+var buildValidationSnapshot = editor.BuildSnapshot
+
 // ---- endpoints --------------------------------------------------------------
 
 // ScanRepairIssuesLoaded scans the loaded save slot at charIdx and returns a
@@ -345,15 +352,39 @@ func buildRepairIssueReport(slotIndex int, charName string, slot *core.SaveSlot,
 // session, so a diagnostic scan never creates, replaces, or discards an
 // existing session (which would otherwise block the GaItem optimizer).
 func (a *App) ScanRepairIssuesLoaded(charIdx int) (RepairIssueReport, error) {
+	// The operation lifecycle brackets the whole call. requested fires before any
+	// lock or validation, so even an early rejection still leaves a
+	// requested/finished pair. Both are debug-gated at the journal, so Debug off
+	// leaves no trace. finished is emitted by THIS wrapper only after scanRepair
+	// IssuesLoaded has returned and its deferred saveMu.RUnlock/slotMu.Unlock have
+	// run, so the journal Sync inside finished never happens under a save/slot lock.
+	a.journalToolsOperationRequested(actionToolsScanRepairIssuesLoaded)
+
+	report, stage, err := a.scanRepairIssuesLoaded(charIdx)
+	if err != nil {
+		a.journalToolsOperationFinished(actionToolsScanRepairIssuesLoaded, characterChangeError, stage)
+		return report, err
+	}
+	a.journalToolsOperationFinished(actionToolsScanRepairIssuesLoaded, characterChangeSuccess, toolsStageCompleted)
+	return report, nil
+}
+
+// scanRepairIssuesLoaded is the locked, read-only core of ScanRepairIssuesLoaded.
+// It performs the scan under saveMu.RLock/slotMu.Lock and returns the report, the
+// closed operation stage to report on failure, and the public error. It emits NO
+// journal record itself, so the wrapper can write the operation-finished event
+// only after these locks are released — the journal Sync must never run under
+// saveMu or slotMu. The public error strings are the exact pre-existing ones.
+func (a *App) scanRepairIssuesLoaded(charIdx int) (RepairIssueReport, string, error) {
 	var empty RepairIssueReport
 
 	a.saveMu.RLock()
 	defer a.saveMu.RUnlock()
 	if a.save == nil {
-		return empty, fmt.Errorf("ScanRepairIssuesLoaded: no save loaded")
+		return empty, toolsStageNoActiveSave, fmt.Errorf("ScanRepairIssuesLoaded: no save loaded")
 	}
 	if charIdx < 0 || charIdx >= maxCharacters {
-		return empty, fmt.Errorf("ScanRepairIssuesLoaded: invalid charIdx %d", charIdx)
+		return empty, toolsStageInvalidCharacter, fmt.Errorf("ScanRepairIssuesLoaded: invalid charIdx %d", charIdx)
 	}
 	a.slotMu[charIdx].Lock()
 	defer a.slotMu[charIdx].Unlock()
@@ -363,19 +394,19 @@ func (a *App) ScanRepairIssuesLoaded(charIdx int) (RepairIssueReport, error) {
 	// delegated to StartInventoryEditSession, which errored on Version == 0;
 	// BuildSnapshot alone would silently return an empty report instead.
 	if slot.Version == 0 {
-		return empty, fmt.Errorf("ScanRepairIssuesLoaded: slot %d is empty", charIdx)
+		return empty, toolsStageEmptySlot, fmt.Errorf("ScanRepairIssuesLoaded: slot %d is empty", charIdx)
 	}
 
 	// Build the validation snapshot inline (no session publish). Mirrors
 	// editor.StartSession's Build+Validate, minus the registry side effects.
-	snap, err := editor.BuildSnapshot(slot, "", charIdx)
+	snap, err := buildValidationSnapshot(slot, "", charIdx)
 	if err != nil {
-		return empty, fmt.Errorf("ScanRepairIssuesLoaded: %w", err)
+		return empty, toolsStageBuildSnapshot, fmt.Errorf("ScanRepairIssuesLoaded: %w", err)
 	}
 	snap.Validation = editor.Validate(snap)
 
 	charName := core.UTF16ToString(slot.Player.CharacterName[:])
-	return buildRepairIssueReport(charIdx, charName, slot, &snap.Validation, &snap), nil
+	return buildRepairIssueReport(charIdx, charName, slot, &snap.Validation, &snap), "", nil
 }
 
 // _forceExportTypesRepairScan surfaces all new DTO types to the Wails type
