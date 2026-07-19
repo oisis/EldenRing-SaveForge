@@ -330,6 +330,30 @@ const (
 	toolsStageCancelled    = "cancelled"
 )
 
+// Save Manager actions operate on configured external targets and backup files.
+// Their action tags and stages are closed backend vocabulary: operation records
+// never carry a target name, backup name, path, tag, description or error text.
+const (
+	actionToolsListSaveBackups    = "tools_list_save_backups"
+	actionToolsSetActiveBackup    = "tools_set_active_backup"
+	actionToolsUnsetActiveBackup  = "tools_unset_active_backup"
+	actionToolsDeleteSaveBackup   = "tools_delete_save_backup"
+	actionToolsCreateManualBackup = "tools_create_manual_backup"
+	actionToolsUpdateBackupMeta   = "tools_update_backup_meta"
+	actionToolsDownloadBackupFile = "tools_download_backup_file"
+)
+
+const (
+	toolsStageConfiguration      = "configuration"
+	toolsStageListBackups        = "list_backups"
+	toolsStageSetActiveBackup    = "set_active_backup"
+	toolsStageUnsetActiveBackup  = "unset_active_backup"
+	toolsStageDeleteBackup       = "delete_backup"
+	toolsStageCreateManualBackup = "create_manual_backup"
+	toolsStageUpdateBackupMeta   = "update_backup_meta"
+	toolsStageDownloadBackup     = "download_backup"
+)
+
 // repairApplyOperationResult maps a batch report to the closed operation outcome
 // and stage, shared by the finished field records and the tools_operation_finished
 // event so both agree. A failed target dominates (error/apply_repairs_loaded) even
