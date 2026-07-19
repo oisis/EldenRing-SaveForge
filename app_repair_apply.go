@@ -60,13 +60,21 @@ type RepairApplyReport struct {
 // active workspace session for that character is invalidated on any successful
 // mutation so its cached (now-stale) workspace is dropped.
 func (a *App) ApplyRepairsLoaded(charIdx int, targets []RepairApplyTarget, stopOnFirstFailure bool) (RepairApplyReport, error) {
+	// The operation lifecycle brackets the whole call. requested fires before any
+	// lock or validation, so even an early rejection (no save / bad index / empty
+	// slot) still leaves a requested/finished pair; finished fires on every exit
+	// path. Both are debug-gated at the journal, so Debug off leaves no trace.
+	a.journalToolsOperationRequested(actionToolsApplyRepairsLoaded)
+
 	var empty RepairApplyReport
 	a.saveMu.RLock()
 	defer a.saveMu.RUnlock()
 	if a.save == nil {
+		a.journalToolsOperationFinished(actionToolsApplyRepairsLoaded, characterChangeError, toolsStageNoActiveSave)
 		return empty, fmt.Errorf("ApplyRepairsLoaded: no save loaded")
 	}
 	if charIdx < 0 || charIdx >= maxCharacters {
+		a.journalToolsOperationFinished(actionToolsApplyRepairsLoaded, characterChangeError, toolsStageInvalidCharacter)
 		return empty, fmt.Errorf("ApplyRepairsLoaded: invalid character index %d", charIdx)
 	}
 
@@ -74,15 +82,42 @@ func (a *App) ApplyRepairsLoaded(charIdx int, targets []RepairApplyTarget, stopO
 	slot := &a.save.Slots[charIdx]
 	if slot.Version == 0 {
 		a.slotMu[charIdx].Unlock()
+		a.journalToolsOperationFinished(actionToolsApplyRepairsLoaded, characterChangeError, toolsStageEmptySlot)
 		return empty, fmt.Errorf("ApplyRepairsLoaded: slot %d is empty", charIdx)
 	}
 
 	// Capture the pre-mutation state for undo BEFORE the batch runs; push it
 	// afterwards only if something actually applied (req 6).
 	undoSnap := a.buildSlotSnapshotLocked(charIdx)
+
+	// Debug Mode projects the exact physical save changes this batch will make by
+	// replaying the identical batch on a throwaway clone (which never touches undo,
+	// sessions, locks or the real slot), emitting all before then all planned
+	// records before the real slot is touched. Debug off makes no clone and emits
+	// no tools_change_* record; either way the real writer below runs exactly once
+	// — applyRepairBatchToSlot is the single source of the mutation.
+	debug := a.journal.debugEnabled()
+	var plans gameItemMutationPlans
+	if debug {
+		clone := core.CloneSlot(slot)
+		applyRepairBatchToSlot(clone, charIdx, targets, stopOnFirstFailure) // diagnostic replay; report intentionally ignored
+		plans = planToolsRepairApply(slot, clone)
+		a.journalToolsRepairApplyBefore(charIdx, plans)
+	}
+
 	rep := applyRepairBatchToSlot(slot, charIdx, targets, stopOnFirstFailure)
 	if rep.Applied > 0 {
 		a.pushUndoSnapshotLocked(charIdx, undoSnap)
+	}
+
+	// The finished phase reads the real slot exactly once after the batch, so a
+	// partial batch reports the real state every applied target left (outcome
+	// error, stage apply_repairs_loaded), never the clone. A no-op / all-skipped /
+	// needsUserInput batch produced no plan, so it emits no field record — the
+	// operation event stays its only status.
+	if debug {
+		outcome, stage := repairApplyOperationResult(rep)
+		a.journalToolsRepairApplyFinished(charIdx, outcome, stage, plans, slot)
 	}
 	a.slotMu[charIdx].Unlock()
 
@@ -91,6 +126,9 @@ func (a *App) ApplyRepairsLoaded(charIdx int, targets []RepairApplyTarget, stopO
 	if rep.Applied > 0 {
 		a.invalidateSessionForChar(charIdx)
 	}
+
+	outcome, stage := repairApplyOperationResult(rep)
+	a.journalToolsOperationFinished(actionToolsApplyRepairsLoaded, outcome, stage)
 	return rep, nil
 }
 

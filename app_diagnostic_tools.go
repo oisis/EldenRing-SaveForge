@@ -221,3 +221,82 @@ func (a *App) journalToolsInventoryRepairBefore(charIdx int, plans gameItemMutat
 func (a *App) journalToolsInventoryRepairFinished(charIdx int, outcome characterChangeOutcome, stage string, plans gameItemMutationPlans, slot *core.SaveSlot) {
 	a.journalChangeRecords(eventToolsChangeFinished, "tools change finished", actionToolsRepairDuplicateInventoryIndices, charIdx, plans.finished(slot), changeFinishedTail(outcome, stage))
 }
+
+// actionToolsApplyRepairsLoaded tags every tools_change_* and tools_operation_*
+// record emitted for ApplyRepairsLoaded. Closed and backend-owned — never derived
+// from renderer input.
+const actionToolsApplyRepairsLoaded = "tools_apply_repairs_loaded"
+
+// Closed terminal stages an ApplyRepairsLoaded tools_operation_finished may report.
+// A clean batch reuses the shared toolsStageCompleted; the others mark the exact
+// point a call ended without a full success. stageToolsApplyRepairsLoaded marks a
+// batch that mutated but had ≥1 failed target (even though the endpoint returns a
+// nil error); toolsStageNeedsUserInput a batch blocked on missing user input with
+// no failure; toolsStageInvalidCharacter and toolsStageEmptySlot the two
+// post-lock rejections. toolsStageNoActiveSave is reused from the Steam ID stages.
+const (
+	stageToolsApplyRepairsLoaded = "apply_repairs_loaded"
+	toolsStageNeedsUserInput     = "needs_user_input"
+	toolsStageInvalidCharacter   = "invalid_character"
+	toolsStageEmptySlot          = "empty_slot"
+)
+
+// planToolsRepairApply projects exactly the physical save changes an
+// ApplyRepairsLoaded batch makes, reusing the Game Items physical readers and the
+// semantic GaMap/cursor/header readers without a second scanner. It covers, in the
+// stable Game Items order direct -> inventory header -> storage header -> GaItem
+// state:
+//   - every changed inventory common/key/storage row and GaItem serialized record
+//     via the shared direct scanner;
+//   - the held-inventory CommonItems count header, when a removal rewrites it;
+//   - the storage distinct-item count header, when a storage removal rewrites it;
+//   - the GaMap value changes and GaItem allocation cursors, when they move
+//     (e.g. a clamp_upgrade GaMap ItemID patch).
+//
+// Event Flags are deliberately omitted: ApplyRepairsLoaded has no contract to
+// mutate them, so the flag planner is not wired in. Every field self-excludes when
+// before == planned, so untouched families never reach the journal.
+func planToolsRepairApply(before, planned *core.SaveSlot) gameItemMutationPlans {
+	return gameItemMutationPlans{
+		direct:        planGameItemsDirectRecords(before, planned, nil),
+		invHeader:     planGameItemsAddInventoryHeaderRecords(before, planned),
+		storageHeader: planGameItemsAddStorageHeaderRecords(before, planned),
+		gaItemState:   planGameItemsGaItemState(before, planned),
+	}
+}
+
+// journalToolsRepairApplyBefore emits the before(all) then planned(all)
+// tools_change_* records for an ApplyRepairsLoaded batch, carrying the real
+// character_index because the batch mutates one character's slot. It routes
+// through the same shared journalChangeRecords loop and change tails as every
+// other lifecycle.
+func (a *App) journalToolsRepairApplyBefore(charIdx int, plans gameItemMutationPlans) {
+	records := plans.records()
+	a.journalChangeRecords(eventToolsChangeBefore, "tools change before", actionToolsApplyRepairsLoaded, charIdx, records, nil)
+	a.journalChangeRecords(eventToolsChangePlanned, "tools change planned", actionToolsApplyRepairsLoaded, charIdx, records, changePlannedTail)
+}
+
+// journalToolsRepairApplyFinished emits the finished(all) tools_change_* records,
+// re-reading each field from the real post-batch slot so After reflects what
+// actually landed — on a partial batch, the real state left by the targets that
+// applied, not the clone projection.
+func (a *App) journalToolsRepairApplyFinished(charIdx int, outcome characterChangeOutcome, stage string, plans gameItemMutationPlans, slot *core.SaveSlot) {
+	a.journalChangeRecords(eventToolsChangeFinished, "tools change finished", actionToolsApplyRepairsLoaded, charIdx, plans.finished(slot), changeFinishedTail(outcome, stage))
+}
+
+// repairApplyOperationResult maps a batch report to the closed operation outcome
+// and stage, shared by the finished field records and the tools_operation_finished
+// event so both agree. A failed target dominates (error/apply_repairs_loaded) even
+// though the endpoint returns a nil error; a needsUserInput without any failure is
+// error/needs_user_input; a clean batch — including an all-skipped, no-op or empty
+// one — is success/completed.
+func repairApplyOperationResult(rep RepairApplyReport) (characterChangeOutcome, string) {
+	switch {
+	case rep.Failed > 0:
+		return characterChangeError, stageToolsApplyRepairsLoaded
+	case rep.NeedsUserInput > 0:
+		return characterChangeError, toolsStageNeedsUserInput
+	default:
+		return characterChangeSuccess, toolsStageCompleted
+	}
+}
