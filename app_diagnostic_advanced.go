@@ -157,3 +157,27 @@ func advancedFinishedRecords(plans []advancedNetworkFieldPlan, actual core.Netwo
 	}
 	return out
 }
+
+// journalAdvancedNetworkLifecycle is the shared Apply/Reset Debug Mode driver. It
+// wraps a single real NetworkParam write with the advanced_change_* before ->
+// planned -> finished lifecycle. before and planned come from the one
+// PatchNetworkParams the caller already ran (planned == the bytes that will be
+// assigned), so the per-field journal can never diverge from what the writer
+// persists. apply performs the assignment and returns the actual post-write state
+// (or, on failure, the actual unchanged state) so finished reports what really
+// landed rather than the requested plan. All records carry advancedCharacterIndex
+// (-1) and only scalar field values — never raw UserData11, preset names or paths.
+func (a *App) journalAdvancedNetworkLifecycle(action string, before, planned core.NetworkParamValues, apply func() (core.NetworkParamValues, error)) error {
+	plans := planAdvancedNetworkChanges(before, planned)
+	records := advancedPlannedRecords(plans)
+	a.journalAdvancedChangeBefore(action, records)
+	a.journalAdvancedChangePlanned(action, records)
+
+	actual, err := apply()
+	if err != nil {
+		a.journalAdvancedChangeFinished(action, characterChangeError, stageAdvancedPatch, advancedFinishedRecords(plans, actual))
+		return err
+	}
+	a.journalAdvancedChangeFinished(action, characterChangeSuccess, characterStageCompleted, advancedFinishedRecords(plans, actual))
+	return nil
+}

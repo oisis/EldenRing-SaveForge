@@ -2209,7 +2209,7 @@ func (a *App) setNetworkParamsWithDiagnostics(action string, params core.Network
 			noActiveSave = true
 			return fmt.Errorf("no save loaded")
 		}
-		return a.setNetworkParamsLocked(params)
+		return a.setNetworkParamsLocked(action, params)
 	}()
 	if err != nil {
 		stage := "patch"
@@ -2230,15 +2230,42 @@ func (a *App) setNetworkParamsWithDiagnostics(action string, params core.Network
 // a.saveMu.Lock for the entire call. The helper reassigns the
 // a.save.UserData11 slice header — not safe for concurrent readers without
 // that exclusive lock.
-func (a *App) setNetworkParamsLocked(params core.NetworkParamValues) error {
+//
+// PatchNetworkParams runs exactly once; its output is both the assigned
+// UserData11 and the planned projection for the Debug Mode advanced_change_*
+// lifecycle. The per-field lifecycle is emitted entirely under the caller's
+// saveMu lock (between the single patch and the assignment) so it cannot widen
+// the existing locking guarantees. A diagnostic read failure never rejects a
+// write that would otherwise succeed: before stays nil (or planned read fails)
+// and the plain assign path runs with no advanced_change_* records.
+func (a *App) setNetworkParamsLocked(action string, params core.NetworkParamValues) error {
 	if len(a.save.UserData11) == 0 {
 		return fmt.Errorf("save has no UserData11 (regulation)")
+	}
+
+	var before *core.NetworkParamValues
+	if a.journal.debugEnabled() {
+		before, _ = core.ReadNetworkParams(a.save.UserData11)
 	}
 
 	patched, err := core.PatchNetworkParams(a.save.UserData11, params)
 	if err != nil {
 		return fmt.Errorf("patch network params: %w", err)
 	}
+
+	if before != nil {
+		if planned, perr := core.ReadNetworkParams(patched); perr == nil {
+			return a.journalAdvancedNetworkLifecycle(action, *before, *planned, func() (core.NetworkParamValues, error) {
+				a.save.UserData11 = patched
+				actual, aerr := core.ReadNetworkParams(a.save.UserData11)
+				if aerr != nil {
+					return *planned, nil
+				}
+				return *actual, nil
+			})
+		}
+	}
+
 	a.save.UserData11 = patched
 	return nil
 }
