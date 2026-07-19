@@ -74,6 +74,20 @@ const (
 	toolsStageCompleted    = characterStageCompleted
 )
 
+// actionToolsBackupCurrentSave tags the operation lifecycle for BackupCurrentSave.
+// Closed and backend-owned — never derived from renderer input. The backup writes
+// an external file and does not mutate the in-memory save, so it emits ONLY the
+// operation lifecycle (requested/finished), never the per-field tools_change_*.
+const actionToolsBackupCurrentSave = "tools_backup_current_save"
+
+// Closed technical stages a BackupCurrentSave tools_operation_finished may report
+// on failure; success reuses the shared toolsStageCompleted. toolsStageNoActiveSave
+// is reused from the Steam ID stages. None of them carries a path, name or error.
+const (
+	toolsStageSourceMissing = "source_missing"
+	toolsStageCreateBackup  = "create_backup"
+)
+
 // journalToolsOperationRequested opens the operation lifecycle before any
 // validation runs. The only field is the closed action tag — never the input.
 func (a *App) journalToolsOperationRequested(action string) {
