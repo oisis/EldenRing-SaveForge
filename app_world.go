@@ -918,8 +918,7 @@ func (a *App) BulkSetCookbooksUnlocked(slotIndex int, cookbookIDs []uint32, unlo
 	return a.bulkSetCookbooksUnlockedLocked(slotIndex, cookbookIDs, unlocked)
 }
 
-// bulkSetCookbooksUnlockedLocked is the shared worker for SetCookbookUnlocked
-// and BulkSetCookbooksUnlocked.
+// bulkSetCookbooksUnlockedLocked is the bulk cookbook worker.
 //
 // Contract: caller MUST have validated `a.save != nil` and `slotIndex` in
 // range, and MUST hold exclusive access to slot[slotIndex]. In the upcoming
@@ -933,8 +932,10 @@ func (a *App) bulkSetCookbooksUnlockedLocked(slotIndex int, cookbookIDs []uint32
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
 
-	applyCookbookUnlock(slot, cookbookIDs, unlocked)
-	return nil
+	return a.journalUnlockMutation(actionGameItemsBulkSetCookbooks, slotIndex, slot, cookbookIDs, func(s *core.SaveSlot) error {
+		applyCookbookUnlock(s, cookbookIDs, unlocked)
+		return nil
+	})
 }
 
 // GetBellBearings returns all bell bearings with unlock state from the specified character slot
@@ -1246,12 +1247,21 @@ func (a *App) bulkSetBellBearingsLocked(slotIndex int, flagIDs []uint32, unlocke
 	if slot.EventFlagsOffset <= 0 || slot.EventFlagsOffset >= len(slot.Data) {
 		return fmt.Errorf("event flags offset not computed for slot %d", slotIndex)
 	}
+	return a.journalUnlockMutation(actionGameItemsBulkSetBellBearings, slotIndex, slot, flagIDs, func(s *core.SaveSlot) error {
+		applyBulkBellBearingUnlock(s, flagIDs, unlocked)
+		return nil
+	})
+}
+
+// applyBulkBellBearingUnlock preserves the bulk endpoint's best-effort
+// per-flag semantics. It is shared by the real write and the Debug Mode clone
+// so the planned lifecycle mirrors exactly the flags and items that land.
+func applyBulkBellBearingUnlock(slot *core.SaveSlot, flagIDs []uint32, unlocked bool) {
 	flags := slot.Data[slot.EventFlagsOffset:]
 	for _, id := range flagIDs {
 		_ = db.SetEventFlag(flags, id, unlocked)
 		syncBellBearingItem(slot, id, unlocked)
 	}
-	return nil
 }
 
 // GetMapProgress returns all map region flags with their current state
