@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.5] - 2026-07-19
+
+### feat(diagnostics): complete Debug Mode coverage
+
+Debug Mode now traces World, Advanced and Tools actions with the same
+privacy-safe operation lifecycle used by Character and Game Items. Coverage
+includes World progression changes, Network parameter updates, repair tools,
+backups, diagnostic export, save-manager actions, deploy operations and local
+save loading. Operation records use only closed action/status metadata, keeping
+target names, paths, commands, account data and error text out of support logs.
+
 ## [1.5.4] - 2026-07-19
 
 ### feat(diagnostics): trace Character and Game Items mutations in Debug Mode
