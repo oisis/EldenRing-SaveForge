@@ -51,6 +51,43 @@ const (
 	eventToolsChangeFinished = "tools_change_finished"
 )
 
+// Operation-level lifecycle event names bracketing a whole Tools endpoint call.
+// Unlike the per-field tools_change_* records these fire even when a request is
+// rejected before any field can change (no active save, unparseable input), so a
+// diagnostics reader always sees a requested/finished pair. Both are debug-only
+// and carry no input: requested has only the action, finished adds a closed
+// outcome and stage. A Steam ID value, the raw input string and any parser error
+// text are NEVER among their fields.
+const (
+	eventToolsOperationRequested = "tools_operation_requested"
+	eventToolsOperationFinished  = "tools_operation_finished"
+)
+
+// Closed technical stages a tools_operation_finished may report. completed reuses
+// the shared success stage; no_active_save and parse mark the two rejection points
+// before a mutation. The vocabulary is small, typed and value-free.
+const (
+	toolsStageNoActiveSave = "no_active_save"
+	toolsStageParse        = "parse"
+	toolsStageCompleted    = characterStageCompleted
+)
+
+// journalToolsOperationRequested opens the operation lifecycle before any
+// validation runs. The only field is the closed action tag — never the input.
+func (a *App) journalToolsOperationRequested(action string) {
+	a.journalDebug(eventToolsOperationRequested, "tools operation requested", field("action", action))
+}
+
+// journalToolsOperationFinished closes the operation lifecycle on every exit path.
+// outcome and stage come from the closed vocabularies above; no value or error
+// text is ever attached.
+func (a *App) journalToolsOperationFinished(action string, outcome characterChangeOutcome, stage string) {
+	a.journalDebug(eventToolsOperationFinished, "tools operation finished",
+		field("action", action),
+		field("outcome", string(outcome)),
+		field("stage", stage))
+}
+
 // steamIDState reduces a raw Steam ID to its journal-safe redacted representation:
 // "absent" for 0, "[redacted]" for any non-zero id. This is the single privacy
 // boundary for the value — the raw uint64 never leaves the planner/mapper.

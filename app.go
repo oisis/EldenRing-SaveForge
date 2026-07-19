@@ -1983,17 +1983,41 @@ func (a *App) GetSteamIDString() string {
 }
 
 // SetSteamIDFromString parses a decimal string and updates the SteamID.
+//
+// The whole call is bracketed by the debug-only tools_operation_* lifecycle so a
+// rejected attempt still leaves a requested/finished pair. A successful write also
+// emits the per-field tools_change_* before -> planned -> finished lifecycle. The
+// Steam ID is private account data: neither the raw input, the parsed id, its
+// length, nor the parser error text ever reaches the journal — the value is
+// reduced to a redacted literal by the Tools planner/mapper before it is recorded,
+// and rejection paths record only a closed stage.
 func (a *App) SetSteamIDFromString(s string) error {
+	a.journalToolsOperationRequested(actionToolsSetSteamID)
+
 	a.saveMu.Lock()
 	defer a.saveMu.Unlock()
 	if a.save == nil {
+		a.journalToolsOperationFinished(actionToolsSetSteamID, characterChangeError, toolsStageNoActiveSave)
 		return fmt.Errorf("no save loaded")
 	}
 	id, err := strconv.ParseUint(s, 10, 64)
 	if err != nil {
+		// Drop the parser error and the raw input entirely; only the closed parse
+		// stage is journalled, never a fragment of the value.
+		a.journalToolsOperationFinished(actionToolsSetSteamID, characterChangeError, toolsStageParse)
 		return fmt.Errorf("invalid SteamID: %w", err)
 	}
+
+	before := a.save.SteamID
+	plans := planToolsSteamIDChange(before, id)
+	records := toolsSteamIDPlannedRecords(plans)
+	a.journalToolsChangeBefore(actionToolsSetSteamID, records)
+	a.journalToolsChangePlanned(actionToolsSetSteamID, records)
+
 	a.save.SteamID = id
+
+	a.journalToolsChangeFinished(actionToolsSetSteamID, characterChangeSuccess, characterStageCompleted, toolsSteamIDFinishedRecords(plans, a.save.SteamID))
+	a.journalToolsOperationFinished(actionToolsSetSteamID, characterChangeSuccess, toolsStageCompleted)
 	return nil
 }
 
