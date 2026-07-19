@@ -53,18 +53,32 @@ func (a *App) GetDeployTargets() []deploy.Target {
 
 // SaveDeployTarget adds or updates a deploy target.
 func (a *App) SaveDeployTarget(t deploy.Target) error {
+	a.journalToolsOperationRequested(actionToolsSaveDeployTarget)
 	if a.deployStore == nil {
+		a.journalToolsOperationFinished(actionToolsSaveDeployTarget, characterChangeError, toolsStageConfiguration)
 		return fmt.Errorf("deploy not initialized")
 	}
-	return a.deployStore.Save(t)
+	if err := a.deployStore.Save(t); err != nil {
+		a.journalToolsOperationFinished(actionToolsSaveDeployTarget, characterChangeError, toolsStageSaveDeployTarget)
+		return err
+	}
+	a.journalToolsOperationFinished(actionToolsSaveDeployTarget, characterChangeSuccess, toolsStageCompleted)
+	return nil
 }
 
 // DeleteDeployTarget removes a deploy target by name.
 func (a *App) DeleteDeployTarget(name string) error {
+	a.journalToolsOperationRequested(actionToolsDeleteDeployTarget)
 	if a.deployStore == nil {
+		a.journalToolsOperationFinished(actionToolsDeleteDeployTarget, characterChangeError, toolsStageConfiguration)
 		return fmt.Errorf("deploy not initialized")
 	}
-	return a.deployStore.Delete(name)
+	if err := a.deployStore.Delete(name); err != nil {
+		a.journalToolsOperationFinished(actionToolsDeleteDeployTarget, characterChangeError, toolsStageDeleteDeployTarget)
+		return err
+	}
+	a.journalToolsOperationFinished(actionToolsDeleteDeployTarget, characterChangeSuccess, toolsStageCompleted)
+	return nil
 }
 
 // isLocalTarget returns true if the named target is configured as local.
@@ -78,21 +92,34 @@ func (a *App) isLocalTarget(name string) bool {
 
 // TestSSHConnection tests connectivity to a target (SSH or local path).
 func (a *App) TestSSHConnection(targetName string) (string, error) {
+	a.journalToolsOperationRequested(actionToolsTestDeployConnection)
 	if a.deployStore == nil {
+		a.journalToolsOperationFinished(actionToolsTestDeployConnection, characterChangeError, toolsStageConfiguration)
 		return "", fmt.Errorf("deploy not initialized")
 	}
+	var message string
+	var err error
 	if a.isLocalTarget(targetName) {
-		return a.deployLocal.TestConnection(targetName)
+		message, err = a.deployLocal.TestConnection(targetName)
+	} else {
+		message, err = a.deploySSH.TestConnection(targetName)
 	}
-	return a.deploySSH.TestConnection(targetName)
+	if err != nil {
+		a.journalToolsOperationFinished(actionToolsTestDeployConnection, characterChangeError, toolsStageTestConnection)
+		return "", err
+	}
+	a.journalToolsOperationFinished(actionToolsTestDeployConnection, characterChangeSuccess, toolsStageCompleted)
+	return message, nil
 }
 
 // DeploySave writes the current in-memory save to a temp file and uploads/copies it to a target.
 // Returns a human-readable success message with file size.
 func (a *App) DeploySave(targetName string) (string, error) {
+	a.journalToolsOperationRequested(actionToolsDeploySave)
 	a.journalLog(levelInfo, "deploy_save_requested", "save deploy requested")
 	if a.deployStore == nil {
 		a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "configuration"))
+		a.journalToolsOperationFinished(actionToolsDeploySave, characterChangeError, toolsStageConfiguration)
 		return "", fmt.Errorf("deploy not initialized")
 	}
 	// Brief saveMu.RLock just for the user-facing nil-check; writeTempSave
@@ -103,6 +130,7 @@ func (a *App) DeploySave(targetName string) (string, error) {
 	a.saveMu.RUnlock()
 	if noSave {
 		a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "no_active_save"))
+		a.journalToolsOperationFinished(actionToolsDeploySave, characterChangeError, toolsStageNoActiveSave)
 		return "", fmt.Errorf("no save loaded")
 	}
 
@@ -110,6 +138,7 @@ func (a *App) DeploySave(targetName string) (string, error) {
 	tmpPath, err := a.writeTempSave()
 	if err != nil {
 		a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "serialize"))
+		a.journalToolsOperationFinished(actionToolsDeploySave, characterChangeError, toolsStageSerialize)
 		return "", err
 	}
 	defer os.Remove(tmpPath)
@@ -122,33 +151,50 @@ func (a *App) DeploySave(targetName string) (string, error) {
 		transport = "local"
 		if err := a.deployLocal.UploadSave(targetName, tmpPath); err != nil {
 			a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "upload"), field("transport", transport))
+			a.journalToolsOperationFinished(actionToolsDeploySave, characterChangeError, toolsStageUpload)
 			return "", err
 		}
 	} else {
 		if err := a.deploySSH.UploadSave(targetName, tmpPath); err != nil {
 			a.journalLog(levelError, "deploy_save_failed", "save deploy failed", field("stage", "upload"), field("transport", transport))
+			a.journalToolsOperationFinished(actionToolsDeploySave, characterChangeError, toolsStageUpload)
 			return "", err
 		}
 	}
 
 	t, _ := a.deployStore.Get(targetName)
 	a.journalLog(levelInfo, "deploy_save_completed", "save deploy completed", field("transport", transport))
+	a.journalToolsOperationFinished(actionToolsDeploySave, characterChangeSuccess, toolsStageCompleted)
 	return fmt.Sprintf("Uploaded %.1f MB to %s", sizeMB, t.Name), nil
 }
 
 // DownloadRemoteSave downloads/copies a save file from a target and loads it.
 // The temp file is removed after loading into memory.
 func (a *App) DownloadRemoteSave(targetName string) (string, error) {
+	a.journalToolsOperationRequested(actionToolsDownloadRemoteSave)
+	platform, stage, err := a.downloadRemoteSave(targetName)
+	if err != nil {
+		a.journalToolsOperationFinished(actionToolsDownloadRemoteSave, characterChangeError, stage)
+		return "", err
+	}
+	a.journalToolsOperationFinished(actionToolsDownloadRemoteSave, characterChangeSuccess, toolsStageCompleted)
+	return platform, nil
+}
+
+// downloadRemoteSave performs the existing remote-load operation without a
+// Tools operation wrapper. CloseAndDownload reuses it so a combined action emits
+// one requested/finished pair rather than a misleading nested download pair.
+func (a *App) downloadRemoteSave(targetName string) (string, string, error) {
 	a.journalLog(levelInfo, "save_load_requested", "save load requested", field("origin", string(loadOriginRemoteDownload)))
 	if a.deployStore == nil {
 		a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "configuration"))
-		return "", fmt.Errorf("deploy not initialized")
+		return "", toolsStageConfiguration, fmt.Errorf("deploy not initialized")
 	}
 
 	tmpDir, err := os.MkdirTemp("", "er-save-download-")
 	if err != nil {
 		a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "temp_dir"))
-		return "", fmt.Errorf("cannot create temp dir: %w", err)
+		return "", toolsStageTempDir, fmt.Errorf("cannot create temp dir: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -157,53 +203,77 @@ func (a *App) DownloadRemoteSave(targetName string) (string, error) {
 	if a.isLocalTarget(targetName) {
 		if err := a.deployLocal.DownloadSave(targetName, localPath); err != nil {
 			a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "download"), field("transport", "local"))
-			return "", err
+			return "", toolsStageDownload, err
 		}
 	} else {
 		if err := a.deploySSH.DownloadSave(targetName, localPath); err != nil {
 			a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "download"), field("transport", "remote"))
-			return "", err
+			return "", toolsStageDownload, err
 		}
 	}
 
 	save, err := core.LoadSave(localPath)
 	if err != nil {
 		a.journalLog(levelError, "save_load_failed", "save load failed", field("origin", string(loadOriginRemoteDownload)), field("stage", "parse"))
-		return "", fmt.Errorf("downloaded file is not a valid save: %w", err)
+		return "", toolsStageParse, fmt.Errorf("downloaded file is not a valid save: %w", err)
 	}
 	a.journalLog(levelInfo, "save_load_parsed", "save load parsed", field("origin", string(loadOriginRemoteDownload)), field("platform", string(save.Platform)))
 	// Commit phase under exclusive saveMu — see SelectAndOpenSave.
 	a.commitLoadedSave(save, "", loadOriginRemoteDownload)
-	return string(save.Platform), nil
+	return string(save.Platform), toolsStageCompleted, nil
 }
 
 // LaunchRemoteGame starts the game on a target (SSH or local).
 func (a *App) LaunchRemoteGame(targetName string) (string, error) {
+	a.journalToolsOperationRequested(actionToolsLaunchRemoteGame)
 	if a.deployStore == nil {
+		a.journalToolsOperationFinished(actionToolsLaunchRemoteGame, characterChangeError, toolsStageConfiguration)
 		return "", fmt.Errorf("deploy not initialized")
 	}
+	var message string
+	var err error
 	if a.isLocalTarget(targetName) {
-		return a.deployLocal.LaunchGame(targetName)
+		message, err = a.deployLocal.LaunchGame(targetName)
+	} else {
+		message, err = a.deploySSH.LaunchGame(targetName)
 	}
-	return a.deploySSH.LaunchGame(targetName)
+	if err != nil {
+		a.journalToolsOperationFinished(actionToolsLaunchRemoteGame, characterChangeError, toolsStageLaunch)
+		return "", err
+	}
+	a.journalToolsOperationFinished(actionToolsLaunchRemoteGame, characterChangeSuccess, toolsStageCompleted)
+	return message, nil
 }
 
 // CloseRemoteGame stops the game on a target (SSH or local).
 func (a *App) CloseRemoteGame(targetName string) (string, error) {
+	a.journalToolsOperationRequested(actionToolsCloseRemoteGame)
 	if a.deployStore == nil {
+		a.journalToolsOperationFinished(actionToolsCloseRemoteGame, characterChangeError, toolsStageConfiguration)
 		return "", fmt.Errorf("deploy not initialized")
 	}
+	var message string
+	var err error
 	if a.isLocalTarget(targetName) {
-		return a.deployLocal.CloseGame(targetName)
+		message, err = a.deployLocal.CloseGame(targetName)
+	} else {
+		message, err = a.deploySSH.CloseGame(targetName)
 	}
-	return a.deploySSH.CloseGame(targetName)
+	if err != nil {
+		a.journalToolsOperationFinished(actionToolsCloseRemoteGame, characterChangeError, toolsStageClose)
+		return "", err
+	}
+	a.journalToolsOperationFinished(actionToolsCloseRemoteGame, characterChangeSuccess, toolsStageCompleted)
+	return message, nil
 }
 
 // DeployAndLaunch performs: write temp → upload → launch (no close).
 func (a *App) DeployAndLaunch(targetName string) error {
+	a.journalToolsOperationRequested(actionToolsDeployAndLaunch)
 	a.journalLog(levelInfo, "deploy_and_launch_requested", "save deploy and launch requested")
 	if a.deployStore == nil {
 		a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "configuration"))
+		a.journalToolsOperationFinished(actionToolsDeployAndLaunch, characterChangeError, toolsStageConfiguration)
 		return fmt.Errorf("deploy not initialized")
 	}
 	// Brief saveMu.RLock for the nil-check; writeTempSave takes its own
@@ -213,12 +283,14 @@ func (a *App) DeployAndLaunch(targetName string) error {
 	a.saveMu.RUnlock()
 	if noSave {
 		a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "no_active_save"))
+		a.journalToolsOperationFinished(actionToolsDeployAndLaunch, characterChangeError, toolsStageNoActiveSave)
 		return fmt.Errorf("no save loaded")
 	}
 
 	tmpPath, err := a.writeTempSave()
 	if err != nil {
 		a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "serialize"))
+		a.journalToolsOperationFinished(actionToolsDeployAndLaunch, characterChangeError, toolsStageSerialize)
 		return err
 	}
 	defer os.Remove(tmpPath)
@@ -229,11 +301,13 @@ func (a *App) DeployAndLaunch(targetName string) error {
 		transport = "local"
 		if err := a.deployLocal.UploadSave(targetName, tmpPath); err != nil {
 			a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "upload"), field("transport", transport))
+			a.journalToolsOperationFinished(actionToolsDeployAndLaunch, characterChangeError, toolsStageUpload)
 			return fmt.Errorf("upload failed: %w", err)
 		}
 	} else {
 		if err := a.deploySSH.UploadSave(targetName, tmpPath); err != nil {
 			a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "upload"), field("transport", transport))
+			a.journalToolsOperationFinished(actionToolsDeployAndLaunch, characterChangeError, toolsStageUpload)
 			return fmt.Errorf("upload failed: %w", err)
 		}
 	}
@@ -242,23 +316,28 @@ func (a *App) DeployAndLaunch(targetName string) error {
 	if a.isLocalTarget(targetName) {
 		if _, err := a.deployLocal.LaunchGame(targetName); err != nil {
 			a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "launch"), field("transport", transport))
+			a.journalToolsOperationFinished(actionToolsDeployAndLaunch, characterChangeError, toolsStageLaunch)
 			return fmt.Errorf("launch failed: %w", err)
 		}
 	} else {
 		if _, err := a.deploySSH.LaunchGame(targetName); err != nil {
 			a.journalLog(levelError, "deploy_and_launch_failed", "save deploy and launch failed", field("stage", "launch"), field("transport", transport))
+			a.journalToolsOperationFinished(actionToolsDeployAndLaunch, characterChangeError, toolsStageLaunch)
 			return fmt.Errorf("launch failed: %w", err)
 		}
 	}
 
 	a.journalLog(levelInfo, "deploy_and_launch_completed", "save deploy and launch completed", field("transport", transport))
+	a.journalToolsOperationFinished(actionToolsDeployAndLaunch, characterChangeSuccess, toolsStageCompleted)
 	return nil
 }
 
 // CloseAndDownload performs: close game → wait for save flush → download → load.
 // The temp file is removed after loading into memory.
 func (a *App) CloseAndDownload(targetName string) (string, error) {
+	a.journalToolsOperationRequested(actionToolsCloseAndDownload)
 	if a.deployStore == nil {
+		a.journalToolsOperationFinished(actionToolsCloseAndDownload, characterChangeError, toolsStageConfiguration)
 		return "", fmt.Errorf("deploy not initialized")
 	}
 
@@ -272,8 +351,16 @@ func (a *App) CloseAndDownload(targetName string) (string, error) {
 	// Wait for graceful shutdown and save file flush
 	time.Sleep(5 * time.Second)
 
-	// Download save
-	return a.DownloadRemoteSave(targetName)
+	// Download save. Use the internal driver so this combined operation owns the
+	// single Tools lifecycle pair; the existing save_load_* diagnostics remain
+	// emitted exactly once.
+	platform, stage, err := a.downloadRemoteSave(targetName)
+	if err != nil {
+		a.journalToolsOperationFinished(actionToolsCloseAndDownload, characterChangeError, stage)
+		return "", err
+	}
+	a.journalToolsOperationFinished(actionToolsCloseAndDownload, characterChangeSuccess, toolsStageCompleted)
+	return platform, nil
 }
 
 // writeTempSave serializes the current in-memory save to a temp file, preserving target platform.

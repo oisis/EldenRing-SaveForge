@@ -354,6 +354,35 @@ const (
 	toolsStageDownloadBackup     = "download_backup"
 )
 
+// Deploy and local-load actions operate on target configuration, external files
+// and processes. Their operation records intentionally contain only this closed
+// action/stage vocabulary: target names, hosts, users, paths, commands, returned
+// messages and underlying errors are never journalled.
+const (
+	actionToolsSaveDeployTarget     = "tools_save_deploy_target"
+	actionToolsDeleteDeployTarget   = "tools_delete_deploy_target"
+	actionToolsTestDeployConnection = "tools_test_deploy_connection"
+	actionToolsDeploySave           = "tools_deploy_save"
+	actionToolsDownloadRemoteSave   = "tools_download_remote_save"
+	actionToolsLaunchRemoteGame     = "tools_launch_remote_game"
+	actionToolsCloseRemoteGame      = "tools_close_remote_game"
+	actionToolsDeployAndLaunch      = "tools_deploy_and_launch"
+	actionToolsCloseAndDownload     = "tools_close_and_download"
+	actionToolsLoadSaveFromPath     = "tools_load_save_from_path"
+)
+
+const (
+	toolsStageSaveDeployTarget   = "save_deploy_target"
+	toolsStageDeleteDeployTarget = "delete_deploy_target"
+	toolsStageTestConnection     = "test_connection"
+	toolsStageSerialize          = "serialize"
+	toolsStageUpload             = "upload"
+	toolsStageDownload           = "download"
+	toolsStageLaunch             = "launch"
+	toolsStageClose              = "close"
+	toolsStageTempDir            = "temp_dir"
+)
+
 // repairApplyOperationResult maps a batch report to the closed operation outcome
 // and stage, shared by the finished field records and the tools_operation_finished
 // event so both agree. A failed target dominates (error/apply_repairs_loaded) even
