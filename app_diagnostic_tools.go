@@ -1,5 +1,7 @@
 package main
 
+import "github.com/oisis/EldenRing-SaveForge/backend/core"
+
 // Tools-tab diagnostics reuse the same before -> planned -> finished lifecycle as
 // Character, Game Items, World and Advanced, through the shared
 // journalChangeRecords loop, characterFieldChange type and change*Tail helpers in
@@ -162,4 +164,60 @@ func toolsSteamIDFinishedRecords(plans []toolsSteamIDPlan, actual uint64) []char
 		out[i] = characterFieldChange{Field: toolsFieldSteamID, Before: p.before, After: steamIDState(actual)}
 	}
 	return out
+}
+
+// actionToolsRepairDuplicateInventoryIndices tags every tools_change_* record
+// emitted for RepairDuplicateInventoryIndices. Closed and backend-owned — never
+// derived from renderer input.
+const actionToolsRepairDuplicateInventoryIndices = "tools_repair_duplicate_inventory_indices"
+
+// stageToolsRepairDuplicateInventoryIndices is the closed terminal stage a failed
+// duplicate-inventory-index repair reports on its finished records; a successful
+// repair reuses the shared toolsStageCompleted, so the finished stage stays a
+// small typed vocabulary.
+const stageToolsRepairDuplicateInventoryIndices = "repair_duplicate_inventory_indices"
+
+// planToolsInventoryRepair projects exactly the physical save changes the
+// duplicate-inventory-index repair makes, reusing the Game Items physical readers
+// and semantic GaMap/cursor/header readers without duplicating a scanner. It
+// covers, in the same stable order the Game Items lifecycle uses:
+//   - every changed inventory common/key row index, plus any other physically
+//     changed inventory/GaItem record (including a zeroed surplus Wondrous
+//     Physick row and its now-empty GaItem), via the shared direct scanner;
+//   - the held-inventory CommonItems count header, when a Physick removal
+//     rewrites it in place;
+//   - the GaMap value changes and GaItem allocation cursors, when they actually
+//     move.
+//
+// The direct scanner also reads storage rows, the storage counters and (through
+// the unused flag/storage-header planners, which this projection deliberately
+// omits) other families, but every field self-excludes when before == planned,
+// so the records this repair never touches — storage, event flags — never reach
+// the journal. Only physically changed fields are emitted.
+func planToolsInventoryRepair(before, planned *core.SaveSlot) gameItemMutationPlans {
+	return gameItemMutationPlans{
+		direct:      planGameItemsDirectRecords(before, planned, nil),
+		invHeader:   planGameItemsAddInventoryHeaderRecords(before, planned),
+		gaItemState: planGameItemsGaItemState(before, planned),
+	}
+}
+
+// journalToolsInventoryRepairBefore emits the before(all) then planned(all)
+// tools_change_* records for a duplicate-inventory-index repair. Unlike the
+// save-wide Steam ID lifecycle it carries the real character_index, because the
+// repair mutates one character's inventory. It routes through the same shared
+// journalChangeRecords loop and change tails as every other lifecycle, so a
+// diagnostics reader treats these records identically.
+func (a *App) journalToolsInventoryRepairBefore(charIdx int, plans gameItemMutationPlans) {
+	records := plans.records()
+	a.journalChangeRecords(eventToolsChangeBefore, "tools change before", actionToolsRepairDuplicateInventoryIndices, charIdx, records, nil)
+	a.journalChangeRecords(eventToolsChangePlanned, "tools change planned", actionToolsRepairDuplicateInventoryIndices, charIdx, records, changePlannedTail)
+}
+
+// journalToolsInventoryRepairFinished emits the finished(all) tools_change_*
+// records, re-reading each field from the real post-mutation slot so After
+// reflects what actually landed — on a mid-repair error, the real partially
+// changed state, not the planned projection or a snapshot.
+func (a *App) journalToolsInventoryRepairFinished(charIdx int, outcome characterChangeOutcome, stage string, plans gameItemMutationPlans, slot *core.SaveSlot) {
+	a.journalChangeRecords(eventToolsChangeFinished, "tools change finished", actionToolsRepairDuplicateInventoryIndices, charIdx, plans.finished(slot), changeFinishedTail(outcome, stage))
 }

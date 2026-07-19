@@ -2502,22 +2502,69 @@ func (a *App) repairDuplicateInventoryIndicesLocked(charIdx int) (report core.In
 	}
 
 	a.pushUndoLocked(charIdx)
+
+	// Debug Mode projects the exact physical save changes this repair will make
+	// by replaying the identical repair sequence on a throwaway clone, emitting
+	// all before then all planned records before the real slot is touched. With
+	// Debug off no clone is made and no tools_change_* record is emitted; the real
+	// writer below still runs exactly once either way. The projection is Tools-
+	// owned but reuses the Game Items physical/semantic readers, so it never
+	// re-implements a scanner.
+	debug := a.journal.debugEnabled()
+	var plans gameItemMutationPlans
+	if debug {
+		clone := core.CloneSlot(slot)
+		repairInventoryIndicesSequence(clone) // diagnostic replay; report/err intentionally ignored
+		plans = planToolsInventoryRepair(slot, clone)
+		a.journalToolsInventoryRepairBefore(charIdx, plans)
+	}
+
+	report, attemptedReassign, attemptedPhysick, err = repairInventoryIndicesSequence(slot)
+
+	// The finished phase reads the real slot exactly once after the mutation, so
+	// on a mid-repair error it reports the real partially-changed state (outcome
+	// error, stage repair_duplicate_inventory_indices), never the clone or a
+	// snapshot. A no-op or a pre-mutation error never reaches this point, so those
+	// cases emit no field records — the high-level events remain their only status.
+	if debug {
+		outcome, stage := characterChangeSuccess, toolsStageCompleted
+		if err != nil {
+			outcome, stage = characterChangeError, stageToolsRepairDuplicateInventoryIndices
+		}
+		a.journalToolsInventoryRepairFinished(charIdx, outcome, stage, plans, slot)
+	}
+
+	return report, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, err
+}
+
+// repairInventoryIndicesSequence runs the duplicate-inventory-index repair in its
+// established order on the given slot — reassign duplicate inventory indices,
+// remove duplicate Wondrous Physick records, then re-scan both as
+// post-validation — and returns the report, which core repair steps were begun
+// and any error. It preserves the exact endpoint contract: an empty report on a
+// core repair error, a populated report on the post-validation-remains errors,
+// the same error texts, and attemptedReassign/attemptedPhysick flipping only when
+// the corresponding core call is reached (the second only after the first
+// returned without error). It is slot-only so Debug Mode can replay the identical
+// sequence on a clone for the planned projection and on the real slot for the
+// actual mutation, keeping one source of the repair semantics.
+func repairInventoryIndicesSequence(slot *core.SaveSlot) (report core.InventoryIndexRepairReport, attemptedReassign, attemptedPhysick bool, err error) {
 	attemptedReassign = true
 	report, err = core.RepairDuplicateInventoryIndices(slot)
 	if err != nil {
-		return core.InventoryIndexRepairReport{}, dupInv, dupPhysick, attemptedReassign, false, err
+		return core.InventoryIndexRepairReport{}, attemptedReassign, false, err
 	}
 	attemptedPhysick = true
 	if _, err = core.RepairDuplicateWondrousPhysick(slot); err != nil {
-		return core.InventoryIndexRepairReport{}, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, err
+		return core.InventoryIndexRepairReport{}, attemptedReassign, attemptedPhysick, err
 	}
 	if post := core.ScanDuplicateInventoryIndices(slot); len(post) > 0 {
-		return report, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d duplicate(s) remain after repair", len(post))
+		return report, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d duplicate(s) remain after repair", len(post))
 	}
 	if post := core.ScanDuplicateWondrousPhysick(slot); len(post) > 0 {
-		return report, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d Flask of Wondrous Physick record(s) remain after repair", len(post))
+		return report, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d Flask of Wondrous Physick record(s) remain after repair", len(post))
 	}
-	return report, dupInv, dupPhysick, attemptedReassign, attemptedPhysick, nil
+	return report, attemptedReassign, attemptedPhysick, nil
 }
 
 // Dummy method to force Wails to export types
