@@ -102,6 +102,29 @@ func crimsonCrystalTearBundleState(slot *core.SaveSlot) (crimsonCrystalTearBundl
 	}
 }
 
+// validateCrimsonCrystalTearBundleQuantity checks the whole-request inv/
+// storage quantities against the confirmed T090 contract before any mutation
+// runs: the bundle is a single native Inventory pickup at the Third Church
+// basin — it has no Storage variant and no lab evidence for any quantity
+// other than exactly one. addItemsToCharacter has no per-item quantity (inv/
+// storageQty apply to the whole request), so a Storage-only request, a
+// combined Inventory+Storage request, or an unsupported inventory count must
+// fail closed here rather than have the caller silently redirect the bundle's
+// container or clamp its quantity.
+func validateCrimsonCrystalTearBundleQuantity(invQty, storageQty int) error {
+	if storageQty != 0 {
+		return fmt.Errorf(
+			"Crimson Crystal Tear / Flask of Wondrous Physick bundle is Inventory-only (T090 confirmed native pickup); "+
+				"requested storage quantity %d is not supported", storageQty)
+	}
+	if invQty != 1 && invQty != -1 {
+		return fmt.Errorf(
+			"Crimson Crystal Tear / Flask of Wondrous Physick bundle only supports a single native pickup "+
+				"(inventory quantity 1, or -1 for game max); requested inventory quantity %d is not supported", invQty)
+	}
+	return nil
+}
+
 // appendCrimsonCrystalTearBundleItems appends the three confirmed T090
 // records to items. It deliberately bypasses addItemsToCharacter's generic
 // per-item Physick handling (the isPhysick id-rewrite, which would otherwise

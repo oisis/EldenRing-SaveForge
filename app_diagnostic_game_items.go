@@ -730,19 +730,15 @@ func readTutorialMembership(slot *core.SaveSlot, tutorialID uint32) string {
 func planGameItemsAddTutorialRecords(before, planned *core.SaveSlot, plan itemAddMutationPlan) []gameItemSideEffectPlan {
 	var plans []gameItemSideEffectPlan
 	seen := make(map[string]bool)
-	for _, it := range plan.items {
-		tutorialID, ok := data.AboutTutorialID[it.baseID]
-		if !ok {
-			continue
-		}
+	addTutorialPlan := func(tutorialID uint32) {
 		field := fmt.Sprintf("tutorial_id_%d", tutorialID)
 		if seen[field] {
-			continue
+			return
 		}
 		b := readTutorialMembership(before, tutorialID)
 		p := readTutorialMembership(planned, tutorialID)
 		if b == p {
-			continue
+			return
 		}
 		seen[field] = true
 		tID := tutorialID
@@ -752,6 +748,14 @@ func planGameItemsAddTutorialRecords(before, planned *core.SaveSlot, plan itemAd
 			planned: p,
 			read:    func(s *core.SaveSlot) string { return readTutorialMembership(s, tID) },
 		})
+	}
+	for _, it := range plan.items {
+		if tutorialID, ok := data.AboutTutorialID[it.baseID]; ok {
+			addTutorialPlan(tutorialID)
+		}
+	}
+	for _, tutorialID := range plan.requiredTutorialIDs {
+		addTutorialPlan(tutorialID)
 	}
 	return plans
 }

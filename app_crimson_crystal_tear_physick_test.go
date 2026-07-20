@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
@@ -137,6 +138,108 @@ func TestAddItemsToCharacter_CrimsonCrystalTearBundlePartialStateErrors(t *testi
 	usageAfter := core.CountSlotUsage(slot)
 	if usageAfter != usageBefore {
 		t.Errorf("slot usage changed despite the refused add: before=%+v after=%+v", usageBefore, usageAfter)
+	}
+}
+
+// TestAddItemsToCharacter_CrimsonCrystalTearBundleRejectsStorageOnly proves
+// the bundle is Inventory-only (T090 confirmed native pickup): a Storage-only
+// request must return a clear error and mutate nothing, never silently
+// redirect the bundle into Storage.
+func TestAddItemsToCharacter_CrimsonCrystalTearBundleRejectsStorageOnly(t *testing.T) {
+	app := gaItemAddApp(t, false)
+	withContainerEventFlags(app)
+	slot := &app.save.Slots[0]
+	before := append([]byte{}, slot.Data...)
+
+	_, err := app.AddItemsToCharacter(0, []uint32{crimsonCrystalTearPickerID}, 0, 0, 0, 0, 0, 1)
+	if err == nil {
+		t.Fatal("AddItemsToCharacter succeeded for a Storage-only bundle request, want a clear error")
+	}
+
+	if !bytes.Equal(before, slot.Data) {
+		t.Error("slot bytes changed despite the refused Storage-only add")
+	}
+}
+
+// TestAddItemsToCharacter_CrimsonCrystalTearBundleRejectsInventoryAndStorage
+// proves a combined Inventory+Storage request is refused: the bundle has no
+// lab evidence for a split allocation.
+func TestAddItemsToCharacter_CrimsonCrystalTearBundleRejectsInventoryAndStorage(t *testing.T) {
+	app := gaItemAddApp(t, false)
+	withContainerEventFlags(app)
+	slot := &app.save.Slots[0]
+	before := append([]byte{}, slot.Data...)
+
+	_, err := app.AddItemsToCharacter(0, []uint32{crimsonCrystalTearPickerID}, 0, 0, 0, 0, 1, 1)
+	if err == nil {
+		t.Fatal("AddItemsToCharacter succeeded for an Inventory+Storage bundle request, want a clear error")
+	}
+
+	if !bytes.Equal(before, slot.Data) {
+		t.Error("slot bytes changed despite the refused Inventory+Storage add")
+	}
+}
+
+// TestAddItemsToCharacter_CrimsonCrystalTearBundleRejectsUnsupportedQuantity
+// proves an inventory quantity other than the single confirmed native pickup
+// (1, or -1 for game max) is refused rather than silently clamped.
+func TestAddItemsToCharacter_CrimsonCrystalTearBundleRejectsUnsupportedQuantity(t *testing.T) {
+	app := gaItemAddApp(t, false)
+	withContainerEventFlags(app)
+	slot := &app.save.Slots[0]
+	before := append([]byte{}, slot.Data...)
+
+	_, err := app.AddItemsToCharacter(0, []uint32{crimsonCrystalTearPickerID}, 0, 0, 0, 0, 2, 0)
+	if err == nil {
+		t.Fatal("AddItemsToCharacter succeeded for an unsupported bundle quantity, want a clear error")
+	}
+
+	if !bytes.Equal(before, slot.Data) {
+		t.Error("slot bytes changed despite the refused unsupported-quantity add")
+	}
+}
+
+// TestAddItemsToCharacter_CrimsonCrystalTearBundleFullTutorialDataRollsBack
+// proves the bundle is transactional (T090): when TutorialData 1590 cannot be
+// appended (list full), the whole bundle must roll back — none of the three
+// confirmed records may be left behind without the tutorial entry. The slot
+// must come back byte-identical to its pre-add state.
+func TestAddItemsToCharacter_CrimsonCrystalTearBundleFullTutorialDataRollsBack(t *testing.T) {
+	app := gaItemAddApp(t, false)
+	withContainerEventFlags(app)
+	slot := &app.save.Slots[0]
+	// size=8 (maxFromSize=1) with one existing id already fills the list:
+	// appending a second id needs used=12 > size=8.
+	writeTutorialData(t, app, 8, 999)
+	before := append([]byte{}, slot.Data...)
+
+	_, err := app.AddItemsToCharacter(0, []uint32{crimsonCrystalTearPickerID}, 0, 0, 0, 0, 1, 0)
+	if err == nil {
+		t.Fatal("AddItemsToCharacter succeeded despite a full TutorialData list, want a clear rollback error")
+	}
+
+	if !bytes.Equal(before, slot.Data) {
+		t.Error("slot bytes changed despite the rolled-back add (bundle must be transactional)")
+	}
+
+	variantHandle := stackableHandle(crimsonCrystalTearVariantID)
+	if hasInventoryHandle(slot.Inventory.KeyItems, variantHandle) {
+		t.Error("Crimson Crystal Tear variant leaked into KeyItems despite rollback")
+	}
+	filledHandle := stackableHandle(db.ItemFlaskWondrousPhysickFilled)
+	if hasInventoryHandle(slot.Inventory.CommonItems, filledHandle) {
+		t.Error("filled Flask of Wondrous Physick leaked into CommonItems despite rollback")
+	}
+	infoHandle := stackableHandle(aboutWondrousPhysickInfoItemID)
+	if hasInventoryHandle(slot.Inventory.CommonItems, infoHandle) {
+		t.Error("About Flask of Wondrous Physick Info Item leaked into CommonItems despite rollback")
+	}
+	hasTutorial, tErr := core.HasTutorialID(slot, crimsonCrystalTearBundleTutorialID)
+	if tErr != nil {
+		t.Fatalf("HasTutorialID: %v", tErr)
+	}
+	if hasTutorial {
+		t.Error("TutorialData 1590 present despite rollback")
 	}
 }
 

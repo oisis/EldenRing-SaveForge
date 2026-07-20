@@ -32,6 +32,13 @@ type itemAddMutationPlan struct {
 	usedContainers      map[uint32]bool
 	storageContainers   map[uint32]bool
 	existingByContainer map[uint32]int
+	// requiredTutorialIDs are TutorialData IDs that must be appended as part
+	// of this same mutation, unlike the best-effort data.AboutTutorialID
+	// lookup below: a failure here (e.g. a full TutorialData list) rolls
+	// back the whole plan instead of only warning. Used by bundles (T090
+	// Crimson Crystal Tear) whose confirmed native contract has no partial
+	// state — the tutorial entry is not optional cosmetic polish for them.
+	requiredTutorialIDs []uint32
 }
 
 // applyItemAddMutationPlan performs the batch add, in-place key-item stack
@@ -116,6 +123,16 @@ func applyItemAddMutationPlan(slot *core.SaveSlot, plan itemAddMutationPlan, war
 					}
 				}
 			}
+		}
+	}
+
+	// REQUIRED TUTORIAL IDS: unlike the best-effort data.AboutTutorialID loop
+	// above, a failure here (e.g. a full TutorialData list) is fatal — it
+	// rolls back the entire plan via the caller's snapshot restore, so a
+	// bundle's confirmed native contract is never left partially written.
+	for _, tutorialID := range plan.requiredTutorialIDs {
+		if err := core.AppendTutorialID(slot, tutorialID); err != nil {
+			return fmt.Errorf("rollback after required tutorial ID %d: %w", tutorialID, err)
 		}
 	}
 

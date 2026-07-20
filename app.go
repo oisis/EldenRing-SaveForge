@@ -851,6 +851,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		if id != crimsonCrystalTearPickerID {
 			continue
 		}
+		if err := validateCrimsonCrystalTearBundleQuantity(invQty, storageQty); err != nil {
+			return result, err
+		}
 		filtered := make([]uint32, 0, len(itemIDs)-1)
 		for _, other := range itemIDs {
 			if other != crimsonCrystalTearPickerID {
@@ -1106,6 +1109,14 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			keyItemsTargetQty: item.keyTargetQty,
 		})
 	}
+	if bundleCreate {
+		for _, bundleItem := range appendCrimsonCrystalTearBundleItems(nil) {
+			diagnosticItems = append(diagnosticItems, diagnosticAddedItem{
+				id:           bundleItem.ItemID,
+				inventoryQty: bundleItem.InvQty,
+			})
+		}
+	}
 	actualItems = diagnosticAddedItemList(diagnosticItems)
 	containersUpdated = diagnosticContainerList(usedContainers)
 
@@ -1190,6 +1201,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		storageContainers:   storageContainers,
 		existingByContainer: existingByContainer,
 	}
+	if bundleCreate {
+		plan.requiredTutorialIDs = append(plan.requiredTutorialIDs, crimsonCrystalTearBundleTutorialID)
+	}
 
 	// DIAGNOSTICS: apply the identical plan to a clone and capture every changed
 	// direct core record. before values come from the still-unmutated real slot,
@@ -1261,17 +1275,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		finished = append(finished, gameItemSideEffectFinishedRecords(giContainerPlans, slot)...)
 		finished = append(finished, gameItemSideEffectFinishedRecords(giStorageHeaderPlans, slot)...)
 		a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeSuccess, characterStageCompleted, finished)
-	}
-
-	// Crimson Crystal Tear / Physick bundle TutorialData (T090): best-effort,
-	// matching how every other TutorialData append in this pipeline is
-	// treated (applyItemAddMutationPlan's AboutTutorialID loop) — a full
-	// TutorialData list warns rather than rolling back an otherwise-successful
-	// add of the three confirmed inventory records.
-	if bundleCreate {
-		if err := core.AppendTutorialID(slot, crimsonCrystalTearBundleTutorialID); err != nil {
-			runtime.LogWarningf(a.ctx, "Crimson Crystal Tear bundle tutorial ID: %v", err)
-		}
 	}
 
 	// SUCCESS: compute final capacity and return.
