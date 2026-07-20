@@ -88,17 +88,22 @@ func TestBinaryAddAndReload(t *testing.T) {
 		t.Errorf("common_item_count: got %d, want %d", countAfterBin, countBefore+1)
 	}
 
-	// Verify NextAcqSortId incremented
-	if acqSortIdAfterBin != acqSortIdBefore+1 {
-		t.Errorf("NextAcqSortId: got %d, want %d", acqSortIdAfterBin, acqSortIdBefore+1)
+	// NextAcquisitionSortId is a high-water MARK, not the index handed to the new
+	// record: the record gets mark+1 (T050/T210), and the counter then advances to
+	// mark+2. nextAcquisitionWriteIndex parity-stabilizes the mark first.
+	acqMark := nextAcquisitionWriteIndex(acqSortIdBefore)
+	acqIdxUsed := acqMark + 1 // the value written to the new record
+	if acqSortIdAfterBin != acqIdxUsed+1 {
+		t.Errorf("NextAcqSortId: got %d, want %d", acqSortIdAfterBin, acqIdxUsed+1)
 	}
 
-	// NextEquipIndex is a separate game-owned counter, not an acquisition ID.
-	// Any write by the editor is unsafe, even when the new item index is higher.
-	acqIdxUsed := acqSortIdBefore // the value written to the new record
-	if nextEquipIdxAfterBin != nextEquipIdxBefore {
-		t.Errorf("NextEquipIndex changed unexpectedly: %d → %d (new acquisition index=%d)",
-			nextEquipIdxBefore, nextEquipIdxAfterBin, acqIdxUsed)
+	// T050/T210: a genuinely new Inventory.CommonItems record advances
+	// NextEquipIndex by exactly one — a local per-insert step, not a jump to
+	// match the new item's own acquisition index (that would reintroduce
+	// CE-108255-1).
+	if nextEquipIdxAfterBin != nextEquipIdxBefore+1 {
+		t.Errorf("NextEquipIndex: got %d, want %d (new acquisition index=%d)",
+			nextEquipIdxAfterBin, nextEquipIdxBefore+1, acqIdxUsed)
 	}
 
 	// Find the new item in binary
@@ -117,9 +122,9 @@ func TestBinaryAddAndReload(t *testing.T) {
 				i, off, h, qty, idx)
 			newItemFound = true
 			newItemOff = off
-			// Verify index == acqSortIdBefore (the value used, not post-increment)
-			if idx != acqSortIdBefore {
-				t.Errorf("item Index: got %d, want %d (NextAcqSortId before add)", idx, acqSortIdBefore)
+			// Verify index == acqIdxUsed (the value used, not post-increment)
+			if idx != acqIdxUsed {
+				t.Errorf("item Index: got %d, want %d (mark+1 before add)", idx, acqIdxUsed)
 			}
 			// Verify slot number <= countAfterBin-1 (game reads only countAfterBin entries)
 			if uint32(i) >= countAfterBin {
@@ -185,10 +190,10 @@ func TestBinaryAddAndReload(t *testing.T) {
 	}
 	t.Logf("Existing item indices: min=%d max=%d (NextEquipIdx=%d)",
 		minExisting, maxExisting, reloaded.Inventory.NextEquipIndex)
-	t.Logf("New item index: %d", acqSortIdBefore)
+	t.Logf("New item index: %d", acqIdxUsed)
 	t.Logf("Summary: new item index %s NextEquipIndex(%d)",
 		func() string {
-			if acqSortIdBefore >= reloaded.Inventory.NextEquipIndex {
+			if acqIdxUsed >= reloaded.Inventory.NextEquipIndex {
 				return ">="
 			}
 			return "<"

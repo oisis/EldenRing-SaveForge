@@ -82,9 +82,14 @@ func buildStorageFixture(t *testing.T, nextEquip, nextAcq uint32) *SaveSlot {
 	return slot
 }
 
-// TestNextEquipIndex_InvInsert verifies that inserting an inventory record
-// advances only the acquisition counter. NextEquipIndex is game-owned and must
-// remain byte-for-byte unchanged even when it is below the new acquisition ID.
+// TestNextEquipIndex_InvInsert verifies that inserting a genuinely NEW
+// Inventory.CommonItems record advances NextEquipIndex by exactly one — T050/T210
+// native evidence (Throwing Dagger add: NextEquipIndex 433 -> 434) — while
+// NextAcquisitionSortId advances past the newly assigned Index. This does not
+// reintroduce the CE-108255-1 global reconcile (see
+// TestNextEquipIndex_MapInventoryNoGlobalReconcile below): the +1 here is a
+// local per-insert step, never a jump to match NextAcquisitionSortId or the
+// item's own Index.
 func TestNextEquipIndex_InvInsert(t *testing.T) {
 	// Simulate genuine PC save: NextEquipIndex=500 well below NextAcquisitionSortId=1000.
 	items := make([]InventoryItem, 10)
@@ -99,7 +104,7 @@ func TestNextEquipIndex_InvInsert(t *testing.T) {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
-	const wantEquip = uint32(500)
+	const wantEquip = uint32(501)
 	if slot.Inventory.NextEquipIndex != wantEquip {
 		t.Errorf("struct NextEquipIndex: got %d, want %d", slot.Inventory.NextEquipIndex, wantEquip)
 	}
@@ -107,8 +112,12 @@ func TestNextEquipIndex_InvInsert(t *testing.T) {
 	if rawEquip != wantEquip {
 		t.Errorf("binary NextEquipIndex: got %d, want %d", rawEquip, wantEquip)
 	}
-	if slot.Inventory.NextAcquisitionSortId != acqBefore+1 {
-		t.Errorf("NextAcquisitionSortId: got %d, want %d", slot.Inventory.NextAcquisitionSortId, acqBefore+1)
+	// NextAcquisitionSortId is a high-water MARK: the new record gets mark+1,
+	// then the counter advances to mark+2 (T050/T210). acqBefore=1000 is already
+	// an even, above-reserved mark, so mark==acqBefore here.
+	wantAcq := acqBefore + 2
+	if slot.Inventory.NextAcquisitionSortId != wantAcq {
+		t.Errorf("NextAcquisitionSortId: got %d, want %d", slot.Inventory.NextAcquisitionSortId, wantAcq)
 	}
 }
 

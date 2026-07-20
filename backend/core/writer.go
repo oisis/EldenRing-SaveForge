@@ -1009,10 +1009,14 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 			return io.ErrShortBuffer // All slots occupied
 		}
 
-		// Elden Ring uses Index >> 1 as its acquisition-order key. Allocate a
-		// fresh even value so consecutive writes advance by two and cannot share
-		// a game-side sort bucket.
-		acqIdx := nextAcquisitionWriteIndex(slot.Inventory.NextAcquisitionSortId)
+		// Elden Ring uses Index >> 1 as its acquisition-order key, and
+		// NextAcquisitionSortId is a high-water MARK, not the index to assign:
+		// the new record's Index is one past the (parity-stabilized) mark
+		// (T050/T210 native evidence: mark 968 -> new record Index 969), which
+		// keeps every mark even so consecutive writes still land in distinct
+		// game-side sort buckets.
+		mark := nextAcquisitionWriteIndex(slot.Inventory.NextAcquisitionSortId)
+		acqIdx := mark + 1
 
 		(*items)[emptyIdx] = InventoryItem{GaItemHandle: handle, Quantity: qty, Index: acqIdx}
 		off := startOffset + emptyIdx*InvRecordLen
@@ -1023,12 +1027,20 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], acqIdx)
 
-		// NextEquipIndex is a separate game-owned counter. Acquisition order uses
-		// NextAcquisitionSortId, so inserting a record must never synchronize or
-		// advance NextEquipIndex (doing so causes an in-game load crash).
 		slot.Inventory.NextAcquisitionSortId = acqIdx + 1
 		if slot.Inventory.nextAcqSortIdOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
+		}
+
+		// A genuinely new Inventory.CommonItems record advances NextEquipIndex by
+		// exactly one (T050/T210 native evidence: 433 -> 434 on the same Throwing
+		// Dagger add). This is a local, per-insert step scoped to this new-record
+		// branch — not the global load-time reconcile that forced NextEquipIndex up
+		// to NextAcquisitionSortId and caused CE-108255-1 — and it must never set
+		// NextEquipIndex to the item's own Index.
+		slot.Inventory.NextEquipIndex++
+		if slot.Inventory.nextEquipIndexOff > 0 {
+			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
 		}
 
 		// Increment common_item_count header at invStart-4.
@@ -1053,8 +1065,9 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 // test fixture may leave that slice short or nil even though the physical
 // bytes at keyStart are correctly sized and zeroed. Shares
 // slot.Inventory.NextAcquisitionSortId with CommonItems (T070 confirms a
-// KeyItems add advances the identical counter a CommonItems add does) and
-// never touches NextEquipIndex, matching addToInventory. There is no
+// KeyItems add advances the identical counter a CommonItems add does), but
+// leaves NextEquipIndex unchanged: the CommonItems local +1 contract is not
+// evidence for KeyItems. There is no
 // isStorage variant: no confirmed-native family here has evidence of a
 // KeyItems-equivalent Storage placement, so StorageQty for these items keeps
 // going through addToInventory's ordinary Storage.CommonItems path.

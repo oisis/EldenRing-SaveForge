@@ -144,8 +144,8 @@ func TestGameItemsAddLifecycleSuccess(t *testing.T) {
 		"inventory_common_row_0_handle":      "0xB000012C",
 		"inventory_common_row_0_item_id":     "0x4000012C",
 		"inventory_common_row_0_quantity":    "2",
-		"inventory_common_row_0_index":       "1000",
-		"inventory_next_acquisition_sort_id": "1003",
+		"inventory_common_row_0_index":       "1001",
+		"inventory_next_acquisition_sort_id": "1004",
 	}
 	for field, want := range wantPlanned {
 		if got := lc.planned[field]; got != want {

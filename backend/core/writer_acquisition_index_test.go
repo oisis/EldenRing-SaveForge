@@ -55,11 +55,18 @@ func TestAddToInventory_MassBatchesUseDistinctAcquisitionBuckets(t *testing.T) {
 
 			assertDistinctAcquisitionBuckets(t, tc.items(tc.slot))
 			if tc.isStorage {
+				// Storage.NextEquipIndex is untouched by inserts — out of scope for T210.
 				if tc.slot.Storage.NextEquipIndex != preNextEquip {
 					t.Fatalf("NextEquipIndex changed: got %d, want preserved %d", tc.slot.Storage.NextEquipIndex, preNextEquip)
 				}
-			} else if tc.slot.Inventory.NextEquipIndex != preNextEquip {
-				t.Fatalf("NextEquipIndex changed: got %d, want preserved %d", tc.slot.Inventory.NextEquipIndex, preNextEquip)
+			} else {
+				// T050/T210: each new Inventory.CommonItems record advances NextEquipIndex
+				// by exactly one, so a batch of N new records advances it by exactly N.
+				wantEquip := preNextEquip + uint32(massAddBatchSize*massAddBatchCount)
+				if tc.slot.Inventory.NextEquipIndex != wantEquip {
+					t.Fatalf("NextEquipIndex: got %d, want %d (preserved %d + %d new records)",
+						tc.slot.Inventory.NextEquipIndex, wantEquip, preNextEquip, massAddBatchSize*massAddBatchCount)
+				}
 			}
 		})
 	}
