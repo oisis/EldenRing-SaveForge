@@ -66,8 +66,8 @@ type GaItem struct {
 type GaItemFull struct {
 	Handle          uint32
 	ItemID          uint32
-	Unk2            int32  // weapon/armor: default -1 (0xFFFFFFFF)
-	Unk3            int32  // weapon/armor: default -1 (0xFFFFFFFF)
+	Unk2            int32  // weapon/armor (incl. arrows/bolts): native default 0 (T020, T063/T211)
+	Unk3            int32  // weapon/armor (incl. arrows/bolts): native default 0 (T020, T063/T211)
 	AoWGaItemHandle uint32 // weapon only: NoCustomAoWHandle when no AoW attached (see IsNoCustomAoWHandle for compat)
 	Unk5            uint8  // weapon only: default 0
 }

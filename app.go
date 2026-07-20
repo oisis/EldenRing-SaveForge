@@ -837,6 +837,43 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			charIdx, len(physickDupes))
 	}
 
+	// CRIMSON CRYSTAL TEAR / PHYSICK BUNDLE (T090): the Database picker can
+	// only ever request 0x40002AFB (see crimsonCrystalTearPickerID's doc).
+	// Intercept it before the generic per-item pipeline sees it — that
+	// pipeline's isPhysick id-rewrite (below) would force any Wondrous
+	// Physick ID down to the empty variant, which is wrong for this bundle's
+	// confirmed-native filled variant. bundleCreate items are appended
+	// directly to capacityItems further down, so they share the exact same
+	// atomic capacity check and batch write as the rest of the request.
+	bundleCreate := false
+	bundleAlreadyComplete := false
+	for _, id := range itemIDs {
+		if id != crimsonCrystalTearPickerID {
+			continue
+		}
+		filtered := make([]uint32, 0, len(itemIDs)-1)
+		for _, other := range itemIDs {
+			if other != crimsonCrystalTearPickerID {
+				filtered = append(filtered, other)
+			}
+		}
+		itemIDs = filtered
+		for _, other := range itemIDs {
+			if db.IsWondrousPhysick(other) {
+				return result, fmt.Errorf(
+					"cannot add Crimson Crystal Tear and Flask of Wondrous Physick in the same request: " +
+						"the Crystal Tear pick already creates its own confirmed Physick bundle record (T090)")
+			}
+		}
+		action, bundleErr := crimsonCrystalTearBundleState(slot)
+		if bundleErr != nil {
+			return result, bundleErr
+		}
+		bundleCreate = action == crimsonBundleCreate
+		bundleAlreadyComplete = action == crimsonBundleAlreadyComplete
+		break
+	}
+
 	// Build maps from current inventory/storage state:
 	// - existingItemQty: per-item stack qty in inventory (used to compute SET delta)
 	// - existingByContainer: total pot/aromatic units per container
@@ -948,6 +985,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	var prepared []preparedItem
 	var trimmed []SkippedAdd
 	var skippedExisting []SkippedAdd
+	if bundleAlreadyComplete {
+		skippedExisting = append(skippedExisting, SkippedAdd{ItemID: crimsonCrystalTearPickerID})
+	}
 
 	for _, id := range sortedIDs {
 		isPhysick := db.IsWondrousPhysick(id)
@@ -1081,6 +1121,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			StorageQty:     p.actualStorage,
 			ForceStackable: p.forceStackable,
 		})
+	}
+	if bundleCreate {
+		capacityItems = appendCrimsonCrystalTearBundleItems(capacityItems)
 	}
 	// In-place KeyItems stack bumps (issue 7) do not consume new slots, so they
 	// are work even when nothing routes through the batch adder.
@@ -1220,6 +1263,17 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeSuccess, characterStageCompleted, finished)
 	}
 
+	// Crimson Crystal Tear / Physick bundle TutorialData (T090): best-effort,
+	// matching how every other TutorialData append in this pipeline is
+	// treated (applyItemAddMutationPlan's AboutTutorialID loop) — a full
+	// TutorialData list warns rather than rolling back an otherwise-successful
+	// add of the three confirmed inventory records.
+	if bundleCreate {
+		if err := core.AppendTutorialID(slot, crimsonCrystalTearBundleTutorialID); err != nil {
+			runtime.LogWarningf(a.ctx, "Crimson Crystal Tear bundle tutorial ID: %v", err)
+		}
+	}
+
 	// SUCCESS: compute final capacity and return.
 	finalUsage := core.CountSlotUsage(slot)
 	added := 0
@@ -1227,6 +1281,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		if p.actualInv > 0 || p.actualStorage > 0 || p.keyTargetQty > 0 {
 			added++
 		}
+	}
+	if bundleCreate {
+		added++
 	}
 	result.Added = added
 	result.Trimmed = trimmed

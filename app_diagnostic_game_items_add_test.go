@@ -439,7 +439,8 @@ func TestGameItemsAddExcludesLegacyKeyItemsContainer(t *testing.T) {
 // explicitly present in plan.batch is NOT filtered as a derived side effect, even
 // when the same add makes it a used container. Fire Pot makes Cracked Pot a gated
 // (derived) container, while Cracked Pot is also requested directly; its physical
-// CommonItems row must keep the full direct-record lifecycle.
+// KeyItems row (native destination per T074 — see nativeKeyItemFamily) must
+// keep the full direct-record lifecycle.
 func TestGameItemsAddKeepsExplicitContainerAsPrimary(t *testing.T) {
 	app := gameItemAddApp(true)
 
@@ -452,21 +453,21 @@ func TestGameItemsAddKeepsExplicitContainerAsPrimary(t *testing.T) {
 		t.Fatalf("res.Added = %d, want 2", res.Added)
 	}
 
-	// Locate the real physical CommonItems row Cracked Pot landed in.
+	// Locate the real physical KeyItems row Cracked Pot landed in.
 	slot := &app.save.Slots[0]
-	row, qty := findCommonItem(slot, crackedPotHandle)
+	row, qty := findKeyItem(slot, crackedPotHandle)
 	if row < 0 {
-		t.Fatalf("Cracked Pot not written to CommonItems")
+		t.Fatalf("Cracked Pot not written to KeyItems")
 	}
 
 	lc := collectGameItemLifecycle(t, app.journal.Tail())
 
-	prefix := "inventory_common_row_" + giDec(uint32(row)) + "_"
+	prefix := "inventory_key_row_" + giDec(uint32(row)) + "_"
 	fields := map[string]string{
 		prefix + "handle":   giHex(crackedPotHandle),
 		prefix + "item_id":  giHex(crackedPotID),
 		prefix + "quantity": giDec(qty),
-		prefix + "index":    giDec(slot.Inventory.CommonItems[row].Index),
+		prefix + "index":    giDec(slot.Inventory.KeyItems[row].Index),
 	}
 	for field, want := range fields {
 		if _, ok := lc.before[field]; !ok {

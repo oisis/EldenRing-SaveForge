@@ -25,6 +25,20 @@ func upsertWeaponGaItemData(slot *SaveSlot, itemID uint32) error {
 	return upsertActiveGaItemData(slot, itemID, "upsertWeaponGaItemData", weaponGaItemDataInsertionIndex)
 }
 
+// upsertOrdinaryGaItemData is upsertWeaponGaItemData under a name that
+// reflects its real scope. weaponGaItemDataInsertionIndex's lower_bound
+// insertion only cares about ascending itemID order within the "ordinary"
+// segment (everything before the AoW group, i.e. itemID>>28 != 8) — it has no
+// weapon-specific logic. T040 (talismans), T050/T060/T062 (goods/crafting/
+// bolstering materials), and T070/T071/T074/T090 (Key Items, cookbooks,
+// containers, the Physick package) all confirm the game reorders existing
+// active GaItemData entries the same ascending way when a new item in this ID
+// range is added — so those families reuse this exact function rather than a
+// parallel implementation.
+func upsertOrdinaryGaItemData(slot *SaveSlot, itemID uint32) error {
+	return upsertWeaponGaItemData(slot, itemID)
+}
+
 // upsertAoWGaItemData is the AoW counterpart of upsertWeaponGaItemData. On
 // current saves the high-bit AoW group is ascending, so new AoWs are inserted
 // with lower_bound. Older saves can retain an unsorted legacy group; appending
@@ -178,187 +192,55 @@ func stackableItemExistsInKeyItems(slot *SaveSlot, itemID uint32) bool {
 	return false
 }
 
-// AddItemsToSlot adds multiple items to a specific save slot.
+// hasInventoryRecordWithHandle reports whether items already contains a
+// physical record for handle. Used to decide "is this a genuinely new item"
+// for the GaItemData contract (T040/T050/T060/T062/T070/T071/T074/T090):
+// unlike GaMap, which scanGaItems only ever populates from serialized GaItem
+// records (weapons/armor/AoW/arrows), goods/talismans/Key Items loaded from a
+// real save have no such record, so their prior existence can only be read
+// off the physical inventory/KeyItems lists themselves.
+func hasInventoryRecordWithHandle(items []InventoryItem, handle uint32) bool {
+	for _, it := range items {
+		if it.GaItemHandle == handle {
+			return true
+		}
+	}
+	return false
+}
+
+// AddItemsToSlot adds multiple items to a specific save slot, applying the
+// same invQty/storageQty/forceStackable to every id.
 // invQty and storageQty control quantities: 0 = skip, -1 = use provided max from caller, >0 = exact qty.
 // forceStackable treats items as stackable (reuse existing GaMap handle) regardless of type.
 // Used for arrows/bolts which have weapon-like IDs but are stackable in inventory.
 //
-// Algorithm (Plan D — GaItems Section Re-serialization):
-//
-//	Phase 1: Allocate GaItem entries in-memory array + write GaItemData at old offsets.
-//	Phase 2: FlushGaItems — serialize array, compute size delta, single shift, update offsets.
-//	Phase 3: Add to inventory/storage (offsets now correct after flush).
+// A thin per-id wrapper around AddItemsToSlotBatch: both public entry points
+// share one classification/allocation/GaItemData code path (see
+// classifyItemAdd), so they can never disagree about what a given item ID
+// needs — the exact bug requirement 1 (item-add-native-contracts) fixes.
+// ForceCommonItems is set unconditionally: every existing AddItemsToSlot
+// caller (container auto-sync, cookbook/whetblade/map-fragment flag unlocks,
+// DLC map reveal, appearance items) is a flag-driven state-sync helper with
+// its own established, independently tested "canonical CommonItems, legacy
+// KeyItems compat" contract — not a modeled single-item native pickup — so
+// none of them should shift onto the native KeyItems routing
+// (nativeKeyItemFamily) that AddItemsToSlotBatch now applies for direct,
+// explicit adds of Crafting Kit/cookbooks/Cracked Pot/Crimson Crystal Tear.
+// The GaItemData contract itself (this fix's actual point) is unaffected by
+// ForceCommonItems: addKindStack and addKindKeyItemStack create it
+// identically, only the physical destination container differs.
 func AddItemsToSlot(slot *SaveSlot, itemIDs []uint32, invQty, storageQty int, forceStackable bool) error {
-	type pendingInv struct {
-		handle     uint32
-		invQty     uint32
-		storageQty uint32
-	}
-	var pending []pendingInv
-	gaModified := false
-
-	// allocNewGaItem allocates a new GaItem record + handle for a non-stackable
-	// item, registers it in GaMap, and updates GaItemData when needed. Returns
-	// the new handle.
-	allocNewGaItem := func(id, handlePrefix uint32) (uint32, error) {
-		h, err := generateUniqueHandle(slot, handlePrefix)
-		if err != nil {
-			return 0, err
-		}
-		if err := allocateGaItem(slot, h, id); err != nil {
-			return 0, err
-		}
-		slot.GaMap[h] = id
-		if handlePrefix == ItemTypeWeapon && !db.IsArrowID(id) {
-			if err := upsertWeaponGaItemData(slot, id); err != nil {
-				return 0, err
-			}
-		} else if handlePrefix == ItemTypeAow {
-			if err := upsertAoWGaItemData(slot, id); err != nil {
-				return 0, err
-			}
-		}
-		return h, nil
-	}
-
-	// Phase 1: allocate GaItem entries in-memory + GaItemData at old offsets.
-	for _, id := range itemIDs {
-		handlePrefix := db.ItemIDToHandlePrefix(id)
-		isStackable := handlePrefix == ItemTypeItem || handlePrefix == ItemTypeAccessory
-
-		if isStackable || forceStackable {
-			// Stackable / arrow path: shared handle across inv+storage is correct
-			// because the game resolves stackable handles directly (no GaItem
-			// record) and treats stacks of the same item ID as fungible.
-			handle := uint32(0)
-			for h, i := range slot.GaMap {
-				if i == id {
-					handle = h
-					break
-				}
-			}
-			if handle == 0 {
-				if stackableItemExistsInKeyItems(slot, id) {
-					handle = GaHandleInvalid // sentinel: exists in KeyItems, block CommonItems add
-				}
-			}
-			if handle == GaHandleInvalid {
-				continue // item already in KeyItems — skip to avoid duplicate
-			}
-			if handle == 0 {
-				if isStackable {
-					handle = (id & 0x0FFFFFFF) | handlePrefix
-					slot.GaMap[handle] = id
-				} else {
-					// forceStackable arrow without existing GaItem — allocate one.
-					var err error
-					handle, err = allocNewGaItem(id, handlePrefix)
-					if err != nil {
-						return err
-					}
-					gaModified = true
-				}
-			}
-			pending = append(pending, pendingInv{
-				handle:     handle,
-				invQty:     uint32(invQty),
-				storageQty: uint32(storageQty),
-			})
-			continue
-		}
-
-		// Non-stackable path (weapon / armor / AoW): each destination requires
-		// its own GaItem record. Sharing one handle between inventory and
-		// storage causes the game to treat both list entries as the same
-		// physical item — equipping an AoW on one weapon then propagates to the
-		// duplicate list entry, and on next save cycle the game collides them
-		// (observed: same handle in inventory at two positions, items pushed to
-		// invalid Index >= next_equip_index, becoming invisible in-game).
-		if invQty != 0 {
-			h, err := allocNewGaItem(id, handlePrefix)
-			if err != nil {
-				return err
-			}
-			gaModified = true
-			pending = append(pending, pendingInv{handle: h, invQty: uint32(invQty), storageQty: 0})
-		}
-		if storageQty != 0 {
-			h, err := allocNewGaItem(id, handlePrefix)
-			if err != nil {
-				return err
-			}
-			gaModified = true
-			pending = append(pending, pendingInv{handle: h, invQty: 0, storageQty: uint32(storageQty)})
+	items := make([]ItemToAdd, len(itemIDs))
+	for i, id := range itemIDs {
+		items[i] = ItemToAdd{
+			ItemID:           id,
+			InvQty:           invQty,
+			StorageQty:       storageQty,
+			ForceStackable:   forceStackable,
+			ForceCommonItems: true,
 		}
 	}
-
-	// Phase 2: rebuild slot from scratch with new GaItems (no in-place shift).
-	// FlushGaItems used to shift slot.Data right by `delta` bytes, which
-	// overwrote the last `delta` bytes of the slot (DLC + Hash regions) when
-	// delta > 0x132. RebuildSlotFull writes a fresh SlotSize buffer with DLC
-	// and Hash placed via typed Write paths at their correct fixed positions.
-	if gaModified {
-		// Snapshot GaMap before rebuild — parseFromData rebuilds it from GaItem
-		// records only via scanGaItems(), dropping stackable handles (talismans,
-		// goods) which aren't backed by GaItem records. We re-merge them after.
-		savedGaMap := make(map[uint32]uint32, len(slot.GaMap))
-		for k, v := range slot.GaMap {
-			savedGaMap[k] = v
-		}
-		// Snapshot type-segregation indices — same reason: parseFromData re-scans
-		// these from GaItem records, but Phase 3 / future calls need the values
-		// we computed in Phase 1 (after allocateGaItem mutations).
-		savedNextAoW := slot.NextAoWIndex
-		savedNextArmament := slot.NextArmamentIndex
-		savedNextHandle := slot.NextGaItemHandle
-
-		rebuilt, err := RebuildSlotFull(slot)
-		if err != nil {
-			return fmt.Errorf("AddItemsToSlot: rebuild: %w", err)
-		}
-		copy(slot.Data, rebuilt)
-		// Re-parse all derived state from the new layout. parseFromData mirrors
-		// the post-ReadBytes flow of slot.Read — re-finds MagicPattern (whose
-		// absolute position shifted with GaItems growth), re-scans GaItems,
-		// recomputes dynamic offsets, and refreshes inventory counter offsets
-		// that Phase 3 will write to.
-		if err := slot.parseFromData(); err != nil {
-			return fmt.Errorf("AddItemsToSlot: re-parse after rebuild: %w", err)
-		}
-
-		// Re-merge stackable handles dropped by GaMap rebuild.
-		for h, id := range savedGaMap {
-			if _, ok := slot.GaMap[h]; !ok {
-				slot.GaMap[h] = id
-			}
-		}
-		// Restore tracked indices that Phase 1 advanced past the rescanned values.
-		if savedNextAoW > slot.NextAoWIndex {
-			slot.NextAoWIndex = savedNextAoW
-		}
-		if savedNextArmament > slot.NextArmamentIndex {
-			slot.NextArmamentIndex = savedNextArmament
-		}
-		if savedNextHandle > slot.NextGaItemHandle {
-			slot.NextGaItemHandle = savedNextHandle
-		}
-	}
-
-	// Phase 3: add to inventory/storage (offsets are now correct).
-	for _, p := range pending {
-		if p.invQty != 0 {
-			if err := addToInventory(slot, p.handle, p.invQty, false, false); err != nil {
-				return err
-			}
-		}
-		if p.storageQty != 0 {
-			if err := addToInventory(slot, p.handle, p.storageQty, true, false); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
+	return AddItemsToSlotBatch(slot, items)
 }
 
 // AddItemsToSlotBatch adds a batch of items with per-item qty/stackable settings.
@@ -370,9 +252,15 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 		invQty     uint32
 		storageQty uint32
 		dup        bool // append a new physical record even if handle already exists (talismans)
+		keyItem    bool // route invQty into Inventory.KeyItems instead of CommonItems (addKindKeyItemStack)
 	}
 	var pending []pendingInv
 	gaModified := false
+	// seenNewGaItemDataForID dedups the "first physical copy of a new ID gets
+	// one active GaItemData entry" contract (T040/T050/T060/T062/T070/T071/
+	// T074/T090) across the whole batch — mirrors CheckAddCapacity's
+	// existingGaItemData/seenNew* bookkeeping so preflight and writer agree.
+	seenNewGaItemDataForID := make(map[uint32]bool)
 
 	allocNewGaItem := func(id, handlePrefix uint32) (uint32, error) {
 		h, err := generateUniqueHandle(slot, handlePrefix)
@@ -383,8 +271,13 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 			return 0, err
 		}
 		slot.GaMap[h] = id
-		if handlePrefix == ItemTypeWeapon && !db.IsArrowID(id) {
-			if err := upsertWeaponGaItemData(slot, id); err != nil {
+		// Arrows/bolts are weapon-prefixed and must get an active GaItemData
+		// entry too (T211). Armor gets the same ordinary-segment treatment as
+		// weapons (T020: Chain Coif/Chain Armor both get an active entry) —
+		// upsertOrdinaryGaItemData is upsertWeaponGaItemData under its real,
+		// non-weapon-specific name.
+		if handlePrefix == ItemTypeWeapon || handlePrefix == ItemTypeArmor {
+			if err := upsertOrdinaryGaItemData(slot, id); err != nil {
 				return 0, err
 			}
 		} else if handlePrefix == ItemTypeAow {
@@ -397,8 +290,7 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 
 	for _, item := range items {
 		handlePrefix := db.ItemIDToHandlePrefix(item.ItemID)
-		kind := classifyItemAdd(item.ItemID, item.ForceStackable)
-		isStackable := kind == addKindStack
+		kind := classifyItemAdd(item.ItemID, item.ForceStackable, item.ForceCommonItems)
 
 		// Talismans (0xA0) are handle-encoded like stackables (no serialized GaItem,
 		// handle = 0xA0|itemID) but are NOT fungible stacks: each copy is a distinct
@@ -409,6 +301,21 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 		if kind == addKindTalisman {
 			handle := (item.ItemID & 0x0FFFFFFF) | handlePrefix
 			slot.GaMap[handle] = item.ItemID
+			// T040: the FIRST physical copy of a new talisman ID also gets one
+			// active GaItemData entry (flag 1); further copies of the same ID
+			// must not create a second one. Existence is read off the physical
+			// lists (GaMap is unreliable for talismans loaded from disk — see
+			// hasInventoryRecordWithHandle), not off the map write above.
+			if item.InvQty > 0 || item.StorageQty > 0 {
+				alreadyPhysical := hasInventoryRecordWithHandle(slot.Inventory.CommonItems, handle) ||
+					hasInventoryRecordWithHandle(slot.Storage.CommonItems, handle)
+				if !alreadyPhysical && !seenNewGaItemDataForID[item.ItemID] {
+					if err := upsertOrdinaryGaItemData(slot, item.ItemID); err != nil {
+						return err
+					}
+					seenNewGaItemDataForID[item.ItemID] = true
+				}
+			}
 			for n := 0; n < item.InvQty; n++ {
 				pending = append(pending, pendingInv{handle: handle, invQty: 1, dup: true})
 			}
@@ -418,7 +325,7 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 			continue
 		}
 
-		if kind == addKindStack || kind == addKindArrow {
+		if kind == addKindStack {
 			handle := uint32(0)
 			for h, id := range slot.GaMap {
 				if id == item.ItemID {
@@ -430,17 +337,84 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 				continue // item already in KeyItems — skip to avoid duplicate
 			}
 			if handle == 0 {
-				if isStackable {
-					handle = (item.ItemID & 0x0FFFFFFF) | handlePrefix
-					slot.GaMap[handle] = item.ItemID
-				} else {
-					var err error
-					handle, err = allocNewGaItem(item.ItemID, handlePrefix)
-					if err != nil {
+				handle = (item.ItemID & 0x0FFFFFFF) | handlePrefix
+				slot.GaMap[handle] = item.ItemID
+			}
+			// T050/T060/T062: the FIRST physical record of a new goods/
+			// crafting-material/bolstering-material stack (either
+			// destination) also gets one active GaItemData entry; a
+			// quantity bump to an existing stack must not add a second one.
+			if item.InvQty > 0 || item.StorageQty > 0 {
+				alreadyPhysical := hasInventoryRecordWithHandle(slot.Inventory.CommonItems, handle) ||
+					hasInventoryRecordWithHandle(slot.Storage.CommonItems, handle)
+				if !alreadyPhysical && !seenNewGaItemDataForID[item.ItemID] {
+					if err := upsertOrdinaryGaItemData(slot, item.ItemID); err != nil {
 						return err
 					}
-					gaModified = true
+					seenNewGaItemDataForID[item.ItemID] = true
 				}
+			}
+			pending = append(pending, pendingInv{
+				handle:     handle,
+				invQty:     uint32(item.InvQty),
+				storageQty: uint32(item.StorageQty),
+			})
+			continue
+		}
+
+		if kind == addKindKeyItemStack {
+			// T070/T071/T074/T090: Crafting Kit, cookbooks, Cracked Pot, and the
+			// Physick package's Crimson Crystal Tear variant — same id-derived,
+			// handle-encoded fungible stack as addKindStack, no serialized
+			// GaItem. handle is deterministic (not looked up via GaMap first)
+			// because it must match whichever container a legacy record
+			// already lives in.
+			handle := (item.ItemID & 0x0FFFFFFF) | handlePrefix
+			slot.GaMap[handle] = item.ItemID
+			// Legacy compat: a record already sitting in CommonItems (e.g. an
+			// app version predating this fix) is the canonical physical
+			// location for THIS handle and must be bumped in place — never
+			// duplicated into KeyItems. Only a genuinely new record, or one
+			// already correctly in KeyItems, routes natively.
+			legacyInCommonItems := hasInventoryRecordWithHandle(slot.Inventory.CommonItems, handle)
+			if item.InvQty > 0 || item.StorageQty > 0 {
+				alreadyPhysical := legacyInCommonItems ||
+					hasInventoryRecordWithHandle(slot.Inventory.KeyItems, handle) ||
+					hasInventoryRecordWithHandle(slot.Storage.CommonItems, handle)
+				if !alreadyPhysical && !seenNewGaItemDataForID[item.ItemID] {
+					if err := upsertOrdinaryGaItemData(slot, item.ItemID); err != nil {
+						return err
+					}
+					seenNewGaItemDataForID[item.ItemID] = true
+				}
+			}
+			pending = append(pending, pendingInv{
+				handle:     handle,
+				invQty:     uint32(item.InvQty),
+				storageQty: uint32(item.StorageQty),
+				keyItem:    !legacyInCommonItems,
+			})
+			continue
+		}
+
+		if kind == addKindArrow {
+			handle := uint32(0)
+			for h, id := range slot.GaMap {
+				if id == item.ItemID {
+					handle = h
+					break
+				}
+			}
+			if handle == 0 && stackableItemExistsInKeyItems(slot, item.ItemID) {
+				continue // item already in KeyItems — skip to avoid duplicate
+			}
+			if handle == 0 {
+				var err error
+				handle, err = allocNewGaItem(item.ItemID, handlePrefix)
+				if err != nil {
+					return err
+				}
+				gaModified = true
 			}
 			pending = append(pending, pendingInv{
 				handle:     handle,
@@ -506,7 +480,11 @@ func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
 
 	for _, p := range pending {
 		if p.invQty != 0 {
-			if err := addToInventory(slot, p.handle, p.invQty, false, p.dup); err != nil {
+			if p.keyItem {
+				if err := addToKeyItems(slot, p.handle, p.invQty); err != nil {
+					return err
+				}
+			} else if err := addToInventory(slot, p.handle, p.invQty, false, p.dup); err != nil {
 				return err
 			}
 		}
@@ -552,6 +530,11 @@ func allocateGaItem(slot *SaveSlot, handle, itemID uint32) error {
 	handleType := handle & GaHandleTypeMask
 	isAoW := handleType == ItemTypeAow
 
+	// Unk2/Unk3 default to 0 for weapon/armor-shaped records (confirmed native:
+	// T020 armor Chain Coif/Chain Armor, T211/T063 Arrow — both -1 in the app's
+	// old output). AoW records serialize as 8 bytes (GaRecordItem) and never
+	// write these fields at all, so -1 here is inert but kept for continuity
+	// with the pre-fix in-memory default.
 	entry := GaItemFull{
 		Handle:          handle,
 		ItemID:          itemID,
@@ -559,6 +542,10 @@ func allocateGaItem(slot *SaveSlot, handle, itemID uint32) error {
 		Unk3:            -1,
 		AoWGaItemHandle: NoCustomAoWHandle,
 		Unk5:            0,
+	}
+	if !isAoW {
+		entry.Unk2 = 0
+		entry.Unk3 = 0
 	}
 
 	maxEntries := len(slot.GaItems)
@@ -1053,6 +1040,103 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 			currentCount := binary.LittleEndian.Uint32(slot.Data[countOff:])
 			binary.LittleEndian.PutUint32(slot.Data[countOff:], currentCount+1)
 		}
+	}
+
+	return nil
+}
+
+// addToKeyItems is addToInventory's Storage branch (physical byte-scan, not
+// in-memory-slice-index) retargeted at Inventory.KeyItems: a fully
+// pre-allocated KeyItemCount-slot array on any real parsed slot (see
+// EquipInventoryData.Read), found here by scanning slot.Data directly rather
+// than assuming len(slot.Inventory.KeyItems) already matches — a caller-built
+// test fixture may leave that slice short or nil even though the physical
+// bytes at keyStart are correctly sized and zeroed. Shares
+// slot.Inventory.NextAcquisitionSortId with CommonItems (T070 confirms a
+// KeyItems add advances the identical counter a CommonItems add does) and
+// never touches NextEquipIndex, matching addToInventory. There is no
+// isStorage variant: no confirmed-native family here has evidence of a
+// KeyItems-equivalent Storage placement, so StorageQty for these items keeps
+// going through addToInventory's ordinary Storage.CommonItems path.
+func addToKeyItems(slot *SaveSlot, handle uint32, qty uint32) error {
+	sa := NewSlotAccessor(slot.Data)
+	keyStart := slot.MagicOffset + InvStartFromMagic + CommonItemCount*InvRecordLen + InvKeyCountHeader
+
+	for i := 0; i < KeyItemCount; i++ {
+		off := keyStart + i*InvRecordLen
+		if off+InvRecordLen > len(slot.Data) {
+			break
+		}
+		if binary.LittleEndian.Uint32(slot.Data[off:]) != handle {
+			continue
+		}
+		if err := sa.CheckBounds(off+4, 4, "addToKeyItems/update"); err != nil {
+			return err
+		}
+		binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
+		for idx := range slot.Inventory.KeyItems {
+			if slot.Inventory.KeyItems[idx].GaItemHandle == handle {
+				slot.Inventory.KeyItems[idx].Quantity = qty
+			}
+		}
+		return nil
+	}
+
+	emptyIdx := -1
+	for i := 0; i < KeyItemCount; i++ {
+		off := keyStart + i*InvRecordLen
+		if off+InvRecordLen > len(slot.Data) {
+			break
+		}
+		h := binary.LittleEndian.Uint32(slot.Data[off:])
+		if h == GaHandleEmpty || h == GaHandleInvalid {
+			emptyIdx = i
+			break
+		}
+	}
+	if emptyIdx < 0 {
+		return io.ErrShortBuffer // All KeyItems slots occupied
+	}
+
+	acqIdx := nextAcquisitionWriteIndex(slot.Inventory.NextAcquisitionSortId)
+	off := keyStart + emptyIdx*InvRecordLen
+	if err := sa.CheckBounds(off, InvRecordLen, "addToKeyItems/insert"); err != nil {
+		return err
+	}
+	binary.LittleEndian.PutUint32(slot.Data[off:], handle)
+	binary.LittleEndian.PutUint32(slot.Data[off+4:], qty)
+	binary.LittleEndian.PutUint32(slot.Data[off+8:], acqIdx)
+
+	slot.Inventory.NextAcquisitionSortId = acqIdx + 1
+	if slot.Inventory.nextAcqSortIdOff > 0 {
+		binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextAcqSortIdOff:], slot.Inventory.NextAcquisitionSortId)
+	}
+
+	// key_count header, sitting immediately before the KeyItems array.
+	// Confirmed by direct byte-level inspection of the T071/T074 read-only
+	// lab artifacts (tmp/item-save-lab/WYNIKI_I_IMPLEMENTACJA.md, "Analiza
+	// key_count" section): the header equals the physical non-empty KeyItems
+	// count at every observed step, incrementing by exactly 1 on a genuinely
+	// new physical record and staying flat across a quantity-only bump of an
+	// existing record (task-074-containers 04-before-b -> 05-pickup-a-b:
+	// Cracked Pot 1->2, key_count 1->1). Not a symmetry guess with
+	// common_item_count — independently verified for this header specifically.
+	countOff := keyStart - InvKeyCountHeader
+	if err := sa.CheckBounds(countOff, 4, "addToKeyItems/key-count"); err == nil {
+		currentCount := binary.LittleEndian.Uint32(slot.Data[countOff:])
+		binary.LittleEndian.PutUint32(slot.Data[countOff:], currentCount+1)
+	}
+
+	newItem := InventoryItem{GaItemHandle: handle, Quantity: qty, Index: acqIdx}
+	if emptyIdx < len(slot.Inventory.KeyItems) {
+		// Real parsed slot: the in-memory slice already spans KeyItemCount,
+		// slice index == physical row.
+		slot.Inventory.KeyItems[emptyIdx] = newItem
+	} else {
+		// Test fixture with a short/nil KeyItems slice: append, mirroring the
+		// physical position it was just written to (rows are filled in
+		// ascending order, so len(slice) == emptyIdx here).
+		slot.Inventory.KeyItems = append(slot.Inventory.KeyItems, newItem)
 	}
 
 	return nil

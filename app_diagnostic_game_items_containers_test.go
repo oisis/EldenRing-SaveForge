@@ -192,16 +192,17 @@ func TestGameItemsAddContainerDiagnosticExplicitAntiDuplication(t *testing.T) {
 	}
 
 	slot := &app.save.Slots[0]
-	row, qty := findCommonItem(slot, crackedPotHandle)
+	row, qty := findKeyItem(slot, crackedPotHandle)
 	if row < 0 {
-		t.Fatalf("Cracked Pot not written to CommonItems")
+		t.Fatalf("Cracked Pot not written to KeyItems")
 	}
 
 	lc := collectGameItemLifecycle(t, app.journal.Tail())
 	assertGameItemPhaseGrouping(t, lc)
 
-	// Task 2B direct physical row lifecycle is present for the explicit container.
-	prefix := "inventory_common_row_" + giDec(uint32(row)) + "_"
+	// Task 2B direct physical row lifecycle is present for the explicit container
+	// (KeyItems is the native destination per T074 — see nativeKeyItemFamily).
+	prefix := "inventory_key_row_" + giDec(uint32(row)) + "_"
 	assertContainerLifecycle(t, lc, prefix+"handle", "0x00000000", giHex(crackedPotHandle), giHex(crackedPotHandle))
 	assertContainerLifecycle(t, lc, prefix+"item_id", giAbsent, giHex(crackedPotID), giHex(crackedPotID))
 	assertContainerLifecycle(t, lc, prefix+"quantity", "0", giDec(qty), giDec(qty))
