@@ -191,7 +191,9 @@ func loadPCSequential(r *Reader, save *SaveFile) (*SaveFile, error) {
 
 	udReader := NewReader(save.UserData10.Data)
 
-	// SteamID is at the beginning of UserData10 data on PC
+	// SteamID is at SteamIDOffset within UserData10 data on PC; bytes [0x00:0x04)
+	// are metadata/version, not part of the ID.
+	udReader.Seek(SteamIDOffset, 0)
 	save.SteamID, err = udReader.ReadU64()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read SteamID: %w", err)
@@ -273,12 +275,12 @@ func loadPSSequential(r *Reader, save *SaveFile) (*SaveFile, error) {
 // flushMetadata writes in-memory SteamID, ActiveSlots, and ProfileSummaries
 // back to UserData10.Data before serialization.
 //
-// PC and PS4 share the same UserData10 layout — only the SteamID prefix and the
-// PC-only MD5 checksum differ. ActiveSlots @ 0x1954, ProfileSummary[i] @ 0x195E + i*0x24C.
-// Verified Apr 2026 from real saves; see spec/23-user-data-10.md.
+// PC and PS4 share the same UserData10 layout — only the SteamID at SteamIDOffset
+// and the PC-only MD5 checksum differ. ActiveSlots @ 0x1954, ProfileSummary[i] @
+// 0x195E + i*0x24C. Verified Apr 2026 from real saves; see spec/23-user-data-10.md.
 func (s *SaveFile) flushMetadata() {
 	if s.Platform == PlatformPC {
-		binary.LittleEndian.PutUint64(s.UserData10.Data[0:], s.SteamID)
+		binary.LittleEndian.PutUint64(s.UserData10.Data[SteamIDOffset:SteamIDOffset+8], s.SteamID)
 	}
 	for i := 0; i < 10; i++ {
 		if s.ActiveSlots[i] {

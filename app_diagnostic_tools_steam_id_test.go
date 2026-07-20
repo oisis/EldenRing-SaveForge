@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/binary"
 	"encoding/json"
 	"path/filepath"
@@ -292,6 +293,8 @@ func TestSteamIDPersistsAcrossSaveAndReload(t *testing.T) {
 	if steamIDAfter == 0 {
 		t.Fatal("fixture SteamID cannot be incremented")
 	}
+	prefixBefore := append([]byte(nil), app.save.UserData10.Data[0:4]...)
+
 	if err := app.SetSteamIDFromString(strconv.FormatUint(steamIDAfter, 10)); err != nil {
 		t.Fatalf("SetSteamIDFromString: %v", err)
 	}
@@ -311,8 +314,11 @@ func TestSteamIDPersistsAcrossSaveAndReload(t *testing.T) {
 	if reloaded.SteamID != steamIDAfter {
 		t.Fatalf("reloaded.SteamID = %d, want %d", reloaded.SteamID, steamIDAfter)
 	}
-	gotPrefix := binary.LittleEndian.Uint64(reloaded.UserData10.Data[0:8])
-	if gotPrefix != steamIDAfter {
-		t.Errorf("reloaded UserData10.Data[0:8] = %d, want %d", gotPrefix, steamIDAfter)
+	got := binary.LittleEndian.Uint64(reloaded.UserData10.Data[core.SteamIDOffset : core.SteamIDOffset+8])
+	if got != steamIDAfter {
+		t.Errorf("reloaded UserData10.Data[0x04:0x0C] = %d, want %d", got, steamIDAfter)
+	}
+	if gotPrefix := reloaded.UserData10.Data[0:4]; !bytes.Equal(gotPrefix, prefixBefore) {
+		t.Errorf("reloaded UserData10.Data[0:4] = %x, want unchanged %x", gotPrefix, prefixBefore)
 	}
 }

@@ -373,7 +373,7 @@ func (a *App) CloseAndDownload(targetName string) (string, error) {
 // under saveMu.RLock + favMu.Lock, neither takes slotMu) can mutate the
 // preset region of UserData10.Data while SaveFile reads the full 0x60000-
 // byte blob for MD5 + WriteBytes. flushMetadata writes only into
-// SteamID [0x00..0x08) and ActiveSlots / ProfileSummaries
+// SteamID [0x04..0x0C) and ActiveSlots / ProfileSummaries
 // [0x1954..0x3CDE), which is disjoint from the favorites region
 // [0x154..0x1324), so favMu.RLock (shared, not exclusive) is the
 // minimal lock needed: writeTempSave is a reader of the favorites bytes

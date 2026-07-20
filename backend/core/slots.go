@@ -2,6 +2,9 @@ package core
 
 // UserData10 per-slot metadata offsets (see spec/23-user-data-10.md).
 const (
+	// SteamIDOffset is the offset of the PC global Steam ID within UserData10.Data.
+	// Bytes [0x00:0x04) are metadata/version, not part of the ID.
+	SteamIDOffset        = 0x04
 	ActiveSlotsOffset    = 0x1954 // 10 × u8 active-slot flags
 	ProfileSummaryOffset = 0x195E // ProfileSummary[i] at base + i*ProfileSummaryStride
 	ProfileSummaryStride = 0x24C  // 588 bytes per summary
