@@ -93,6 +93,7 @@ func TestAddItemsToCharacter_CrimsonCrystalTearBundleReAddIsSafeNoOp(t *testing.
 	app := gaItemAddApp(t, false)
 	withContainerEventFlags(app)
 	slot := &app.save.Slots[0]
+	writeTutorialData(t, app, 0x400)
 
 	if _, err := app.AddItemsToCharacter(0, []uint32{crimsonCrystalTearPickerID}, 0, 0, 0, 0, 1, 0); err != nil {
 		t.Fatalf("first add: %v", err)
@@ -124,6 +125,7 @@ func TestAddItemsToCharacter_CrimsonCrystalTearBundlePartialStateErrors(t *testi
 	app := gaItemAddApp(t, false)
 	withContainerEventFlags(app)
 	slot := &app.save.Slots[0]
+	writeTutorialData(t, app, 0x400)
 
 	if err := core.AddItemsToSlotBatch(slot, []core.ItemToAdd{{ItemID: aboutWondrousPhysickInfoItemID, InvQty: 1}}); err != nil {
 		t.Fatalf("seed Info Item: %v", err)
@@ -138,6 +140,56 @@ func TestAddItemsToCharacter_CrimsonCrystalTearBundlePartialStateErrors(t *testi
 	usageAfter := core.CountSlotUsage(slot)
 	if usageAfter != usageBefore {
 		t.Errorf("slot usage changed despite the refused add: before=%+v after=%+v", usageBefore, usageAfter)
+	}
+}
+
+// TestAddItemsToCharacter_CrimsonCrystalTearBundleWithoutTutorialErrors
+// protects the complete-bundle predicate itself. The native T090 contract
+// includes TutorialData 1590, so the three inventory records without that
+// tutorial remain a partial state and must not be accepted as a no-op.
+func TestAddItemsToCharacter_CrimsonCrystalTearBundleWithoutTutorialErrors(t *testing.T) {
+	app := gaItemAddApp(t, false)
+	withContainerEventFlags(app)
+	slot := &app.save.Slots[0]
+	writeTutorialData(t, app, 0x400)
+
+	if _, err := app.AddItemsToCharacter(0, []uint32{crimsonCrystalTearPickerID}, 0, 0, 0, 0, 1, 0); err != nil {
+		t.Fatalf("seed complete bundle: %v", err)
+	}
+	// Retain all three physical records but remove only the required tutorial.
+	writeTutorialData(t, app, 0x400)
+	before := append([]byte{}, slot.Data...)
+
+	_, err := app.AddItemsToCharacter(0, []uint32{crimsonCrystalTearPickerID}, 0, 0, 0, 0, 1, 0)
+	if err == nil {
+		t.Fatal("AddItemsToCharacter accepted a three-record bundle without TutorialData 1590, want a clear error")
+	}
+	if !bytes.Equal(before, slot.Data) {
+		t.Error("slot bytes changed despite the refused bundle without its required tutorial")
+	}
+}
+
+// TestAddItemsToCharacter_CrimsonCrystalTearBundleStorageConflictErrors
+// proves a legacy/corrupt canonical picker record in Storage is detected. The
+// bundle is confirmed only in Inventory; silently adding another logical copy
+// there would create an unproven mixed-location state.
+func TestAddItemsToCharacter_CrimsonCrystalTearBundleStorageConflictErrors(t *testing.T) {
+	app := gaItemAddApp(t, false)
+	withContainerEventFlags(app)
+	slot := &app.save.Slots[0]
+	writeTutorialData(t, app, 0x400)
+
+	if err := core.AddItemsToSlotBatch(slot, []core.ItemToAdd{{ItemID: crimsonCrystalTearPickerID, StorageQty: 1}}); err != nil {
+		t.Fatalf("seed Storage canonical Crystal Tear: %v", err)
+	}
+	before := append([]byte{}, slot.Data...)
+
+	_, err := app.AddItemsToCharacter(0, []uint32{crimsonCrystalTearPickerID}, 0, 0, 0, 0, 1, 0)
+	if err == nil {
+		t.Fatal("AddItemsToCharacter accepted a Storage conflict, want a clear error")
+	}
+	if !bytes.Equal(before, slot.Data) {
+		t.Error("slot bytes changed despite the refused Storage conflict")
 	}
 }
 

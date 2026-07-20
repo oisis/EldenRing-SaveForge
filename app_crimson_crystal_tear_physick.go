@@ -65,14 +65,13 @@ func stackableHandle(id uint32) uint32 {
 
 // crimsonCrystalTearBundleState inspects the slot's CURRENT physical state
 // against the confirmed T090 contract (KeyItems 0x40002AFA + CommonItems
-// 0x400000FA + CommonItems 0x4000239B) and reports whether it is safe to
-// create the bundle or already fully present. Every partial or conflicting
-// state — some but not all of the three records present, the empty Physick
-// variant (0x400000FB) present instead of the filled native one, or the
-// canonical picker handle (0xB0002AFB) present anywhere as a standalone
-// record — has no lab evidence for how the game would reconcile it, so it is
-// reported as an error rather than silently merged, duplicated, or
-// overwritten.
+// 0x400000FA + CommonItems 0x4000239B + TutorialData 1590) and reports
+// whether it is safe to create the bundle or already fully present. Every
+// partial or conflicting state — including any relevant record in Storage,
+// an absent required tutorial, the empty Physick variant (0x400000FB), or the
+// canonical picker handle (0xB0002AFB) — has no lab evidence for how the game
+// would reconcile it, so it is reported as an error rather than silently
+// merged, duplicated, or overwritten.
 func crimsonCrystalTearBundleState(slot *core.SaveSlot) (crimsonCrystalTearBundleAction, error) {
 	variantHandle := stackableHandle(crimsonCrystalTearVariantID)
 	canonicalHandle := stackableHandle(crimsonCrystalTearPickerID)
@@ -80,25 +79,47 @@ func crimsonCrystalTearBundleState(slot *core.SaveSlot) (crimsonCrystalTearBundl
 	emptyHandle := stackableHandle(db.ItemFlaskWondrousPhysickEmpty)
 	infoHandle := stackableHandle(aboutWondrousPhysickInfoItemID)
 
-	hasVariant := hasInventoryHandle(slot.Inventory.KeyItems, variantHandle)
+	hasVariantInKeyItems := hasInventoryHandle(slot.Inventory.KeyItems, variantHandle)
+	hasVariantOutsideKeyItems := hasInventoryHandle(slot.Inventory.CommonItems, variantHandle) ||
+		hasInventoryHandle(slot.Storage.CommonItems, variantHandle)
 	hasCanonicalStray := hasInventoryHandle(slot.Inventory.KeyItems, canonicalHandle) ||
-		hasInventoryHandle(slot.Inventory.CommonItems, canonicalHandle)
-	hasFilled := hasInventoryHandle(slot.Inventory.CommonItems, filledHandle)
-	hasEmpty := hasInventoryHandle(slot.Inventory.CommonItems, emptyHandle)
-	hasInfo := hasInventoryHandle(slot.Inventory.CommonItems, infoHandle)
+		hasInventoryHandle(slot.Inventory.CommonItems, canonicalHandle) ||
+		hasInventoryHandle(slot.Storage.CommonItems, canonicalHandle)
+	hasFilledInInventory := hasInventoryHandle(slot.Inventory.CommonItems, filledHandle)
+	hasFilledOutsideInventory := hasInventoryHandle(slot.Inventory.KeyItems, filledHandle) ||
+		hasInventoryHandle(slot.Storage.CommonItems, filledHandle)
+	hasEmpty := hasInventoryHandle(slot.Inventory.KeyItems, emptyHandle) ||
+		hasInventoryHandle(slot.Inventory.CommonItems, emptyHandle) ||
+		hasInventoryHandle(slot.Storage.CommonItems, emptyHandle)
+	hasInfoInInventory := hasInventoryHandle(slot.Inventory.CommonItems, infoHandle)
+	hasInfoOutsideInventory := hasInventoryHandle(slot.Inventory.KeyItems, infoHandle) ||
+		hasInventoryHandle(slot.Storage.CommonItems, infoHandle)
+	hasTutorial, err := core.HasTutorialID(slot, crimsonCrystalTearBundleTutorialID)
+	if err != nil {
+		return crimsonBundleCreate, fmt.Errorf("cannot inspect Crimson Crystal Tear bundle tutorial state: %w", err)
+	}
+
+	noConflicts := !hasVariantOutsideKeyItems && !hasCanonicalStray &&
+		!hasFilledOutsideInventory && !hasEmpty && !hasInfoOutsideInventory
+	emptyBundle := !hasVariantInKeyItems && !hasVariantOutsideKeyItems && !hasCanonicalStray &&
+		!hasFilledInInventory && !hasFilledOutsideInventory && !hasEmpty &&
+		!hasInfoInInventory && !hasInfoOutsideInventory && !hasTutorial
 
 	switch {
-	case hasVariant && hasFilled && hasInfo && !hasCanonicalStray && !hasEmpty:
+	case hasVariantInKeyItems && hasFilledInInventory && hasInfoInInventory && hasTutorial && noConflicts:
 		return crimsonBundleAlreadyComplete, nil
-	case !hasVariant && !hasFilled && !hasInfo && !hasCanonicalStray && !hasEmpty:
+	case emptyBundle:
 		return crimsonBundleCreate, nil
 	default:
 		return crimsonBundleCreate, fmt.Errorf(
 			"Crimson Crystal Tear / Flask of Wondrous Physick bundle is in a partial or conflicting state "+
-				"(Crystal Tear variant present=%v, filled Physick present=%v, empty Physick present=%v, "+
-				"Info Item present=%v, stray canonical Crystal Tear present=%v) — refusing to guess a merge; "+
-				"the confirmed T090 bundle requires all three records present together or none of them",
-			hasVariant, hasFilled, hasEmpty, hasInfo, hasCanonicalStray)
+				"(variant in KeyItems=%v, variant outside KeyItems=%v, filled Physick in Inventory=%v, "+
+				"filled Physick outside Inventory=%v, empty Physick present=%v, Info Item in Inventory=%v, "+
+				"Info Item outside Inventory=%v, TutorialData 1590=%v, stray canonical Crystal Tear=%v) — "+
+				"refusing to guess a merge; the confirmed T090 bundle requires all records and tutorial together "+
+				"in their native Inventory locations or none of them",
+			hasVariantInKeyItems, hasVariantOutsideKeyItems, hasFilledInInventory, hasFilledOutsideInventory,
+			hasEmpty, hasInfoInInventory, hasInfoOutsideInventory, hasTutorial, hasCanonicalStray)
 	}
 }
 
