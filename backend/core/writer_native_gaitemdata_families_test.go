@@ -10,6 +10,7 @@ const (
 	testThrowingDaggerID = uint32(0x400006A4) // T050/T051 — goods, new + existing stack
 	testTrickMirrorID    = uint32(0x200017CA) // T040 — Host's Trick-Mirror, talisman
 	testCookbook1ID      = uint32(0x40002454) // T071 — Nomadic Warrior's Cookbook [1]
+	testCookbook2ID      = uint32(0x4000245F) // T071 — Nomadic Warrior's Cookbook [2]
 	testCrackedPotID     = uint32(0x4000251C) // T074 — Cracked Pot, container key item
 	testBoltID           = uint32(0x03197500) // T064 — Bolt, second ammo family
 )
@@ -332,6 +333,55 @@ func TestAddItemsToSlotBatch_NewCookbookLandsInKeyItemsWithGaItemData(t *testing
 	for _, ga := range slot.GaItems {
 		if !ga.IsEmpty() && ga.ItemID == testCookbook1ID {
 			t.Errorf("cookbook 0x%08X must not have a GaItem record", testCookbook1ID)
+		}
+	}
+}
+
+// TestAddItemsToSlotBatch_T071MerchantKaleCookbooks preserves the complete
+// two-Cookbook acquisition contract observed in T071. The single-Cookbook test
+// above proves the generic family rule; this test additionally locks in the
+// second Merchant Kalé acquisition, the 0->2 key_count update, and active
+// GaItemData for both distinct IDs in one real batch.
+func TestAddItemsToSlotBatch_T071MerchantKaleCookbooks(t *testing.T) {
+	slot := newRoundTripFixture(t)
+	beforeData := activeGaItemDataRecords(t, slot)
+	keyCountOff := slot.MagicOffset + InvStartFromMagic + CommonItemCount*InvRecordLen
+	beforeKeyCount := binary.LittleEndian.Uint32(slot.Data[keyCountOff:])
+	cookbooks := []uint32{testCookbook1ID, testCookbook2ID}
+
+	items := make([]ItemToAdd, 0, len(cookbooks))
+	for _, id := range cookbooks {
+		items = append(items, ItemToAdd{ItemID: id, InvQty: 1})
+	}
+	if err := AddItemsToSlotBatch(slot, items); err != nil {
+		t.Fatalf("AddItemsToSlotBatch: %v", err)
+	}
+
+	if got := binary.LittleEndian.Uint32(slot.Data[keyCountOff:]); got != beforeKeyCount+uint32(len(cookbooks)) {
+		t.Errorf("key_count = %d, want %d", got, beforeKeyCount+uint32(len(cookbooks)))
+	}
+	afterData := activeGaItemDataRecords(t, slot)
+	if got, want := len(afterData), len(beforeData)+len(cookbooks); got != want {
+		t.Fatalf("active GaItemData count = %d, want %d", got, want)
+	}
+	active := make(map[uint32]uint32, len(afterData))
+	for _, record := range afterData {
+		active[record.id] = record.flag
+	}
+	for _, id := range cookbooks {
+		if _, ok := findKeyItemHandle(slot, id); !ok {
+			t.Errorf("Cookbook 0x%08X missing from KeyItems", id)
+		}
+		if _, ok := findCommonItemHandle(slot, id); ok {
+			t.Errorf("Cookbook 0x%08X unexpectedly present in CommonItems", id)
+		}
+		if got := active[id]; got != 1 {
+			t.Errorf("Cookbook 0x%08X GaItemData flag = %d, want 1", id, got)
+		}
+		for _, ga := range slot.GaItems {
+			if !ga.IsEmpty() && ga.ItemID == id {
+				t.Errorf("Cookbook 0x%08X unexpectedly has a serialized GaItem", id)
+			}
 		}
 	}
 }

@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/binary"
 	"testing"
 
+	"github.com/oisis/EldenRing-SaveForge/backend/core"
 	"github.com/oisis/EldenRing-SaveForge/backend/db/data"
 )
 
@@ -21,7 +23,18 @@ func TestGameItemsBulkCookbookLifecycle(t *testing.T) {
 		assertUnlockLifecycle(t, lc, "event_flag_"+giDec(flagID), "false", "true", "true")
 		itemID := data.CookbookFlagToItemID[flagID]
 		prefix := findInvField(t, &app.save.Slots[0], itemID)
+		if prefix[:len("inventory_key")] != "inventory_key" {
+			t.Fatalf("cookbook 0x%08X field prefix = %q, want inventory_key", itemID, prefix)
+		}
 		assertUnlockLifecycle(t, lc, prefix+"_item_id", giAbsent, giHex(itemID), giHex(itemID))
+	}
+	slot := &app.save.Slots[0]
+	if row, _ := firstPopulatedInvRow(slot); row >= 0 {
+		t.Fatalf("bulk cookbook unlock added CommonItems row %d, want KeyItems only", row)
+	}
+	keyCountOff := slot.MagicOffset + core.InvStartFromMagic + core.CommonItemCount*core.InvRecordLen
+	if got := binary.LittleEndian.Uint32(slot.Data[keyCountOff:]); got != uint32(len(flags)) {
+		t.Errorf("key_count = %d, want %d for T071's two Merchant Kale cookbooks", got, len(flags))
 	}
 }
 

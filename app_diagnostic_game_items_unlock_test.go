@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/oisis/EldenRing-SaveForge/backend/core"
@@ -31,6 +32,20 @@ func firstPopulatedInvRow(slot *core.SaveSlot) (int, uint32) {
 		}
 	}
 	return -1, 0
+}
+
+func firstPopulatedKeyRow(slot *core.SaveSlot) (int, uint32) {
+	for i, it := range slot.Inventory.KeyItems {
+		if it.GaItemHandle != core.GaHandleEmpty && it.GaItemHandle != 0 {
+			return i, it.GaItemHandle
+		}
+	}
+	return -1, 0
+}
+
+func inventoryKeyCount(slot *core.SaveSlot) uint32 {
+	off := slot.MagicOffset + core.InvStartFromMagic + core.CommonItemCount*core.InvRecordLen
+	return binary.LittleEndian.Uint32(slot.Data[off:])
 }
 
 // unlockLifecycle collects, per lifecycle phase, a field->value map plus the flat
@@ -157,9 +172,15 @@ func TestGameItemsUnlockCookbookLifecycle(t *testing.T) {
 	}
 
 	slot := &app.save.Slots[0]
-	row, _ := firstPopulatedInvRow(slot)
+	row, _ := firstPopulatedKeyRow(slot)
 	if row < 0 {
-		t.Fatalf("cookbook unlock added no inventory row")
+		t.Fatalf("cookbook unlock added no KeyItems row")
+	}
+	if commonRow, _ := firstPopulatedInvRow(slot); commonRow >= 0 {
+		t.Fatalf("cookbook unlock added CommonItems row %d, want KeyItems only", commonRow)
+	}
+	if got := inventoryKeyCount(slot); got != 1 {
+		t.Fatalf("key_count = %d, want 1", got)
 	}
 
 	lc := collectUnlockLifecycle(t, journal.Tail(), actionGameItemsUnlockCookbook, "0")
@@ -167,19 +188,15 @@ func TestGameItemsUnlockCookbookLifecycle(t *testing.T) {
 
 	assertUnlockLifecycle(t, lc, "event_flag_"+giDec(cookbookFlag), "false", "true", "true")
 
-	p := "inventory_common_row_" + giDec(uint32(row))
+	p := "inventory_key_row_" + giDec(uint32(row))
 	assertUnlockLifecycle(t, lc, p+"_item_id", giAbsent, giHex(cookbookItem), giHex(cookbookItem))
-	assertUnlockLifecycle(t, lc, "inventory_common_header_count", "0", "1", "1")
 
 	// finished equals the real post-unlock slot.
 	if got := readContainerFlag(slot, cookbookFlag); got != lc.finished["event_flag_"+giDec(cookbookFlag)] {
 		t.Errorf("finished flag %q != real slot %q", lc.finished["event_flag_"+giDec(cookbookFlag)], got)
 	}
-	if got := readGameItemField(slot, giSecInventoryCommon, row, giItemID); got != lc.finished[p+"_item_id"] {
+	if got := readGameItemField(slot, giSecInventoryKey, row, giItemID); got != lc.finished[p+"_item_id"] {
 		t.Errorf("finished item_id %q != real slot %q", lc.finished[p+"_item_id"], got)
-	}
-	if got := readInventoryCommonHeaderCount(slot); got != lc.finished["inventory_common_header_count"] {
-		t.Errorf("finished header %q != real slot %q", lc.finished["inventory_common_header_count"], got)
 	}
 }
 
@@ -286,9 +303,9 @@ func TestGameItemsUnlockCookbookIdempotentFlag(t *testing.T) {
 		t.Fatalf("SetCookbookUnlocked: %v", err)
 	}
 
-	row, _ := firstPopulatedInvRow(slot)
+	row, _ := firstPopulatedKeyRow(slot)
 	if row < 0 {
-		t.Fatalf("cookbook unlock added no inventory row")
+		t.Fatalf("cookbook unlock added no KeyItems row")
 	}
 
 	lc := collectUnlockLifecycle(t, journal.Tail(), actionGameItemsUnlockCookbook, "0")
@@ -298,9 +315,54 @@ func TestGameItemsUnlockCookbookIdempotentFlag(t *testing.T) {
 	assertFieldAbsent(t, lc, "event_flag_"+giDec(cookbookFlag))
 
 	// The item add is still a real change with a full lifecycle.
-	p := "inventory_common_row_" + giDec(uint32(row))
+	p := "inventory_key_row_" + giDec(uint32(row))
 	assertUnlockLifecycle(t, lc, p+"_item_id", giAbsent, giHex(cookbookItem), giHex(cookbookItem))
-	assertUnlockLifecycle(t, lc, "inventory_common_header_count", "0", "1", "1")
+}
+
+func TestGameItemsUnlockCookbookPreservesLegacyCommonItemsRecord(t *testing.T) {
+	const (
+		cookbookFlag = uint32(67000)
+		cookbookItem = uint32(0x40002454)
+	)
+
+	app := gameItemAddApp(false)
+	withUnlockEventFlags(app, itemEventFlagsRegionSize)
+	slot := &app.save.Slots[0]
+	if err := core.AddItemsToSlot(slot, []uint32{cookbookItem}, 1, 0, false); err != nil {
+		t.Fatalf("seed legacy CommonItems cookbook: %v", err)
+	}
+
+	if err := app.SetCookbookUnlocked(0, cookbookFlag, true); err != nil {
+		t.Fatalf("SetCookbookUnlocked: %v", err)
+	}
+	if row, _ := firstPopulatedInvRow(slot); row < 0 {
+		t.Fatal("legacy CommonItems cookbook was removed")
+	}
+	if row, _ := firstPopulatedKeyRow(slot); row >= 0 {
+		t.Fatalf("legacy CommonItems cookbook was duplicated into KeyItems row %d", row)
+	}
+	if got := readContainerFlag(slot, cookbookFlag); got != "true" {
+		t.Errorf("cookbook flag = %q, want true", got)
+	}
+}
+
+func TestGameItemsUnlockCookbookFullKeyItemsLeavesFlagUnset(t *testing.T) {
+	const cookbookFlag = uint32(67000)
+
+	app := gameItemAddApp(false)
+	withUnlockEventFlags(app, itemEventFlagsRegionSize)
+	slot := &app.save.Slots[0]
+	slot.Inventory.KeyItems = make([]core.InventoryItem, core.KeyItemCount)
+	for i := range slot.Inventory.KeyItems {
+		slot.Inventory.KeyItems[i] = core.InventoryItem{GaItemHandle: 0xB0001000 + uint32(i), Quantity: 1}
+	}
+
+	if err := app.SetCookbookUnlocked(0, cookbookFlag, true); err == nil {
+		t.Fatal("SetCookbookUnlocked unexpectedly succeeded with a full KeyItems array")
+	}
+	if got := readContainerFlag(slot, cookbookFlag); got != "false" {
+		t.Errorf("cookbook flag = %q, want false after capacity rejection", got)
+	}
 }
 
 // E. Debug off: the unlock still mutates the slot, but no lifecycle records are

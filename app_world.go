@@ -844,32 +844,53 @@ func (a *App) journalUnlockMutation(action string, slotIndex int, slot *core.Sav
 	return nil
 }
 
-// applyCookbookUnlock performs the cookbook mutation on a single slot: a
-// best-effort event flag per cookbook plus the batched inventory add (unlock) or
-// per-cookbook removal (lock). Shared by the bulk worker, the single-item entry
-// point and Debug Mode's clone so a planned diff cannot drift from the applied
-// mutation. Caller holds the slot lock and has validated EventFlagsOffset.
-func applyCookbookUnlock(slot *core.SaveSlot, cookbookIDs []uint32, unlocked bool) {
+// applyCookbookUnlock performs the cookbook mutation on a single slot. The
+// cookbook event flags remain the source of truth for recipe/crafting unlocks;
+// T071 additionally confirms that a newly acquired cookbook is physically a
+// KeyItems record, not a CommonItems record. Shared by the bulk worker, the
+// single-item entry point and Debug Mode's clone so a planned diff cannot drift
+// from the applied mutation. Caller holds the slot lock and has validated
+// EventFlagsOffset.
+func applyCookbookUnlock(slot *core.SaveSlot, cookbookIDs []uint32, unlocked bool) error {
+	itemsToAdd := make([]core.ItemToAdd, 0, len(cookbookIDs))
+	if unlocked {
+		for _, cookbookID := range cookbookIDs {
+			if itemID, ok := data.CookbookFlagToItemID[cookbookID]; ok {
+				itemsToAdd = append(itemsToAdd, core.ItemToAdd{ItemID: itemID, InvQty: 1})
+			}
+		}
+		if report := core.CheckAddCapacity(slot, itemsToAdd); !report.CanFitAll {
+			return fmt.Errorf("cannot unlock cookbooks: %s", report.CapHit)
+		}
+	}
+
+	// Keep the historical best-effort event-flag behavior: these flags unlock
+	// the recipes and suppress the corresponding world pickup. The capacity check
+	// above runs first, so a full KeyItems array cannot leave a flag-only unlock.
 	flags := slot.Data[slot.EventFlagsOffset:]
-
-	// Collect item IDs to add in batch.
-	var itemsToAdd []uint32
-
 	for _, cookbookID := range cookbookIDs {
-		_ = db.SetEventFlag(flags, cookbookID, unlocked) // best-effort; inventory op is independent
-
-		if itemID, ok := data.CookbookFlagToItemID[cookbookID]; ok {
-			if unlocked {
-				itemsToAdd = append(itemsToAdd, itemID)
-			} else {
+		_ = db.SetEventFlag(flags, cookbookID, unlocked)
+		if !unlocked {
+			if itemID, ok := data.CookbookFlagToItemID[cookbookID]; ok {
 				core.RemoveItemByBaseID(slot, itemID)
 			}
 		}
 	}
 
-	if len(itemsToAdd) > 0 {
-		_ = core.AddItemsToSlot(slot, itemsToAdd, 1, 0, false)
+	if len(itemsToAdd) == 0 {
+		return nil
 	}
+
+	// AddItemsToSlot forces its legacy CommonItems compatibility mode. Cookbook
+	// unlocks must instead use the native T071 KeyItems route. The batch writer
+	// preserves an existing legacy CommonItems record in place, so old saves are
+	// neither migrated nor duplicated.
+	snapshot := core.SnapshotSlot(slot)
+	if err := core.AddItemsToSlotBatch(slot, itemsToAdd); err != nil {
+		core.RestoreSlot(slot, snapshot)
+		return fmt.Errorf("add cookbook inventory records: %w", err)
+	}
+	return nil
 }
 
 // SetCookbookUnlocked sets or clears the unlock flag for a single cookbook and
@@ -897,8 +918,7 @@ func (a *App) SetCookbookUnlocked(slotIndex int, cookbookID uint32, unlocked boo
 	}
 	cookbookIDs := []uint32{cookbookID}
 	return a.journalUnlockMutation(actionGameItemsUnlockCookbook, slotIndex, slot, cookbookIDs, func(s *core.SaveSlot) error {
-		applyCookbookUnlock(s, cookbookIDs, unlocked)
-		return nil
+		return applyCookbookUnlock(s, cookbookIDs, unlocked)
 	})
 }
 
@@ -933,8 +953,7 @@ func (a *App) bulkSetCookbooksUnlockedLocked(slotIndex int, cookbookIDs []uint32
 	}
 
 	return a.journalUnlockMutation(actionGameItemsBulkSetCookbooks, slotIndex, slot, cookbookIDs, func(s *core.SaveSlot) error {
-		applyCookbookUnlock(s, cookbookIDs, unlocked)
-		return nil
+		return applyCookbookUnlock(s, cookbookIDs, unlocked)
 	})
 }
 
