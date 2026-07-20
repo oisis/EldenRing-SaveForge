@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.6] - 2026-07-21
+
+### fix(save-manager): correct Steam ID handling for PC saves
+
+Loading a PC Steam save now shows the correct current Steam ID, and saving
+writes it back to the right metadata offset instead of a stale location.
+
+### fix(cookbooks): persist crafting unlocks in Key Items
+
+Cookbooks are now saved as Key Items, and their crafting unlocks are kept
+intact instead of being lost on save.
+
+### fix(item-add): restore native counters for newly added items
+
+Adding new Inventory items (goods, ammo, weapons, armor, talismans, and Ashes
+of War) now updates the same internal counters the game itself maintains, so
+newly added items show up correctly in-game instead of being invisible.
+
 ## [1.5.5] - 2026-07-19
 
 ### feat(diagnostics): complete Debug Mode coverage
