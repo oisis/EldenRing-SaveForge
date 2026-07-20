@@ -1,7 +1,10 @@
 package main
 
 import (
+	"encoding/binary"
 	"encoding/json"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -268,4 +271,48 @@ func TestSetSteamIDFromStringDebugOff(t *testing.T) {
 		}
 	}
 	assertNoFieldRecords(t, tail)
+}
+
+// TestSteamIDPersistsAcrossSaveAndReload is the regression test for the A -> B
+// Steam ID transition (Tools -> Appearance & Steam ID): SetSteamIDFromString
+// must both update the loaded save in memory and durably persist into
+// UserData10 on an ordinary file write, so a fresh core.LoadSave of that file
+// observes the new id — not just the in-memory struct. Uses the shared
+// tmp/save/ER0000.sl2 fixture read-only (via realSaveAppForSave, which skips
+// the test if that gitignored fixture isn't present locally) and writes only
+// to a t.TempDir() copy, never back to the source fixture.
+func TestSteamIDPersistsAcrossSaveAndReload(t *testing.T) {
+	app, _ := realSaveAppForSave(t)
+	if app.save.Platform != core.PlatformPC {
+		t.Skipf("fixture is not a PC save (platform=%s)", app.save.Platform)
+	}
+
+	steamIDBefore := app.save.SteamID
+	steamIDAfter := steamIDBefore + 1
+	if steamIDAfter == 0 {
+		t.Fatal("fixture SteamID cannot be incremented")
+	}
+	if err := app.SetSteamIDFromString(strconv.FormatUint(steamIDAfter, 10)); err != nil {
+		t.Fatalf("SetSteamIDFromString: %v", err)
+	}
+	if app.save.SteamID != steamIDAfter {
+		t.Fatalf("save.SteamID = %d, want %d", app.save.SteamID, steamIDAfter)
+	}
+
+	outPath := filepath.Join(t.TempDir(), "ER0000.sl2")
+	if err := app.save.SaveFile(outPath); err != nil {
+		t.Fatalf("SaveFile: %v", err)
+	}
+
+	reloaded, err := core.LoadSave(outPath)
+	if err != nil {
+		t.Fatalf("LoadSave (reload): %v", err)
+	}
+	if reloaded.SteamID != steamIDAfter {
+		t.Fatalf("reloaded.SteamID = %d, want %d", reloaded.SteamID, steamIDAfter)
+	}
+	gotPrefix := binary.LittleEndian.Uint64(reloaded.UserData10.Data[0:8])
+	if gotPrefix != steamIDAfter {
+		t.Errorf("reloaded UserData10.Data[0:8] = %d, want %d", gotPrefix, steamIDAfter)
+	}
 }

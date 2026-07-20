@@ -27,6 +27,11 @@ interface SettingsTabProps {
     debugMode: boolean;
     setDebugMode: (value: boolean) => void;
     platform: string | null;
+    // Bumped by App on every save load; used to re-fetch platform-derived
+    // state (like Steam ID) even when platform itself doesn't change, e.g.
+    // loading a second PC save after the first (issue: Steam ID field was
+    // stuck on the first save's value since the effect only watched platform).
+    saveLoadKey: number;
     selectedDeployTarget: string;
     setSelectedDeployTarget: (v: string) => void;
     onAfterLoad: (platform: string) => Promise<void> | void;
@@ -56,7 +61,7 @@ const EMPTY_LOCAL_TARGET: deploy.Target = new deploy.Target({
 export function SettingsTab({
     theme, setTheme, columnVisibility, setColumnVisibility,
     safetyProfile, debugMode, setDebugMode,
-    platform, charIndex,
+    platform, saveLoadKey, charIndex,
     selectedDeployTarget: selectedTarget, setSelectedDeployTarget: setSelectedTarget,
     onAfterLoad,
     onComplete, onMutate, onOptimizeGaItem, onResolveDuplicateGaItem,
@@ -207,8 +212,13 @@ export function SettingsTab({
 
     useEffect(() => {
         if (platform !== 'PC') { setSteamIdInput(''); setSteamIdSaved(''); return; }
-        GetSteamIDString().then(id => { setSteamIdInput(id); setSteamIdSaved(id); });
-    }, [platform]);
+        let cancelled = false;
+        GetSteamIDString().then(id => {
+            if (cancelled) return;
+            setSteamIdInput(id); setSteamIdSaved(id);
+        });
+        return () => { cancelled = true; };
+    }, [platform, saveLoadKey]);
 
     const validateSteamId = (val: string) => {
         if (!/^\d{17}$/.test(val)) return 'SteamID must be exactly 17 digits.';

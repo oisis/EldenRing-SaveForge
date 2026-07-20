@@ -696,6 +696,7 @@ function App() {
                                     debugMode={debugMode}
                                     setDebugMode={setDebugMode}
                                     platform={platform}
+                                    saveLoadKey={saveLoadKey}
                                     selectedDeployTarget={selectedDeployTarget}
                                     setSelectedDeployTarget={setSelectedDeployTarget}
                                     onAfterLoad={finalizeLoadedSaveWithIntegrityCheck}

@@ -56,7 +56,7 @@ import { SafetyModeProvider } from '../state/safetyMode';
 import { FavoritesProvider } from '../state/favorites';
 import type { SafetyProfile } from '../state/safetyProfile';
 import toast from '../lib/toast';
-import { DiagnosticRecoveryStatus, ExportDiagnosticLog, PrepareConversion } from '../../wailsjs/go/main/App';
+import { DiagnosticRecoveryStatus, ExportDiagnosticLog, GetSteamIDString, PrepareConversion } from '../../wailsjs/go/main/App';
 
 // jsdom here has no localStorage; SettingsTab reads it for the Full Chaos toggle.
 const lsStore: Record<string, string> = {};
@@ -90,6 +90,7 @@ function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', on
                     safetyProfile={safetyProfile}
                     debugMode={false} setDebugMode={vi.fn()}
                     platform="steam"
+                    saveLoadKey={0}
                     selectedDeployTarget="" setSelectedDeployTarget={vi.fn()}
                     onAfterLoad={vi.fn()}
                     charIndex={charIndex}
@@ -100,6 +101,38 @@ function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', on
             </FavoritesProvider>
         </SafetyModeProvider>,
     );
+}
+
+// steamIdSettingsTree builds the SettingsTab element for an explicit
+// platform/saveLoadKey pair, for the Steam ID refresh-on-reload tests below
+// (they need real 'PC', never the placeholder 'steam' value the rest of this
+// file's default helper uses, and control over saveLoadKey to simulate
+// loading a second PC save). Shared between render() and rerender() so both
+// calls exercise the identical tree, only the two props differ.
+function steamIdSettingsTree(platform: string | null, saveLoadKey: number) {
+    return (
+        <SafetyModeProvider>
+            <FavoritesProvider>
+                <SettingsTab
+                    theme="dark" setTheme={vi.fn()}
+                    columnVisibility={{ id: false, category: false }} setColumnVisibility={vi.fn()}
+                    safetyProfile="safe"
+                    debugMode={false} setDebugMode={vi.fn()}
+                    platform={platform}
+                    saveLoadKey={saveLoadKey}
+                    selectedDeployTarget="" setSelectedDeployTarget={vi.fn()}
+                    onAfterLoad={vi.fn()}
+                    charIndex={0}
+                    onComplete={vi.fn()}
+                    onOptimizeGaItem={vi.fn()}
+                />
+            </FavoritesProvider>
+        </SafetyModeProvider>
+    );
+}
+
+function renderSteamIdSettings(platform: string | null, saveLoadKey: number) {
+    return render(steamIdSettingsTree(platform, saveLoadKey));
 }
 
 describe('SettingsTab diagnostics', () => {
@@ -233,6 +266,7 @@ describe('SettingsTab Optimize GaItem allocation', () => {
                         safetyProfile="safe"
                         debugMode={false} setDebugMode={vi.fn()}
                         platform={null}
+                        saveLoadKey={0}
                         selectedDeployTarget="" setSelectedDeployTarget={vi.fn()}
                         onAfterLoad={vi.fn()}
                         charIndex={0}
@@ -308,5 +342,50 @@ describe('SettingsTab safety profile selector', () => {
         fireEvent.click(screen.getByRole('button', { name: /^OK$/i }));
 
         await waitFor(() => expect(lsStore['setting:safetyProfile']).toBe('chaos'));
+    });
+});
+
+describe('SettingsTab Steam ID refresh on save reload', () => {
+    const STEAM_ID_A = '76561197960287930';
+    const STEAM_ID_B = '76561198088776655';
+    const steamIdField = () => screen.getByPlaceholderText('76561198XXXXXXXXX');
+
+    beforeEach(() => {
+        (GetSteamIDString as ReturnType<typeof vi.fn>).mockReset();
+    });
+
+    it('shows save A\'s Steam ID, then refreshes to save B\'s after a second PC save loads (same platform, new saveLoadKey)', async () => {
+        (GetSteamIDString as ReturnType<typeof vi.fn>)
+            .mockResolvedValueOnce(STEAM_ID_A)
+            .mockResolvedValueOnce(STEAM_ID_B);
+
+        const { rerender } = renderSteamIdSettings('PC', 1);
+        await waitFor(() => expect(steamIdField()).toHaveValue(STEAM_ID_A));
+
+        rerender(steamIdSettingsTree('PC', 2));
+        await waitFor(() => expect(steamIdField()).toHaveValue(STEAM_ID_B));
+
+        expect(GetSteamIDString).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores a late-resolving GetSteamIDString response from a superseded save load', async () => {
+        let resolveFirst!: (id: string) => void;
+        let resolveSecond!: (id: string) => void;
+        (GetSteamIDString as ReturnType<typeof vi.fn>)
+            .mockImplementationOnce(() => new Promise<string>(res => { resolveFirst = res; }))
+            .mockImplementationOnce(() => new Promise<string>(res => { resolveSecond = res; }));
+
+        const { rerender } = renderSteamIdSettings('PC', 1);
+        rerender(steamIdSettingsTree('PC', 2));
+
+        // The newer (second) request resolves first...
+        resolveSecond(STEAM_ID_B);
+        await waitFor(() => expect(steamIdField()).toHaveValue(STEAM_ID_B));
+
+        // ...then the stale first request resolves late. A correctly-guarded
+        // effect must not let it overwrite the already-current value.
+        resolveFirst(STEAM_ID_A);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(steamIdField()).toHaveValue(STEAM_ID_B);
     });
 });
