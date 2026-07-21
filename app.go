@@ -44,6 +44,23 @@ type App struct {
 	undoStacks   [10][]slotSnapshot
 	lastSavePath string
 
+	// storageAddSessions[i] is the direct Database Add path's (App.AddItemsToCharacter)
+	// explicit, bounded context for core.AddItemsToSlotBatchForStorageSession's T350
+	// override: true once this character's Storage has been confirmed genuinely
+	// empty (T310 signature) at the start of an uninterrupted series of independent
+	// AddItemsToCharacter calls, so every later call in that same series keeps
+	// applying the T310/T330 counter rule instead of falling back to the
+	// populated-Storage policy after the first call. Protected by slotMu[i], same
+	// as undoStacks[i]. Never read or written by any path other than
+	// addItemsToCharacter. Reset (see clearAllStorageAddSessions) on load, reload,
+	// close, and successful WriteSave — see addItemsToCharacter and
+	// clearAllStorageAddSessions for the exact lifecycle. Deliberately NOT reset by
+	// Deploy/Deploy and Launch (writeTempSave): those upload an ephemeral snapshot,
+	// not the user's canonical save, so an in-progress Database Add series must
+	// survive them — the same precedent undoStacks already sets by not being
+	// cleared there either.
+	storageAddSessions [maxCharacters]bool
+
 	// journal is the durable per-session diagnostic log. It is nil in
 	// tests and headless runs (NewApp leaves it unset so existing
 	// fixtures never create a real session file); production main.go
@@ -291,6 +308,7 @@ func (a *App) installLoadedSave(candidate *core.SaveFile, path string) {
 	a.gaItemDedupTokens = make(map[string]gaItemDedupToken)
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
+	a.clearAllStorageAddSessions()
 	a.clearAllEditSessions()
 }
 
@@ -514,6 +532,7 @@ func (a *App) writeSaveCore(path string, expected *core.SaveFile) ([]diagnosticF
 	}
 	a.lastSavePath = path
 	a.clearAllUndoStacks()
+	a.clearAllStorageAddSessions()
 	return snapshot, nil
 }
 
@@ -1136,6 +1155,17 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	if bundleCreate {
 		capacityItems = appendCrimsonCrystalTearBundleItems(capacityItems)
 	}
+	// T350: this call only opens/extends a storageAddSessions[charIdx] series
+	// if it actually deposits at least one item into Storage. An
+	// Inventory-only call must neither start a session nor clear an already
+	// active one — see the assignment guarded by hasStorageEntry below.
+	hasStorageEntry := false
+	for _, item := range capacityItems {
+		if item.StorageQty > 0 {
+			hasStorageEntry = true
+			break
+		}
+	}
 	// In-place KeyItems stack bumps (issue 7) do not consume new slots, so they
 	// are work even when nothing routes through the batch adder.
 	hasKeyUpdates := false
@@ -1184,6 +1214,21 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	// MUTATE: build the mutation plan once. The plan captures every already-
 	// computed input the mutation tail consumes, so the diagnostic planner can
 	// apply the identical plan to core.CloneSlot before the real executor runs.
+	//
+	// T350: sessionStorageEmptyAtStart decides whether THIS call still qualifies
+	// for the T310/T330 empty-Storage counter rule even though it's independent
+	// of any earlier Database Add call. It's true either because an earlier
+	// successful call in the same uninterrupted series already established it
+	// (a.storageAddSessions[charIdx]), or — if this is the first call of a new
+	// series — because Storage is, right now, genuinely empty (T310 signature).
+	// Computed once here, before the plan/diagnostics/mutation touch anything,
+	// exactly mirroring core.addItemsToSlotBatch's own per-call check so the
+	// decision this function persists on success matches what core actually
+	// used. See storageAddSessions on App for the full lifecycle.
+	sessionStorageEmptyAtStart := a.storageAddSessions[charIdx] ||
+		(len(slot.Storage.CommonItems) == 0 &&
+			slot.Storage.NextAcquisitionSortId <= 1 && slot.Storage.NextEquipIndex == 0)
+
 	planItems := make([]itemAddPlanItem, 0, len(prepared))
 	for _, p := range prepared {
 		planItems = append(planItems, itemAddPlanItem{
@@ -1195,11 +1240,12 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		})
 	}
 	plan := itemAddMutationPlan{
-		batch:               capacityItems,
-		items:               planItems,
-		usedContainers:      usedContainers,
-		storageContainers:   storageContainers,
-		existingByContainer: existingByContainer,
+		batch:                      capacityItems,
+		items:                      planItems,
+		usedContainers:             usedContainers,
+		storageContainers:          storageContainers,
+		existingByContainer:        existingByContainer,
+		sessionStorageEmptyAtStart: sessionStorageEmptyAtStart,
 	}
 	if bundleCreate {
 		plan.requiredTutorialIDs = append(plan.requiredTutorialIDs, crimsonCrystalTearBundleTutorialID)
@@ -1266,6 +1312,16 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			a.journalGameItemChangeFinished(actionGameItemsAdd, charIdx, characterChangeError, stageGameItemsApplyAddPlan, finished)
 		}
 		return result, err
+	}
+	// T350: only a successful real mutation commits the series decision — a
+	// failed call (handled by the branch above, before this line) leaves
+	// a.storageAddSessions[charIdx] exactly as it was, so no partially-applied
+	// mutation can ever leave the context half-active. See storageAddSessions.
+	// An Inventory-only call (hasStorageEntry false) leaves the flag
+	// untouched instead: it must not open a session, and must not clear one
+	// an earlier direct Database Add to Storage already opened.
+	if hasStorageEntry {
+		a.storageAddSessions[charIdx] = sessionStorageEmptyAtStart
 	}
 	if len(giPlans) > 0 || len(giInventoryHeaderPlans) > 0 || len(giFlagPlans) > 0 || len(giBolsteringPlans) > 0 || len(giTutorialPlans) > 0 || len(giContainerPlans) > 0 || len(giStorageHeaderPlans) > 0 {
 		finished := append(gameItemFinishedRecords(giPlans, slot), gameItemSideEffectFinishedRecords(giInventoryHeaderPlans, slot)...)
@@ -2205,6 +2261,16 @@ func (a *App) clearAllUndoStacks() {
 	for i := range a.undoStacks {
 		a.undoStacks[i] = nil
 	}
+}
+
+// clearAllStorageAddSessions ends every character's open direct Database Add
+// series (see storageAddSessions on App). Called on load, reload, close, and
+// successful WriteSave — the same three boundaries clearAllUndoStacks resets
+// on — so a Database Add series can never survive past the point its Storage
+// snapshot stopped being current. Deliberately NOT called by
+// Deploy/Deploy and Launch (writeTempSave); see storageAddSessions' doc.
+func (a *App) clearAllStorageAddSessions() {
+	a.storageAddSessions = [maxCharacters]bool{}
 }
 
 // clearAllEditSessions drops every in-memory inventory edit session. Called when

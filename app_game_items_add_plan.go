@@ -39,6 +39,12 @@ type itemAddMutationPlan struct {
 	// Crimson Crystal Tear) whose confirmed native contract has no partial
 	// state — the tutorial entry is not optional cosmetic polish for them.
 	requiredTutorialIDs []uint32
+	// sessionStorageEmptyAtStart is addItemsToCharacter's T350 decision (see
+	// its doc comment), forwarded verbatim to
+	// core.AddItemsToSlotBatchForStorageSession below. Computed once by the
+	// caller from a.storageAddSessions[charIdx] plus the real slot's state —
+	// this plan struct only carries it through to the executor.
+	sessionStorageEmptyAtStart bool
 }
 
 // applyItemAddMutationPlan performs the batch add, in-place key-item stack
@@ -51,9 +57,12 @@ type itemAddMutationPlan struct {
 // return the same error messages the inline tail produced, leaving rollback to
 // the caller.
 func applyItemAddMutationPlan(slot *core.SaveSlot, plan itemAddMutationPlan, warn func(string, ...any)) error {
-	// MUTATE: batch add all items (one RebuildSlotFull instead of N).
+	// MUTATE: batch add all items (one RebuildSlotFull instead of N). Uses the
+	// explicit T350 override (see itemAddMutationPlan.sessionStorageEmptyAtStart)
+	// — the one core entry point in the whole app that ever passes a non-false
+	// value here; every other caller of core.AddItemsToSlotBatch is unaffected.
 	if len(plan.batch) > 0 {
-		if err := core.AddItemsToSlotBatch(slot, plan.batch); err != nil {
+		if err := core.AddItemsToSlotBatchForStorageSession(slot, plan.batch, plan.sessionStorageEmptyAtStart); err != nil {
 			return fmt.Errorf("rollback after batch add: %w", err)
 		}
 	}

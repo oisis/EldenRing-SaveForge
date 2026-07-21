@@ -11,8 +11,8 @@ package main
 // Scope (deliberately narrow):
 //   - Replaces a.save with nil.
 //   - Clears every piece of derived state that installLoadedSave wires up
-//     for a freshly-loaded file: lastSavePath, favSlotNames, undo stacks
-//     and inventory edit sessions.
+//     for a freshly-loaded file: lastSavePath, favSlotNames, undo stacks,
+//     inventory edit sessions, and storage add sessions (T350).
 //   - Does NOT touch a.sourceSave — the source save is an independent
 //     read-only handle owned by SelectAndOpenSourceSave / Character
 //     Importer and is unrelated to the active editable save.
@@ -49,6 +49,7 @@ func (a *App) CloseSave() error {
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	a.clearAllEditSessions()
+	a.clearAllStorageAddSessions()
 	a.saveMu.Unlock()
 
 	// Ending the current-save scope: append save_closed AFTER the reset and

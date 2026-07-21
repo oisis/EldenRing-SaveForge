@@ -246,16 +246,47 @@ func AddItemsToSlot(slot *SaveSlot, itemIDs []uint32, invQty, storageQty int, fo
 // AddItemsToSlotBatch adds a batch of items with per-item qty/stackable settings.
 // All GaItem allocations happen in Phase 1, then ONE RebuildSlotFull in Phase 2,
 // then all inventory/storage writes in Phase 3. This is O(1) rebuilds instead of O(N).
+//
+// Storage's T310/T330 empty-init counter rule (see addToInventory) is decided
+// fresh from Storage's own state at the start of THIS call only — every caller
+// gets the same default behavior. AddItemsToSlotBatchForStorageSession is the
+// one explicit, narrow escape hatch that extends that rule across multiple
+// independent calls; nothing here does so implicitly.
 func AddItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd) error {
-	// T330 is only confirmed for a single native transfer into a Storage that
-	// was genuinely empty (T310 signature) BEFORE the transfer began. Captured
+	return addItemsToSlotBatch(slot, items, false)
+}
+
+// AddItemsToSlotBatchForStorageSession is AddItemsToSlotBatch plus one explicit
+// override: sessionStorageEmptyAtStart, supplied by the caller, is OR'd into the
+// per-call T310 empty-Storage check (see addToInventory's
+// storageBatchStartedEmpty parameter). Pass true only when the caller has
+// already established — from its own bounded, explicit context — that Storage
+// was genuinely empty at the start of the current series of independent add
+// calls (T350: the app's direct Database Add path, one series per uninterrupted
+// stretch of AddItemsToCharacter calls between save/reload boundaries). Every
+// other caller must keep using plain AddItemsToSlotBatch; nothing in core
+// itself infers or persists this context.
+func AddItemsToSlotBatchForStorageSession(slot *SaveSlot, items []ItemToAdd, sessionStorageEmptyAtStart bool) error {
+	return addItemsToSlotBatch(slot, items, sessionStorageEmptyAtStart)
+}
+
+func addItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd, sessionStorageEmptyAtStart bool) error {
+	// T330 is only confirmed for a native transfer into a Storage that was
+	// genuinely empty (T310 signature) before the transfer began. Captured
 	// here, before Phase 1/2 touch anything, so it scopes to exactly this one
 	// batch — it must never be re-derived per insert from addToInventory's
 	// persisted counters, since those move after the first insert and would
 	// misidentify a later, unrelated batch on the same (by-then non-empty)
 	// Storage as another empty-init.
-	storageBatchStartedEmpty := len(slot.Storage.CommonItems) == 0 &&
-		slot.Storage.NextAcquisitionSortId <= 1 && slot.Storage.NextEquipIndex == 0
+	//
+	// sessionStorageEmptyAtStart is the caller-supplied override documented on
+	// AddItemsToSlotBatchForStorageSession above; plain AddItemsToSlotBatch
+	// always passes false, so every ordinary caller (Appearance, World,
+	// container auto-sync, ...) keeps exactly the local-only behavior this
+	// function had before T350.
+	storageBatchStartedEmpty := sessionStorageEmptyAtStart ||
+		(len(slot.Storage.CommonItems) == 0 &&
+			slot.Storage.NextAcquisitionSortId <= 1 && slot.Storage.NextEquipIndex == 0)
 
 	type pendingInv struct {
 		handle     uint32

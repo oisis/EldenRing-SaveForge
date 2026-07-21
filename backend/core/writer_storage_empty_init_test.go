@@ -154,7 +154,11 @@ func TestAddItemsToSlotBatch_EmptyStorageSixItemBatchMatchesT330(t *testing.T) {
 // against that now-populated Storage must fall back to the pre-existing policy —
 // NextEquipIndex untouched — because storageBatchStartedEmpty is decided fresh
 // per AddItemsToSlotBatch call from Storage's state at that call's start, never
-// inferred from the mutated persisted counters inside addToInventory.
+// inferred from the mutated persisted counters inside addToInventory. Plain
+// AddItemsToSlotBatch never gains app-session semantics — only the explicit
+// AddItemsToSlotBatchForStorageSession override can (see
+// TestAddItemsToSlotBatchForStorageSession_SixIndependentCallsOnEmptyStorageMatchT350
+// below), and this test deliberately does not use it.
 func TestAddItemsToSlotBatch_SecondBatchOnPopulatedStorageDoesNotAdvanceNextEquipIndex(t *testing.T) {
 	slot := storageEmptyInitFixture(t)
 
@@ -214,5 +218,61 @@ func TestAddItemsToSlotBatch_SecondBatchOnPopulatedStorageDoesNotAdvanceNextEqui
 	rawAcq := binary.LittleEndian.Uint32(slot.Data[slot.Storage.nextAcqSortIdOff:])
 	if rawAcq != 5 {
 		t.Errorf("binary NextAcquisitionSortId: got %d, want 5", rawAcq)
+	}
+}
+
+// TestAddItemsToSlotBatchForStorageSession_SixIndependentCallsOnEmptyStorageMatchT350
+// exercises the explicit T350 escape hatch at the core layer in isolation from
+// the app: six independent AddItemsToSlotBatchForStorageSession calls, each
+// adding one item, all passing sessionStorageEmptyAtStart=true (as the caller
+// — App.AddItemsToCharacter — would once it has established that Storage was
+// genuinely empty when this series began). This must reach the exact same end
+// state as T330's single six-item native batch (indexes 2,4,6,8,10,12,
+// NextEquipIndex=133, NextAcquisitionSortId=7). The full app-level path is
+// covered separately by TestAddItemsToCharacter_SixIndependentDatabaseAddCallsOnEmptyStorageMatchT350
+// in app_storage_add_session_test.go.
+func TestAddItemsToSlotBatchForStorageSession_SixIndependentCallsOnEmptyStorageMatchT350(t *testing.T) {
+	slot := storageEmptyInitFixture(t)
+
+	for i := 0; i < 6; i++ {
+		if err := AddItemsToSlotBatchForStorageSession(slot, []ItemToAdd{{ItemID: testTrickMirrorID, StorageQty: 1}}, true); err != nil {
+			t.Fatalf("independent AddItemsToSlotBatchForStorageSession call %d: %v", i+1, err)
+		}
+	}
+
+	if len(slot.Storage.CommonItems) != 6 {
+		t.Fatalf("CommonItems count: got %d, want 6 (T350)", len(slot.Storage.CommonItems))
+	}
+
+	wantIndexes := map[uint32]bool{2: true, 4: true, 6: true, 8: true, 10: true, 12: true}
+	gotIndexes := make(map[uint32]bool)
+	for _, item := range slot.Storage.CommonItems {
+		gotIndexes[item.Index] = true
+	}
+	for idx := range wantIndexes {
+		if !gotIndexes[idx] {
+			t.Errorf("missing expected record Index %d", idx)
+		}
+	}
+	for idx := range gotIndexes {
+		if !wantIndexes[idx] {
+			t.Errorf("unexpected record Index %d", idx)
+		}
+	}
+
+	if slot.Storage.NextEquipIndex != 133 {
+		t.Errorf("Storage.NextEquipIndex: got %d, want 133 (T350)", slot.Storage.NextEquipIndex)
+	}
+	if slot.Storage.NextAcquisitionSortId != 7 {
+		t.Errorf("Storage.NextAcquisitionSortId: got %d, want 7 (T350)", slot.Storage.NextAcquisitionSortId)
+	}
+
+	rawEquip := binary.LittleEndian.Uint32(slot.Data[slot.Storage.nextEquipIndexOff:])
+	if rawEquip != 133 {
+		t.Errorf("binary NextEquipIndex: got %d, want 133", rawEquip)
+	}
+	rawAcq := binary.LittleEndian.Uint32(slot.Data[slot.Storage.nextAcqSortIdOff:])
+	if rawAcq != 7 {
+		t.Errorf("binary NextAcquisitionSortId: got %d, want 7", rawAcq)
 	}
 }
