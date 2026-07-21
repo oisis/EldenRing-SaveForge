@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.7] - 2026-07-21
+
+### fix(storage): preserve native allocation for direct item additions
+
+Adding items to an empty Storage now follows the game's allocation pattern,
+both for a single batch and for several separate Add operations in one editing
+session. Newly added items remain visible after saving and restarting the game.
+
 ## [1.5.6] - 2026-07-21
 
 ### fix(save-manager): correct Steam ID handling for PC saves
