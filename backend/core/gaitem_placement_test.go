@@ -360,6 +360,114 @@ func TestAllocateGaItem_AoWRejectsWhenArmamentZoneAtCapacity(t *testing.T) {
 	}
 }
 
+// TestAllocateGaItem_RejectsNonCanonicalInversion locks the fail-closed guard
+// against inherited/non-canonical GaItem layouts where NextArmamentIndex sits
+// below NextAoWIndex. The native writer emits all AoW records first, so on a
+// canonical save NextArmamentIndex >= NextAoWIndex always holds. scanGaItems
+// can nonetheless produce an inverted state (NextArmamentIndex derived from the
+// highest-counter record, which may live below the last AoW). Allocating a
+// Weapon/Armor at NextArmamentIndex would drop it inside the AoW block and make
+// the linear RebuildSlotFull diverge from the two-pass native writer, so the
+// allocator must reject before mutating anything.
+func TestAllocateGaItem_RejectsNonCanonicalInversion(t *testing.T) {
+	// Synthetic inverted layout: AoW at indices 0..1, NextAoWIndex=2,
+	// NextArmamentIndex=1 (< NextAoWIndex).
+	newInvertedSlot := func() *SaveSlot {
+		slot := makeTestSlot(8)
+		for i := 0; i < 2; i++ {
+			slot.GaItems[i] = GaItemFull{
+				Handle:          uint32(ItemTypeAow | 0x00800000 | uint32(i)),
+				ItemID:          uint32(0x40000000 + i),
+				Unk2:            -1,
+				Unk3:            -1,
+				AoWGaItemHandle: NoCustomAoWHandle,
+			}
+		}
+		slot.NextAoWIndex = 2
+		slot.NextArmamentIndex = 1 // inverted: < NextAoWIndex
+		slot.NextGaItemHandle = 3
+		return slot
+	}
+
+	for _, tc := range []struct {
+		name   string
+		handle uint32
+		itemID uint32
+	}{
+		{"Weapon", ItemTypeWeapon | 0x00800003, 0x00100000},
+		{"Armor", ItemTypeArmor | 0x00800003, 0x10100000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			slot := newInvertedSlot()
+			before := append([]GaItemFull(nil), slot.GaItems...)
+
+			err := allocateGaItem(slot, tc.handle, tc.itemID)
+			if err == nil {
+				t.Fatalf("allocateGaItem %s must reject inverted layout; got nil", tc.name)
+			}
+			if !contains(err.Error(), "non-canonical GaItem layout") {
+				t.Errorf("expected 'non-canonical GaItem layout' error, got: %v", err)
+			}
+
+			// Proof of no mutation: array, both cursors, handle counter unchanged.
+			for i := range before {
+				if slot.GaItems[i] != before[i] {
+					t.Errorf("GaItems[%d] mutated on rejection: %+v -> %+v", i, before[i], slot.GaItems[i])
+				}
+			}
+			if slot.NextAoWIndex != 2 {
+				t.Errorf("NextAoWIndex must stay 2 on rejection, got %d", slot.NextAoWIndex)
+			}
+			if slot.NextArmamentIndex != 1 {
+				t.Errorf("NextArmamentIndex must stay 1 on rejection, got %d", slot.NextArmamentIndex)
+			}
+			if slot.NextGaItemHandle != 3 {
+				t.Errorf("NextGaItemHandle must stay 3 on rejection, got %d", slot.NextGaItemHandle)
+			}
+		})
+	}
+}
+
+// TestAllocateGaItem_CanonicalLayoutStillAllocates guards against the fail-closed
+// check over-firing: a canonical layout (NextArmamentIndex >= NextAoWIndex) must
+// still place Weapon/Armor normally.
+func TestAllocateGaItem_CanonicalLayoutStillAllocates(t *testing.T) {
+	slot := makeTestSlot(8)
+	for i := 0; i < 2; i++ {
+		slot.GaItems[i] = GaItemFull{
+			Handle:          uint32(ItemTypeAow | 0x00800000 | uint32(i)),
+			ItemID:          uint32(0x40000000 + i),
+			Unk2:            -1,
+			Unk3:            -1,
+			AoWGaItemHandle: NoCustomAoWHandle,
+		}
+	}
+	slot.NextAoWIndex = 2
+	slot.NextArmamentIndex = 2 // canonical: == NextAoWIndex
+
+	weaponHandle := uint32(ItemTypeWeapon | 0x00800003)
+	if err := allocateGaItem(slot, weaponHandle, 0x00100000); err != nil {
+		t.Fatalf("allocateGaItem Weapon on canonical layout: %v", err)
+	}
+	if slot.GaItems[2].Handle != weaponHandle {
+		t.Errorf("Weapon should land at index 2, got handle 0x%X", slot.GaItems[2].Handle)
+	}
+	if slot.NextArmamentIndex != 3 {
+		t.Errorf("NextArmamentIndex should advance to 3, got %d", slot.NextArmamentIndex)
+	}
+
+	armorHandle := uint32(ItemTypeArmor | 0x00800004)
+	if err := allocateGaItem(slot, armorHandle, 0x10100000); err != nil {
+		t.Fatalf("allocateGaItem Armor on canonical layout: %v", err)
+	}
+	if slot.GaItems[3].Handle != armorHandle {
+		t.Errorf("Armor should land at index 3, got handle 0x%X", slot.GaItems[3].Handle)
+	}
+	if slot.NextArmamentIndex != 4 {
+		t.Errorf("NextArmamentIndex should advance to 4, got %d", slot.NextArmamentIndex)
+	}
+}
+
 func contains(s, substr string) bool {
 	for i := 0; i+len(substr) <= len(s); i++ {
 		if s[i:i+len(substr)] == substr {

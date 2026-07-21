@@ -636,6 +636,17 @@ func allocateGaItem(slot *SaveSlot, handle, itemID uint32) error {
 		slot.NextAoWIndex++
 		slot.NextArmamentIndex++ // AoW insertion shifts armament zone right
 	} else {
+		// Fail-closed guard: on a canonical layout the writer emits all AoW
+		// records first, so NextArmamentIndex (right edge of the armament zone)
+		// is always >= NextAoWIndex. An inherited/non-canonical save can violate
+		// this (scanGaItems derives NextArmamentIndex from the highest-counter
+		// record, which may sit below the last AoW). Inserting a Weapon/Armor at
+		// NextArmamentIndex would then land inside the AoW block and make the
+		// linear RebuildSlotFull diverge from the native two-pass writer. Reject
+		// before touching GaItems or either cursor.
+		if slot.NextArmamentIndex < slot.NextAoWIndex {
+			return fmt.Errorf("allocateGaItem: non-canonical GaItem layout (NextArmamentIndex %d < NextAoWIndex %d) — manual repair required; current repack does not normalize AoW ordering", slot.NextArmamentIndex, slot.NextAoWIndex)
+		}
 		idx := slot.NextArmamentIndex
 		if idx >= maxEntries {
 			return fmt.Errorf("allocateGaItem: armament/armor array full (index %d >= %d)", idx, maxEntries)
