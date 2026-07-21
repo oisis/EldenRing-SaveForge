@@ -297,6 +297,43 @@ Obie strony używają tego samego `GaItems[?]` przez wspólny handle. Transfer q
 
 ---
 
+## Verified write contracts (native save evidence)
+
+Laboratoria native save ustanawiają następujące kontrakty dla genuinely
+**pustego** Storage — bez rekordów `Storage.CommonItems`, świeżej sygnatury
+(`NextAcquisitionSortId<=1`, `NextEquipIndex==0`). Zob.
+[43 → Verified native save-write evidence](43-transactional-item-adding.md#verified-native-save-write-evidence)
+dla dowodów na poziomie pipeline (App-lifecycle), z którymi się to łączy, i
+[07 → Verified write contracts](07-inventory.md#verified-write-contracts-native-save-evidence)
+dla kontrastujących reguł po stronie Inventory.
+
+- **T310**: pierwszy rekord direct-add do tego pustego Storage inicjalizuje
+  się z `Index=2`, `NextAcquisitionSortId=2`, `NextEquipIndex=128`.
+- **T330**: jeden natywny batch sześciu rekordów z dokładnie tego samego
+  stanu startowego używa indeksów `2, 4, 6, 8, 10, 12` i kończy przy
+  `NextEquipIndex=133`, `NextAcquisitionSortId=7` (`128+5`, `2+5`). Tylko w
+  batchu, który wystartował z sygnaturą T310, każdy rekord — nie tylko
+  pierwszy — zwiększa oba countery o dokładnie 1.
+- **T352**: ten kontekst pustego startu obowiązuje też między **osobnymi**
+  direct Database Add calls (wieloma wywołaniami `AddItemsToCharacter`, nie
+  jednym batchem) wykonanymi w jednej nieprzerwanej sesji edytora — nie
+  tylko wewnątrz jednego batcha. Mechanizm, który przenosi ten kontekst
+  między wywołaniami (explicit stan `App`, resetowany przy save/load/close),
+  jest opisany w
+  [43 → Verified native save-write evidence](43-transactional-item-adding.md#verified-native-save-write-evidence);
+  ten rozdział podaje wyłącznie wartości counterów, które ten kontekst
+  zachowuje.
+
+**Zachowanie counterów już zapopulowanego Storage nie jest ustanowione przez
+T310/T330/T352.** Aktualny `default` branch writer'a (w switchu counterów
+Storage w `addToInventory`) — który zostawia `NextEquipIndex` nietknięty i
+zwiększa `NextAcquisitionSortId` jako high-water mark — to istniejący
+fallback, niemodyfikowany przez ten dowód. **Nie** jest tu stwierdzany jako
+zweryfikowany kontrakt native-save; zmiana go wymagałaby osobnego dowodu
+native-save i testu regresyjnego.
+
+---
+
 ## Known limits / needs verification
 
 - **Storage Apply (UI flow Reorder Storage)** — sanity check in-game na Steam Deck nie jest świeżo potwierdzony w obecnym branchu. Backend (`ReorderStorage` w `app_inventory_order.go`, stride-2 algorytm) jest pokryty testami (`app_storage_order_test.go`), ale weryfikacja "Acquisition Order ↑" w skrzyni w grze odpowiada preview edytora dla każdej zakładki Sort Order — `needs verification` (zob. też [53 → Known limits](53-inventory-storage-transfer.md#g-znane-ograniczenia--future-work)).

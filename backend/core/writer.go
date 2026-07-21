@@ -301,6 +301,15 @@ func addItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd, sessionStorageEmptyA
 	// one active GaItemData entry" contract (T040/T050/T060/T062/T070/T071/
 	// T074/T090) across the whole batch — mirrors CheckAddCapacity's
 	// existingGaItemData/seenNew* bookkeeping so preflight and writer agree.
+	//
+	// VERIFIED NATIVE SAVE CONTRACT — DO NOT CHANGE WITHOUT NEW NATIVE SAVE
+	// EVIDENCE AND A REGRESSION TEST. Evidence: T040/T050/T060/T062/T070/
+	// T071/T074/T090 (see writer_native_gaitemdata_families_test.go).
+	// Invariant: a genuinely new item ID gets exactly one active GaItemData
+	// entry on its first physical copy; further copies of an already-owned
+	// ID (talisman duplicates, stack quantity bumps, additional Key Item
+	// stacks) must never create a second one. Do not assume every item
+	// family serializes identically beyond what these tests confirm.
 	seenNewGaItemDataForID := make(map[uint32]bool)
 
 	allocNewGaItem := func(id, handlePrefix uint32) (uint32, error) {
@@ -1058,12 +1067,29 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 		binary.LittleEndian.PutUint32(slot.Data[off+8:], newItem.Index)
 
 		// NextEquipIndex and NextAcquisitionSortId are both game-owned counters.
-		// Outside the confirmed empty-Storage-init batch, NextEquipIndex is never
-		// touched by a Storage insert (doing so causes an in-game load crash) and
-		// NextAcquisitionSortId only advances as a high-water mark past the
-		// assigned Index. Only within a batch that started with the T310 empty
-		// signature does T330 confirm both counters instead advance by exactly 1
-		// per record, first jumping to their native floor (2 and 128).
+		// T310 establishes their empty-Storage-init values, and T330 confirms
+		// that within a single batch/session that started with that exact
+		// empty signature, every record advances both counters by exactly 1,
+		// first jumping to their native floor (2 and 128).
+		//
+		// VERIFIED NATIVE SAVE CONTRACT — DO NOT CHANGE WITHOUT NEW NATIVE SAVE
+		// EVIDENCE AND A REGRESSION TEST. Evidence: T310 (writer_storage_empty_init_test.go,
+		// writer_acquisition_index_test.go — a genuinely empty Storage's first
+		// direct-add record lands at Index=2, NextAcquisitionSortId=2,
+		// NextEquipIndex=128) and T330/T352 (same files, plus
+		// app_storage_add_session_test.go — a batch or session that began
+		// from that same empty signature ends with both counters advanced by
+		// exactly 1 per record). Invariant: this contract is scoped strictly
+		// to a batch/session that began from the T310 empty signature.
+		//
+		// The `default` branch below (populated Storage) preserves the
+		// writer's pre-existing fallback policy, unchanged by this task: it
+		// leaves NextEquipIndex untouched and advances NextAcquisitionSortId
+		// as a high-water mark. This is not asserted here as a universal
+		// native-save contract — T310/T330/T352 do not establish a rule for
+		// every already-populated Storage insertion pattern. Changing this
+		// fallback policy would require separate native save evidence and a
+		// regression test.
 		switch {
 		case isEmptyStorageInit:
 			// T310: unlike the general mark+1 high-water-mark rule, the confirmed
@@ -1139,6 +1165,13 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 		// branch — not the global load-time reconcile that forced NextEquipIndex up
 		// to NextAcquisitionSortId and caused CE-108255-1 — and it must never set
 		// NextEquipIndex to the item's own Index.
+		//
+		// VERIFIED NATIVE SAVE CONTRACT — DO NOT CHANGE WITHOUT NEW NATIVE SAVE
+		// EVIDENCE AND A REGRESSION TEST. Evidence: T050/T210 (see
+		// writer_new_inventory_record_counters_test.go,
+		// next_equip_index_test.go). Invariant: NextEquipIndex increments by
+		// exactly 1 per genuinely new Inventory.CommonItems record — never a
+		// reconciliation to NextAcquisitionSortId or to the record's Index.
 		slot.Inventory.NextEquipIndex++
 		if slot.Inventory.nextEquipIndexOff > 0 {
 			binary.LittleEndian.PutUint32(slot.Data[slot.Inventory.nextEquipIndexOff:], slot.Inventory.NextEquipIndex)
@@ -1172,6 +1205,14 @@ func addToInventory(slot *SaveSlot, handle uint32, qty uint32, isStorage bool, a
 // isStorage variant: no confirmed-native family here has evidence of a
 // KeyItems-equivalent Storage placement, so StorageQty for these items keeps
 // going through addToInventory's ordinary Storage.CommonItems path.
+//
+// VERIFIED NATIVE SAVE CONTRACT — DO NOT CHANGE WITHOUT NEW NATIVE SAVE
+// EVIDENCE AND A REGRESSION TEST. Evidence: T070/T071 (see
+// writer_native_gaitemdata_families_test.go, writer_keyitems_capacity_test.go).
+// Invariant: adding a Key Item advances the shared
+// Inventory.NextAcquisitionSortId exactly like a CommonItems add, but must
+// never increment Inventory.NextEquipIndex. Do not extrapolate this function
+// to a Storage placement for Key Items — no native evidence covers that.
 func addToKeyItems(slot *SaveSlot, handle uint32, qty uint32) error {
 	sa := NewSlotAccessor(slot.Data)
 	keyStart := slot.MagicOffset + InvStartFromMagic + CommonItemCount*InvRecordLen + InvKeyCountHeader

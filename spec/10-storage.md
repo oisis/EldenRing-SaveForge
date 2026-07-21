@@ -297,6 +297,41 @@ Both sides use the same `GaItems[?]` via the shared handle. Quantity-merge trans
 
 ---
 
+## Verified write contracts (native save evidence)
+
+Native-save laboratory tests establish the following contracts for a
+genuinely **empty** Storage — no `Storage.CommonItems` records, fresh
+signature (`NextAcquisitionSortId<=1`, `NextEquipIndex==0`). See
+[43 → Verified native save-write evidence](43-transactional-item-adding.md#verified-native-save-write-evidence)
+for the pipeline-level (App-lifecycle) evidence this pairs with, and
+[07 → Verified write contracts](07-inventory.md#verified-write-contracts-native-save-evidence)
+for the contrasting Inventory-side rules.
+
+- **T310**: the first direct-add record into that empty Storage initializes at
+  `Index=2`, `NextAcquisitionSortId=2`, `NextEquipIndex=128`.
+- **T330**: one native batch of six records from that exact same starting
+  state uses indices `2, 4, 6, 8, 10, 12` and ends at `NextEquipIndex=133`,
+  `NextAcquisitionSortId=7` (`128+5`, `2+5`). Only within a batch that started
+  with the T310 signature does every record — not just the first — advance
+  both counters by exactly 1.
+- **T352**: this empty-start context also applies across **separate** direct
+  Database Add calls (multiple `AddItemsToCharacter` invocations, not one
+  batch) made within one uninterrupted editing session — not just within a
+  single batch. The mechanism that carries this context between calls
+  (explicit `App` state, reset at save/load/close) is documented in
+  [43 → Verified native save-write evidence](43-transactional-item-adding.md#verified-native-save-write-evidence);
+  this chapter states only the counter values the context preserves.
+
+**Already-populated Storage counter behavior is not established by
+T310/T330/T352.** The writer's current `default` branch (in
+`addToInventory`'s Storage counter switch) — which leaves `NextEquipIndex`
+untouched and advances `NextAcquisitionSortId` as a high-water mark — is the
+existing fallback implementation, unmodified by this evidence. It is **not**
+asserted here as a verified native-save contract; changing it would require
+separate native-save evidence and a regression test.
+
+---
+
 ## Known limits / needs verification
 
 - **Storage Apply (UI flow Reorder Storage)** — an in-game sanity check on Steam Deck is not freshly confirmed on the current branch. The backend (`ReorderStorage` in `app_inventory_order.go`, stride-2 algorithm) is covered by tests (`app_storage_order_test.go`), but in-game verification of "Acquisition Order ↑" in the box matching the editor's preview for each Sort Order tab — `needs verification` (see also [53 → Known limits](53-inventory-storage-transfer.md#g-znane-ograniczenia--future-work)).

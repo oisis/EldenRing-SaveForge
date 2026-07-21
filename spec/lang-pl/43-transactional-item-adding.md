@@ -433,6 +433,40 @@ type AddResult struct {
 
 ---
 
+## Verified native save-write evidence
+
+Laboratorium native save (`app_storage_add_session_test.go`) zweryfikowało
+dodatkowe kontrakty dla opisanego wyżej direct Add pipeline:
+
+- **Jeden aktywny wpis GaItemData per genuinely new ID** (T040/T050/T060/T062/T070/T071/T074/T090):
+  genuinely new item ID dostaje dokładnie jeden aktywny wpis GaItemData przy
+  pierwszym direct add; kolejne wywołanie Add dla ID, który postać już posiada,
+  nie może stworzyć drugiego aktywnego wpisu. Dotyczy to całej pipeline niezależnie od tego, który
+  kontener (`Inventory`/`Storage`) odbiera item — zob.
+  [07 → Inventory.CommonItems](07-inventory.md#verified-write-contracts-native-save-evidence)
+  i [10 → Verified write contracts](10-storage.md#verified-write-contracts-native-save-evidence)
+  dla kontraktów counterów per-kontener, z którymi się to łączy.
+- **T351** potwierdza pojedynczy submit ("one-submit") Storage Mega add w
+  izolacji — jedno wywołanie `AddItemsToCharacter`, jeden batch, jeden
+  `RebuildSlotFull`. T351 jest dowodem tylko dla tego jednorazowego scenariusza.
+- **T352** potwierdza, że sześć osobnych direct Database Add calls wykonanych
+  w jednej nieprzerwanej sesji edytora (czyli wiele wywołań
+  `AddItemsToCharacter`, nie jeden batch) zachowuje oryginalnie pusty kontekst
+  Storage ustanowiony przez pierwsze wywołanie w tej serii. Ten kontekst to
+  explicit stan `App` (`storageAddSessions`), przekazywany do core przez
+  `AddItemsToSlotBatchForStorageSession`, i nigdy nie jest wnioskowany ani
+  persystowany przez sam core. Resetuje się przy canonical save, load/reload
+  i zamknięciu okna — świeża sesja zaczyna się od nowa jako pusta. T351 **nie**
+  zastępuje T352: przechodzący test one-submit nie jest dowodem, że kontekst
+  multi-call session jest poprawnie spięty.
+
+Poza zakresem tego dowodu: zachowanie EventFlag, Info Item, tutorial i
+crafting-flag wyzwalane razem z tymi dodaniami (zob. "Known limits" niżej),
+oraz każda ilość/wielkość batcha wykraczająca poza to, co przetestowały
+T351/T352.
+
+---
+
 ## Known limits / needs verification
 
 - **Zone-aware capacity w pre-flight** — `CheckAddCapacity` nie liczy `armament_zone_free = len(GaItems) - NextArmamentIndex`. Save z `NextArmamentIndex` blisko `len(GaItems)` przejdzie pre-flight, ale failuje w allocator. Status: `needs verification` jako future task w [35](35-gaitem-allocator-invariants.md#known-limits--open-questions).

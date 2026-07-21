@@ -59,6 +59,15 @@ type App struct {
 	// not the user's canonical save, so an in-progress Database Add series must
 	// survive them — the same precedent undoStacks already sets by not being
 	// cleared there either.
+	//
+	// VERIFIED NATIVE SAVE CONTRACT — DO NOT CHANGE WITHOUT NEW NATIVE SAVE
+	// EVIDENCE AND A REGRESSION TEST. Evidence: T352 (see
+	// app_storage_add_session_test.go). Invariant: separate direct Database
+	// Add calls within one uninterrupted editing session must preserve the
+	// originally-empty Storage context for core's T310/T330 rule; that
+	// context lives only in App (never re-derived in core), and must reset
+	// exactly at canonical save, load/reload, and close — see
+	// clearAllStorageAddSessions.
 	storageAddSessions [maxCharacters]bool
 
 	// journal is the durable per-session diagnostic log. It is nil in

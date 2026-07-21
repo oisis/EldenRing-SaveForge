@@ -433,6 +433,36 @@ type AddResult struct {
 
 ---
 
+## Verified native save-write evidence
+
+A native-save laboratory (`app_storage_add_session_test.go`) verified additional
+contracts for the direct Add pipeline described above:
+
+- **One active GaItemData entry per genuinely new ID** (T040/T050/T060/T062/T070/T071/T074/T090):
+  a genuinely new item ID receives exactly one active GaItemData entry on its
+  first direct add; a later Add call for an ID the character already owns must
+  not create a second active entry. This holds across the pipeline regardless
+  of which container (`Inventory`/`Storage`) receives the item — see [07 → Inventory.CommonItems](07-inventory.md#verified-write-contracts-native-save-evidence) and [10 → Verified write contracts](10-storage.md#verified-write-contracts-native-save-evidence) for the per-container counter contracts this pairs with.
+- **T351** confirms a single-submission ("one-submit") Storage Mega add in
+  isolation — one `AddItemsToCharacter` call, one batch, one `RebuildSlotFull`.
+  T351 is evidence only for that one-call scenario.
+- **T352** confirms that six separate direct Database Add calls made in one
+  uninterrupted editing session (i.e. multiple `AddItemsToCharacter` calls, not
+  one batch) preserve the originally-empty Storage context established by the
+  first call in that series. This context is explicit `App` state
+  (`storageAddSessions`), passed into core via
+  `AddItemsToSlotBatchForStorageSession`, and is never inferred or persisted by
+  core itself. It resets at canonical save, load/reload, and window close —
+  a fresh session starts empty again. T351 does **not** stand in for T352: a
+  passing one-submit test is not evidence that the multi-call session context
+  is wired correctly.
+
+Out of scope for this evidence: EventFlag, Info Item, tutorial, and
+crafting-flag behavior triggered alongside these adds (see "Known limits"
+below), and any quantity/batch size beyond what T351/T352 exercised.
+
+---
+
 ## Known limits / needs verification
 
 - **Zone-aware capacity in pre-flight** — `CheckAddCapacity` does not compute `armament_zone_free = len(GaItems) - NextArmamentIndex`. A save with `NextArmamentIndex` close to `len(GaItems)` will pass pre-flight but fail in the allocator. Status: `needs verification` as a future task in [35](35-gaitem-allocator-invariants.md#known-limits--open-questions).

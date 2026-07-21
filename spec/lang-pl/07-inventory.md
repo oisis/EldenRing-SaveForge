@@ -151,7 +151,7 @@ Pod offsetem `invStart - 4` (czyli `MagicOffset + InvStartFromMagic - 4`) leży 
 
 Save Forge naprawia mismatch przy każdym load przez `ReconcileInventoryHeader` (`writer.go:993-1013`) — przelicza non-empty count w `Inventory.CommonItems` i zapisuje go w binarce. Dokładny mechanizm użycia tej wartości przez grę w aktualnym game patchu (literalne "next insert index" dla pickupów + literalny próg "inventory full") wynika z komentarza w kodzie i obserwacji edytorskich; pełna semantyka runtime — `needs verification`.
 
-> ℹ️ Header dla key items (`key_count`) leży między sekcjami common i key (offset `invStart + CommonItemCount*12`). W obecnym kodzie parser go skipuje (`structures.go:170-172` — `r.ReadU32()` bez przypisania). Save Forge nie reconciluje key_count header — `needs verification`, czy gra używa go aktywnie.
+> ℹ️ Header dla key items (`key_count`) leży między sekcjami common i key (offset `invStart + CommonItemCount*12`). W obecnym kodzie parser go skipuje (`structures.go:170-172` — `r.ReadU32()` bez przypisania). Save Forge nie reconciluje key_count header. Native-save evidence (T071) potwierdza, że gra sama aktywnie zapisuje ten header — trzyma liczbę fizycznych rekordów KeyItems, inkrementując tylko przy dodaniu genuinely new rekordu, nie przy samej zmianie ilości. `needs verification` pozostaje tylko to, czy write path Save Forge (który obecnie nigdy go nie zapisuje) musi go reconciliować, żeby zostać spójnym z grą.
 
 ---
 
@@ -235,7 +235,7 @@ Write-side semantics dla inventory:
 | Counter | Typ | Lokalizacja | Reconcile przy load? |
 |---|---|---|---|
 | `common_item_count` header | u32 | `invStart - 4` | tak, `ReconcileInventoryHeader` (binary write-back) |
-| `key_count` header | u32 | `invStart + CommonItemCount × 12` | nie (parser skipuje; `needs verification` czy gra go używa) |
+| `key_count` header | u32 | `invStart + CommonItemCount × 12` | nie (parser Save Forge go skipuje i obecnie go nie reconciluje; T071 dowodzi, że gra zapisuje go jako liczbę fizycznych rekordów KeyItems, zwiększaną tylko przy dodaniu genuinely new rekordu — `needs verification` pozostaje tylko to, czy Save Forge musi go reconciliować we własnym write path, żeby zostać w pełni spójnym z grą) |
 | `NextEquipIndex` | u32 | `nextEquipIndexOff` (po KeyItems) | tak, jeśli `< NextAcquisitionSortId` (binary write-back) |
 | `NextAcquisitionSortId` | u32 | `nextAcqSortIdOff` (po NextEquipIndex) | tak, w-memory bez write-back (binary aktualizowane przez allocator/reorder) |
 
@@ -259,6 +259,36 @@ Read-side warstwa inventory musi spełniać kilka relacji. Pełna lista invarian
 ### Mechanika `NextEquipIndex`
 
 Historycznie nazywana "bramką widoczności" — hipoteza, że gra ukrywa wpisy z `Index >= NextEquipIndex` (item istnieje w binarce, ale UI go nie pokazuje). Save Forge wykrywa i naprawia `NextEquipIndex < NextAcquisitionSortId` przy każdym load. Sama mechanika (czy gra **na pewno** ukrywa items z `Index >= NextEquipIndex` w aktualnym game patchu) — `needs verification` przez świeżą weryfikację in-game.
+
+---
+
+## Verified write contracts (native save evidence)
+
+Laboratoria native save ustanawiają następujące kontrakty dla genuinely new
+rekordów zapisywanych przez direct Add pipeline
+([43-transactional-item-adding](43-transactional-item-adding.md)). To są
+zachowania zweryfikowane save'ami, nie cele projektowe — zob.
+[43 → Verified native save-write evidence](43-transactional-item-adding.md#verified-native-save-write-evidence)
+dla dowodów na poziomie pipeline, z którymi się to łączy, i
+[10 → Verified write contracts](10-storage.md#verified-write-contracts-native-save-evidence)
+dla kontrastujących reguł po stronie Storage.
+
+- **Wyprowadzenie `Index`**: dla genuinely new rekordu
+  `Inventory.CommonItems` `Index` wyprowadza się z `NextAcquisitionSortId` jako
+  high-water mark — `Index` nowego rekordu to `mark+1`.
+- **`NextEquipIndex` (T050/T210)**: genuinely new rekord
+  `Inventory.CommonItems` zwiększa `NextEquipIndex` o **dokładnie jeden**. To
+  lokalny krok per-insert; `NextEquipIndex` nigdy nie może być reconciled do
+  `NextAcquisitionSortId` ani ustawiony na `Index` nowego rekordu.
+- **`Inventory.KeyItems` (T070/T071)**: KeyItems dzielą
+  `Inventory.NextAcquisitionSortId` z CommonItems, ale dodanie Key Item **nie**
+  zwiększa `NextEquipIndex` — kontrakt `+1` z CommonItems powyżej nie jest
+  dowodem dla KeyItems. Cookbooki są routowane przez tę ścieżkę KeyItems
+  (T071).
+
+Te kontrakty pokrywają wyłącznie przypadek "genuinely new record" testowany
+przez cytowane testy. Zachowanie tutorial, EventFlag, Info Item i
+crafting-flag wyzwalane razem z tymi itemami jest tu poza zakresem.
 
 ---
 
@@ -307,7 +337,7 @@ slot.GaItems[3] = GaItemFull{
 ## Known limits / needs verification
 
 - **Mechanika `NextEquipIndex` jako "bramki widoczności"** — kod reconciluje wartość przy każdym load, ale efekt na grze (czy items z `Index >= NextEquipIndex` są na pewno ukryte w aktualnym game patchu) — `needs verification`.
-- **`key_count` header (4 B między common a key)** — parser go skipuje, Save Forge nie reconciluje. Czy gra używa tej wartości runtime, czy ignoruje — `needs verification`.
+- **`key_count` header (4 B między common a key)** — parser go skipuje, Save Forge nie reconciluje. T071 potwierdza, że gra go zapisuje (trzyma liczbę fizycznych rekordów KeyItems, inkrementując tylko przy genuinely new rekordzie); czy write path Save Forge musi go reconciliować — `needs verification`.
 - **Górny bit `Quantity` (`& 0x80000000`)** — aplikacja maskuje przez `& 0x7FFFFFFF` w wielu miejscach (`app.go:364, 378, 389`), co sugeruje, że gra używa tego bitu jako flag w niektórych slotach. Konkretne znaczenie — `needs verification`.
 - **`InvSafetyMargin = 0x9000`** vs faktyczny rozmiar sekcji `0x900C` — 12-bajtowa różnica jest świadomym zaokrągleniem progu walidacji, ale **nie** rezerwą — `needs verification`, czy ten margin nigdy nie powoduje skipowania legalnego inventory dla skrajnych save'ów.
 

@@ -151,7 +151,7 @@ At offset `invStart - 4` (i.e. `MagicOffset + InvStartFromMagic - 4`) lies a 4-b
 
 Save Forge fixes the mismatch on every load via `ReconcileInventoryHeader` (`writer.go:993-1013`) — recomputes the non-empty count in `Inventory.CommonItems` and writes it into the binary. The exact mechanism of how the game uses this value in the current game patch (literal "next insert index" for pickups + literal "inventory full" threshold) follows from the code comment and editor-side observations; full runtime semantics — `needs verification`.
 
-> ℹ️ The header for key items (`key_count`) lies between the common and key sections (offset `invStart + CommonItemCount*12`). In the current code the parser skips it (`structures.go:170-172` — `r.ReadU32()` without assignment). Save Forge does not reconcile the key_count header — `needs verification` whether the game uses it actively.
+> ℹ️ The header for key items (`key_count`) lies between the common and key sections (offset `invStart + CommonItemCount*12`). In the current code the parser skips it (`structures.go:170-172` — `r.ReadU32()` without assignment). Save Forge does not reconcile the key_count header. Native-save evidence (T071) confirms the game itself does actively write this header — it tracks the physical KeyItems record count, incrementing only when a genuinely new record is added, not on quantity-only changes. What remains `needs verification` is only whether Save Forge's write path (which currently never writes it) needs to reconcile it to stay consistent with the game.
 
 ---
 
@@ -235,7 +235,7 @@ Write-side semantics for inventory:
 | Counter | Type | Location | Reconcile on load? |
 |---|---|---|---|
 | `common_item_count` header | u32 | `invStart - 4` | yes, `ReconcileInventoryHeader` (binary write-back) |
-| `key_count` header | u32 | `invStart + CommonItemCount × 12` | no (parser skips; `needs verification` whether the game uses it) |
+| `key_count` header | u32 | `invStart + CommonItemCount × 12` | no (Save Forge's parser skips it and does not currently reconcile it; T071 proves the game writes it as the count of physical KeyItems records, increasing only for a genuinely new record — `needs verification` only whether Save Forge must reconcile it in its own write path to stay fully consistent with the game) |
 | `NextEquipIndex` | u32 | `nextEquipIndexOff` (after KeyItems) | yes, if `< NextAcquisitionSortId` (binary write-back) |
 | `NextAcquisitionSortId` | u32 | `nextAcqSortIdOff` (after NextEquipIndex) | yes, in-memory without write-back (binary updated by allocator/reorder) |
 
@@ -259,6 +259,37 @@ The read-side inventory layer must satisfy several relations. Full list of invar
 ### Mechanics of `NextEquipIndex`
 
 Historically called the "visibility gate" — hypothesis that the game hides entries with `Index >= NextEquipIndex` (the item exists in the binary, but the UI does not show it). Save Forge detects and fixes `NextEquipIndex < NextAcquisitionSortId` on every load. The mechanic itself (whether the game **definitely** hides items with `Index >= NextEquipIndex` in the current game patch) — `needs verification` via fresh in-game verification.
+
+---
+
+## Verified write contracts (native save evidence)
+
+Native-save laboratory tests establish the following contracts for genuinely
+new records written via the direct Add pipeline
+([43-transactional-item-adding](43-transactional-item-adding.md)). These are
+save-verified behaviors, not design targets — see
+[43 → Verified native save-write evidence](43-transactional-item-adding.md#verified-native-save-write-evidence)
+for the pipeline-level evidence they pair with, and
+[10 → Verified write contracts](10-storage.md#verified-write-contracts-native-save-evidence)
+for the contrasting Storage-side rules.
+
+- **`Index` derivation**: for a genuinely new `Inventory.CommonItems` record,
+  `Index` derives from `NextAcquisitionSortId` as a high-water mark — the new
+  record's `Index` is `mark+1`.
+- **`NextEquipIndex` (T050/T210)**: a genuinely new `Inventory.CommonItems`
+  record advances `NextEquipIndex` by **exactly one**. This is a local,
+  per-insert step; `NextEquipIndex` must never be reconciled to
+  `NextAcquisitionSortId`, and must never be set to the new record's own
+  `Index`.
+- **`Inventory.KeyItems` (T070/T071)**: KeyItems share
+  `Inventory.NextAcquisitionSortId` with CommonItems, but adding a Key Item
+  does **not** advance `NextEquipIndex` — the CommonItems `+1` contract above
+  is not evidence for KeyItems. Cookbooks are routed through this KeyItems
+  path (T071).
+
+These contracts cover only the "genuinely new record" case exercised by the
+cited tests. Tutorial, EventFlag, Info Item, and crafting-flag behavior
+triggered alongside these items is out of scope here.
 
 ---
 
@@ -307,7 +338,7 @@ slot.GaItems[3] = GaItemFull{
 ## Known limits / needs verification
 
 - **Mechanics of `NextEquipIndex` as a "visibility gate"** — the code reconciles the value on every load, but the effect on the game (whether items with `Index >= NextEquipIndex` really are hidden in the current game patch) — `needs verification`.
-- **`key_count` header (4 B between common and key)** — the parser skips it, Save Forge does not reconcile. Whether the game uses this value at runtime or ignores it — `needs verification`.
+- **`key_count` header (4 B between common and key)** — the parser skips it, Save Forge does not reconcile. T071 confirms the game does write it (tracks the physical KeyItems record count, incrementing only on a genuinely new record); whether Save Forge's write path needs to reconcile it — `needs verification`.
 - **Top bit of `Quantity` (`& 0x80000000`)** — the application masks via `& 0x7FFFFFFF` in many places (`app.go:364, 378, 389`), suggesting that the game uses this bit as a flag in some slots. Specific meaning — `needs verification`.
 - **`InvSafetyMargin = 0x9000`** vs actual section size `0x900C` — the 12-byte difference is an intentional rounding of the validation threshold, but **not** a reserve — `needs verification` whether this margin ever causes legal inventory to be skipped for edge-case saves.
 
