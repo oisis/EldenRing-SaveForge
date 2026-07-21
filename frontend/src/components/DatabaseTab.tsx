@@ -354,19 +354,15 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         else { setSortCol(col); setSortDir('asc'); }
     };
 
-    const visibleItemIds = useMemo(() => new Set(filteredItems.map(i => i.id)), [filteredItems]);
-    const selectedVisibleItems = useMemo(
-        () => filteredItems.filter(i => selectedDbItems.has(i.id)),
-        [filteredItems, selectedDbItems],
+    // A search is only a view filter. Keep selections across searches so a user
+    // can collect items from different families and submit them as one atomic
+    // add operation. The category-loading effect above still clears selection
+    // when the underlying database scope changes.
+    const selectedItems = useMemo(
+        () => dbItems.filter(i => selectedDbItems.has(i.id)),
+        [dbItems, selectedDbItems],
     );
-    const selectedVisibleCount = selectedVisibleItems.length;
-
-    useEffect(() => {
-        setSelectedDbItems(prev => {
-            const next = new Set([...prev].filter(id => visibleItemIds.has(id)));
-            return next.size === prev.size ? prev : next;
-        });
-    }, [visibleItemIds]);
+    const selectedCount = selectedItems.length;
 
     const toggleItem = (id: number) => {
         const next = new Set(selectedDbItems);
@@ -376,10 +372,14 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
 
     const toggleAll = () => {
         const allVisibleSelected = filteredItems.length > 0 && filteredItems.every(i => selectedDbItems.has(i.id));
-        if (allVisibleSelected)
-            setSelectedDbItems(new Set());
-        else
-            setSelectedDbItems(new Set(filteredItems.map(i => i.id)));
+        setSelectedDbItems(prev => {
+            const next = new Set(prev);
+            for (const item of filteredItems) {
+                if (allVisibleSelected) next.delete(item.id);
+                else next.add(item.id);
+            }
+            return next;
+        });
     };
 
     const handleAdd = async () => {
@@ -826,19 +826,19 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                     <span className="text-[10px] font-bold tabular-nums text-foreground">{ownedCount}</span>
                 </div>
 
-                {!readOnly && selectedVisibleCount > 0 && (
+                {!readOnly && selectedCount > 0 && (
                     <button
-                        onClick={() => openModal(selectedVisibleItems)}
+                        onClick={() => openModal(selectedItems)}
                         disabled={!platform}
-                        aria-label={`Add Selected (${selectedVisibleCount})`}
-                        title={`Add Selected (${selectedVisibleCount})`}
+                        aria-label={`Add Selected (${selectedCount})`}
+                        title={`Add Selected (${selectedCount})`}
                         className="px-5 py-2 bg-primary text-primary-foreground rounded-lg text-[9px] font-black uppercase tracking-[0.2em] shadow-xl shadow-primary/20 hover:brightness-110 active:scale-95 transition-all animate-in zoom-in-95 duration-300 disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed flex items-center gap-1.5"
                     >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>
-                        Add ({selectedVisibleCount})
+                        Add ({selectedCount})
                     </button>
                 )}
-                {!readOnly && favoritesInView.length > 0 && selectedVisibleCount === 0 && (
+                {!readOnly && favoritesInView.length > 0 && selectedCount === 0 && (
                     <button
                         onClick={() => openModal(favoritesInView)}
                         disabled={!platform}
@@ -927,7 +927,11 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                                 </svg>
                                             </button>
                                             {!readOnly && (
-                                                <button onClick={() => toggleItem(item.id)} className="absolute top-2 left-2 z-10">
+                                                <button
+                                                    onClick={() => toggleItem(item.id)}
+                                                    aria-label={`${selectedDbItems.has(item.id) ? 'Deselect' : 'Select'} ${item.name}`}
+                                                    className="absolute top-2 left-2 z-10"
+                                                >
                                                     <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${selectedDbItems.has(item.id) ? 'bg-primary border-primary' : 'bg-muted/30 border-border hover:border-primary/50'}`}>
                                                         {selectedDbItems.has(item.id) && <svg className="w-3 h-3 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>}
                                                     </div>
@@ -972,9 +976,9 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                                         <div
                                             onClick={toggleAll}
                                             title="Select all"
-                                            className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${selectedDbItems.size === filteredItems.length && filteredItems.length > 0 ? 'bg-primary border-primary' : 'bg-muted/30 border-border hover:border-primary/50'}`}
+                                            className={`w-4 h-4 rounded border flex items-center justify-center transition-all cursor-pointer ${filteredItems.length > 0 && filteredItems.every(i => selectedDbItems.has(i.id)) ? 'bg-primary border-primary' : 'bg-muted/30 border-border hover:border-primary/50'}`}
                                         >
-                                            {selectedDbItems.size === filteredItems.length && filteredItems.length > 0 &&
+                                            {filteredItems.length > 0 && filteredItems.every(i => selectedDbItems.has(i.id)) &&
                                                 <svg className="w-3 h-3 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="4" d="M5 13l4 4L19 7"/></svg>}
                                         </div>
                                     </th>

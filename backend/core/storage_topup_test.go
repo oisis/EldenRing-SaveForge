@@ -51,7 +51,7 @@ func TestAddToInventory_StorageTopupRespectsBinaryGaps(t *testing.T) {
 	}
 
 	// Top up B to 99. With the bug this would write to binary slot 1 (handle A).
-	if err := addToInventory(slot, handleB, 99, true, false); err != nil {
+	if err := addToInventory(slot, handleB, 99, true, false, false); err != nil {
 		t.Fatalf("addToInventory: %v", err)
 	}
 

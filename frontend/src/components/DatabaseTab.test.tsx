@@ -566,19 +566,28 @@ describe('DatabaseTab', () => {
         expect(await screen.findByRole('button', { name: 'Add Selected (2)' })).toBeInTheDocument();
     });
 
-    it('prunes hidden selected items when the subcategory changes', async () => {
+    it('keeps selections across searches and sends them in one add request', async () => {
         mocks.GetItemList.mockResolvedValue(makeToolItems());
         renderTab({ category: 'tools' });
+        fireEvent.click(screen.getByTitle('Grid view'));
 
-        await screen.findByLabelText('Subcategory');
-        fireEvent.click(screen.getByTitle('Select all'));
-        expect(await screen.findByRole('button', { name: 'Add Selected (3)' })).toBeInTheDocument();
+        const search = await screen.findByPlaceholderText('Search by name or ID...');
+        fireEvent.change(search, { target: { value: 'Cured Meat' } });
+        await screen.findByText('Cured Meat');
+        fireEvent.click(screen.getByRole('button', { name: 'Select Cured Meat' }));
+        expect(await screen.findByRole('button', { name: 'Add Selected (1)' })).toBeInTheDocument();
 
-        fireEvent.change(screen.getByLabelText('Subcategory'), { target: { value: 'Great Runes' } });
+        fireEvent.change(search, { target: { value: 'Golden Rune' } });
+        await screen.findByText('Golden Rune');
+        fireEvent.click(screen.getByRole('button', { name: 'Select Golden Rune' }));
+        const addSelected = await screen.findByRole('button', { name: 'Add Selected (2)' });
 
-        await waitFor(() =>
-            expect(screen.getByRole('button', { name: 'Add Selected (1)' })).toBeInTheDocument());
-        expect(screen.queryByRole('button', { name: 'Add Selected (3)' })).not.toBeInTheDocument();
+        fireEvent.click(addSelected);
+        fireEvent.click(await screen.findByRole('button', { name: /^Add$/ }));
+
+        await waitFor(() => expect(mocks.AddItemsToCharacter).toHaveBeenCalledWith(
+            0, [0x11, 0x13], 0, 0, 0, 0, 1, 1));
+        expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1);
     });
 
     it('Add Favorites is scoped to the selected subcategory', async () => {

@@ -21,17 +21,26 @@ func TestAddToInventory_MassBatchesUseDistinctAcquisitionBuckets(t *testing.T) {
 		name      string
 		slot      *SaveSlot
 		isStorage bool
+		floor     uint32
 		items     func(*SaveSlot) []InventoryItem
 	}{
 		{
 			name:  "inventory",
 			slot:  buildNextEquipFixture(t, nil, 420, 312),
+			floor: InvEquipReservedMax,
 			items: func(slot *SaveSlot) []InventoryItem { return slot.Inventory.CommonItems },
 		},
 		{
+			// buildStorageFixture(t, 0, 1) matches the T310 empty-Storage signature
+			// (NextEquipIndex=0, NextAcquisitionSortId=1), so the first insert here
+			// exercises the confirmed empty-init contract (Index=2), while the rest
+			// of the batch exercises the T320-pending stride-2 hypothesis. Storage
+			// has no reserved equipment range, so its floor is 2, not
+			// InvEquipReservedMax (that constant is Inventory-specific).
 			name:      "storage",
 			slot:      buildStorageFixture(t, 0, 1),
 			isStorage: true,
+			floor:     1,
 			items:     func(slot *SaveSlot) []InventoryItem { return slot.Storage.CommonItems },
 		},
 	}
@@ -44,20 +53,28 @@ func TestAddToInventory_MassBatchesUseDistinctAcquisitionBuckets(t *testing.T) {
 				}
 				return tc.slot.Inventory.NextEquipIndex
 			}()
+			// Mirrors AddItemsToSlotBatch: decided once, from pre-loop state, not
+			// re-derived per insert (see writer.go's storageBatchStartedEmpty doc).
+			storageBatchStartedEmpty := tc.isStorage && len(tc.slot.Storage.CommonItems) == 0 &&
+				tc.slot.Storage.NextAcquisitionSortId <= 1 && tc.slot.Storage.NextEquipIndex == 0
 			for batch := 0; batch < massAddBatchCount; batch++ {
 				for item := 0; item < massAddBatchSize; item++ {
 					handle := ItemTypeWeapon | uint32(batch*massAddBatchSize+item+1)
-					if err := addToInventory(tc.slot, handle, 1, tc.isStorage, false); err != nil {
+					if err := addToInventory(tc.slot, handle, 1, tc.isStorage, false, storageBatchStartedEmpty); err != nil {
 						t.Fatalf("batch %d item %d: addToInventory: %v", batch, item, err)
 					}
 				}
 			}
 
-			assertDistinctAcquisitionBuckets(t, tc.items(tc.slot))
+			assertDistinctAcquisitionBuckets(t, tc.items(tc.slot), tc.floor)
 			if tc.isStorage {
-				// Storage.NextEquipIndex is untouched by inserts — out of scope for T210.
-				if tc.slot.Storage.NextEquipIndex != preNextEquip {
-					t.Fatalf("NextEquipIndex changed: got %d, want preserved %d", tc.slot.Storage.NextEquipIndex, preNextEquip)
+				// T310: an empty Storage's first direct-add record jumps NextEquipIndex
+				// to 128 as a one-time initialization. T330: every insert after that,
+				// including later inserts in the same batch, advances it by exactly 1.
+				wantEquip := uint32(128) + uint32(massAddBatchSize*massAddBatchCount-1)
+				if tc.slot.Storage.NextEquipIndex != wantEquip {
+					t.Fatalf("NextEquipIndex: got %d, want %d (T310 init 128 + %d later inserts, preserved from %d)",
+						tc.slot.Storage.NextEquipIndex, wantEquip, massAddBatchSize*massAddBatchCount-1, preNextEquip)
 				}
 			} else {
 				// T050/T210: each new Inventory.CommonItems record advances NextEquipIndex
@@ -72,7 +89,7 @@ func TestAddToInventory_MassBatchesUseDistinctAcquisitionBuckets(t *testing.T) {
 	}
 }
 
-func assertDistinctAcquisitionBuckets(t *testing.T, items []InventoryItem) {
+func assertDistinctAcquisitionBuckets(t *testing.T, items []InventoryItem, floor uint32) {
 	t.Helper()
 
 	seen := make(map[uint32]int)
@@ -80,8 +97,8 @@ func assertDistinctAcquisitionBuckets(t *testing.T, items []InventoryItem) {
 		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
 			continue
 		}
-		if item.Index <= InvEquipReservedMax {
-			t.Fatalf("row %d: Index %d is inside reserved equipment range", row, item.Index)
+		if item.Index <= floor {
+			t.Fatalf("row %d: Index %d is inside reserved range (floor %d)", row, item.Index, floor)
 		}
 
 		bucket := item.Index >> 1

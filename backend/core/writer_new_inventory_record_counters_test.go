@@ -97,7 +97,7 @@ func TestAddToInventory_ExistingStackTopupDoesNotAdvanceCounters(t *testing.T) {
 	items := []InventoryItem{{GaItemHandle: handle, Quantity: 1, Index: 969}}
 	slot := buildNextEquipFixture(t, items, 434, 970)
 
-	if err := addToInventory(slot, handle, 5, false, false); err != nil {
+	if err := addToInventory(slot, handle, 5, false, false, false); err != nil {
 		t.Fatalf("addToInventory (topup): %v", err)
 	}
 

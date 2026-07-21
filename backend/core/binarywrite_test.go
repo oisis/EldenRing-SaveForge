@@ -68,7 +68,7 @@ func TestBinaryAddAndReload(t *testing.T) {
 
 	// ADD: smithing stone [3], qty=1 to inventory
 	_ = db.GetItemDataFuzzy // ensure db imported
-	if err := addToInventory(&slotCopy, stoneHandle, 1, false, false); err != nil {
+	if err := addToInventory(&slotCopy, stoneHandle, 1, false, false, false); err != nil {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
@@ -91,7 +91,7 @@ func TestBinaryAddAndReload(t *testing.T) {
 	// NextAcquisitionSortId is a high-water MARK, not the index handed to the new
 	// record: the record gets mark+1 (T050/T210), and the counter then advances to
 	// mark+2. nextAcquisitionWriteIndex parity-stabilizes the mark first.
-	acqMark := nextAcquisitionWriteIndex(acqSortIdBefore)
+	acqMark := nextAcquisitionWriteIndex(acqSortIdBefore, InvEquipReservedMax+2)
 	acqIdxUsed := acqMark + 1 // the value written to the new record
 	if acqSortIdAfterBin != acqIdxUsed+1 {
 		t.Errorf("NextAcqSortId: got %d, want %d", acqSortIdAfterBin, acqIdxUsed+1)

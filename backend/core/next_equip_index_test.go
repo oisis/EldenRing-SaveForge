@@ -100,7 +100,7 @@ func TestNextEquipIndex_InvInsert(t *testing.T) {
 	acqBefore := slot.Inventory.NextAcquisitionSortId // 1000
 
 	const newHandle = uint32(0xB0ABCDEF)
-	if err := addToInventory(slot, newHandle, 99, false, false); err != nil {
+	if err := addToInventory(slot, newHandle, 99, false, false, false); err != nil {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
@@ -121,13 +121,20 @@ func TestNextEquipIndex_InvInsert(t *testing.T) {
 	}
 }
 
-// TestNextEquipIndex_StorageInsert verifies the same invariant for Storage.
+// TestNextEquipIndex_StorageInsert verifies that a direct-add to a Storage
+// that was already non-empty before the enclosing batch started (i.e. NOT the
+// T310/T330 empty-init case — storageBatchStartedEmpty=false) leaves
+// NextEquipIndex untouched, per the general "NextEquipIndex is a separate
+// game-owned counter" invariant. The empty-init counter jump is covered
+// separately by TestAddToInventory_EmptyStorageFirstThrowingDaggerMatchesT310
+// and the batch-scoped T330 rule by
+// TestAddItemsToSlotBatch_EmptyStorageSixItemBatchMatchesT330.
 func TestNextEquipIndex_StorageInsert(t *testing.T) {
 	slot := buildStorageFixture(t, 500, 1000)
 	acqBefore := slot.Storage.NextAcquisitionSortId // 1000
 
 	const newHandle = uint32(0xB0ABCDEF)
-	if err := addToInventory(slot, newHandle, 99, true, false); err != nil {
+	if err := addToInventory(slot, newHandle, 99, true, false, false); err != nil {
 		t.Fatalf("addToInventory: %v", err)
 	}
 
