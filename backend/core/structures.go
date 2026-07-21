@@ -101,6 +101,13 @@ func (g *GaItemFull) IsEmpty() bool {
 // Serialize writes the GaItem entry into buf and returns bytes written.
 // buf must have at least g.ByteSize() bytes available.
 func (g *GaItemFull) Serialize(buf []byte) int {
+	if g.IsEmpty() {
+		// Empty slots always persist the canonical native marker (handle=0,
+		// itemID=0xFFFFFFFF), regardless of how the caller zeroed the entry.
+		binary.LittleEndian.PutUint32(buf[0:], 0)
+		binary.LittleEndian.PutUint32(buf[4:], GaHandleInvalid)
+		return GaRecordItem
+	}
 	binary.LittleEndian.PutUint32(buf[0:], g.Handle)
 	binary.LittleEndian.PutUint32(buf[4:], g.ItemID)
 	sz := g.ByteSize()
