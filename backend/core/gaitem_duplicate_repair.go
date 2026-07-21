@@ -121,6 +121,7 @@ func RepairGaItemDuplicate(slot *SaveSlot, handle uint32, keepIndex int) error {
 	}
 	keptRecord := slot.GaItems[keepIndex]
 	keptItemID := keptRecord.ItemID
+	removedRecord := slot.GaItems[removeIndex]
 
 	snapshot := SnapshotSlot(slot)
 	rollback := func(cause error) error {
@@ -129,6 +130,12 @@ func RepairGaItemDuplicate(slot *SaveSlot, handle uint32, keepIndex int) error {
 	}
 
 	slot.GaItems[removeIndex] = GaItemFull{}
+	// Removing an AoW that sat before a later AoW leaves an empty slot inside the
+	// AoW block. RebuildSlotFull serializes slot.GaItems linearly, so the table
+	// must already be the fixed point of the native CSGaitem::WriteArray stable
+	// partition (AoW records first, then everything else — empties included — in
+	// relative order) or the rebuilt bytes diverge from what the game emits.
+	canonicalizeAoWPartition(slot.GaItems)
 	rebuilt, err := RebuildSlotFull(slot)
 	if err != nil {
 		return rollback(fmt.Errorf("rebuild: %w", err))
@@ -139,44 +146,87 @@ func RepairGaItemDuplicate(slot *SaveSlot, handle uint32, keepIndex int) error {
 	}
 	remergeMissingGaMapEntries(slot, snapshot.GaMap)
 
-	if err := validateGaItemDuplicatePostconditions(slot, snapshot, handle, keepIndex, removeIndex, keptRecord, keptItemID); err != nil {
+	if err := validateGaItemDuplicatePostconditions(slot, snapshot, handle, keptRecord, removedRecord, keptItemID); err != nil {
 		return rollback(err)
 	}
 	return nil
 }
 
-func validateGaItemDuplicatePostconditions(slot *SaveSlot, snapshot SlotSnapshot, handle uint32, keepIndex, removeIndex int, keptRecord GaItemFull, keptItemID uint32) error {
+// isAoWGaItem reports whether a record is a non-empty Ash of War entry, using
+// the same field the native CSGaitem::WriteArray partitions on — the itemID's
+// high nibble (0x8), not the handle. Empty slots are never AoW.
+func isAoWGaItem(g GaItemFull) bool {
+	return !g.IsEmpty() && g.ItemID>>28 == 8
+}
+
+// canonicalizeAoWPartition reorders items in place into the layout the native
+// CSGaitem::WriteArray emits: pass 1 keeps every non-empty AoW record in its
+// existing relative order, pass 2 appends every remaining entry (non-AoW records
+// and empty slots) in its existing relative order. A table that already
+// satisfies the partition is left unchanged, so a duplicate repair with no AoW
+// hole performs no reorder.
+func canonicalizeAoWPartition(items []GaItemFull) {
+	reordered := make([]GaItemFull, 0, len(items))
+	for _, g := range items {
+		if isAoWGaItem(g) {
+			reordered = append(reordered, g)
+		}
+	}
+	for _, g := range items {
+		if !isAoWGaItem(g) {
+			reordered = append(reordered, g)
+		}
+	}
+	copy(items, reordered)
+}
+
+func validateGaItemDuplicatePostconditions(slot *SaveSlot, snapshot SlotSnapshot, handle uint32, keptRecord, removedRecord GaItemFull, keptItemID uint32) error {
 	if len(slot.GaItems) != len(snapshot.GaItems) {
 		return fmt.Errorf("postcondition: GaItem table length changed (%d -> %d)", len(snapshot.GaItems), len(slot.GaItems))
 	}
-	// Exactly the removed record changed; every other record (including the kept
-	// one, unchanged) is identical to the snapshot.
+	// Record preservation under reorder. The AoW-first canonicalization may move
+	// records, so identity is a multiset property, not a per-index one: the
+	// post-repair non-empty records must equal the pre-repair non-empty records
+	// with exactly one occurrence of the removed duplicate gone. (Empty slots are
+	// ignored here; the length check above pins their count.)
+	before := gaItemRecordCounts(snapshot.GaItems)
+	if before[removedRecord] == 0 {
+		return fmt.Errorf("postcondition: removed record for handle 0x%08X absent from pre-repair table", handle)
+	}
+	if before[removedRecord] == 1 {
+		delete(before, removedRecord)
+	} else {
+		before[removedRecord]--
+	}
+	if after := gaItemRecordCounts(slot.GaItems); !sameRecordCounts(before, after) {
+		return fmt.Errorf("postcondition: GaItem records changed beyond the single removed duplicate")
+	}
+	// The table is a fixed point of the native AoW-first partition: no non-empty
+	// AoW record follows a non-AoW-or-empty slot.
+	seenNonAoW := false
 	for i := range slot.GaItems {
-		if i == removeIndex {
-			if !slot.GaItems[i].IsEmpty() {
-				return fmt.Errorf("postcondition: removed GaItem[%d] is not empty", i)
+		if isAoWGaItem(slot.GaItems[i]) {
+			if seenNonAoW {
+				return fmt.Errorf("postcondition: AoW record at index %d follows a non-AoW slot (partition violated)", i)
 			}
 			continue
 		}
-		if slot.GaItems[i] != snapshot.GaItems[i] {
-			return fmt.Errorf("postcondition: GaItem[%d] changed unexpectedly", i)
-		}
-	}
-	if slot.GaItems[keepIndex] != keptRecord {
-		return fmt.Errorf("postcondition: kept GaItem[%d] was modified", keepIndex)
+		seenNonAoW = true
 	}
 	// Exactly one physical record remains for the handle, and it is the kept one.
 	remaining := 0
+	var survivor GaItemFull
 	for i := range slot.GaItems {
 		if !slot.GaItems[i].IsEmpty() && slot.GaItems[i].Handle == handle {
 			remaining++
-			if i != keepIndex {
-				return fmt.Errorf("postcondition: handle 0x%08X remains at unexpected index %d", handle, i)
-			}
+			survivor = slot.GaItems[i]
 		}
 	}
 	if remaining != 1 {
 		return fmt.Errorf("postcondition: handle 0x%08X has %d physical records after repair, want 1", handle, remaining)
+	}
+	if survivor != keptRecord {
+		return fmt.Errorf("postcondition: surviving record for handle 0x%08X differs from the kept record", handle)
 	}
 	if mapped, ok := slot.GaMap[handle]; !ok || mapped != keptItemID {
 		return fmt.Errorf("postcondition: GaMap[0x%08X]=0x%08X (ok=%v), want kept itemID 0x%08X", handle, mapped, ok, keptItemID)
@@ -310,6 +360,32 @@ func gaItemEquipSignatures(itemID, handleType uint32) []uint32 {
 	default:
 		return nil
 	}
+}
+
+// gaItemRecordCounts is the multiset of non-empty GaItem records. Empty slots
+// are excluded so differing empty-marker forms (zeroed vs. reparsed 0xFFFFFFFF)
+// never register as a record change.
+func gaItemRecordCounts(items []GaItemFull) map[GaItemFull]int {
+	counts := make(map[GaItemFull]int)
+	for _, g := range items {
+		if g.IsEmpty() {
+			continue
+		}
+		counts[g]++
+	}
+	return counts
+}
+
+func sameRecordCounts(a, b map[GaItemFull]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func sameInventoryItems(a, b []InventoryItem) bool {
