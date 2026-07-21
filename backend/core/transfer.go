@@ -659,8 +659,17 @@ func materializeRehandledInstance(slot *SaveSlot, oldHandle uint32) (uint32, err
 	if err != nil {
 		return 0, err
 	}
-	if err := allocateGaItem(slot, newHandle, itemID); err != nil {
-		return 0, err
+	// Accessory/Talisman (0xA0) and Goods (0xB0) are handle-only: the native
+	// game never writes a physical GaItem record for them (E5b: 0/14 saves,
+	// handle-only allocator path). Only weapon/armor/AoW get a physical entry.
+	// Mirror the needsGaItem guard in rehandle.go RehandleInventoryRecord — for
+	// handle-only prefixes we just mint a fresh handle and register the GaMap
+	// entry so RebuildSlotFull can still resolve the moved record.
+	needsGaItem := prefix == ItemTypeWeapon || prefix == ItemTypeArmor || prefix == ItemTypeAow
+	if needsGaItem {
+		if err := allocateGaItem(slot, newHandle, itemID); err != nil {
+			return 0, err
+		}
 	}
 	slot.GaMap[newHandle] = itemID
 	return newHandle, nil
