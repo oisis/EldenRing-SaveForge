@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.5.8] - 2026-07-21
+
+### chore(item-save): document and guard verified save behavior
+
+Documented the native save-write contracts verified by the item-save laboratory
+and added regression coverage for the maximum stack quantity limit.
+
 ## [1.5.7] - 2026-07-21
 
 ### fix(storage): preserve native allocation for direct item additions
