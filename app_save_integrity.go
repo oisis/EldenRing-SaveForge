@@ -27,7 +27,8 @@ type SlotInventoryIntegrityReport struct {
 }
 
 // InventoryIntegrityConflict groups records participating in one integrity
-// problem. Kind is "duplicate_acquisition_index" or "duplicate_physick".
+// problem. Kind is "acquisition_bucket_collision" or "duplicate_physick".
+// For an acquisition_bucket_collision, Index carries the shared Index>>1 bucket.
 type InventoryIntegrityConflict struct {
 	Kind  string                           `json:"kind,omitempty"`
 	Index uint32                           `json:"index"`
@@ -85,17 +86,21 @@ func (a *App) GetSaveInventoryIntegrityReport() (SaveInventoryIntegrityReport, e
 }
 
 func buildSlotIntegrityReport(save *core.SaveFile, slotIdx int, slot *core.SaveSlot, indexIssues []core.DuplicateInventoryIndexIssue, physickIssues []core.WondrousPhysickOccurrence, active bool) SlotInventoryIntegrityReport {
-	conflictingIndexes := make(map[uint32]struct{}, len(indexIssues))
+	// Group by acquisition-order bucket (Index>>1): the two colliding records
+	// hold different Index values but share one bucket, which is what the game
+	// keys Order of Acquisition on.
+	conflictingBuckets := make(map[uint32]struct{}, len(indexIssues))
 	for _, issue := range indexIssues {
-		conflictingIndexes[issue.Index] = struct{}{}
+		conflictingBuckets[issue.Bucket] = struct{}{}
 	}
 
-	conflictByIndex := make(map[uint32]*InventoryIntegrityConflict, len(conflictingIndexes))
-	conflictOrder := make([]uint32, 0, len(conflictingIndexes))
+	conflictByBucket := make(map[uint32]*InventoryIntegrityConflict, len(conflictingBuckets))
+	conflictOrder := make([]uint32, 0, len(conflictingBuckets))
 	seenRow := make(map[[2]int]bool, len(indexIssues)*2)
 
 	appendRow := func(scope string, row int, item core.InventoryItem) {
-		if _, conflicted := conflictingIndexes[item.Index]; !conflicted {
+		bucket := item.Index >> 1
+		if _, conflicted := conflictingBuckets[bucket]; !conflicted {
 			return
 		}
 		scopeKey := 0
@@ -108,11 +113,11 @@ func buildSlotIntegrityReport(save *core.SaveFile, slotIdx int, slot *core.SaveS
 		}
 		seenRow[key] = true
 
-		group, ok := conflictByIndex[item.Index]
+		group, ok := conflictByBucket[bucket]
 		if !ok {
-			group = &InventoryIntegrityConflict{Kind: "duplicate_acquisition_index", Index: item.Index}
-			conflictByIndex[item.Index] = group
-			conflictOrder = append(conflictOrder, item.Index)
+			group = &InventoryIntegrityConflict{Kind: "acquisition_bucket_collision", Index: bucket}
+			conflictByBucket[bucket] = group
+			conflictOrder = append(conflictOrder, bucket)
 		}
 		group.Items = append(group.Items, resolveConflictItem(scope, row, item, slot))
 	}
@@ -131,8 +136,8 @@ func buildSlotIntegrityReport(save *core.SaveFile, slotIdx int, slot *core.SaveS
 	}
 
 	conflicts := make([]InventoryIntegrityConflict, 0, len(conflictOrder)+1)
-	for _, idx := range conflictOrder {
-		conflicts = append(conflicts, *conflictByIndex[idx])
+	for _, bucket := range conflictOrder {
+		conflicts = append(conflicts, *conflictByBucket[bucket])
 	}
 	if len(physickIssues) > 1 {
 		conflict := InventoryIntegrityConflict{Kind: "duplicate_physick"}
@@ -150,7 +155,7 @@ func buildSlotIntegrityReport(save *core.SaveFile, slotIdx int, slot *core.SaveS
 		CharacterName:         resolveCharacterName(save, slotIdx),
 		Active:                active,
 		DuplicateEntryCount:   len(indexIssues) + max(0, len(physickIssues)-1),
-		ConflictingIndexCount: len(conflictingIndexes),
+		ConflictingIndexCount: len(conflictingBuckets),
 		Conflicts:             conflicts,
 	}
 }

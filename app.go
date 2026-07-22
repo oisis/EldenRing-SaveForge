@@ -849,14 +849,15 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	slot := &a.save.Slots[charIdx]
 
 	// PRE-FLIGHT (fail-closed): refuse to mutate a slot that already holds
-	// duplicate acquisition indices. The duplicates almost certainly originate
-	// from an older SaveForge revision; whether the game would silently accept
-	// such a save is unverified, so we treat the state as a save-integrity
-	// issue and require an explicit repair (RepairDuplicateInventoryIndices)
-	// before any further inventory mutation. Never auto-repairs here.
+	// acquisition-order bucket collisions (records sharing an Index>>1 key). The
+	// collisions almost certainly originate from an older SaveForge revision or a
+	// foreign editor; the game keys Order of Acquisition by Index>>1, so such
+	// records swap/revert in-game. We treat the state as a save-integrity issue
+	// and require an explicit repair (RepairDuplicateInventoryIndices) before any
+	// further inventory mutation. Never auto-repairs here.
 	if dups := core.ScanDuplicateInventoryIndices(slot); len(dups) > 0 {
 		return result, fmt.Errorf(
-			"inventory integrity issue: slot %d contains %d duplicate acquisition entries; repair is required before adding items",
+			"inventory integrity issue: slot %d contains %d acquisition-order bucket collision(s); repair is required before adding items",
 			charIdx, len(dups))
 	}
 	if physickDupes := core.ScanDuplicateWondrousPhysick(slot); len(physickDupes) > 0 {
@@ -2694,7 +2695,7 @@ func repairInventoryIndicesSequence(slot *core.SaveSlot) (report core.InventoryI
 		return core.InventoryIndexRepairReport{}, attemptedReassign, attemptedPhysick, err
 	}
 	if post := core.ScanDuplicateInventoryIndices(slot); len(post) > 0 {
-		return report, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d duplicate(s) remain after repair", len(post))
+		return report, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d acquisition-order bucket collision(s) remain after repair", len(post))
 	}
 	if post := core.ScanDuplicateWondrousPhysick(slot); len(post) > 0 {
 		return report, attemptedReassign, attemptedPhysick, fmt.Errorf("RepairDuplicateInventoryIndices: %d Flask of Wondrous Physick record(s) remain after repair", len(post))

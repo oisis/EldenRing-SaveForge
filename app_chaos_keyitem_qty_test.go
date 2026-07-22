@@ -200,7 +200,7 @@ func TestChaosKeyItem_LarvalTearVariantsRemainIndependent(t *testing.T) {
 	}
 
 	app := keyItemFixture(baseHandle, 4100, 3)
-	addKeyItemFixtureRow(t, app, 1, dlcHandle, 4101, 4)
+	addKeyItemFixtureRow(t, app, 1, dlcHandle, 4102, 4) // stride-2 → distinct bucket
 	slot := &app.save.Slots[0]
 
 	res, err := app.AddItemsToCharacterWithGameLimits(0, []uint32{dlcID}, 0, 0, 0, 0, -1, 0)

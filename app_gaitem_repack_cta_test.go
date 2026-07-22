@@ -204,7 +204,7 @@ func TestAddItems_NonGaItemFullOmitsCTA(t *testing.T) {
 	// -index integrity gate) so a talisman add fails with inventory_full — never
 	// gaitem_full — and both CTA fields must stay absent.
 	for i := range slot.Inventory.CommonItems {
-		slot.Inventory.CommonItems[i] = core.InventoryItem{GaItemHandle: 0x90000000 | uint32(i), Index: uint32(i + 1)}
+		slot.Inventory.CommonItems[i] = core.InventoryItem{GaItemHandle: 0x90000000 | uint32(i), Index: uint32(2*i + 1)} // stride-2 → distinct buckets
 	}
 
 	res, err := app.AddItemsToCharacter(0, []uint32{endpointTalismanID}, 0, 0, 0, 0, 1, 0)

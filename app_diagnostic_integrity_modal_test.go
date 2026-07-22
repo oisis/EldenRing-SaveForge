@@ -48,7 +48,7 @@ func TestRecordDiagnosticIntegrityModalShown_DirtyLogsSafeEvent(t *testing.T) {
 		t.Errorf("conflicting_indices = %q, want 1", got)
 	}
 	items := operationField(rec, "affected_items")
-	if !strings.Contains(items, "duplicate_acquisition_index") {
+	if !strings.Contains(items, "acquisition_bucket_collision") {
 		t.Errorf("affected_items = %q, want a conflict kind", items)
 	}
 	if got := operationField(rec, "additional_items"); got != "0" {
@@ -96,7 +96,7 @@ func TestRecordDiagnosticIntegrityModalShown_CleanNoEvent(t *testing.T) {
 	app := withJournal(repairFixture(
 		[]core.InventoryItem{
 			{GaItemHandle: 0xB0000001, Quantity: 1, Index: 100},
-			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 101},
+			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 102}, // stride-2 → clean
 		},
 		nil,
 	))
@@ -190,8 +190,8 @@ func TestRecordDiagnosticIntegrityModalShown_ResolvesRealItemName(t *testing.T) 
 	rec := operationEvent(t, app.journal.Tail(), "inventory_integrity_modal_shown")
 	items := operationField(rec, "affected_items")
 	for _, want := range []string{
-		"Golden Seed (duplicate_acquisition_index)",
-		"Sacred Tear (duplicate_acquisition_index)",
+		"Golden Seed (acquisition_bucket_collision)",
+		"Sacred Tear (acquisition_bucket_collision)",
 	} {
 		if !strings.Contains(items, want) {
 			t.Errorf("affected_items = %q, want it to contain %q", items, want)

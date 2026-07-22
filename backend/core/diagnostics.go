@@ -296,12 +296,19 @@ func (e IntegrityError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Check, e.Message)
 }
 
-// DuplicateInventoryIndexIssue describes a single Index collision discovered by
-// ScanDuplicateInventoryIndices. Used by pre-flight guards to abort mutations on
-// already-corrupt saves with a precise diagnostic instead of a misleading
-// post-mutation rollback.
+// DuplicateInventoryIndexIssue describes a single acquisition-order bucket
+// collision discovered by ScanDuplicateInventoryIndices. Used by pre-flight
+// guards to abort mutations on already-corrupt saves with a precise diagnostic
+// instead of a misleading post-mutation rollback.
+//
+// Elden Ring keys the in-game "Order of Acquisition" by Index>>1 (spec 52), so
+// two records whose Index values share a bucket — including adjacent pairs like
+// 670/671, not only exact duplicates — collide and swap/revert on restart.
+// Index holds the acquisition Index of the colliding (later) record; Bucket is
+// the shared Index>>1 key.
 type DuplicateInventoryIndexIssue struct {
 	Index           uint32 `json:"index"`
+	Bucket          uint32 `json:"bucket"`
 	Scope           string `json:"scope"` // "inventory_common" | "inventory_key"
 	FirstRow        int    `json:"firstRow"`
 	FirstHandle     uint32 `json:"firstHandle"`
@@ -310,9 +317,11 @@ type DuplicateInventoryIndexIssue struct {
 }
 
 // ScanDuplicateInventoryIndices walks Inventory.CommonItems and Inventory.KeyItems
-// and reports every Index value that appears more than once across the combined
-// inventory list. Empty / invalid handles are ignored. Storage is not scanned —
-// duplicate post-mutation validation only covers inventory.
+// and reports every acquisition-order bucket (Index>>1) that is claimed by more
+// than one record across the combined inventory list. The first record in a
+// bucket is kept; every subsequent one is reported. Empty / invalid handles are
+// ignored. Storage is not scanned — post-mutation validation only covers
+// inventory.
 //
 // Read-only: never modifies slot. Safe to call before snapshot/mutation as a
 // pre-flight guard.
@@ -324,43 +333,32 @@ func ScanDuplicateInventoryIndices(slot *SaveSlot) []DuplicateInventoryIndexIssu
 		row    int
 		handle uint32
 	}
-	seen := make(map[uint32]seenEntry)
+	seen := make(map[uint32]seenEntry) // keyed by bucket = Index>>1
 	var issues []DuplicateInventoryIndexIssue
 
-	for i, item := range slot.Inventory.CommonItems {
-		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
-			continue
+	scan := func(scope string, items []InventoryItem) {
+		for i, item := range items {
+			if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
+				continue
+			}
+			bucket := item.Index >> 1
+			if prev, ok := seen[bucket]; ok {
+				issues = append(issues, DuplicateInventoryIndexIssue{
+					Index:           item.Index,
+					Bucket:          bucket,
+					Scope:           scope,
+					FirstRow:        prev.row,
+					FirstHandle:     prev.handle,
+					DuplicateRow:    i,
+					DuplicateHandle: item.GaItemHandle,
+				})
+				continue
+			}
+			seen[bucket] = seenEntry{row: i, handle: item.GaItemHandle}
 		}
-		if prev, ok := seen[item.Index]; ok {
-			issues = append(issues, DuplicateInventoryIndexIssue{
-				Index:           item.Index,
-				Scope:           "inventory_common",
-				FirstRow:        prev.row,
-				FirstHandle:     prev.handle,
-				DuplicateRow:    i,
-				DuplicateHandle: item.GaItemHandle,
-			})
-			continue
-		}
-		seen[item.Index] = seenEntry{row: i, handle: item.GaItemHandle}
 	}
-	for i, item := range slot.Inventory.KeyItems {
-		if item.GaItemHandle == GaHandleEmpty || item.GaItemHandle == GaHandleInvalid {
-			continue
-		}
-		if prev, ok := seen[item.Index]; ok {
-			issues = append(issues, DuplicateInventoryIndexIssue{
-				Index:           item.Index,
-				Scope:           "inventory_key",
-				FirstRow:        prev.row,
-				FirstHandle:     prev.handle,
-				DuplicateRow:    i,
-				DuplicateHandle: item.GaItemHandle,
-			})
-			continue
-		}
-		seen[item.Index] = seenEntry{row: i, handle: item.GaItemHandle}
-	}
+	scan("inventory_common", slot.Inventory.CommonItems)
+	scan("inventory_key", slot.Inventory.KeyItems)
 	return issues
 }
 

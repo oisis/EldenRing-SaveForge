@@ -378,6 +378,44 @@ func TestScanRepairIssues_LowDuplicateIndexStillDetected(t *testing.T) {
 	}
 }
 
+// TestScanRepairIssues_AcquisitionBucketCollision_670_671 confirms the scanner
+// detects the acquisition-order BUCKET collision semantics (Index>>1, spec 52),
+// not just identical raw indices: an adjacent 670/671 pair shares bucket 335 and
+// must yield exactly one duplicate_acquisition_index for the later record, whose
+// repair action is repair_index. This aligns the Repair Issues channel with
+// ScanDuplicateInventoryIndices and the Integrity Modal.
+func TestScanRepairIssues_AcquisitionBucketCollision_670_671(t *testing.T) {
+	slot := &SaveSlot{
+		GaMap: map[uint32]uint32{},
+		Inventory: EquipInventoryData{
+			CommonItems: []InventoryItem{
+				{GaItemHandle: testHandleSmithingStone, Quantity: 1, Index: 670},
+				{GaItemHandle: 0xB0002775, Quantity: 1, Index: 671}, // shares bucket 335
+			},
+		},
+	}
+
+	var got []RepairIssue
+	for _, iss := range ScanRepairIssues(0, slot) {
+		if iss.Key.Code == RepairCodeDuplicateAcquisitionIndex {
+			got = append(got, iss)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("want exactly 1 duplicate_acquisition_index, got %d", len(got))
+	}
+	if got[0].Key.Row != 1 {
+		t.Errorf("issue row = %d, want the later record (row 1)", got[0].Key.Row)
+	}
+	if got[0].Key.Field != "bucket" || got[0].Key.Value != "335" {
+		t.Errorf("issue key = %+v, want field=bucket value=335", got[0].Key)
+	}
+	if got[0].DefaultAction != RepairActionRepairIndex ||
+		len(got[0].Actions) != 1 || got[0].Actions[0] != RepairActionRepairIndex {
+		t.Errorf("action = %+v/%q, want [repair_index]/repair_index", got[0].Actions, got[0].DefaultAction)
+	}
+}
+
 // ---- determinism ------------------------------------------------------------
 
 // TestScanRepairIssues_IssueIDDeterministic confirms issueID is stable across runs.

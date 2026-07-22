@@ -84,10 +84,11 @@ func TestRepairDuplicateInventoryIndices_NilSlot(t *testing.T) {
 }
 
 func TestRepairDuplicateInventoryIndices_Clean_NoOp(t *testing.T) {
+	// Clean = distinct Index>>1 buckets (stride-2 indices), so repair is a no-op.
 	slot := buildRepairFixture(t, []InventoryItem{
 		{GaItemHandle: 0xB0000001, Quantity: 1, Index: 100},
-		{GaItemHandle: 0xB0000002, Quantity: 1, Index: 101},
-		{GaItemHandle: 0xB0000003, Quantity: 1, Index: 102},
+		{GaItemHandle: 0xB0000002, Quantity: 1, Index: 102},
+		{GaItemHandle: 0xB0000003, Quantity: 1, Index: 104},
 	}, []InventoryItem{
 		{GaItemHandle: 0xC0000001, Quantity: 1, Index: 200},
 	})
@@ -173,14 +174,15 @@ func TestRepairDuplicateInventoryIndices_DuplicateAcrossCommonAndKey(t *testing.
 }
 
 func TestRepairDuplicateInventoryIndices_ManyAdjacentPairs(t *testing.T) {
-	// Reproduces the shape observed in the Steam Deck cycle save:
-	// 30 pairs of adjacent rows sharing one Index each.
+	// Reproduces the real Steam Deck shape: 30 adjacent (base, base+1) pairs —
+	// the exact 670/671 pattern that shares one Index>>1 bucket per pair.
 	var common []InventoryItem
 	handle := uint32(0xB0001000)
-	for idx := uint32(500); idx < 530; idx++ {
+	for p := uint32(0); p < 30; p++ {
+		base := 500 + p*2 // even, distinct bucket per pair
 		common = append(common,
-			InventoryItem{GaItemHandle: handle, Quantity: 1, Index: idx},
-			InventoryItem{GaItemHandle: handle + 1, Quantity: 1, Index: idx},
+			InventoryItem{GaItemHandle: handle, Quantity: 1, Index: base},
+			InventoryItem{GaItemHandle: handle + 1, Quantity: 1, Index: base + 1}, // shares bucket base>>1
 		)
 		handle += 2
 	}
@@ -198,8 +200,9 @@ func TestRepairDuplicateInventoryIndices_ManyAdjacentPairs(t *testing.T) {
 	}
 
 	// All reassigned Indices must be unique and strictly greater than every
-	// preserved (odd-row) Index. First occurrences live at even rows.
-	maxOriginal := uint32(529)
+	// preserved (even-row base) Index. The max original Index is the last pair's
+	// base+1 = 558+1 = 559.
+	maxOriginal := uint32(559)
 	seen := make(map[uint32]bool)
 	for _, c := range report.Changes {
 		if c.NewIndex <= maxOriginal {
@@ -210,13 +213,27 @@ func TestRepairDuplicateInventoryIndices_ManyAdjacentPairs(t *testing.T) {
 		}
 		seen[c.NewIndex] = true
 	}
+	// The whole point of the fix: after repair every non-empty record must sit in
+	// its own Index>>1 bucket (a stride-1 renumber would leave adjacent pairs
+	// colliding). Scanner returning zero above already implies this; assert the
+	// buckets directly as a regression lock-in.
+	buckets := make(map[uint32]uint32)
+	for _, it := range slot.Inventory.CommonItems {
+		if it.GaItemHandle == GaHandleEmpty || it.GaItemHandle == GaHandleInvalid {
+			continue
+		}
+		b := it.Index >> 1
+		if other, dup := buckets[b]; dup {
+			t.Errorf("bucket %d shared by Index %d and %d after repair", b, other, it.Index)
+		}
+		buckets[b] = it.Index
+	}
 	// NextAcquisitionSortId must stay strictly greater than every assigned Index
 	// (it is the source counter for fresh indices). NextEquipIndex must be
-	// PRESERVED — repair renumbers duplicates but must not touch the equip-list
-	// counter (forcing it up corrupts the slot, CE-108255-1). The fixture seeds
-	// NextEquipIndex = maxOriginal+1 = 530, so it stays below the reassigned
-	// (>530) indices, which is correct.
-	const wantPreservedEquip = uint32(530)
+	// PRESERVED — repair renumbers colliding buckets but must not touch the
+	// equip-list counter (forcing it up corrupts the slot, CE-108255-1). The
+	// fixture seeds NextEquipIndex = maxOriginal+1 = 560.
+	const wantPreservedEquip = uint32(560)
 	if slot.Inventory.NextEquipIndex != wantPreservedEquip {
 		t.Errorf("NextEquipIndex must be preserved: want %d, got %d",
 			wantPreservedEquip, slot.Inventory.NextEquipIndex)
@@ -474,5 +491,65 @@ func TestMapInventoryReconcilesKeyItemIndex(t *testing.T) {
 	}
 	if slot.Inventory.NextAcquisitionSortId <= 700 {
 		t.Errorf("NextAcquisitionSortId not reconciled past KeyItem Index 700: got %d", slot.Inventory.NextAcquisitionSortId)
+	}
+}
+
+// TestRepairDuplicateInventoryIndices_AdjacentPair670671 is the exact reported
+// shape: two records with adjacent indices 670/671 that share Index>>1 bucket
+// 335. The old stride-1 repair either ignored them (not exact duplicates) or
+// renumbered into a fresh collision; the fix must move the second into its own
+// bucket and leave the scanner clean.
+func TestRepairDuplicateInventoryIndices_AdjacentPair670671(t *testing.T) {
+	slot := buildRepairFixture(t, []InventoryItem{
+		{GaItemHandle: 0xB0000A01, Quantity: 1, Index: 670}, // kept
+		{GaItemHandle: 0xB0000A02, Quantity: 1, Index: 671}, // shares bucket 335 → moved
+	}, nil)
+
+	rep, err := RepairDuplicateInventoryIndices(slot)
+	if err != nil {
+		t.Fatalf("repair: %v", err)
+	}
+	if rep.Changed != 1 {
+		t.Fatalf("Changed = %d, want 1", rep.Changed)
+	}
+	if slot.Inventory.CommonItems[0].Index != 670 {
+		t.Errorf("first occurrence must keep Index 670, got %d", slot.Inventory.CommonItems[0].Index)
+	}
+	b0 := slot.Inventory.CommonItems[0].Index >> 1
+	b1 := slot.Inventory.CommonItems[1].Index >> 1
+	if b0 == b1 {
+		t.Errorf("rows still share bucket %d after repair (indices %d, %d)", b0,
+			slot.Inventory.CommonItems[0].Index, slot.Inventory.CommonItems[1].Index)
+	}
+	if issues := ScanDuplicateInventoryIndices(slot); len(issues) != 0 {
+		t.Errorf("scanner still reports %d issue(s) after repair: %+v", len(issues), issues)
+	}
+	if slot.Inventory.CommonItems[1].Index >= slot.Inventory.NextAcquisitionSortId {
+		t.Errorf("NextAcquisitionSortId=%d not > reassigned Index %d",
+			slot.Inventory.NextAcquisitionSortId, slot.Inventory.CommonItems[1].Index)
+	}
+}
+
+// TestAssignFreshInventoryIndex_AvoidsBucketCollisionWithMax guards the subtle
+// case the old maxIdx+1 allocation got wrong: a fresh index one above an even
+// max shares that record's Index>>1 bucket. The stride-2 allocation must land
+// in an unused bucket.
+func TestAssignFreshInventoryIndex_AvoidsBucketCollisionWithMax(t *testing.T) {
+	const maxIdx = uint32(700) // even → maxIdx+1 would share bucket 350 with it
+	slot := buildRepairFixture(t, []InventoryItem{
+		{GaItemHandle: 0xB0000001, Quantity: 1, Index: 500}, // target
+		{GaItemHandle: 0xB0000002, Quantity: 1, Index: maxIdx},
+	}, nil)
+
+	change, err := AssignFreshInventoryIndex(slot, "inventory_common", 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if change.NewIndex>>1 == maxIdx>>1 {
+		t.Errorf("fresh index %d shares bucket %d with max record %d",
+			change.NewIndex, maxIdx>>1, maxIdx)
+	}
+	if issues := ScanDuplicateInventoryIndices(slot); len(issues) != 0 {
+		t.Errorf("scanner reports %d issue(s) after fresh assignment: %+v", len(issues), issues)
 	}
 }

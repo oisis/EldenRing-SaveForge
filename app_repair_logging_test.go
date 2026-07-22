@@ -120,7 +120,7 @@ func TestRepairDuplicateInventoryIndices_LogsNoChanges(t *testing.T) {
 	app := withJournal(repairFixture(
 		[]core.InventoryItem{
 			{GaItemHandle: 0xB0000001, Quantity: 1, Index: 100},
-			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 101},
+			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 102}, // stride-2 → distinct bucket → clean
 		},
 		nil,
 	))

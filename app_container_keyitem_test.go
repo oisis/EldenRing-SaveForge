@@ -190,7 +190,9 @@ func TestContainer(t *testing.T) {
 		// Filler handles sit in an empty goods range (0xB0001xxx) so none resolves
 		// to Fire Pot (0xB000012C) or Cracked Pot (0xB000251C); each index is unique.
 		for i := 0; i < core.KeyItemCount; i++ {
-			addKeyItemFixtureRow(t, app, i, 0xB0001000+uint32(i), 2000+uint32(i), 1)
+			// Stride-2 indices → distinct Index>>1 buckets (native shape, not the
+			// old stride-1 pollution the preflight now rejects).
+			addKeyItemFixtureRow(t, app, i, 0xB0001000+uint32(i), 2000+uint32(2*i), 1)
 		}
 		withContainerEventFlags(app)
 		slot := &app.save.Slots[0]

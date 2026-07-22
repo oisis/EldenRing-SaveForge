@@ -415,6 +415,66 @@ func TestApplyRepairAction_LeaveUnchangedIsSkippedNotFailed(t *testing.T) {
 	}
 }
 
+// TestApplyRepairsLoaded_AcquisitionBucketCollision_670_671 is the end-to-end
+// regression that unifies the Repair Issues channel with E10: ScanRepairIssuesLoaded
+// must surface an adjacent 670/671 acquisition pair (distinct raw indices, same
+// Index>>1 bucket) as a duplicate_acquisition_index issue, and applying its
+// repair_index action must move the later record to a fresh, bucket-unique index
+// so the next scan is clean.
+func TestApplyRepairsLoaded_AcquisitionBucketCollision_670_671(t *testing.T) {
+	app := NewApp()
+	app.save = &core.SaveFile{}
+	app.save.Slots[0] = *buildApplyInvFixture(t, []core.InventoryItem{
+		{GaItemHandle: smithingStoneHandleQty, Quantity: 1, Index: 670},
+		{GaItemHandle: 0xB0002775, Quantity: 1, Index: 671}, // shares bucket 335
+	})
+	slot := &app.save.Slots[0]
+
+	report, err := app.ScanRepairIssuesLoaded(0)
+	if err != nil {
+		t.Fatalf("ScanRepairIssuesLoaded: %v", err)
+	}
+	var target RepairApplyTarget
+	found := false
+	for _, issue := range report.Issues {
+		if issue.Key.Code != core.RepairCodeDuplicateAcquisitionIndex {
+			continue
+		}
+		found = true
+		if issue.Fingerprint == "" {
+			t.Fatal("bucket-collision issue is missing a fingerprint")
+		}
+		target = RepairApplyTarget{
+			IssueID: issue.IssueID, Key: issue.Key, Fingerprint: issue.Fingerprint,
+			SelectedAction: core.RepairActionRepairIndex,
+		}
+	}
+	if !found {
+		t.Fatal("scan did not surface the 670/671 acquisition-order bucket collision")
+	}
+
+	rep, err := app.ApplyRepairsLoaded(0, []RepairApplyTarget{target}, false)
+	if err != nil {
+		t.Fatalf("ApplyRepairsLoaded: %v", err)
+	}
+	if rep.Applied != 1 || rep.Failed != 0 {
+		t.Fatalf("want applied=1 failed=0, got applied=%d failed=%d", rep.Applied, rep.Failed)
+	}
+	if b0, b1 := slot.Inventory.CommonItems[0].Index>>1, slot.Inventory.CommonItems[1].Index>>1; b0 == b1 {
+		t.Errorf("records still share bucket %d after repair", b0)
+	}
+
+	after, err := app.ScanRepairIssuesLoaded(0)
+	if err != nil {
+		t.Fatalf("ScanRepairIssuesLoaded after repair: %v", err)
+	}
+	for _, issue := range after.Issues {
+		if issue.Key.Code == core.RepairCodeDuplicateAcquisitionIndex {
+			t.Fatalf("bucket collision remains after repair: %+v", issue)
+		}
+	}
+}
+
 // golemUpgradeRepairFixture models the exact regression reported from the
 // repair modal: one Golem Greatbow +25 in inventory and one in storage. The
 // two records deliberately use different weapon-instance handles, while their

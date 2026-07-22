@@ -79,8 +79,9 @@ func TestGetSaveInventoryIntegrityReport_AllSlotsClean_ReturnsClean(t *testing.T
 	handles := knownGoodsHandles(t, 3)
 	slot := &app.save.Slots[0]
 	for i, h := range handles {
+		// Stride-2 indices → distinct Index>>1 buckets → a genuinely clean slot.
 		slot.Inventory.CommonItems = append(slot.Inventory.CommonItems, core.InventoryItem{
-			GaItemHandle: h, Quantity: 1, Index: uint32(500 + i),
+			GaItemHandle: h, Quantity: 1, Index: uint32(500 + i*2),
 		})
 	}
 
@@ -129,8 +130,8 @@ func TestGetSaveInventoryIntegrityReport_SingleConflict_KnownItems(t *testing.T)
 		t.Fatalf("Conflicts: want 1 group, got %d", len(s.Conflicts))
 	}
 	c := s.Conflicts[0]
-	if c.Index != 552 {
-		t.Errorf("Conflict.Index: want 552, got %d", c.Index)
+	if c.Index != 552>>1 {
+		t.Errorf("Conflict.Index (bucket): want %d, got %d", 552>>1, c.Index)
 	}
 	if len(c.Items) != 2 {
 		t.Fatalf("Conflict.Items should contain first + duplicate occurrence (2 total), got %d", len(c.Items))
@@ -233,7 +234,7 @@ func TestGetSaveInventoryIntegrityReport_TwoDistinctConflicts(t *testing.T) {
 	for _, c := range s.Conflicts {
 		indices[c.Index] = len(c.Items)
 	}
-	if indices[552] != 2 || indices[600] != 2 {
+	if indices[552>>1] != 2 || indices[600>>1] != 2 {
 		t.Errorf("each conflict group should carry exactly 2 items, got %+v", indices)
 	}
 }
@@ -416,8 +417,8 @@ func TestGetSaveInventoryIntegrityReport_CrossScopeConflict(t *testing.T) {
 		t.Fatalf("expected 1 conflict group for cross-scope duplicate, got %d", len(s.Conflicts))
 	}
 	c := s.Conflicts[0]
-	if c.Index != 777 {
-		t.Errorf("Conflict.Index: want 777, got %d", c.Index)
+	if c.Index != 777>>1 {
+		t.Errorf("Conflict.Index (bucket): want %d, got %d", 777>>1, c.Index)
 	}
 	if len(c.Items) != 2 {
 		t.Fatalf("Conflict.Items: want 2 (one per scope), got %d", len(c.Items))
@@ -472,9 +473,11 @@ func TestGetSaveInventoryIntegrityReport_EmptyHandlesIgnored(t *testing.T) {
 func TestGetSaveInventoryIntegrityReport_DuplicatePhysick(t *testing.T) {
 	app := integrityFixture()
 	slot := &app.save.Slots[0]
+	// Stride-2 inventory indices (distinct buckets) so only the duplicate Physick
+	// makes the report dirty.
 	slot.Inventory.CommonItems = []core.InventoryItem{
 		{GaItemHandle: 0xB00000FA, Quantity: 1, Index: 100},
-		{GaItemHandle: 0xB00000FB, Quantity: 1, Index: 101},
+		{GaItemHandle: 0xB00000FB, Quantity: 1, Index: 102},
 	}
 
 	report, err := app.GetSaveInventoryIntegrityReport()
@@ -548,7 +551,7 @@ func TestGetSaveInventoryIntegrityReport_InactiveResidualSlot_IsReportedAndMarke
 	slot0 := &app.save.Slots[0]
 	slot0.Inventory.CommonItems = []core.InventoryItem{
 		{GaItemHandle: handles[0], Quantity: 1, Index: 600},
-		{GaItemHandle: handles[1], Quantity: 1, Index: 601},
+		{GaItemHandle: handles[1], Quantity: 1, Index: 602}, // stride-2 → clean
 	}
 
 	// Slot 3 has residual data (Version != 0) and a duplicate, but the

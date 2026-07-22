@@ -86,7 +86,7 @@ func TestApp_RepairDuplicateInventoryIndices_CleanSlot_NoOp_NoUndo(t *testing.T)
 	app := repairFixture(
 		[]core.InventoryItem{
 			{GaItemHandle: 0xB0000001, Quantity: 1, Index: 100},
-			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 101},
+			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 102}, // stride-2 → distinct bucket → clean
 		},
 		nil,
 	)
@@ -212,5 +212,39 @@ func TestApp_RepairDuplicateInventoryIndices_PostRepairValidationPasses(t *testi
 	}
 	if v := core.ScanDuplicateInventoryIndices(slot); len(v) != 0 {
 		t.Errorf("ScanDuplicateInventoryIndices should be empty after repair, got %d", len(v))
+	}
+}
+
+// TestApp_AddBlockedByBucketCollision_670_671_ThenRepairClears is the app-level
+// fail-closed regression for the reported bug: a slot carrying an adjacent
+// 670/671 acquisition pair (same Index>>1 bucket) must refuse item adds with a
+// bucket-collision diagnostic, and after RepairDuplicateInventoryIndices the
+// scanner must report zero issues so adds can proceed.
+func TestApp_AddBlockedByBucketCollision_670_671_ThenRepairClears(t *testing.T) {
+	app := repairFixture([]core.InventoryItem{
+		{GaItemHandle: 0xB0000A01, Quantity: 1, Index: 670},
+		{GaItemHandle: 0xB0000A02, Quantity: 1, Index: 671}, // shares bucket 335
+	}, nil)
+
+	// Pre-flight must fail-closed and name the real defect (any itemID: the
+	// guard fires before the ID is resolved).
+	_, err := app.AddItemsToCharacter(0, []uint32{1000000}, 0, 0, 0, 0, 1, 0)
+	if err == nil {
+		t.Fatalf("expected add to be blocked by the bucket-collision pre-flight")
+	}
+	if !strings.Contains(err.Error(), "bucket collision") {
+		t.Errorf("error should name the acquisition-order bucket collision, got %q", err.Error())
+	}
+
+	// Repair, then the scanner must be clean and the buckets distinct.
+	if _, err := app.RepairDuplicateInventoryIndices(0); err != nil {
+		t.Fatalf("RepairDuplicateInventoryIndices: %v", err)
+	}
+	slot := &app.save.Slots[0]
+	if issues := core.ScanDuplicateInventoryIndices(slot); len(issues) != 0 {
+		t.Fatalf("scanner still reports %d issue(s) after repair: %+v", len(issues), issues)
+	}
+	if b0, b1 := slot.Inventory.CommonItems[0].Index>>1, slot.Inventory.CommonItems[1].Index>>1; b0 == b1 {
+		t.Errorf("records still share bucket %d after repair", b0)
 	}
 }

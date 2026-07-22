@@ -239,7 +239,7 @@ func physickRepairFixture(t *testing.T) *App {
 
 	common := []core.InventoryItem{
 		{GaItemHandle: keptHandle, Quantity: 1, Index: 100},
-		{GaItemHandle: dropHandle, Quantity: 1, Index: 101},
+		{GaItemHandle: dropHandle, Quantity: 1, Index: 102}, // stride-2 → distinct bucket; isolates the physick-removal path
 	}
 
 	app := NewApp()
@@ -299,7 +299,7 @@ func TestToolsDuplicateRepairWondrousPhysickLifecycle(t *testing.T) {
 	assertToolsRepairPhases(t, records, 0, "inventory_common_row_1_quantity",
 		"1", "0", "0", characterChangeSuccess, toolsStageCompleted)
 	assertToolsRepairPhases(t, records, 0, "inventory_common_row_1_index",
-		"101", "1", strconv.Itoa(int(post.Inventory.CommonItems[1].Index)),
+		"102", "1", strconv.Itoa(int(post.Inventory.CommonItems[1].Index)),
 		characterChangeSuccess, toolsStageCompleted)
 
 	// The held-inventory count header the physick removal rewrites.
@@ -424,7 +424,7 @@ func TestToolsDuplicateRepairNoOpEmitsNoFieldRecords(t *testing.T) {
 	app := repairFixture(
 		[]core.InventoryItem{
 			{GaItemHandle: 0xB0000001, Quantity: 1, Index: 100},
-			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 101},
+			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 102}, // stride-2 → distinct bucket → genuine no-op
 		},
 		nil,
 	)

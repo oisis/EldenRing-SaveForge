@@ -99,7 +99,7 @@ describe('InventoryIntegrityModal', () => {
             <InventoryIntegrityModal report={report} busy={false} onRepair={vi.fn()} onCloseSave={vi.fn()} />,
         );
         expect(screen.getByText('Slot 1 — Hero')).toBeInTheDocument();
-        expect(screen.getByText('3 duplicate entries across 2 conflicting indices')).toBeInTheDocument();
+        expect(screen.getByText('3 colliding entries across 2 acquisition-order bucket collisions')).toBeInTheDocument();
     });
 
     it('singularises the counter wording for one entry / one index', () => {
@@ -107,7 +107,7 @@ describe('InventoryIntegrityModal', () => {
         render(
             <InventoryIntegrityModal report={report} busy={false} onRepair={vi.fn()} onCloseSave={vi.fn()} />,
         );
-        expect(screen.getByText('1 duplicate entry across 1 conflicting index')).toBeInTheDocument();
+        expect(screen.getByText('1 colliding entry across 1 acquisition-order bucket collision')).toBeInTheDocument();
     });
 
     it('labels an inactive residual slot and shows the residual explanation', () => {
@@ -138,7 +138,7 @@ describe('InventoryIntegrityModal', () => {
         );
         const toggle = screen.getByRole('button', { name: /Show affected items/i });
         fireEvent.click(toggle);
-        expect(await screen.findByText('Acquisition index 552')).toBeInTheDocument();
+        expect(await screen.findByText('Acquisition-order bucket 552')).toBeInTheDocument();
         // Both items in the conflict are listed.
         expect(screen.getByText(/Boiled Crab/)).toBeInTheDocument();
         expect(screen.getByText(/Clarifying Boluses/)).toBeInTheDocument();
@@ -258,6 +258,6 @@ describe('InventoryIntegrityModal', () => {
         expect(within(container).getByText('Slot 1 — A')).toBeInTheDocument();
         expect(within(container).getByText('Inactive residual slot 5')).toBeInTheDocument();
         // Verifies modal does not pre-expand the affected list (sanity).
-        await waitFor(() => expect(screen.queryByText('Acquisition index 552')).not.toBeInTheDocument());
+        await waitFor(() => expect(screen.queryByText('Acquisition-order bucket 552')).not.toBeInTheDocument());
     });
 });

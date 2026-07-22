@@ -47,18 +47,19 @@ function conflictLabel(conflict: main.InventoryIntegrityConflict): string {
     if (kind === 'duplicate_physick') {
         return 'Duplicate Flask of Wondrous Physick';
     }
-    return `Acquisition index ${conflict.index}`;
+    // conflict.index carries the shared Index>>1 acquisition-order bucket.
+    return `Acquisition-order bucket ${conflict.index}`;
 }
 
 function duplicateSummary(slot: main.SlotInventoryIntegrityReport): string {
     if (slot.conflictingIndexCount > 0) {
         const entryWord = slot.duplicateEntryCount === 1 ? 'entry' : 'entries';
-        const indexWord = slot.conflictingIndexCount === 1 ? 'index' : 'indices';
-        return `${slot.duplicateEntryCount} duplicate ${entryWord} across ${slot.conflictingIndexCount} conflicting ${indexWord}`;
+        const collWord = slot.conflictingIndexCount === 1 ? 'collision' : 'collisions';
+        return `${slot.duplicateEntryCount} colliding ${entryWord} across ${slot.conflictingIndexCount} acquisition-order bucket ${collWord}`;
     }
 
     const entryWord = slot.duplicateEntryCount === 1 ? 'entry' : 'entries';
-    return `${slot.duplicateEntryCount} duplicate ${entryWord} requiring repair`;
+    return `${slot.duplicateEntryCount} colliding ${entryWord} requiring repair`;
 }
 
 export function InventoryIntegrityModal({

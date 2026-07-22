@@ -10,11 +10,13 @@ func newSlotWithItems(common, key []InventoryItem) *SaveSlot {
 }
 
 func TestScanDuplicateInventoryIndices_Clean(t *testing.T) {
+	// Clean = distinct Index>>1 buckets. Stride-2 indices (100/102/104) keep
+	// every record in its own bucket even though the values are close.
 	slot := newSlotWithItems(
 		[]InventoryItem{
 			{GaItemHandle: 0xB0000001, Quantity: 1, Index: 100},
-			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 101},
-			{GaItemHandle: 0xB0000003, Quantity: 1, Index: 102},
+			{GaItemHandle: 0xB0000002, Quantity: 1, Index: 102},
+			{GaItemHandle: 0xB0000003, Quantity: 1, Index: 104},
 		},
 		[]InventoryItem{
 			{GaItemHandle: 0xC0000001, Quantity: 1, Index: 200},
@@ -85,22 +87,24 @@ func TestScanDuplicateInventoryIndices_DuplicateAcrossCommonAndKey(t *testing.T)
 }
 
 func TestScanDuplicateInventoryIndices_ManyDuplicates(t *testing.T) {
-	// Reproduces the shape observed in the Steam Deck post-cycle save: many pairs
-	// of adjacent rows sharing one Index. The scanner must surface every issue
-	// (not stop at the first), so the caller can report the total count.
+	// Reproduces the real Steam Deck shape: 30 adjacent (base, base+1) pairs, the
+	// exact 670/671 pattern that shares one Index>>1 bucket per pair. Pair bases
+	// are stride-2 apart so only the intended within-pair collision occurs. The
+	// scanner must surface every issue (not stop at the first).
 	var common []InventoryItem
 	handle := uint32(0xB0001000)
-	for idx := uint32(500); idx < 530; idx++ {
+	for p := uint32(0); p < 30; p++ {
+		base := 500 + p*2 // even, distinct bucket per pair
 		common = append(common,
-			InventoryItem{GaItemHandle: handle, Quantity: 1, Index: idx},
-			InventoryItem{GaItemHandle: handle + 1, Quantity: 1, Index: idx},
+			InventoryItem{GaItemHandle: handle, Quantity: 1, Index: base},
+			InventoryItem{GaItemHandle: handle + 1, Quantity: 1, Index: base + 1}, // shares bucket base>>1
 		)
 		handle += 2
 	}
 	slot := newSlotWithItems(common, nil)
 	issues := ScanDuplicateInventoryIndices(slot)
 	if len(issues) != 30 {
-		t.Fatalf("expected 30 issues (one per paired Index), got %d", len(issues))
+		t.Fatalf("expected 30 issues (one per adjacent pair), got %d", len(issues))
 	}
 }
 
