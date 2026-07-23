@@ -727,11 +727,121 @@ func FlushGaItems(slot *SaveSlot) error {
 	return nil
 }
 
-// RemoveItemFromSlot zeroes out inventory/storage slots for the given handle.
-// Inventory: fixed pre-allocated array — zero the matching slot(s).
-// Storage: dynamic list — zero the matching slot(s); game stops reading at handle==0.
-// GaMap entry is removed only when the handle is absent from both lists after removal.
+// RemoveItemFromSlot removes one handle atomically.
 func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorage bool) error {
+	return RemoveItemsFromSlot(slot, []uint32{handle}, fromInventory, fromStorage)
+}
+
+// RemoveItemsFromSlot removes a batch of handles atomically and rebuilds the
+// native GaItem projection once when a physical record was deleted.
+func RemoveItemsFromSlot(slot *SaveSlot, handles []uint32, fromInventory, fromStorage bool) error {
+	if slot == nil {
+		return fmt.Errorf("RemoveItemsFromSlot: nil slot")
+	}
+	if len(handles) == 0 {
+		return nil
+	}
+
+	snapshot := SnapshotSlot(slot)
+	rollback := func(err error) error {
+		RestoreSlot(slot, snapshot)
+		return err
+	}
+
+	for _, handle := range handles {
+		if removalDeletesPhysicalGaItem(slot, handle, fromInventory, fromStorage) {
+			if _, err := analyzeNativeGaItemLayout(slot); err != nil {
+				return rollback(fmt.Errorf("RemoveItemsFromSlot: preflight: %w", err))
+			}
+			break
+		}
+	}
+
+	gaModified := false
+	for _, handle := range handles {
+		removedGaItem, err := removeItemFromSlot(slot, handle, fromInventory, fromStorage)
+		if err != nil {
+			return rollback(err)
+		}
+		gaModified = gaModified || removedGaItem
+	}
+	if !gaModified {
+		return nil
+	}
+
+	if err := reprojectNativeGaItems(slot); err != nil {
+		return rollback(fmt.Errorf("RemoveItemsFromSlot: %w", err))
+	}
+	savedGaMap := make(map[uint32]uint32, len(slot.GaMap))
+	for handle, itemID := range slot.GaMap {
+		savedGaMap[handle] = itemID
+	}
+	rebuilt, err := RebuildSlotFull(slot)
+	if err != nil {
+		return rollback(fmt.Errorf("RemoveItemsFromSlot: rebuild: %w", err))
+	}
+	copy(slot.Data, rebuilt)
+	if err := slot.parseFromData(); err != nil {
+		return rollback(fmt.Errorf("RemoveItemsFromSlot: re-parse after rebuild: %w", err))
+	}
+	for handle, itemID := range savedGaMap {
+		if _, ok := slot.GaMap[handle]; !ok {
+			slot.GaMap[handle] = itemID
+		}
+	}
+	if _, err := analyzeNativeGaItemLayout(slot); err != nil {
+		return rollback(fmt.Errorf("RemoveItemsFromSlot: postcondition: %w", err))
+	}
+	return nil
+}
+
+func removalDeletesPhysicalGaItem(slot *SaveSlot, handle uint32, fromInventory, fromStorage bool) bool {
+	hasGaItem := false
+	for _, record := range slot.GaItems {
+		if !record.IsEmpty() && record.Handle == handle {
+			hasGaItem = true
+			break
+		}
+	}
+	if !hasGaItem || handleUsedByWeapon(slot, handle) {
+		return false
+	}
+	if !fromInventory && (itemsContainHandle(slot.Inventory.CommonItems, handle) ||
+		itemsContainHandle(slot.Inventory.KeyItems, handle)) {
+		return false
+	}
+	if !fromStorage && itemsContainHandle(slot.Storage.CommonItems, handle) {
+		return false
+	}
+	return true
+}
+
+func itemsContainHandle(items []InventoryItem, handle uint32) bool {
+	for _, item := range items {
+		if item.GaItemHandle == handle {
+			return true
+		}
+	}
+	return false
+}
+
+func handleUsedByWeapon(slot *SaveSlot, handle uint32) bool {
+	if handle&GaHandleTypeMask != ItemTypeAow {
+		return false
+	}
+	for _, record := range slot.GaItems {
+		if !record.IsEmpty() &&
+			record.Handle&GaHandleTypeMask == ItemTypeWeapon &&
+			record.AoWGaItemHandle == handle {
+			return true
+		}
+	}
+	return false
+}
+
+// removeItemFromSlot mutates container records and GaMap/GaItems without
+// rebuilding. The caller owns snapshot, reprojection and serialization.
+func removeItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorage bool) (bool, error) {
 	sa := NewSlotAccessor(slot.Data)
 
 	if fromInventory {
@@ -742,7 +852,7 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 				slot.Inventory.CommonItems[i] = InventoryItem{GaItemHandle: 0, Quantity: 0, Index: uint32(i)}
 				off := invStart + i*InvRecordLen
 				if err := sa.CheckBounds(off, InvRecordLen, "RemoveItemFromSlot/common"); err != nil {
-					return err
+					return false, err
 				}
 				binary.LittleEndian.PutUint32(slot.Data[off:], 0)
 				binary.LittleEndian.PutUint32(slot.Data[off+4:], 0)
@@ -756,7 +866,7 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 				slot.Inventory.KeyItems[i] = InventoryItem{GaItemHandle: 0, Quantity: 0, Index: uint32(i)}
 				off := keyStart + i*InvRecordLen
 				if err := sa.CheckBounds(off, InvRecordLen, "RemoveItemFromSlot/key"); err != nil {
-					return err
+					return false, err
 				}
 				binary.LittleEndian.PutUint32(slot.Data[off:], 0)
 				binary.LittleEndian.PutUint32(slot.Data[off+4:], 0)
@@ -834,18 +944,20 @@ func RemoveItemFromSlot(slot *SaveSlot, handle uint32, fromInventory, fromStorag
 		}
 	}
 	if !stillPresent {
+		stillPresent = handleUsedByWeapon(slot, handle)
+	}
+	gaRemoved := false
+	if !stillPresent {
 		delete(slot.GaMap, handle)
-		// Clear the GaItem in-memory entry so the next RebuildSlotFull doesn't
-		// re-serialize it. Without this, scanGaItems() on re-parse re-adds the
-		// handle to GaMap as an "orphaned" entry, accumulating over sessions.
 		for i := range slot.GaItems {
 			if slot.GaItems[i].Handle == handle {
 				slot.GaItems[i] = GaItemFull{Unk2: -1, Unk3: -1, AoWGaItemHandle: 0xFFFFFFFF}
+				gaRemoved = true
 				break
 			}
 		}
 	}
-	return nil
+	return gaRemoved, nil
 }
 
 // RemoveItemByBaseID removes an item from inventory by its base item ID (e.g. 0x40002198).

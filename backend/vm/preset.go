@@ -514,8 +514,6 @@ func PresetToVM(preset *CharacterPreset) *CharacterViewModel {
 }
 
 func ClearInventoryItems(slot *core.SaveSlot) (int, error) {
-	removed := 0
-
 	handles := make([]uint32, 0)
 	for _, item := range slot.Inventory.CommonItems {
 		if item.GaItemHandle != 0 && item.GaItemHandle != 0xFFFFFFFF {
@@ -524,24 +522,21 @@ func ClearInventoryItems(slot *core.SaveSlot) (int, error) {
 	}
 
 	seen := make(map[uint32]bool)
+	unique := make([]uint32, 0, len(handles))
 	for _, h := range handles {
 		if seen[h] {
 			continue
 		}
 		seen[h] = true
-		if err := core.RemoveItemFromSlot(slot, h, true, false); err != nil {
-			return removed, fmt.Errorf("clear inventory handle 0x%08X: %w", h, err)
-		}
-		removed++
+		unique = append(unique, h)
 	}
-
-	purgeOrphanedGaItems(slot)
-	return removed, nil
+	if err := core.RemoveItemsFromSlot(slot, unique, true, false); err != nil {
+		return 0, fmt.Errorf("clear inventory: %w", err)
+	}
+	return len(unique), nil
 }
 
 func ClearStorageItems(slot *core.SaveSlot) (int, error) {
-	removed := 0
-
 	handles := make([]uint32, 0)
 	for _, item := range slot.Storage.CommonItems {
 		if item.GaItemHandle != 0 && item.GaItemHandle != 0xFFFFFFFF {
@@ -550,38 +545,18 @@ func ClearStorageItems(slot *core.SaveSlot) (int, error) {
 	}
 
 	seen := make(map[uint32]bool)
+	unique := make([]uint32, 0, len(handles))
 	for _, h := range handles {
 		if seen[h] {
 			continue
 		}
 		seen[h] = true
-		if err := core.RemoveItemFromSlot(slot, h, false, true); err != nil {
-			return removed, fmt.Errorf("clear storage handle 0x%08X: %w", h, err)
-		}
-		removed++
+		unique = append(unique, h)
 	}
-
-	purgeOrphanedGaItems(slot)
-	return removed, nil
-}
-
-func purgeOrphanedGaItems(slot *core.SaveSlot) {
-	for i := range slot.GaItems {
-		if slot.GaItems[i].IsEmpty() {
-			continue
-		}
-		h := slot.GaItems[i].Handle
-		if _, inMap := slot.GaMap[h]; !inMap {
-			// Empty-slot marker (ItemID==0); AoWGaItemHandle is not
-			// serialized for 8B records, but use the canonical sentinel
-			// for consistency with vanilla-aligned writer output.
-			slot.GaItems[i] = core.GaItemFull{
-				Unk2:            -1,
-				Unk3:            -1,
-				AoWGaItemHandle: core.NoCustomAoWHandle,
-			}
-		}
+	if err := core.RemoveItemsFromSlot(slot, unique, false, true); err != nil {
+		return 0, fmt.Errorf("clear storage: %w", err)
 	}
+	return len(unique), nil
 }
 
 func ExportWorldState(slot *core.SaveSlot) (*WorldPresetData, error) {

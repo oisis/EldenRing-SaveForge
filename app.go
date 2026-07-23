@@ -1581,13 +1581,7 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 	var giCleanupFlagPlans []gameItemSideEffectPlan
 	if a.journal.debugEnabled() {
 		clone := core.CloneSlot(slot)
-		cloneRemoveSucceeded := true
-		for _, handle := range handles {
-			if err := core.RemoveItemFromSlot(clone, handle, fromInventory, fromStorage); err != nil {
-				cloneRemoveSucceeded = false
-				break
-			}
-		}
+		cloneRemoveSucceeded := core.RemoveItemsFromSlot(clone, handles, fromInventory, fromStorage) == nil
 		if cloneRemoveSucceeded {
 			applyRemoveItemFlagCleanup(clone, bolsteringRemovals, companionRemovals, nil)
 		}
@@ -1602,11 +1596,9 @@ func (a *App) RemoveItemsFromCharacter(charIdx int, handles []uint32, fromInvent
 		a.journalGameItemChangePlanned(actionGameItemsRemove, charIdx, records)
 	}
 
-	for _, handle := range handles {
-		if err := core.RemoveItemFromSlot(slot, handle, fromInventory, fromStorage); err != nil {
-			a.journalGameItemsRemoveFinished(charIdx, characterChangeError, stageGameItemsRemoveItem, giPlans, giInvHeaderPlans, giStorageHeaderPlans, giCleanupFlagPlans, slot)
-			return err
-		}
+	if err := core.RemoveItemsFromSlot(slot, handles, fromInventory, fromStorage); err != nil {
+		a.journalGameItemsRemoveFinished(charIdx, characterChangeError, stageGameItemsRemoveItem, giPlans, giInvHeaderPlans, giStorageHeaderPlans, giCleanupFlagPlans, slot)
+		return err
 	}
 
 	applyRemoveItemFlagCleanup(slot, bolsteringRemovals, companionRemovals, func(itemID, flagID uint32, err error) {

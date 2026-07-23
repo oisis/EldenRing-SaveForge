@@ -46,9 +46,8 @@ const (
 // executor (applyItemAddMutationPlan) fails and the slot was rolled back.
 const stageGameItemsApplyAddPlan = "apply_add_plan"
 
-// stageGameItemsRemoveItem is the finished-phase stage reported when a single
-// core.RemoveItemFromSlot call fails and the real slot is left partially mutated
-// (RemoveItemsFromCharacter performs no rollback).
+// stageGameItemsRemoveItem is the finished-phase stage reported when the atomic
+// core removal batch fails and restores the original slot.
 const stageGameItemsRemoveItem = "remove_item"
 
 const stageGameItemsUnlock = "apply_unlock"
@@ -99,10 +98,8 @@ func (a *App) journalGameItemChangeFinished(action string, characterIndex int, o
 
 // journalGameItemsRemoveFinished emits the finished phase for a Database Remove:
 // direct physical rows first, then the two count headers, re-reading every field
-// out of the (possibly partially mutated) real slot so After reflects what
-// actually landed. It is a no-op when no field changed, so a no-op removal emits
-// nothing. RemoveItemsFromCharacter performs no rollback, so on error the same
-// re-read simply reports the partial state.
+// out of the real slot so After reflects what actually landed or was restored.
+// It is a no-op when no field changed, so a no-op removal emits nothing.
 func (a *App) journalGameItemsRemoveFinished(charIdx int, outcome characterChangeOutcome, stage string, direct []gameItemFieldPlan, invHeader, storageHeader, cleanupFlags []gameItemSideEffectPlan, slot *core.SaveSlot) {
 	if len(direct) == 0 && len(invHeader) == 0 && len(storageHeader) == 0 && len(cleanupFlags) == 0 {
 		return

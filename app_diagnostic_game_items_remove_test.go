@@ -323,12 +323,9 @@ func TestGameItemsRemoveDiagnosticNoOp(t *testing.T) {
 	}
 }
 
-// F. Failed Remove lifecycle: core.RemoveItemFromSlot zeroes the matching
-// in-memory inventory row, then fails its physical CheckBounds, so the public
-// RemoveItemsFromCharacter returns an error with the real slot left partially
-// mutated and no rollback. Positioning MagicOffset so invStart lands at the end
-// of slot.Data makes the row write fail deterministically while the count header
-// at invStart-4 stays bounds-valid.
+// F. Failed Remove lifecycle: the atomic core batch restores the original slot.
+// Positioning MagicOffset so invStart lands at the end of slot.Data makes the
+// row write fail deterministically.
 func TestGameItemsRemoveDiagnosticInventoryError(t *testing.T) {
 	app := gameItemAddApp(false) // seed with Debug Mode off
 	if _, err := app.AddItemsToCharacter(0, []uint32{storageHeaderItemID}, 0, 0, 0, 0, 3, 0); err != nil {
@@ -347,15 +344,10 @@ func TestGameItemsRemoveDiagnosticInventoryError(t *testing.T) {
 	if row < 0 {
 		t.Fatalf("seed produced no inventory row")
 	}
-	beforeHandle := giHex(handle)
-	beforeItemID := giResolveItemID(slot, handle)
-	beforeQty := giDec(slot.Inventory.CommonItems[row].Quantity)
-	beforeIndex := giDec(slot.Inventory.CommonItems[row].Index)
 
 	// Move invStart to the very end of the buffer: the seeded row's physical
 	// write CheckBounds (off = invStart + row*InvRecordLen) now overflows and
-	// fails, but MagicOffset stays positive and the header at invStart-4 remains
-	// in bounds. RemoveItemFromSlot mutates the in-memory row before that check.
+	// fails, but MagicOffset stays positive.
 	slot.MagicOffset = len(slot.Data) - core.InvStartFromMagic
 	if slot.MagicOffset <= 0 {
 		t.Fatalf("computed MagicOffset %d is not positive", slot.MagicOffset)
@@ -367,44 +359,17 @@ func TestGameItemsRemoveDiagnosticInventoryError(t *testing.T) {
 		t.Fatalf("RemoveItemsFromCharacter: want error, got nil")
 	}
 
-	// No rollback: the real in-memory row is left exactly as the partial write
-	// left it (handle/quantity zeroed, index = row).
-	if got := slot.Inventory.CommonItems[row].GaItemHandle; got != 0 {
-		t.Errorf("row %d handle not partially mutated: got 0x%08X, want 0", row, got)
+	// The failed batch is fully rolled back.
+	if got := slot.Inventory.CommonItems[row].GaItemHandle; got != handle {
+		t.Errorf("row %d handle after rollback = 0x%08X, want 0x%08X", row, got, handle)
 	}
-	if got := slot.Inventory.CommonItems[row].Quantity; got != 0 {
-		t.Errorf("row %d quantity not partially mutated: got %d, want 0", row, got)
+	if got := slot.Inventory.CommonItems[row].Quantity; got != 3 {
+		t.Errorf("row %d quantity after rollback = %d, want 3", row, got)
 	}
 
 	lc := collectRemoveLifecycle(t, journal.Tail(), "0")
-	assertRemovePhaseGrouping(t, lc)
-	if lc.outcome != string(characterChangeError) {
-		t.Errorf("outcome = %q, want error", lc.outcome)
-	}
-	if lc.stage != stageGameItemsRemoveItem {
-		t.Errorf("stage = %q, want %q", lc.stage, stageGameItemsRemoveItem)
-	}
-
-	p := "inventory_common_row_" + giDec(uint32(row))
-	// planned reflects the clone's identical partial mutation; finished re-reads
-	// the real partially mutated slot. Both zero the handle/quantity, resolve the
-	// item_id to absent, and keep index = row.
-	assertRemoveLifecycle(t, lc, p+"_handle", beforeHandle, "0x00000000", "0x00000000")
-	assertRemoveLifecycle(t, lc, p+"_item_id", beforeItemID, giAbsent, giAbsent)
-	assertRemoveLifecycle(t, lc, p+"_quantity", beforeQty, "0", "0")
-	if beforeIndex != giDec(uint32(row)) {
-		assertRemoveLifecycle(t, lc, p+"_index", beforeIndex, giDec(uint32(row)), giDec(uint32(row)))
-	}
-
-	// finished equals the real partially mutated slot, field by field.
-	if got := giHex(slot.Inventory.CommonItems[row].GaItemHandle); got != lc.finished[p+"_handle"] {
-		t.Errorf("finished handle %q != real slot %q", lc.finished[p+"_handle"], got)
-	}
-	if got := giResolveItemID(slot, slot.Inventory.CommonItems[row].GaItemHandle); got != lc.finished[p+"_item_id"] {
-		t.Errorf("finished item_id %q != real slot %q", lc.finished[p+"_item_id"], got)
-	}
-	if got := giDec(slot.Inventory.CommonItems[row].Quantity); got != lc.finished[p+"_quantity"] {
-		t.Errorf("finished quantity %q != real slot %q", lc.finished[p+"_quantity"], got)
+	if lc.count != 0 {
+		t.Errorf("rolled-back removal emitted %d game_items_change_* records, want 0", lc.count)
 	}
 }
 

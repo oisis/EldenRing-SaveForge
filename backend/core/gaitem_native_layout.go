@@ -128,6 +128,55 @@ func (layout nativeGaItemLayout) firstFreeIndex() (int, bool) {
 	return 0, false
 }
 
+// reprojectNativeGaItems restores the game's two-pass record order without
+// changing any surviving handle or its physical low-16 index.
+func reprojectNativeGaItems(slot *SaveSlot) error {
+	records := make([]GaItemFull, len(slot.GaItems))
+	used := make([]bool, len(slot.GaItems))
+	aow := make([]bool, len(slot.GaItems))
+
+	for _, record := range slot.GaItems {
+		if record.IsEmpty() {
+			continue
+		}
+		index := int(record.Handle & 0xFFFF)
+		if index >= len(records) {
+			return fmt.Errorf("native GaItem reprojection: physical index %d outside table length %d", index, len(records))
+		}
+		if used[index] {
+			return fmt.Errorf("native GaItem reprojection: duplicate physical index %d", index)
+		}
+		records[index] = record
+		used[index] = true
+		aow[index] = record.Handle&GaHandleTypeMask == ItemTypeAow
+	}
+
+	projected := make([]GaItemFull, len(slot.GaItems))
+	position := 0
+	for index := range records {
+		if used[index] && aow[index] {
+			projected[position] = records[index]
+			position++
+		}
+	}
+	for index := range records {
+		if aow[index] {
+			continue
+		}
+		if used[index] {
+			projected[position] = records[index]
+		}
+		position++
+	}
+
+	slot.GaItems = projected
+	refreshGaItemTracking(slot)
+	if _, err := analyzeNativeGaItemLayout(slot); err != nil {
+		return fmt.Errorf("native GaItem reprojection: %w", err)
+	}
+	return nil
+}
+
 // NativeGaItemCapacity validates the persisted two-pass layout and reports the
 // capacity available to the hole allocator. All physical holes are usable;
 // there is no separate monotonic cursor limit in the native model.
