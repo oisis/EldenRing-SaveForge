@@ -56,7 +56,7 @@ import { SafetyModeProvider } from '../state/safetyMode';
 import { FavoritesProvider } from '../state/favorites';
 import type { SafetyProfile } from '../state/safetyProfile';
 import toast from '../lib/toast';
-import { DiagnosticRecoveryStatus, ExportDiagnosticLog, GetSteamIDString, PrepareConversion } from '../../wailsjs/go/main/App';
+import { DiagnosticRecoveryStatus, ExportDiagnosticLog, GetSteamIDString, PrepareConversion, SetSteamIDFromString } from '../../wailsjs/go/main/App';
 
 // jsdom here has no localStorage; SettingsTab reads it for the Full Chaos toggle.
 const lsStore: Record<string, string> = {};
@@ -312,10 +312,11 @@ describe('SettingsTab safety profile selector', () => {
 describe('SettingsTab Steam ID refresh on save reload', () => {
     const STEAM_ID_A = '76561197960287930';
     const STEAM_ID_B = '76561198088776655';
-    const steamIdField = () => screen.getByPlaceholderText('76561198XXXXXXXXX');
+    const steamIdField = () => screen.getByPlaceholderText('Steam or emulator ID');
 
     beforeEach(() => {
         (GetSteamIDString as ReturnType<typeof vi.fn>).mockReset();
+        (SetSteamIDFromString as ReturnType<typeof vi.fn>).mockReset();
     });
 
     it('shows save A\'s Steam ID, then refreshes to save B\'s after a second PC save loads (same platform, new saveLoadKey)', async () => {
@@ -351,5 +352,40 @@ describe('SettingsTab Steam ID refresh on save reload', () => {
         resolveFirst(STEAM_ID_A);
         await new Promise(resolve => setTimeout(resolve, 0));
         expect(steamIdField()).toHaveValue(STEAM_ID_B);
+    });
+
+    it('accepts the Steam or emulator ID reported in issue #9', async () => {
+        (GetSteamIDString as ReturnType<typeof vi.fn>).mockResolvedValue(STEAM_ID_A);
+        renderSteamIdSettings('PC', 1);
+        await waitFor(() => expect(steamIdField()).toHaveValue(STEAM_ID_A));
+
+        fireEvent.change(steamIdField(), {target: {value: ' 76561200107749375 '}});
+        fireEvent.click(screen.getByRole('button', {name: 'Apply'}));
+
+        await waitFor(() => expect(SetSteamIDFromString).toHaveBeenCalledWith('76561200107749375'));
+        expect(steamIdField()).toHaveValue('76561200107749375');
+    });
+
+    it('does not impose a frontend length limit below uint64', async () => {
+        (GetSteamIDString as ReturnType<typeof vi.fn>).mockResolvedValue(STEAM_ID_A);
+        renderSteamIdSettings('PC', 1);
+        await waitFor(() => expect(steamIdField()).toHaveValue(STEAM_ID_A));
+
+        fireEvent.change(steamIdField(), {target: {value: '18446744073709551615'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Apply'}));
+
+        await waitFor(() => expect(SetSteamIDFromString).toHaveBeenCalledWith('18446744073709551615'));
+    });
+
+    it('still rejects non-decimal Steam IDs before calling the backend', async () => {
+        (GetSteamIDString as ReturnType<typeof vi.fn>).mockResolvedValue(STEAM_ID_A);
+        renderSteamIdSettings('PC', 1);
+        await waitFor(() => expect(steamIdField()).toHaveValue(STEAM_ID_A));
+
+        fireEvent.change(steamIdField(), {target: {value: 'not-an-id'}});
+        fireEvent.click(screen.getByRole('button', {name: 'Apply'}));
+
+        expect(await screen.findByText('SteamID must contain decimal digits only.')).toBeInTheDocument();
+        expect(SetSteamIDFromString).not.toHaveBeenCalled();
     });
 });
