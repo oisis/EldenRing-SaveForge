@@ -2,31 +2,23 @@ package core
 
 import "testing"
 
-// Weapon (prefix 0x00) → addKindGaItem, placed at the allocator cursor.
+// Weapon (prefix 0x00) → addKindGaItem, placed by physical handle index.
 const cursorWeaponID = uint32(0x001E8480)
 
-// A slot can be physically full of empty GaItem records yet have no room to
-// place a new armament because the allocator only writes at/after
-// NextArmamentIndex and never reuses holes below it. Preflight must reject.
-func TestCapacity_CursorExhaustedRejectsArmament(t *testing.T) {
+func TestCapacity_LegacyCursorExhaustionDoesNotRejectArmament(t *testing.T) {
 	slot := capSlot(0, make([]GaItemFull, 100)) // FreeGaItems = 100 (all empty)
 	slot.NextArmamentIndex = 100                // cursor at end → zero cursor room
 
 	r := CheckAddCapacity(slot, []ItemToAdd{{ItemID: cursorWeaponID, InvQty: 1}})
-	if r.CanFitAll {
-		t.Fatalf("CanFitAll=true: 100 empty GaItems but cursor at end must reject the armament")
+	if !r.CanFitAll {
+		t.Fatalf("CanFitAll=false CapHit=%q: physical holes must remain usable", r.CapHit)
 	}
-	if r.CapHit != "gaitem_full" {
-		t.Errorf("CapHit=%q, want gaitem_full", r.CapHit)
-	}
-	if r.FreeGaItems != 100 || r.FreeGaItemCursor != 0 {
-		t.Errorf("FreeGaItems=%d FreeGaItemCursor=%d, want 100 / 0", r.FreeGaItems, r.FreeGaItemCursor)
+	if r.FreeGaItems != 100 || r.FreeGaItemCursor != 100 {
+		t.Errorf("FreeGaItems=%d FreeGaItemCursor=%d, want 100 / 100", r.FreeGaItems, r.FreeGaItemCursor)
 	}
 }
 
-// A batch larger than the remaining cursor room is rejected even though the
-// total empty-record budget is ample.
-func TestCapacity_CursorRoomSmallerThanBatch(t *testing.T) {
+func TestCapacity_LegacyCursorRoomDoesNotLimitBatch(t *testing.T) {
 	slot := capSlot(0, make([]GaItemFull, 100))
 	slot.NextArmamentIndex = 99 // exactly one cursor slot left
 
@@ -34,11 +26,11 @@ func TestCapacity_CursorRoomSmallerThanBatch(t *testing.T) {
 		{ItemID: cursorWeaponID, InvQty: 1},
 		{ItemID: cursorWeaponID, InvQty: 1},
 	})
-	if r.CanFitAll || r.CapHit != "gaitem_full" {
-		t.Fatalf("CanFitAll=%v CapHit=%q: 2 armaments into 1 cursor slot must be gaitem_full", r.CanFitAll, r.CapHit)
+	if !r.CanFitAll {
+		t.Fatalf("CanFitAll=false CapHit=%q: 2 armaments fit 100 physical holes", r.CapHit)
 	}
-	if r.NeededGaItems != 2 || r.FreeGaItemCursor != 1 {
-		t.Errorf("NeededGaItems=%d FreeGaItemCursor=%d, want 2 / 1", r.NeededGaItems, r.FreeGaItemCursor)
+	if r.NeededGaItems != 2 || r.FreeGaItemCursor != 100 {
+		t.Errorf("NeededGaItems=%d FreeGaItemCursor=%d, want 2 / 100", r.NeededGaItems, r.FreeGaItemCursor)
 	}
 }
 

@@ -310,9 +310,9 @@ func TestAllocateGaItem_NewWeaponUsesZeroSentinel(t *testing.T) {
 	if err := allocateGaItem(slot, wepHandle, wepItemID); err != nil {
 		t.Fatalf("allocateGaItem: %v", err)
 	}
-	g := slot.GaItems[0]
+	g := slot.GaItems[1]
 	if g.Handle != wepHandle {
-		t.Fatalf("expected weapon at index 0, got handle 0x%08X", g.Handle)
+		t.Fatalf("expected weapon at projected index 1, got handle 0x%08X", g.Handle)
 	}
 	if g.AoWGaItemHandle != NoCustomAoWHandle {
 		t.Errorf("new weapon AoWGaItemHandle: expected canonical 0x%08X, got 0x%08X",

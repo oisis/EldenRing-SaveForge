@@ -499,8 +499,6 @@ func addItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd, sessionStorageEmptyA
 		for k, v := range slot.GaMap {
 			savedGaMap[k] = v
 		}
-		savedNextAoW := slot.NextAoWIndex
-		savedNextArmament := slot.NextArmamentIndex
 		savedNextHandle := slot.NextGaItemHandle
 
 		rebuilt, err := RebuildSlotFull(slot)
@@ -516,12 +514,6 @@ func addItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd, sessionStorageEmptyA
 			if _, ok := slot.GaMap[h]; !ok {
 				slot.GaMap[h] = id
 			}
-		}
-		if savedNextAoW > slot.NextAoWIndex {
-			slot.NextAoWIndex = savedNextAoW
-		}
-		if savedNextArmament > slot.NextArmamentIndex {
-			slot.NextArmamentIndex = savedNextArmament
 		}
 		if savedNextHandle > slot.NextGaItemHandle {
 			slot.NextGaItemHandle = savedNextHandle
@@ -549,6 +541,18 @@ func addItemsToSlotBatch(slot *SaveSlot, items []ItemToAdd, sessionStorageEmptyA
 }
 
 func generateUniqueHandle(slot *SaveSlot, prefix uint32) (uint32, error) {
+	if isPhysicalGaItemPrefix(prefix) {
+		layout, err := analyzeNativeGaItemLayout(slot)
+		if err != nil {
+			return 0, err
+		}
+		index, ok := layout.firstFreeIndex()
+		if !ok {
+			return 0, fmt.Errorf("failed to generate physical GaItem handle: no free index")
+		}
+		return prefix | uint32(layout.partID)<<16 | uint32(index), nil
+	}
+
 	// Use global counter from tracked indices (matching Rust ER-Save-Editor).
 	// Handle format: 0xTTPPCCCC where TT=type, PP=part_id, CCCC=global counter.
 	// The game regenerates all handles on load, so the counter just needs to be unique.
@@ -568,17 +572,34 @@ func generateUniqueHandle(slot *SaveSlot, prefix uint32) (uint32, error) {
 		MaxHandleAttempts, prefix)
 }
 
-// allocateGaItem places a new item in the GaItems array at the correct
-// type-segregated position. The game expects AoW entries at low indices,
-// armor/weapons at higher indices. Matching Rust ER-Save-Editor's add_gaitem().
-//
-// AoW → placed at slot.NextAoWIndex, then NextAoWIndex++ and NextArmamentIndex++
-// Weapon/Armor → placed at slot.NextArmamentIndex, then NextArmamentIndex++
+// allocateGaItem places a physical item according to the game's two-pass
+// projection: AoW records are a sorted prefix, while every other runtime index
+// has one position in the second pass (a record or an empty marker).
 //
 // Does NOT write to binary data — call FlushGaItems after all allocations.
 func allocateGaItem(slot *SaveSlot, handle, itemID uint32) error {
 	handleType := handle & GaHandleTypeMask
 	isAoW := handleType == ItemTypeAow
+	if !isPhysicalGaItemPrefix(handleType) {
+		return fmt.Errorf("allocateGaItem: handle 0x%08X is not a physical GaItem type", handle)
+	}
+	if !physicalGaItemTypeMatchesItemID(handleType, itemID) {
+		return fmt.Errorf("allocateGaItem: handle type 0x%X conflicts with item ID 0x%08X", handleType, itemID)
+	}
+	layout, err := analyzeNativeGaItemLayout(slot)
+	if err != nil {
+		return fmt.Errorf("allocateGaItem: %w", err)
+	}
+	index := int(handle & 0xFFFF)
+	if index >= len(slot.GaItems) {
+		return fmt.Errorf("allocateGaItem: physical index %d outside table length %d", index, len(slot.GaItems))
+	}
+	if handle&gaItemHandleValidBit == 0 {
+		return fmt.Errorf("allocateGaItem: handle 0x%08X lacks validity bit", handle)
+	}
+	if layout.used[index] {
+		return fmt.Errorf("allocateGaItem: physical index %d is already occupied", index)
+	}
 
 	// Unk2/Unk3 default to 0 for weapon/armor-shaped records (confirmed native:
 	// T020 armor Chain Coif/Chain Armor, T211/T063 Arrow — both -1 in the app's
@@ -598,74 +619,22 @@ func allocateGaItem(slot *SaveSlot, handle, itemID uint32) error {
 		entry.Unk3 = 0
 	}
 
-	maxEntries := len(slot.GaItems)
-
 	if isAoW {
-		idx := slot.NextAoWIndex
-		if idx >= maxEntries {
-			return fmt.Errorf("allocateGaItem: AoW array full (index %d >= %d)", idx, maxEntries)
+		insertAt := layout.position(index, true)
+		markerAt := layout.position(index, false)
+		if markerAt >= len(slot.GaItems) || !slot.GaItems[markerAt].IsEmpty() {
+			return fmt.Errorf("allocateGaItem: expected empty second-pass marker for physical index %d at record %d", index, markerAt)
 		}
-		// AoW insertion unconditionally advances NextArmamentIndex (the
-		// armament zone's right edge bookkeeping). If that edge is already
-		// at the array limit, advancing it would push it past maxEntries
-		// and trip ValidatePostMutation's "NextArmamentIndex > len(GaItems)"
-		// check at commit time. Reject early with a clear, allocator-level
-		// message instead of letting the post-mutation validator surface a
-		// numeric-looking violation to the user. Saves with a non-empty
-		// entry pinned at array position maxEntries-1 (observed on PS4
-		// saves that reach this state via in-game placement) end up with
-		// NextArmamentIndex == maxEntries on load, so any AoW add would
-		// otherwise corrupt the index.
-		if slot.NextArmamentIndex >= maxEntries {
-			return fmt.Errorf("allocateGaItem: cannot insert AoW — armament zone at capacity (NextArmamentIndex %d == %d)", slot.NextArmamentIndex, maxEntries)
-		}
-		// If position is occupied, shift entries right to make room
-		if !slot.GaItems[idx].IsEmpty() {
-			// Find the end of used entries to shift into
-			shiftEnd := idx
-			for shiftEnd < maxEntries && !slot.GaItems[shiftEnd].IsEmpty() {
-				shiftEnd++
-			}
-			if shiftEnd >= maxEntries {
-				return fmt.Errorf("allocateGaItem: no room to insert AoW at index %d", idx)
-			}
-			// Shift right by 1
-			copy(slot.GaItems[idx+1:shiftEnd+1], slot.GaItems[idx:shiftEnd])
-		}
-		slot.GaItems[idx] = entry
-		slot.NextAoWIndex++
-		slot.NextArmamentIndex++ // AoW insertion shifts armament zone right
+		copy(slot.GaItems[insertAt+1:markerAt+1], slot.GaItems[insertAt:markerAt])
+		slot.GaItems[insertAt] = entry
 	} else {
-		// Fail-closed guard: on a canonical layout the writer emits all AoW
-		// records first, so NextArmamentIndex (right edge of the armament zone)
-		// is always >= NextAoWIndex. An inherited/non-canonical save can violate
-		// this (scanGaItems derives NextArmamentIndex from the highest-counter
-		// record, which may sit below the last AoW). Inserting a Weapon/Armor at
-		// NextArmamentIndex would then land inside the AoW block and make the
-		// linear RebuildSlotFull diverge from the native two-pass writer. Reject
-		// before touching GaItems or either cursor.
-		if slot.NextArmamentIndex < slot.NextAoWIndex {
-			return fmt.Errorf("allocateGaItem: non-canonical GaItem layout (NextArmamentIndex %d < NextAoWIndex %d) — manual repair required; current repack does not normalize AoW ordering", slot.NextArmamentIndex, slot.NextAoWIndex)
+		position := layout.position(index, false)
+		if position >= len(slot.GaItems) || !slot.GaItems[position].IsEmpty() {
+			return fmt.Errorf("allocateGaItem: expected empty second-pass marker for physical index %d at record %d", index, position)
 		}
-		idx := slot.NextArmamentIndex
-		if idx >= maxEntries {
-			return fmt.Errorf("allocateGaItem: armament/armor array full (index %d >= %d)", idx, maxEntries)
-		}
-		// If position is occupied, shift entries right to make room
-		if !slot.GaItems[idx].IsEmpty() {
-			shiftEnd := idx
-			for shiftEnd < maxEntries && !slot.GaItems[shiftEnd].IsEmpty() {
-				shiftEnd++
-			}
-			if shiftEnd >= maxEntries {
-				return fmt.Errorf("allocateGaItem: no room to insert weapon/armor at index %d", idx)
-			}
-			copy(slot.GaItems[idx+1:shiftEnd+1], slot.GaItems[idx:shiftEnd])
-		}
-		slot.GaItems[idx] = entry
-		slot.NextArmamentIndex++
+		slot.GaItems[position] = entry
 	}
-
+	refreshGaItemTracking(slot)
 	return nil
 }
 
@@ -1690,9 +1659,6 @@ func PatchWeaponAoW(slot *SaveSlot, weaponHandle, newAoWItemID uint32) error {
 		return fmt.Errorf("PatchWeaponAoW: %w", err)
 	}
 
-	// Save indices advanced by allocateGaItem; parseFromData may underscan them.
-	savedNextAoW := slot.NextAoWIndex
-	savedNextArmament := slot.NextArmamentIndex
 	savedNextHandle := slot.NextGaItemHandle
 
 	// Rebuild — GaItems section grew by 8B (one AoW record). All byte offsets
@@ -1706,13 +1672,7 @@ func PatchWeaponAoW(slot *SaveSlot, weaponHandle, newAoWItemID uint32) error {
 		return fmt.Errorf("PatchWeaponAoW: re-parse: %w", err)
 	}
 
-	// Restore indices if parseFromData undershot.
-	if savedNextAoW > slot.NextAoWIndex {
-		slot.NextAoWIndex = savedNextAoW
-	}
-	if savedNextArmament > slot.NextArmamentIndex {
-		slot.NextArmamentIndex = savedNextArmament
-	}
+	// Handle-only entries are absent from GaItems, so preserve their counter.
 	if savedNextHandle > slot.NextGaItemHandle {
 		slot.NextGaItemHandle = savedNextHandle
 	}

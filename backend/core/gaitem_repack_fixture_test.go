@@ -53,11 +53,11 @@ func fragmentedRepackReferenceFixture(t *testing.T) repackReferenceFixture {
 	t.Helper()
 
 	handles := repackFixtureHandles{
-		AoW:       ItemTypeAow | 0x101,
-		Weapon:    ItemTypeWeapon | 0x102,
-		Armor:     ItemTypeArmor | 0x103,
-		NakedHead: ItemTypeArmor | 0x104,
-		Unarmed:   ItemTypeWeapon | 0x105,
+		AoW:       ItemTypeAow | gaItemHandleValidBit | 0x101,
+		Weapon:    ItemTypeWeapon | gaItemHandleValidBit | 0x102,
+		Armor:     ItemTypeArmor | gaItemHandleValidBit | 0x103,
+		NakedHead: ItemTypeArmor | gaItemHandleValidBit | 0x104,
+		Unarmed:   ItemTypeWeapon | gaItemHandleValidBit | 0x105,
 	}
 	slot := repackPreflightFixture()
 	slot.GaItems = []GaItemFull{
@@ -114,7 +114,20 @@ func fragmentedRepackRoundTripFixtureForVersion(t *testing.T, version uint32) re
 		gaItemCount = GaItemCountOld
 	}
 	slot.GaItems = make([]GaItemFull, gaItemCount)
-	copy(slot.GaItems, initial)
+	// The in-memory reference fixture is deliberately fragmented for Optimize
+	// tests. Its serializable form must instead obey the game's two-pass
+	// projection so it is a valid source for writer/add integration tests.
+	for _, record := range initial {
+		if record.IsEmpty() {
+			continue
+		}
+		index := int(record.Handle & 0xFFFF)
+		position := index
+		if record.Handle&GaHandleTypeMask == ItemTypeAow {
+			position = 0
+		}
+		slot.GaItems[position] = record
+	}
 
 	gaBytes := 0
 	for i := range slot.GaItems {

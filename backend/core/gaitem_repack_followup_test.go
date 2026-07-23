@@ -1,6 +1,16 @@
 package core
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
+
+func assertSlotRestored(t *testing.T, slot *SaveSlot, before SlotSnapshot) {
+	t.Helper()
+	if after := SnapshotSlot(slot); !reflect.DeepEqual(after, before) {
+		t.Fatal("slot mutated despite native projection refusal")
+	}
+}
 
 func TestRepackGaItems_ReparseIsCanonicalAndIdempotent(t *testing.T) {
 	fixture := fragmentedRepackRoundTripFixture(t)
@@ -35,124 +45,33 @@ func TestRepackGaItems_ReparseIsCanonicalAndIdempotent(t *testing.T) {
 }
 
 func TestRepackGaItems_FollowUpArmamentPreservesCanonicalLayout(t *testing.T) {
-	tests := []struct {
-		name          string
-		fixture       func(*testing.T) repackReferenceFixture
-		wantCursorPos func(int) int
-	}{
-		{
-			name:    "cursor at compacted prefix end",
-			fixture: fragmentedRepackRoundTripFixture,
-			wantCursorPos: func(records int) int {
-				return records
-			},
-		},
-		{
-			name:    "cursor inside compacted prefix",
-			fixture: fragmentedHighestAoWFixture,
-			wantCursorPos: func(int) int {
-				return 1
-			},
-		},
+	fixture := fragmentedRepackRoundTripFixture(t)
+	slot := fixture.Slot
+	if _, err := RepackGaItems(slot); err != nil {
+		t.Fatalf("RepackGaItems: %v", err)
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			fixture := tc.fixture(t)
-			slot := fixture.Slot
-			if _, err := RepackGaItems(slot); err != nil {
-				t.Fatalf("RepackGaItems: %v", err)
-			}
-			beforeRecords := nonEmptyGaItemRecords(slot.GaItems)
-			insertAt := tc.wantCursorPos(len(beforeRecords))
-			if slot.NextArmamentIndex != insertAt {
-				t.Fatalf("NextArmamentIndex=%d, want %d before add", slot.NextArmamentIndex, insertAt)
-			}
-
-			const weaponID = 0x000F4250
-			if err := AddItemsToSlot(slot, []uint32{weaponID}, 1, 0, false); err != nil {
-				t.Fatalf("AddItemsToSlot: %v", err)
-			}
-			assertCompactedGaItemPrefix(t, slot, len(beforeRecords)+1)
-			if got := findGaItemIndex(slot.GaItems, weaponID); got != insertAt {
-				t.Fatalf("new weapon index=%d, want %d", got, insertAt)
-			}
-			if slot.NextArmamentIndex != insertAt+1 {
-				t.Fatalf("NextArmamentIndex=%d, want %d after add", slot.NextArmamentIndex, insertAt+1)
-			}
-			assertExistingGaItemsRemain(t, beforeRecords, slot.GaItems)
-
-			reloaded := reparseGaItemFixture(t, slot)
-			if reloaded.NextArmamentIndex != slot.NextArmamentIndex {
-				t.Fatalf("fresh reparse NextArmamentIndex=%d, want in-memory %d", reloaded.NextArmamentIndex, slot.NextArmamentIndex)
-			}
-		})
+	before := SnapshotSlot(slot)
+	const weaponID = 0x000F4250
+	err := AddItemsToSlot(slot, []uint32{weaponID}, 1, 0, false)
+	if err == nil || !contains(err.Error(), "native GaItem projection") {
+		t.Fatalf("AddItemsToSlot error = %v, want native projection refusal", err)
 	}
+	assertSlotRestored(t, slot, before)
 }
 
 func TestRepackGaItems_FollowUpAoWPreservesCanonicalLayout(t *testing.T) {
-	tests := []struct {
-		name                  string
-		fixture               func(*testing.T) repackReferenceFixture
-		wantInsertAt          func(int) int
-		wantReloadArmamentPos func(int) int
-	}{
-		{
-			name:    "cursor before compacted prefix end",
-			fixture: fragmentedRepackRoundTripFixture,
-			wantInsertAt: func(int) int {
-				return 1
-			},
-			wantReloadArmamentPos: func(int) int {
-				return 2
-			},
-		},
-		{
-			name:    "cursor at compacted prefix end",
-			fixture: fragmentedAoWLastFixture,
-			wantInsertAt: func(records int) int {
-				return records
-			},
-			wantReloadArmamentPos: func(records int) int {
-				return records + 1
-			},
-		},
+	fixture := fragmentedRepackRoundTripFixture(t)
+	slot := fixture.Slot
+	if _, err := RepackGaItems(slot); err != nil {
+		t.Fatalf("RepackGaItems: %v", err)
 	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			fixture := tc.fixture(t)
-			slot := fixture.Slot
-			if _, err := RepackGaItems(slot); err != nil {
-				t.Fatalf("RepackGaItems: %v", err)
-			}
-			beforeRecords := nonEmptyGaItemRecords(slot.GaItems)
-			insertAt := tc.wantInsertAt(len(beforeRecords))
-			beforeArmament := slot.NextArmamentIndex
-
-			const aowID = 0x80000002
-			if err := AddItemsToSlot(slot, []uint32{aowID}, 1, 0, false); err != nil {
-				t.Fatalf("AddItemsToSlot: %v", err)
-			}
-			assertCompactedGaItemPrefix(t, slot, len(beforeRecords)+1)
-			if got := findGaItemIndex(slot.GaItems, aowID); got != insertAt {
-				t.Fatalf("new AoW index=%d, want %d", got, insertAt)
-			}
-			if slot.NextAoWIndex != insertAt+1 || slot.NextArmamentIndex != beforeArmament+1 {
-				t.Fatalf("in-memory cursors AoW=%d Armament=%d, want %d/%d", slot.NextAoWIndex, slot.NextArmamentIndex, insertAt+1, beforeArmament+1)
-			}
-			assertExistingGaItemsRemain(t, beforeRecords, slot.GaItems)
-
-			reloaded := reparseGaItemFixture(t, slot)
-			wantReloadArmament := tc.wantReloadArmamentPos(len(beforeRecords))
-			if reloaded.NextArmamentIndex != wantReloadArmament {
-				t.Fatalf("fresh reparse NextArmamentIndex=%d, want %d", reloaded.NextArmamentIndex, wantReloadArmament)
-			}
-			if insertAt < beforeArmament && reloaded.NextArmamentIndex == slot.NextArmamentIndex {
-				t.Fatal("expected documented in-memory/reload armament cursor divergence")
-			}
-		})
+	before := SnapshotSlot(slot)
+	const aowID = 0x80000002
+	err := AddItemsToSlot(slot, []uint32{aowID}, 1, 0, false)
+	if err == nil || !contains(err.Error(), "native GaItem projection") {
+		t.Fatalf("AddItemsToSlot error = %v, want native projection refusal", err)
 	}
+	assertSlotRestored(t, slot, before)
 }
 
 func fragmentedHighestAoWFixture(t *testing.T) repackReferenceFixture {
@@ -187,6 +106,7 @@ func replaceFixtureAoWHandle(t *testing.T, fixture *repackReferenceFixture, hand
 	t.Helper()
 	slot := fixture.Slot
 	old := fixture.Handles.AoW
+	handle |= uint32(slot.PartGaItemHandle) << 16
 	itemID, ok := slot.GaMap[old]
 	if !ok {
 		t.Fatalf("fixture AoW handle 0x%08X missing from GaMap", old)

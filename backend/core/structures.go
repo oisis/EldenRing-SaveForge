@@ -366,9 +366,9 @@ func (s *SaveSlot) calculateDynamicOffsets() error {
 	// Live save verification (Phase 7d.0 audit): raw MagicParam spell_ids appear here.
 	spellsOff := activeEquipedItemsGa + DynInventoryHeld
 	s.EquippedSpellsOffset = spellsOff
-	equipedItemsOff := spellsOff + DynEquipedSpells              // start of EquippedItems (ChrAsm + QuickSlots + Pouch)
-	equipedGesturesOff := equipedItemsOff + DynEquipedItems      // start of EquippedGestures
-	projHeaderOff := equipedGesturesOff + DynEquipedGestures     // start of AcquiredProjectiles count u32
+	equipedItemsOff := spellsOff + DynEquipedSpells          // start of EquippedItems (ChrAsm + QuickSlots + Pouch)
+	equipedGesturesOff := equipedItemsOff + DynEquipedItems  // start of EquippedGestures
+	projHeaderOff := equipedGesturesOff + DynEquipedGestures // start of AcquiredProjectiles count u32
 
 	// Dynamic field #1: acquired_projectiles.
 	// The u32 at projHeaderOff is the projectile COUNT. Total skip = count*8 + 4.
@@ -688,50 +688,9 @@ func (s *SaveSlot) scanGaItems(start int) {
 	// InventoryEnd = byte offset after all parsed entries (= section end).
 	s.InventoryEnd = curr
 
-	// Compute tracked indices for type-segregated placement.
-	// Matches Rust ER-Save-Editor inventory/mod.rs from_save() logic:
-	//   - NextAoWIndex = last AoW position + 1
-	//   - NextArmamentIndex = position of entry with highest global counter + 1
-	//   - NextGaItemHandle = highest global counter across ALL types + 1
-	//   - PartGaItemHandle = bits 16-23 of first non-empty entry's handle
-	s.NextAoWIndex = 0
-	s.NextArmamentIndex = 0
-	s.NextGaItemHandle = 0
-	s.PartGaItemHandle = 0x80 // default
-
-	maxGlobalCounter := uint32(0)
-	maxCounterIndex := 0
-
-	for i, g := range s.GaItems {
-		if g.IsEmpty() {
-			continue
-		}
-		h := g.Handle
-		typeBits := h & GaHandleTypeMask
-
-		// Extract part_id from first non-empty entry
-		if s.PartGaItemHandle == 0x80 {
-			p := uint8((h >> 16) & 0xFF)
-			if p != 0 {
-				s.PartGaItemHandle = p
-			}
-		}
-
-		// Track last AoW index
-		if typeBits == ItemTypeAow {
-			s.NextAoWIndex = i + 1
-		}
-
-		// Track entry with highest global counter (lower 16 bits)
-		counter := h & 0xFFFF
-		if counter >= maxGlobalCounter {
-			maxGlobalCounter = counter
-			maxCounterIndex = i
-		}
-	}
-
-	s.NextArmamentIndex = maxCounterIndex + 1
-	s.NextGaItemHandle = maxGlobalCounter + 1
+	// Legacy public cursor fields remain derived metadata for compatibility;
+	// allocation itself uses the native physical-index projection.
+	refreshGaItemTracking(s)
 }
 
 func (e *EquipInventoryData) ReadStorage(r *Reader, count int) error {

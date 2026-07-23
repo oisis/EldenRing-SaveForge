@@ -256,9 +256,9 @@ export function GaItemRepackModal({
 
                         {!analysisFailed && analysis?.outcome === 'no_op' && (
                             <div className="space-y-3">
-                                <p className="text-[11px] font-bold text-foreground">No capacity to recover</p>
+                                <p className="text-[11px] font-bold text-foreground">Native hole allocation is active</p>
                                 <CapacityTable before={analysis.before} after={analysis.projectedAfter} recovered={0} />
-                                <p className={caveat}>This slot already has full usable GaItem capacity. No changes are needed.</p>
+                                <p className={caveat}>Every free physical GaItem index is already usable. Moving records cannot recover additional capacity, so no changes are needed.</p>
                             </div>
                         )}
 
@@ -294,7 +294,7 @@ export function GaItemRepackModal({
 
                         <div className="space-y-1.5 pt-1">
                             <p className={caveat}>{NO_CHANGES}</p>
-                            <p className={caveat}>Stable compaction only changes the positions of non-empty records — never their handles or data.</p>
+                            <p className={caveat}>SaveForge does not move GaItem records to manufacture cursor capacity; the native allocator uses physical holes directly.</p>
                             <p className={caveat}>{SAVEFORGE_CAVEAT}</p>
                         </div>
 

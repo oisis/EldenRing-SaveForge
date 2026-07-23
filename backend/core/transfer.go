@@ -690,8 +690,6 @@ func rebuildAfterAllocation(slot *SaveSlot) error {
 	for k, v := range slot.GaMap {
 		savedGaMap[k] = v
 	}
-	savedNextAoW := slot.NextAoWIndex
-	savedNextArmament := slot.NextArmamentIndex
 	savedNextHandle := slot.NextGaItemHandle
 
 	rebuilt, err := RebuildSlotFull(slot)
@@ -707,12 +705,6 @@ func rebuildAfterAllocation(slot *SaveSlot) error {
 		if _, ok := slot.GaMap[h]; !ok {
 			slot.GaMap[h] = id
 		}
-	}
-	if savedNextAoW > slot.NextAoWIndex {
-		slot.NextAoWIndex = savedNextAoW
-	}
-	if savedNextArmament > slot.NextArmamentIndex {
-		slot.NextArmamentIndex = savedNextArmament
 	}
 	if savedNextHandle > slot.NextGaItemHandle {
 		slot.NextGaItemHandle = savedNextHandle

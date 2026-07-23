@@ -89,12 +89,14 @@ type ItemToAdd struct {
 
 // CapacityReport describes why items don't fit.
 type CapacityReport struct {
-	CanFitAll        bool
-	CapHit           string // "" | "inventory_full" | "storage_full" | "gaitem_full" | "gaitemdata_full"
-	FreeInv          int
-	FreeStorage      int
-	FreeGaItems      int
-	FreeGaItemCursor int // allocator cursor room: len(GaItems) - NextArmamentIndex
+	CanFitAll   bool
+	CapHit      string // "" | "inventory_full" | "storage_full" | "gaitem_full" | "gaitemdata_full"
+	FreeInv     int
+	FreeStorage int
+	FreeGaItems int
+	// FreeGaItemCursor is retained for API compatibility. The native hole
+	// allocator has no monotonic cursor, so it mirrors FreeGaItems.
+	FreeGaItemCursor int
 	FreeGaItemData   int
 	NeededInv        int
 	NeededStorage    int
@@ -115,21 +117,13 @@ type CapacityReport struct {
 func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 	usage := CountSlotUsage(slot)
 
-	// Weapon/armor/AoW records are placed at the allocator cursor
-	// (NextArmamentIndex) and the cursor only moves right — the writer never
-	// reuses empty holes below it (see writer.go::allocateGaItem). So a slot can
-	// have many physically-empty GaItems yet no room to place a new armament.
-	// The preflight must satisfy BOTH the total-empty count and the cursor room.
-	cursorRoom := len(slot.GaItems) - slot.NextArmamentIndex
-	if cursorRoom < 0 {
-		cursorRoom = 0
-	}
+	freeGaItems := usage.GaItemsMax - usage.GaItemsUsed
 
 	report := CapacityReport{
 		FreeInv:          usage.InventoryMax - usage.InventoryUsed,
 		FreeStorage:      usage.StorageMax - usage.StorageUsed,
-		FreeGaItems:      usage.GaItemsMax - usage.GaItemsUsed,
-		FreeGaItemCursor: cursorRoom,
+		FreeGaItems:      freeGaItems,
+		FreeGaItemCursor: freeGaItems,
 		FreeGaItemData:   usage.GaItemDataMax - usage.GaItemDataUsed,
 		FreeKeyItems:     usage.KeyItemsMax - usage.KeyItemsUsed,
 	}
@@ -451,9 +445,7 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 
 	if neededGaItemData > report.FreeGaItemData {
 		report.CapHit = "gaitemdata_full"
-	} else if neededGaItems > report.FreeGaItems || neededGaItems > report.FreeGaItemCursor {
-		// Reject if EITHER the total empty-record budget OR the allocator cursor
-		// room is insufficient — both must hold to place the armament batch.
+	} else if neededGaItems > report.FreeGaItems {
 		report.CapHit = "gaitem_full"
 	} else if neededInvSlots > report.FreeInv {
 		report.CapHit = "inventory_full"

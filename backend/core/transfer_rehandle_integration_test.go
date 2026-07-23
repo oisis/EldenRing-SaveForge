@@ -100,7 +100,7 @@ func TestTransfer_WeaponCollision_RehandlePhysical(t *testing.T) {
 		t.Fatalf("parseFromData after injection: %v", err)
 	}
 
-	beforeArmament := slot.NextArmamentIndex
+	beforePhysical := countGaItemsWithPrefix(slot, ItemTypeWeapon)
 
 	res, err := MoveItemsBetweenContainers(slot, []uint32{weapon}, TransferToStorage, nil)
 	if err != nil {
@@ -135,7 +135,7 @@ func TestTransfer_WeaponCollision_RehandlePhysical(t *testing.T) {
 	if !found {
 		t.Errorf("no physical GaItem record for new weapon handle 0x%08X", newHandle)
 	}
-	if slot.NextArmamentIndex <= beforeArmament {
-		t.Errorf("NextArmamentIndex %d -> %d, want advance (physical weapon record)", beforeArmament, slot.NextArmamentIndex)
+	if got := countGaItemsWithPrefix(slot, ItemTypeWeapon); got != beforePhysical+1 {
+		t.Errorf("physical weapon records %d -> %d, want +1", beforePhysical, got)
 	}
 }

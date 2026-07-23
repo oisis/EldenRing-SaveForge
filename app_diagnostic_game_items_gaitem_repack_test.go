@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/binary"
-	"fmt"
 	"reflect"
 	"testing"
 
@@ -17,8 +16,8 @@ func diagnosticRepackApp(t *testing.T) *App {
 	t.Helper()
 
 	const (
-		weaponHandle = uint32(core.ItemTypeWeapon | 0x0002)
-		armorHandle  = uint32(core.ItemTypeArmor | 0x0004)
+		weaponHandle = uint32(core.ItemTypeWeapon | 0x00800002)
+		armorHandle  = uint32(core.ItemTypeArmor | 0x00800004)
 	)
 	records := make([]core.GaItemFull, core.GaItemCountNew)
 	records[2] = core.GaItemFull{
@@ -56,8 +55,8 @@ func diagnosticRepackApp(t *testing.T) *App {
 	if err := slot.Read(core.NewReader(data), string(core.PlatformPC)); err != nil {
 		t.Fatalf("SaveSlot.Read: %v", err)
 	}
-	if preflight := core.PreflightGaItemRepack(&slot); len(preflight.Blockers) != 0 || preflight.Analysis.Recovered == 0 {
-		t.Fatalf("fixture preflight=%+v, want safe positive recovery", preflight)
+	if capacity, err := core.NativeGaItemCapacity(&slot); err != nil || capacity.Usable == 0 {
+		t.Fatalf("fixture native capacity=%+v err=%v, want usable holes", capacity, err)
 	}
 
 	app := NewApp()
@@ -67,22 +66,15 @@ func diagnosticRepackApp(t *testing.T) *App {
 	return app
 }
 
-func runDiagnosticRepack(t *testing.T, app *App) *core.SaveSlot {
+func runDiagnosticRepack(t *testing.T, app *App) core.SlotSnapshot {
 	t.Helper()
-	before := core.CloneSlot(&app.save.Slots[0])
+	before := core.SnapshotSlot(&app.save.Slots[0])
 	analysis, err := app.AnalyzeGaItemRepack(0)
 	if err != nil {
 		t.Fatalf("AnalyzeGaItemRepack: %v", err)
 	}
-	if analysis.Outcome != "ready" || analysis.AnalysisToken == "" || analysis.Recovered <= 0 {
-		t.Fatalf("analysis=%+v, want ready token with recovery", analysis)
-	}
-	result, err := app.ExecuteGaItemRepack(GaItemRepackExecuteRequest{CharacterIndex: 0, AnalysisToken: analysis.AnalysisToken})
-	if err != nil {
-		t.Fatalf("ExecuteGaItemRepack: %v", err)
-	}
-	if result.Outcome != "success" || result.After == nil || result.Recovered != analysis.Recovered {
-		t.Fatalf("result=%+v, want successful approved repack", result)
+	if analysis.Outcome != "no_op" || analysis.AnalysisToken != "" || analysis.Recovered != 0 {
+		t.Fatalf("analysis=%+v, want native-hole no-op", analysis)
 	}
 	return before
 }
@@ -145,39 +137,12 @@ func TestGaItemRepackDiagnosticSuccessLifecycle(t *testing.T) {
 	app := diagnosticRepackApp(t)
 	enableDebugJournal(t, app)
 	before := runDiagnosticRepack(t, app)
-	post := &app.save.Slots[0]
 	records := gameItemRecords(app.journal.Tail())
-
-	// The weapon moves from its fragmented row to the compacted prefix. This
-	// exercises every serialized GaItemFull field, including signed values and
-	// the weapon-only AoW handle / byte field.
-	for _, row := range []int{0, 2} {
-		for _, field := range []string{"handle", "item_id", "unk2", "unk3", "aow_gaitem_handle", "unk5"} {
-			name := fmt.Sprintf("gaitem_row_%d_%s", row, field)
-			assertRepackPhases(t, records, name,
-				readGameItemField(before, giSecGaItem, row, gaItemKindForField(field)),
-				readGameItemField(post, giSecGaItem, row, gaItemKindForField(field)),
-				readGameItemField(post, giSecGaItem, row, gaItemKindForField(field)),
-			)
-		}
+	if len(records) != 0 {
+		t.Fatalf("native-hole no-op emitted %d mutation records", len(records))
 	}
-
-	// Repacking preserves GaMap, next-handle, and part-handle. Only an actually
-	// moved allocation cursor may emit, so unchanged semantic values self-exclude.
-	for _, field := range []string{"gaitem_next_handle", "gaitem_part_handle"} {
-		if got := len(gaItemRepackPhases(records, field)); got != 0 {
-			t.Errorf("unchanged field %q emitted %d records", field, got)
-		}
-	}
-
-	last := -1
-	phaseOrder := map[string]int{eventGameItemsChangeBefore: 0, eventGameItemsChangePlanned: 1, eventGameItemsChangeFinished: 2}
-	for _, rec := range records {
-		phase := phaseOrder[rec.Event]
-		if phase < last {
-			t.Fatalf("phase grouping violated: %q after phase %d", rec.Event, last)
-		}
-		last = phase
+	if !reflect.DeepEqual(core.SnapshotSlot(&app.save.Slots[0]), before) {
+		t.Fatal("native-hole analysis mutated the slot")
 	}
 }
 
@@ -195,8 +160,8 @@ func TestGaItemRepackDiagnosticDebugOffEmitsNothing(t *testing.T) {
 	if recs := gameItemRecords(app.journal.Tail()); len(recs) != 0 {
 		t.Fatalf("debug off emitted %d records, want 0", len(recs))
 	}
-	if app.save.Slots[0].GaItems[0].IsEmpty() {
-		t.Fatal("debug-off repack did not compact the first GaItem row")
+	if !app.save.Slots[0].GaItems[0].IsEmpty() {
+		t.Fatal("native-hole no-op unexpectedly compacted the first GaItem row")
 	}
 }
 

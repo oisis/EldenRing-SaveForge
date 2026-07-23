@@ -48,7 +48,7 @@ func fragmentedRepackSlot(t *testing.T) *core.SaveSlot {
 		NextGaItemHandle:  2,
 		PartGaItemHandle:  0x80,
 	}
-	weapon := core.GaItemFull{Handle: core.ItemTypeWeapon | 1, ItemID: 1}
+	weapon := core.GaItemFull{Handle: core.ItemTypeWeapon | 0x00800001, ItemID: 1}
 	slot.GaItems = []core.GaItemFull{{}, weapon, {}, {}}
 	slot.GaMap[weapon.Handle] = weapon.ItemID
 	if pf := core.PreflightGaItemRepack(slot); len(pf.Blockers) != 0 || pf.Analysis.Recovered <= 0 {
@@ -57,9 +57,8 @@ func fragmentedRepackSlot(t *testing.T) *core.SaveSlot {
 	return slot
 }
 
-func TestGaItemFullCTA_FragmentedSlotIsEligible(t *testing.T) {
+func TestGaItemFullCTA_LegacyCompactionIsDisabled(t *testing.T) {
 	slot := fragmentedRepackSlot(t)
-	pf := core.PreflightGaItemRepack(slot)
 
 	cap := fitCap()
 	cap.FreeGaItems = 5
@@ -70,28 +69,24 @@ func TestGaItemFullCTA_FragmentedSlotIsEligible(t *testing.T) {
 	if capacity != (GaItemCapacity{PhysicalEmpty: 5, CursorRoom: 0, Usable: 0}) {
 		t.Fatalf("capacity=%+v, want physical=5 cursor=0 usable=0", capacity)
 	}
-	if !cta.Eligible {
-		t.Fatalf("cta=%+v, want eligible", cta)
-	}
-	if cta.Recovered != pf.Analysis.Recovered || cta.Recovered <= 0 {
-		t.Fatalf("recovered=%d, want positive preflight recovery %d", cta.Recovered, pf.Analysis.Recovered)
+	if cta.Eligible || cta.Recovered != 0 {
+		t.Fatalf("cta=%+v, legacy compaction must not be offered", cta)
 	}
 }
 
 func TestGaItemFullCTA_BatchTooLargeAfterRepackIsIneligible(t *testing.T) {
 	slot := fragmentedRepackSlot(t)
-	pf := core.PreflightGaItemRepack(slot)
 
 	// The batch needs more records than repack could ever free — e.g. no physical
 	// empties would remain. Recovered must still be preserved for the safe preflight.
 	cap := fitCap()
-	cap.NeededGaItems = pf.Analysis.ProjectedAfter.Usable + 1
+	cap.NeededGaItems = 10
 	_, cta := gaItemFullCTA(slot, cap, false)
 	if cta.Eligible {
 		t.Fatalf("cta=%+v, want ineligible when batch exceeds projected usable", cta)
 	}
-	if cta.Recovered != pf.Analysis.Recovered {
-		t.Fatalf("recovered=%d, want preserved %d", cta.Recovered, pf.Analysis.Recovered)
+	if cta.Recovered != 0 {
+		t.Fatalf("recovered=%d, want 0", cta.Recovered)
 	}
 }
 
@@ -100,8 +95,11 @@ func TestGaItemFullCTA_NoRecoveryIsIneligible(t *testing.T) {
 	// not the limiter, so preflight recovers nothing. This also models "no physical
 	// empty records to reclaim" — repack cannot help either way.
 	slot := fragmentedRepackSlot(t)
-	weapon := core.GaItemFull{Handle: core.ItemTypeWeapon | 1, ItemID: 1}
+	oldHandle := slot.GaItems[1].Handle
+	weapon := core.GaItemFull{Handle: core.ItemTypeWeapon | 0x00800000, ItemID: 1}
 	slot.GaItems = []core.GaItemFull{weapon, {}, {}, {}}
+	delete(slot.GaMap, oldHandle)
+	slot.GaMap[weapon.Handle] = weapon.ItemID
 	slot.NextArmamentIndex = 1
 	pf := core.PreflightGaItemRepack(slot)
 	if len(pf.Blockers) != 0 || pf.Analysis.Recovered != 0 {
@@ -116,7 +114,6 @@ func TestGaItemFullCTA_NoRecoveryIsIneligible(t *testing.T) {
 
 func TestGaItemFullCTA_RemainingContainerLimitsAreIneligible(t *testing.T) {
 	slot := fragmentedRepackSlot(t)
-	pf := core.PreflightGaItemRepack(slot)
 
 	cases := map[string]func(*core.CapacityReport){
 		"inventory":  func(c *core.CapacityReport) { c.NeededInv = c.FreeInv + 1 },
@@ -131,9 +128,8 @@ func TestGaItemFullCTA_RemainingContainerLimitsAreIneligible(t *testing.T) {
 			if cta.Eligible {
 				t.Fatalf("cta=%+v, want ineligible when %s limit blocks the batch", cta, name)
 			}
-			// A remaining independent limit does not invalidate the safe recovery estimate.
-			if cta.Recovered != pf.Analysis.Recovered {
-				t.Fatalf("recovered=%d, want preserved %d", cta.Recovered, pf.Analysis.Recovered)
+			if cta.Recovered != 0 {
+				t.Fatalf("recovered=%d, want 0", cta.Recovered)
 			}
 		})
 	}
@@ -149,14 +145,13 @@ func TestGaItemFullCTA_PreflightRefusalIsIneligible(t *testing.T) {
 
 func TestGaItemFullCTA_ActiveWorkspaceIsIneligible(t *testing.T) {
 	slot := fragmentedRepackSlot(t)
-	pf := core.PreflightGaItemRepack(slot)
 
 	_, cta := gaItemFullCTA(slot, fitCap(), true)
 	if cta.Eligible {
 		t.Fatalf("cta=%+v, want ineligible while a workspace is active", cta)
 	}
-	if cta.Recovered != pf.Analysis.Recovered {
-		t.Fatalf("recovered=%d, want preserved %d", cta.Recovered, pf.Analysis.Recovered)
+	if cta.Recovered != 0 {
+		t.Fatalf("recovered=%d, want 0", cta.Recovered)
 	}
 }
 
@@ -173,27 +168,24 @@ func TestGaItemFullCTA_LeavesSlotUnchanged(t *testing.T) {
 // record, so a cursor-exhausted slot rejects it with gaitem_full.
 const endpointGaItemWeaponID = uint32(0x02810590) // Golem Greatbow
 
-func TestAddItems_GaItemFullPopulatesCTA(t *testing.T) {
+func TestAddItems_CursorExhaustedUsesPhysicalHole(t *testing.T) {
 	app := NewApp()
 	app.save = &core.SaveFile{}
-	app.save.Slots[0] = *fragmentedRepackSlot(t) // cursor exhausted → weapon add fails
+	app.save.Slots[0] = *fragmentedRepackSlot(t)
 	before := core.CloneSlot(&app.save.Slots[0])
 
 	res, err := app.AddItemsToCharacter(0, []uint32{endpointGaItemWeaponID}, 0, 0, 0, 0, 1, 0)
 	if err != nil {
 		t.Fatalf("AddItemsToCharacter: %v", err)
 	}
-	if res.CapHit != "gaitem_full" || res.Added != 0 {
-		t.Fatalf("result=%+v, want gaitem_full rejection with nothing added", res)
+	if res.CapHit != "" || res.Added != 1 {
+		t.Fatalf("result=%+v, want one item added through a physical hole", res)
 	}
-	if res.GaItemCapacity == nil || res.GaItemRepackCTA == nil {
-		t.Fatalf("result=%+v, want both CTA fields populated", res)
+	if res.GaItemCapacity != nil || res.GaItemRepackCTA != nil {
+		t.Fatalf("result=%+v, cursor exhaustion must not expose a repack CTA", res)
 	}
-	if !res.GaItemRepackCTA.Eligible || res.GaItemRepackCTA.Recovered <= 0 {
-		t.Fatalf("cta=%+v, want eligible with positive recovery", *res.GaItemRepackCTA)
-	}
-	if !reflect.DeepEqual(&app.save.Slots[0], before) {
-		t.Fatal("rejected gaitem_full add mutated the slot")
+	if reflect.DeepEqual(&app.save.Slots[0], before) {
+		t.Fatal("successful hole allocation did not mutate the slot")
 	}
 }
 

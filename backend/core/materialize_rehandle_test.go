@@ -89,11 +89,12 @@ func TestMaterializeRehandledInstance_TalismanFallbackNoGaMap(t *testing.T) {
 // over-correction: weapons (0x80) MUST still get a physical GaItem record.
 func TestMaterializeRehandledInstance_WeaponStillPhysical(t *testing.T) {
 	slot := newRehandleTestSlot()
-	oldHandle := uint32(0x80000003) // weapon handle
-	itemID := uint32(0x000F4240)    // Uchigatana (weapon nibble 0x0)
+	oldHandle := uint32(ItemTypeWeapon | gaItemHandleValidBit | 3)
+	itemID := uint32(0x000F4240) // Uchigatana (weapon nibble 0x0)
+	slot.GaItems[3] = nativeTestRecord(oldHandle, itemID)
 	slot.GaMap[oldHandle] = itemID
-
-	beforeArmament := slot.NextArmamentIndex
+	refreshGaItemTracking(slot)
+	beforeCount := countGaItemsWithPrefix(slot, ItemTypeWeapon)
 
 	newHandle, err := materializeRehandledInstance(slot, oldHandle)
 	if err != nil {
@@ -105,13 +106,16 @@ func TestMaterializeRehandledInstance_WeaponStillPhysical(t *testing.T) {
 	if got := slot.GaMap[newHandle]; got != itemID {
 		t.Errorf("GaMap[0x%08X] = 0x%08X, want 0x%08X", newHandle, got, itemID)
 	}
-	// A physical weapon record must have been placed at the armament cursor.
-	if slot.NextArmamentIndex != beforeArmament+1 {
-		t.Errorf("NextArmamentIndex %d -> %d, want +1 (physical weapon record)", beforeArmament, slot.NextArmamentIndex)
+	if got := countGaItemsWithPrefix(slot, ItemTypeWeapon); got != beforeCount+1 {
+		t.Fatalf("physical weapon records = %d, want %d", got, beforeCount+1)
 	}
-	placed := slot.GaItems[beforeArmament]
-	if placed.Handle != newHandle || placed.ItemID != itemID {
-		t.Errorf("GaItems[%d] = {handle 0x%08X, id 0x%08X}, want {0x%08X, 0x%08X}",
-			beforeArmament, placed.Handle, placed.ItemID, newHandle, itemID)
+	found := false
+	for _, record := range slot.GaItems {
+		if record.Handle == newHandle && record.ItemID == itemID {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("new physical record {handle 0x%08X, id 0x%08X} not found", newHandle, itemID)
 	}
 }

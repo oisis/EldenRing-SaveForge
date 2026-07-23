@@ -70,8 +70,8 @@ describe('GaItemRepackModal dry-run', () => {
     it('no_op recovers nothing and offers no Continue', async () => {
         analyze.mockResolvedValue(readyAnalysis({ outcome: 'no_op', analysisToken: '', recovered: 0, projectedAfter: CAP(2, 3, 40) }));
         renderModal();
-        await screen.findByText('No capacity to recover');
-        expect(screen.getByText('This slot already has full usable GaItem capacity. No changes are needed.')).toBeInTheDocument();
+        await screen.findByText('Native hole allocation is active');
+        expect(screen.getByText('Every free physical GaItem index is already usable. Moving records cannot recover additional capacity, so no changes are needed.')).toBeInTheDocument();
         expect(screen.queryByRole('button', { name: /^Continue$/ })).not.toBeInTheDocument();
     });
 

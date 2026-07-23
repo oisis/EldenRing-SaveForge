@@ -295,7 +295,7 @@ func TestScanRepairIssuesLoaded_PreservesExistingSession(t *testing.T) {
 
 // TestScanRepairIssuesLoaded_ThenRepackNotRejected is the regression for the
 // original defect: a diagnostic scan must not leave a session that makes the
-// GaItem optimizer refuse with inventory_edit_session_active.
+// GaItem allocation analysis refuse with inventory_edit_session_active.
 func TestScanRepairIssuesLoaded_ThenRepackNotRejected(t *testing.T) {
 	app, charIdx := scanRepackApp(t)
 
@@ -310,8 +310,8 @@ func TestScanRepairIssuesLoaded_ThenRepackNotRejected(t *testing.T) {
 	if analysis.Failure != nil && analysis.Failure.Code == "inventory_edit_session_active" {
 		t.Fatalf("repack rejected after diagnostics scan: %+v", analysis.Failure)
 	}
-	if analysis.Outcome != "ready" {
-		t.Fatalf("analysis outcome=%q, want ready", analysis.Outcome)
+	if analysis.Outcome != "no_op" {
+		t.Fatalf("analysis outcome=%q, want native-hole no_op", analysis.Outcome)
 	}
 }
 

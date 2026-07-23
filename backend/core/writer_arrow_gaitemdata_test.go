@@ -25,20 +25,20 @@ func countNonEmptyGaItems(slot *SaveSlot) int {
 func TestAllocateGaItem_WeaponAndArrowDefaultUnk2Unk3Zero(t *testing.T) {
 	slot := makeTestSlot(10)
 
-	weaponHandle := uint32(ItemTypeWeapon | 0x000001)
+	weaponHandle := uint32(ItemTypeWeapon | gaItemHandleValidBit | 0x000001)
 	if err := allocateGaItem(slot, weaponHandle, testArrowID); err != nil {
 		t.Fatalf("allocateGaItem (arrow/weapon): %v", err)
 	}
-	got := slot.GaItems[0]
+	got := slot.GaItems[1]
 	if got.Unk2 != 0 || got.Unk3 != 0 {
 		t.Errorf("weapon-type GaItem Unk2/Unk3 = %d/%d, want 0/0 (T020, T063/T211 native evidence)", got.Unk2, got.Unk3)
 	}
 
-	armorHandle := uint32(ItemTypeArmor | 0x000002)
+	armorHandle := uint32(ItemTypeArmor | gaItemHandleValidBit | 0x000002)
 	if err := allocateGaItem(slot, armorHandle, 0x10000001); err != nil {
 		t.Fatalf("allocateGaItem (armor): %v", err)
 	}
-	got = slot.GaItems[1]
+	got = slot.GaItems[2]
 	if got.Unk2 != 0 || got.Unk3 != 0 {
 		t.Errorf("armor GaItem Unk2/Unk3 = %d/%d, want 0/0 (T020 native evidence)", got.Unk2, got.Unk3)
 	}
@@ -50,7 +50,7 @@ func TestAllocateGaItem_WeaponAndArrowDefaultUnk2Unk3Zero(t *testing.T) {
 // Unk2/Unk3 are never written to disk for this record type.
 func TestAllocateGaItem_AoWKeepsUnk2Unk3NegativeOne(t *testing.T) {
 	slot := makeTestSlot(10)
-	aowHandle := uint32(ItemTypeAow | 0x000001)
+	aowHandle := uint32(ItemTypeAow | gaItemHandleValidBit | 0x000001)
 	if err := allocateGaItem(slot, aowHandle, 0x80000001); err != nil {
 		t.Fatalf("allocateGaItem (AoW): %v", err)
 	}

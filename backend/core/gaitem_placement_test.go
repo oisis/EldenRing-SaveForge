@@ -29,7 +29,7 @@ func TestAllocateGaItem_AoWAtLowIndex(t *testing.T) {
 
 	// Add an AoW
 	handle := uint32(ItemTypeAow | 0x00800001)
-	itemID := uint32(0x40000000) // AoW item ID
+	itemID := uint32(0x80000000) // AoW item ID
 	if err := allocateGaItem(slot, handle, itemID); err != nil {
 		t.Fatalf("allocateGaItem AoW: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestAllocateGaItem_WeaponAfterAoW(t *testing.T) {
 
 	// Add AoW first
 	aowHandle := uint32(ItemTypeAow | 0x00800001)
-	if err := allocateGaItem(slot, aowHandle, 0x40000000); err != nil {
+	if err := allocateGaItem(slot, aowHandle, 0x80000000); err != nil {
 		t.Fatalf("allocateGaItem AoW: %v", err)
 	}
 
@@ -66,14 +66,14 @@ func TestAllocateGaItem_WeaponAfterAoW(t *testing.T) {
 	if slot.GaItems[0].Handle != aowHandle {
 		t.Errorf("Index 0 should be AoW, got 0x%X", slot.GaItems[0].Handle)
 	}
-	if slot.GaItems[1].Handle != weaponHandle {
-		t.Errorf("Index 1 should be Weapon, got 0x%X", slot.GaItems[1].Handle)
+	if slot.GaItems[2].Handle != weaponHandle {
+		t.Errorf("Projected index 2 should be Weapon, got 0x%X", slot.GaItems[2].Handle)
 	}
 	if slot.NextAoWIndex != 1 {
 		t.Errorf("NextAoWIndex should be 1, got %d", slot.NextAoWIndex)
 	}
-	if slot.NextArmamentIndex != 2 {
-		t.Errorf("NextArmamentIndex should be 2, got %d", slot.NextArmamentIndex)
+	if slot.NextArmamentIndex != 3 {
+		t.Errorf("NextArmamentIndex should be 3, got %d", slot.NextArmamentIndex)
 	}
 }
 
@@ -87,11 +87,11 @@ func TestAllocateGaItem_TypeSegregation(t *testing.T) {
 		handle uint32
 		itemID uint32
 	}{
-		{ItemTypeAow | 0x00800001, 0x40000001},    // AoW 1
-		{ItemTypeWeapon | 0x00800002, 0x00100002},  // Weapon 1
-		{ItemTypeArmor | 0x00800003, 0x10100003},   // Armor 1
-		{ItemTypeAow | 0x00800004, 0x40000004},     // AoW 2
-		{ItemTypeWeapon | 0x00800005, 0x00100005},   // Weapon 2
+		{ItemTypeAow | 0x00800001, 0x80000001},    // AoW 1
+		{ItemTypeWeapon | 0x00800002, 0x00100002}, // Weapon 1
+		{ItemTypeArmor | 0x00800003, 0x10100003},  // Armor 1
+		{ItemTypeAow | 0x00800004, 0x80000004},    // AoW 2
+		{ItemTypeWeapon | 0x00800005, 0x00100005}, // Weapon 2
 	}
 
 	for _, it := range items {
@@ -100,13 +100,15 @@ func TestAllocateGaItem_TypeSegregation(t *testing.T) {
 		}
 	}
 
-	// Expected layout: [AoW1, AoW2, Weapon1, Armor1, Weapon2]
-	// AoW entries should be at indices 0-1 (both AoWs)
-	// Non-AoW entries should be at indices 2+ (weapons, armor)
+	// Native layout keeps an empty second-pass marker for physical index 0:
+	// [AoW1, AoW2, empty, Weapon1, Armor1, Weapon2].
 	aowCount := 0
 	nonAowStart := -1
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
 		h := slot.GaItems[i].Handle
+		if slot.GaItems[i].IsEmpty() {
+			continue
+		}
 		isAoW := (h & GaHandleTypeMask) == ItemTypeAow
 		if isAoW {
 			if nonAowStart >= 0 {
@@ -124,16 +126,16 @@ func TestAllocateGaItem_TypeSegregation(t *testing.T) {
 	if slot.NextAoWIndex != 2 {
 		t.Errorf("NextAoWIndex should be 2, got %d", slot.NextAoWIndex)
 	}
-	if slot.NextArmamentIndex != 5 {
-		t.Errorf("NextArmamentIndex should be 5, got %d", slot.NextArmamentIndex)
+	if slot.NextArmamentIndex != 6 {
+		t.Errorf("NextArmamentIndex should be 6, got %d", slot.NextArmamentIndex)
 	}
 }
 
 func TestAllocateGaItem_ShiftPreservesExisting(t *testing.T) {
 	slot := makeTestSlot(100)
 
-	// Pre-populate: weapon at index 0
-	slot.GaItems[0] = GaItemFull{
+	// Physical index 1 projects to record 1 before an AoW exists.
+	slot.GaItems[1] = GaItemFull{
 		Handle: ItemTypeWeapon | 0x00800001,
 		ItemID: 0x00100001,
 		Unk2:   -1, Unk3: -1, AoWGaItemHandle: 0xFFFFFFFF,
@@ -141,21 +143,22 @@ func TestAllocateGaItem_ShiftPreservesExisting(t *testing.T) {
 	slot.NextAoWIndex = 0
 	slot.NextArmamentIndex = 1
 
-	// Insert AoW — should shift weapon right
+	// Insert AoW at physical index 2. The prefix insertion removes the marker
+	// for index 2 and shifts the existing weapon to its new projected record 2.
 	aowHandle := uint32(ItemTypeAow | 0x00800002)
-	if err := allocateGaItem(slot, aowHandle, 0x40000002); err != nil {
+	if err := allocateGaItem(slot, aowHandle, 0x80000002); err != nil {
 		t.Fatalf("allocateGaItem AoW: %v", err)
 	}
 
 	if slot.GaItems[0].Handle != aowHandle {
 		t.Errorf("Index 0 should be AoW after shift, got 0x%X", slot.GaItems[0].Handle)
 	}
-	if slot.GaItems[1].Handle != (ItemTypeWeapon | 0x00800001) {
-		t.Errorf("Index 1 should be shifted weapon, got 0x%X", slot.GaItems[1].Handle)
+	if slot.GaItems[2].Handle != (ItemTypeWeapon | 0x00800001) {
+		t.Errorf("Index 2 should be shifted weapon, got 0x%X", slot.GaItems[2].Handle)
 	}
 }
 
-func TestGenerateUniqueHandle_GlobalCounter(t *testing.T) {
+func TestGenerateUniqueHandle_PhysicalUsesFirstFreeIndex(t *testing.T) {
 	slot := makeTestSlot(100)
 	slot.NextGaItemHandle = 42
 	slot.PartGaItemHandle = 0x80
@@ -164,11 +167,14 @@ func TestGenerateUniqueHandle_GlobalCounter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateUniqueHandle weapon: %v", err)
 	}
-	if h1&0xFFFF != 42 {
-		t.Errorf("Expected counter 42, got %d (handle=0x%X)", h1&0xFFFF, h1)
+	if h1&0xFFFF != 0 {
+		t.Errorf("Expected first free physical index 0, got %d (handle=0x%X)", h1&0xFFFF, h1)
 	}
 	if (h1>>16)&0xFF != 0x80 {
 		t.Errorf("Expected partID 0x80, got 0x%X", (h1>>16)&0xFF)
+	}
+	if err := allocateGaItem(slot, h1, 0x00100000); err != nil {
+		t.Fatalf("allocateGaItem weapon: %v", err)
 	}
 	slot.GaMap[h1] = 0x00100000
 
@@ -176,8 +182,8 @@ func TestGenerateUniqueHandle_GlobalCounter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generateUniqueHandle armor: %v", err)
 	}
-	if h2&0xFFFF != 43 {
-		t.Errorf("Expected counter 43 (global increment), got %d (handle=0x%X)", h2&0xFFFF, h2)
+	if h2&0xFFFF != 1 {
+		t.Errorf("Expected next free physical index 1, got %d (handle=0x%X)", h2&0xFFFF, h2)
 	}
 	if h2&GaHandleTypeMask != ItemTypeArmor {
 		t.Errorf("Expected armor type prefix, got 0x%X", h2&GaHandleTypeMask)
@@ -239,145 +245,44 @@ func TestScanGaItems_TrackedIndices(t *testing.T) {
 	}
 }
 
-// TestAllocateGaItem_ReturnsFullErrorAtCapacity locks the allocator's
-// boundary contract: when NextArmamentIndex (or NextAoWIndex for AoW) has
-// reached len(GaItems), allocateGaItem must surface "armament/armor array
-// full" (or "AoW array full") instead of silently reusing pre-Next empty
-// slots. Reusing pre-Next holes would break the save format's monotonic
-// handle-counter ordering inside the armament zone.
-//
-// Note: the GaItems array can contain empty slots at indices < NextArmamentIndex
-// (left over from in-game deletions); the test seeds such a layout so the
-// boundary check cannot accidentally be satisfied by "scan back for an empty
-// hole" logic.
+// A table is full only when every physical index is occupied. Legacy cursor
+// exhaustion is not a capacity condition.
 func TestAllocateGaItem_ReturnsFullErrorAtCapacity(t *testing.T) {
-	t.Run("Weapon at capacity", func(t *testing.T) {
-		slot := makeTestSlot(8)
-		// Layout: indices 0..7 occupied except 2 and 4 (pre-Next holes).
-		// NextArmamentIndex = 8 → no room above.
-		for i := 0; i < 8; i++ {
-			if i == 2 || i == 4 {
-				continue
-			}
-			slot.GaItems[i] = GaItemFull{
-				Handle:          uint32(ItemTypeWeapon | 0x00800000 | uint32(i)),
-				ItemID:          uint32(0x00100000 + i),
-				Unk2:            -1,
-				Unk3:            -1,
-				AoWGaItemHandle: NoCustomAoWHandle,
-			}
-		}
-		slot.NextAoWIndex = 0
-		slot.NextArmamentIndex = 8 // == len(GaItems) — capacity exhausted
-
-		err := allocateGaItem(slot, uint32(ItemTypeWeapon|0x00800009), 0x00200000)
-		if err == nil {
-			t.Fatal("allocateGaItem must error when NextArmamentIndex == len(GaItems); got nil")
-		}
-		if !contains(err.Error(), "armament/armor array full") {
-			t.Errorf("expected 'armament/armor array full' error, got: %v", err)
-		}
-
-		// Pre-Next holes (indices 2, 4) must remain empty — allocator must
-		// not silently fill them.
-		if !slot.GaItems[2].IsEmpty() {
-			t.Error("index 2 (pre-Next hole) was overwritten — allocator broke monotonic ordering")
-		}
-		if !slot.GaItems[4].IsEmpty() {
-			t.Error("index 4 (pre-Next hole) was overwritten — allocator broke monotonic ordering")
-		}
-	})
-
-	t.Run("AoW at capacity", func(t *testing.T) {
-		slot := makeTestSlot(4)
-		for i := 0; i < 4; i++ {
-			slot.GaItems[i] = GaItemFull{
-				Handle:          uint32(ItemTypeAow | 0x00800000 | uint32(i)),
-				ItemID:          uint32(0x40000000 + i),
-				Unk2:            -1,
-				Unk3:            -1,
-				AoWGaItemHandle: NoCustomAoWHandle,
-			}
-		}
-		slot.NextAoWIndex = 4 // == len(GaItems) — full
-		slot.NextArmamentIndex = 4
-
-		err := allocateGaItem(slot, uint32(ItemTypeAow|0x00800009), 0x40000099)
-		if err == nil {
-			t.Fatal("allocateGaItem (AoW) must error when NextAoWIndex == len(GaItems); got nil")
-		}
-		if !contains(err.Error(), "AoW array full") {
-			t.Errorf("expected 'AoW array full' error, got: %v", err)
-		}
-	})
-}
-
-// TestAllocateGaItem_AoWRejectsWhenArmamentZoneAtCapacity locks the fix for the
-// "NextArmamentIndex N > len(GaItems) N" rollback that fires when an AoW is
-// added to a slot whose armament zone is already pinned to the last array
-// index (e.g. an in-game entry placed at maxEntries-1). The AoW branch must
-// reject upfront instead of incrementing NextArmamentIndex past maxEntries —
-// the post-mutation validator would otherwise surface a confusing numeric
-// violation. Observed on a real PS4 save's slot 1 ("Bydlaczka") where vanilla
-// state has NextAoWIndex=3 with room, but NextArmamentIndex==len(GaItems)
-// because the highest-counter entry sits at array index maxEntries-1.
-func TestAllocateGaItem_AoWRejectsWhenArmamentZoneAtCapacity(t *testing.T) {
 	slot := makeTestSlot(8)
-	// AoW zone has room (NextAoW=3 < 8), but armament zone is "logically
-	// full": some non-empty entry sits at the last array index, forcing
-	// NextArmamentIndex to maxEntries on load.
-	slot.GaItems[7] = GaItemFull{
-		Handle:          uint32(ItemTypeWeapon | 0x00800007),
-		ItemID:          uint32(0x00100007),
-		Unk2:            -1,
-		Unk3:            -1,
-		AoWGaItemHandle: NoCustomAoWHandle,
+	for i := range slot.GaItems {
+		handle := uint32(ItemTypeWeapon | gaItemHandleValidBit | uint32(i))
+		slot.GaItems[i] = nativeTestRecord(handle, uint32(0x00100000+i))
+		slot.GaMap[handle] = uint32(0x00100000 + i)
 	}
-	slot.NextAoWIndex = 3
-	slot.NextArmamentIndex = 8 // == len(GaItems)
-	slot.NextGaItemHandle = 9
-
-	err := allocateGaItem(slot, uint32(ItemTypeAow|0x00800009), 0x40000099)
-	if err == nil {
-		t.Fatal("allocateGaItem (AoW) must reject when NextArmamentIndex == len(GaItems); got nil")
+	if _, err := generateUniqueHandle(slot, ItemTypeWeapon); err == nil || !contains(err.Error(), "no free index") {
+		t.Fatalf("generateUniqueHandle error = %v, want no free index", err)
 	}
-	if !contains(err.Error(), "armament zone at capacity") {
-		t.Errorf("expected 'armament zone at capacity' error, got: %v", err)
-	}
-	// Critical: state must not be mutated.
-	if slot.NextAoWIndex != 3 {
-		t.Errorf("NextAoWIndex must stay 3 on rejection, got %d", slot.NextAoWIndex)
-	}
-	if slot.NextArmamentIndex != 8 {
-		t.Errorf("NextArmamentIndex must stay 8 on rejection (no overflow past maxEntries=8), got %d", slot.NextArmamentIndex)
-	}
-	if !slot.GaItems[3].IsEmpty() {
-		t.Error("index 3 (NextAoW slot) must remain empty on rejection")
-	}
-	// Validator must be happy with this (pre-mutation) state.
-	if v := ValidatePostMutation(slot); len(v) > 0 {
-		t.Errorf("ValidatePostMutation expected OK after rejection; got %d violations: %v", len(v), v)
+	if err := allocateGaItem(slot, ItemTypeArmor|gaItemHandleValidBit, 0x10100000); err == nil || !contains(err.Error(), "already occupied") {
+		t.Fatalf("allocateGaItem error = %v, want occupied index", err)
 	}
 }
 
-// TestAllocateGaItem_RejectsNonCanonicalInversion locks the fail-closed guard
-// against inherited/non-canonical GaItem layouts where NextArmamentIndex sits
-// below NextAoWIndex. The native writer emits all AoW records first, so on a
-// canonical save NextArmamentIndex >= NextAoWIndex always holds. scanGaItems
-// can nonetheless produce an inverted state (NextArmamentIndex derived from the
-// highest-counter record, which may live below the last AoW). Allocating a
-// Weapon/Armor at NextArmamentIndex would drop it inside the AoW block and make
-// the linear RebuildSlotFull diverge from the two-pass native writer, so the
-// allocator must reject before mutating anything.
-func TestAllocateGaItem_RejectsNonCanonicalInversion(t *testing.T) {
-	// Synthetic inverted layout: AoW at indices 0..1, NextAoWIndex=2,
-	// NextArmamentIndex=1 (< NextAoWIndex).
+func TestAllocateGaItem_AoWUsesHoleWhenLegacyCursorAtCapacity(t *testing.T) {
+	slot := makeTestSlot(8)
+	slot.GaItems[7] = nativeTestRecord(ItemTypeWeapon|gaItemHandleValidBit|7, 0x00100007)
+	slot.NextArmamentIndex = len(slot.GaItems)
+	if err := allocateGaItem(slot, ItemTypeAow|gaItemHandleValidBit, 0x80000099); err != nil {
+		t.Fatalf("allocateGaItem should reuse physical index 0: %v", err)
+	}
+	if slot.GaItems[0].Handle != ItemTypeAow|gaItemHandleValidBit {
+		t.Fatalf("new AoW handle at record 0 = 0x%08X", slot.GaItems[0].Handle)
+	}
+}
+
+// Legacy cursor fields are derived metadata and cannot veto an otherwise valid
+// native projection.
+func TestAllocateGaItem_IgnoresLegacyCursorInversion(t *testing.T) {
 	newInvertedSlot := func() *SaveSlot {
 		slot := makeTestSlot(8)
 		for i := 0; i < 2; i++ {
 			slot.GaItems[i] = GaItemFull{
 				Handle:          uint32(ItemTypeAow | 0x00800000 | uint32(i)),
-				ItemID:          uint32(0x40000000 + i),
+				ItemID:          uint32(0x80000000 + i),
 				Unk2:            -1,
 				Unk3:            -1,
 				AoWGaItemHandle: NoCustomAoWHandle,
@@ -399,30 +304,12 @@ func TestAllocateGaItem_RejectsNonCanonicalInversion(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			slot := newInvertedSlot()
-			before := append([]GaItemFull(nil), slot.GaItems...)
-
 			err := allocateGaItem(slot, tc.handle, tc.itemID)
-			if err == nil {
-				t.Fatalf("allocateGaItem %s must reject inverted layout; got nil", tc.name)
+			if err != nil {
+				t.Fatalf("allocateGaItem %s: %v", tc.name, err)
 			}
-			if !contains(err.Error(), "non-canonical GaItem layout") {
-				t.Errorf("expected 'non-canonical GaItem layout' error, got: %v", err)
-			}
-
-			// Proof of no mutation: array, both cursors, handle counter unchanged.
-			for i := range before {
-				if slot.GaItems[i] != before[i] {
-					t.Errorf("GaItems[%d] mutated on rejection: %+v -> %+v", i, before[i], slot.GaItems[i])
-				}
-			}
-			if slot.NextAoWIndex != 2 {
-				t.Errorf("NextAoWIndex must stay 2 on rejection, got %d", slot.NextAoWIndex)
-			}
-			if slot.NextArmamentIndex != 1 {
-				t.Errorf("NextArmamentIndex must stay 1 on rejection, got %d", slot.NextArmamentIndex)
-			}
-			if slot.NextGaItemHandle != 3 {
-				t.Errorf("NextGaItemHandle must stay 3 on rejection, got %d", slot.NextGaItemHandle)
+			if slot.GaItems[3].Handle != tc.handle {
+				t.Fatalf("projected record 3 handle = 0x%08X, want 0x%08X", slot.GaItems[3].Handle, tc.handle)
 			}
 		})
 	}
@@ -436,7 +323,7 @@ func TestAllocateGaItem_CanonicalLayoutStillAllocates(t *testing.T) {
 	for i := 0; i < 2; i++ {
 		slot.GaItems[i] = GaItemFull{
 			Handle:          uint32(ItemTypeAow | 0x00800000 | uint32(i)),
-			ItemID:          uint32(0x40000000 + i),
+			ItemID:          uint32(0x80000000 + i),
 			Unk2:            -1,
 			Unk3:            -1,
 			AoWGaItemHandle: NoCustomAoWHandle,
@@ -449,22 +336,22 @@ func TestAllocateGaItem_CanonicalLayoutStillAllocates(t *testing.T) {
 	if err := allocateGaItem(slot, weaponHandle, 0x00100000); err != nil {
 		t.Fatalf("allocateGaItem Weapon on canonical layout: %v", err)
 	}
-	if slot.GaItems[2].Handle != weaponHandle {
-		t.Errorf("Weapon should land at index 2, got handle 0x%X", slot.GaItems[2].Handle)
+	if slot.GaItems[3].Handle != weaponHandle {
+		t.Errorf("Weapon should land at projected record 3, got handle 0x%X", slot.GaItems[3].Handle)
 	}
-	if slot.NextArmamentIndex != 3 {
-		t.Errorf("NextArmamentIndex should advance to 3, got %d", slot.NextArmamentIndex)
+	if slot.NextArmamentIndex != 4 {
+		t.Errorf("NextArmamentIndex should derive to 4, got %d", slot.NextArmamentIndex)
 	}
 
 	armorHandle := uint32(ItemTypeArmor | 0x00800004)
 	if err := allocateGaItem(slot, armorHandle, 0x10100000); err != nil {
 		t.Fatalf("allocateGaItem Armor on canonical layout: %v", err)
 	}
-	if slot.GaItems[3].Handle != armorHandle {
-		t.Errorf("Armor should land at index 3, got handle 0x%X", slot.GaItems[3].Handle)
+	if slot.GaItems[4].Handle != armorHandle {
+		t.Errorf("Armor should land at projected record 4, got handle 0x%X", slot.GaItems[4].Handle)
 	}
-	if slot.NextArmamentIndex != 4 {
-		t.Errorf("NextArmamentIndex should advance to 4, got %d", slot.NextArmamentIndex)
+	if slot.NextArmamentIndex != 5 {
+		t.Errorf("NextArmamentIndex should derive to 5, got %d", slot.NextArmamentIndex)
 	}
 }
 

@@ -113,25 +113,22 @@ func (a *App) AnalyzeGaItemRepack(charIdx int) (GaItemRepackAnalysis, error) {
 	}
 
 	a.invalidateGaItemRepackTokensLocked(charIdx)
-	preflight := core.PreflightGaItemRepack(&a.save.Slots[charIdx])
-	if len(preflight.Blockers) != 0 {
-		result.Outcome = "refusal"
-		result.Blockers = mapGaItemRepackBlockers(preflight.Blockers)
+	slot := &a.save.Slots[charIdx]
+	capacity, err := core.NativeGaItemCapacity(slot)
+	if err != nil {
+		result.Outcome = "unavailable"
+		result.Failure = gaItemRepackFailure("preflight", "non_native_layout", "The GaItem table does not match the native two-pass layout. Load and save this copy in-game before adding more physical items.")
 		return result, nil
 	}
-
-	result.Before = mapGaItemCapacity(preflight.Analysis.Before)
-	projected := mapGaItemCapacity(preflight.Analysis.ProjectedAfter)
+	result.Before = mapGaItemCapacity(capacity)
+	projected := mapGaItemCapacity(capacity)
 	result.ProjectedAfter = &projected
-	result.Recovered = preflight.Analysis.Recovered
-	result.NonEmptyRecords = preflight.Analysis.NonEmptyRecords
-	if preflight.Analysis.NonEmptyRecords == 0 || preflight.Analysis.Recovered == 0 {
-		result.Outcome = "no_op"
-		return result, nil
+	for _, record := range slot.GaItems {
+		if !record.IsEmpty() {
+			result.NonEmptyRecords++
+		}
 	}
-
-	result.Outcome = "ready"
-	result.AnalysisToken = a.issueGaItemRepackTokenLocked(charIdx, &a.save.Slots[charIdx], preflight.Analysis)
+	result.Outcome = "no_op"
 	return result, nil
 }
 
@@ -240,29 +237,17 @@ func gaItemRepackCouldNotStart(result GaItemRepackExecutionResult, failure *GaIt
 // add rejection. It is intentionally conservative: eligibility is asserted only
 // when a non-mutating repack preflight proves the rejected batch would fit
 // afterward. It never issues a token, calls AnalyzeGaItemRepack, or mutates slot.
-func gaItemFullCTA(slot *core.SaveSlot, cap core.CapacityReport, workspaceActive bool) (GaItemCapacity, GaItemRepackCTA) {
+func gaItemFullCTA(_ *core.SaveSlot, cap core.CapacityReport, _ bool) (GaItemCapacity, GaItemRepackCTA) {
 	capacity := GaItemCapacity{
 		PhysicalEmpty: cap.FreeGaItems,
 		CursorRoom:    cap.FreeGaItemCursor,
 		Usable:        min(cap.FreeGaItems, cap.FreeGaItemCursor),
 	}
 
-	preflight := core.PreflightGaItemRepack(slot)
-	cta := GaItemRepackCTA{}
-	if len(preflight.Blockers) != 0 {
-		return capacity, cta // preflight refusal: no safe recovery estimate
-	}
-
-	// Recovered is preserved for any safe preflight, even if another eligibility
-	// condition below fails.
-	cta.Recovered = preflight.Analysis.Recovered
-	cta.Eligible = !workspaceActive &&
-		preflight.Analysis.Recovered > 0 &&
-		cap.NeededGaItems <= preflight.Analysis.ProjectedAfter.Usable &&
-		cap.NeededInv <= cap.FreeInv &&
-		cap.NeededStorage <= cap.FreeStorage &&
-		cap.NeededGaItemData <= cap.FreeGaItemData
-	return capacity, cta
+	// Physical exhaustion cannot be repaired by reordering records. The native
+	// allocator already uses every hole, so the legacy compaction CTA is always
+	// disabled and reports zero recoverable capacity.
+	return capacity, GaItemRepackCTA{}
 }
 
 func mapGaItemCapacity(capacity core.GaItemCapacity) GaItemCapacity {
