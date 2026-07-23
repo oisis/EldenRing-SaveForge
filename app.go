@@ -847,46 +847,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			charIdx, len(physickDupes))
 	}
 
-	// CRIMSON CRYSTAL TEAR / PHYSICK BUNDLE (T090): the Database picker can
-	// only ever request 0x40002AFB (see crimsonCrystalTearPickerID's doc).
-	// Intercept it before the generic per-item pipeline sees it — that
-	// pipeline's isPhysick id-rewrite (below) would force any Wondrous
-	// Physick ID down to the empty variant, which is wrong for this bundle's
-	// confirmed-native filled variant. bundleCreate items are appended
-	// directly to capacityItems further down, so they share the exact same
-	// atomic capacity check and batch write as the rest of the request.
-	bundleCreate := false
-	bundleAlreadyComplete := false
-	for _, id := range itemIDs {
-		if id != crimsonCrystalTearPickerID {
-			continue
-		}
-		if err := validateCrimsonCrystalTearBundleQuantity(invQty, storageQty); err != nil {
-			return result, err
-		}
-		filtered := make([]uint32, 0, len(itemIDs)-1)
-		for _, other := range itemIDs {
-			if other != crimsonCrystalTearPickerID {
-				filtered = append(filtered, other)
-			}
-		}
-		itemIDs = filtered
-		for _, other := range itemIDs {
-			if db.IsWondrousPhysick(other) {
-				return result, fmt.Errorf(
-					"cannot add Crimson Crystal Tear and Flask of Wondrous Physick in the same request: " +
-						"the Crystal Tear pick already creates its own confirmed Physick bundle record (T090)")
-			}
-		}
-		action, bundleErr := crimsonCrystalTearBundleState(slot)
-		if bundleErr != nil {
-			return result, bundleErr
-		}
-		bundleCreate = action == crimsonBundleCreate
-		bundleAlreadyComplete = action == crimsonBundleAlreadyComplete
-		break
-	}
-
 	// Build maps from current inventory/storage state:
 	// - existingItemQty: per-item stack qty in inventory (used to compute SET delta)
 	// - existingByContainer: total pot/aromatic units per container
@@ -998,9 +958,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	var prepared []preparedItem
 	var trimmed []SkippedAdd
 	var skippedExisting []SkippedAdd
-	if bundleAlreadyComplete {
-		skippedExisting = append(skippedExisting, SkippedAdd{ItemID: crimsonCrystalTearPickerID})
-	}
 
 	for _, id := range sortedIDs {
 		isPhysick := db.IsWondrousPhysick(id)
@@ -1119,14 +1076,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			keyItemsTargetQty: item.keyTargetQty,
 		})
 	}
-	if bundleCreate {
-		for _, bundleItem := range appendCrimsonCrystalTearBundleItems(nil) {
-			diagnosticItems = append(diagnosticItems, diagnosticAddedItem{
-				id:           bundleItem.ItemID,
-				inventoryQty: bundleItem.InvQty,
-			})
-		}
-	}
 	actualItems = diagnosticAddedItemList(diagnosticItems)
 	containersUpdated = diagnosticContainerList(usedContainers)
 
@@ -1142,9 +1091,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 			StorageQty:     p.actualStorage,
 			ForceStackable: p.forceStackable,
 		})
-	}
-	if bundleCreate {
-		capacityItems = appendCrimsonCrystalTearBundleItems(capacityItems)
 	}
 	// T350: this call only opens/extends a storageAddSessions[charIdx] series
 	// if it actually deposits at least one item into Storage. An
@@ -1228,9 +1174,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		storageContainers:          storageContainers,
 		existingByContainer:        existingByContainer,
 		sessionStorageEmptyAtStart: sessionStorageEmptyAtStart,
-	}
-	if bundleCreate {
-		plan.requiredTutorialIDs = append(plan.requiredTutorialIDs, crimsonCrystalTearBundleTutorialID)
 	}
 
 	// DIAGNOSTICS: apply the identical plan to a clone and capture every changed
@@ -1322,9 +1265,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		if p.actualInv > 0 || p.actualStorage > 0 || p.keyTargetQty > 0 {
 			added++
 		}
-	}
-	if bundleCreate {
-		added++
 	}
 	result.Added = added
 	result.Trimmed = trimmed

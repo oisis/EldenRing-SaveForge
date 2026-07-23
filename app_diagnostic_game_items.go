@@ -750,9 +750,6 @@ func planGameItemsAddTutorialRecords(before, planned *core.SaveSlot, plan itemAd
 			addTutorialPlan(tutorialID)
 		}
 	}
-	for _, tutorialID := range plan.requiredTutorialIDs {
-		addTutorialPlan(tutorialID)
-	}
 	return plans
 }
 
