@@ -10,8 +10,8 @@ import (
 // duplicateGaItemFixture builds a fully serializable slot whose GaItem table
 // contains exactly the Task 7.9b reproduction shape: two non-empty physical
 // records sharing one weapon handle but carrying different ItemIDs, with a single
-// inventory reference to that handle. The slot is otherwise healthy (repack
-// preflight refuses only with the duplicate_handle blocker). Nothing here reads
+// inventory reference to that handle. The slot is otherwise healthy (the
+// structural scan reports only duplicate_handle). Nothing here reads
 // or writes a user save file.
 //
 // Layout of the leading GaItems:
@@ -30,7 +30,7 @@ const (
 func duplicateGaItemFixture(t *testing.T) *SaveSlot {
 	t.Helper()
 
-	slot := repackPreflightFixture()
+	slot := gaItemStructuralFixture()
 	leading := []GaItemFull{
 		{Handle: dupArmorH, ItemID: dupArmorItem, Unk2: 20, Unk3: 21},
 		{Handle: dupHandle, ItemID: dupLowItemID, Unk2: 10, Unk3: 11, AoWGaItemHandle: NoCustomAoWHandle, Unk5: 1},
@@ -178,9 +178,8 @@ func TestRepairGaItemDuplicate_KeepEachIndex(t *testing.T) {
 			if !sameInventoryItems(slot.Inventory.CommonItems, invBefore) {
 				t.Errorf("inventory reference changed: %+v -> %+v", invBefore, slot.Inventory.CommonItems)
 			}
-			// full repack preflight no longer blocks on this duplicate.
-			if pf := PreflightGaItemRepack(slot); len(pf.Blockers) != 0 {
-				t.Errorf("preflight still blocked after repair: %+v", pf.Blockers)
+			if report := ScanGaItemStructuralIssues(slot); len(report.Issues) != 0 {
+				t.Errorf("structural issues remain after repair: %+v", report.Issues)
 			}
 			if v := ValidatePostMutation(slot); len(v) != 0 {
 				t.Errorf("post-mutation validation failed: %v", v)
@@ -317,7 +316,7 @@ func TestRepairGaItemDuplicate_RollbackOnPostconditionFailure(t *testing.T) {
 // TestAnalyzeGaItemDuplicate_HealthySlotNotOffered covers required test 6: a
 // slot with no duplicate is never offered this repair and is left untouched.
 func TestAnalyzeGaItemDuplicate_HealthySlotNotOffered(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixture(t)
+	fixture := fragmentedGaItemRoundTripFixture(t)
 	slot := fixture.Slot
 	before := SnapshotSlot(slot)
 

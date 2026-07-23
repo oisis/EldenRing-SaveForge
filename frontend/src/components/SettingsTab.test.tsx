@@ -80,7 +80,7 @@ function fakeReport(hasIssues: boolean): RepairIssueReport {
     };
 }
 
-function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', onOptimizeGaItem = vi.fn(), onResolveDuplicateGaItem = vi.fn()) {
+function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', onResolveDuplicateGaItem = vi.fn()) {
     render(
         <SafetyModeProvider>
             <FavoritesProvider>
@@ -95,7 +95,6 @@ function renderSettings(charIndex = 2, safetyProfile: SafetyProfile = 'safe', on
                     onAfterLoad={vi.fn()}
                     charIndex={charIndex}
                     onComplete={vi.fn()}
-                    onOptimizeGaItem={onOptimizeGaItem}
                     onResolveDuplicateGaItem={onResolveDuplicateGaItem}
                 />
             </FavoritesProvider>
@@ -124,7 +123,6 @@ function steamIdSettingsTree(platform: string | null, saveLoadKey: number) {
                     onAfterLoad={vi.fn()}
                     charIndex={0}
                     onComplete={vi.fn()}
-                    onOptimizeGaItem={vi.fn()}
                 />
             </FavoritesProvider>
         </SafetyModeProvider>
@@ -157,7 +155,7 @@ describe('SettingsTab diagnostics', () => {
     it('threads the duplicate-repair callback into its InventoryIssuesModal', async () => {
         const onResolveDuplicateGaItem = vi.fn();
         scanRepairIssuesLoaded.mockResolvedValue(fakeReport(true));
-        renderSettings(2, 'safe', vi.fn(), onResolveDuplicateGaItem);
+        renderSettings(2, 'safe', onResolveDuplicateGaItem);
 
         fireEvent.click(screen.getByRole('button', { name: /Diagnostics/i }));
         fireEvent.click(await screen.findByRole('button', { name: 'stub-resolve-dup' }));
@@ -239,44 +237,10 @@ describe('SettingsTab diagnostic export', () => {
     });
 });
 
-describe('SettingsTab Optimize GaItem allocation', () => {
-    it('renders right after Diagnostics in the Tools list', () => {
+describe('SettingsTab tools', () => {
+    it('does not expose the removed GaItem optimizer', () => {
         renderSettings();
-        const diagnostics = screen.getByRole('button', { name: /Diagnostics/i });
-        const optimize = screen.getByRole('button', { name: /Optimize GaItem allocation/i });
-        expect(diagnostics.compareDocumentPosition(optimize) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        // Nothing renders between them (they are adjacent siblings).
-        expect(diagnostics.nextElementSibling).toBe(optimize);
-    });
-
-    it('opens the shared modal via the App-owned callback and never analyzes itself', () => {
-        const onOptimize = vi.fn();
-        renderSettings(2, 'safe', onOptimize);
-        fireEvent.click(screen.getByRole('button', { name: /Optimize GaItem allocation/i }));
-        expect(onOptimize).toHaveBeenCalledTimes(1);
-    });
-
-    it('is disabled when no platform is loaded', () => {
-        render(
-            <SafetyModeProvider>
-                <FavoritesProvider>
-                    <SettingsTab
-                        theme="dark" setTheme={vi.fn()}
-                        columnVisibility={{ id: false, category: false }} setColumnVisibility={vi.fn()}
-                        safetyProfile="safe"
-                        debugMode={false} setDebugMode={vi.fn()}
-                        platform={null}
-                        saveLoadKey={0}
-                        selectedDeployTarget="" setSelectedDeployTarget={vi.fn()}
-                        onAfterLoad={vi.fn()}
-                        charIndex={0}
-                        onComplete={vi.fn()}
-                        onOptimizeGaItem={vi.fn()}
-                    />
-                </FavoritesProvider>
-            </SafetyModeProvider>,
-        );
-        expect(screen.getByRole('button', { name: /Optimize GaItem allocation/i })).toBeDisabled();
+        expect(screen.queryByRole('button', { name: /Optimize GaItem allocation/i })).not.toBeInTheDocument();
     });
 });
 

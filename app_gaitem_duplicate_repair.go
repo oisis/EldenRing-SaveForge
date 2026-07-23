@@ -34,7 +34,7 @@ type GaItemDuplicateAnalysis struct {
 	Candidates     []GaItemDuplicateCandidate `json:"candidates"`
 	RefusalCode    string                     `json:"refusalCode,omitempty"`
 	RefusalMessage string                     `json:"refusalMessage,omitempty"`
-	Failure        *GaItemRepackFailure       `json:"failure,omitempty"`
+	Failure        *GaItemMutationFailure     `json:"failure,omitempty"`
 }
 
 type GaItemDuplicateExecuteRequest struct {
@@ -45,13 +45,13 @@ type GaItemDuplicateExecuteRequest struct {
 }
 
 type GaItemDuplicateExecutionResult struct {
-	Outcome        string                `json:"outcome"`
-	CharacterIndex int                   `json:"characterIndex"`
-	Handle         uint32                `json:"handle"`
-	KeptIndex      int                   `json:"keptIndex"`
-	RemovedIndex   int                   `json:"removedIndex"`
-	Failure        *GaItemRepackFailure  `json:"failure,omitempty"`
-	Rollback       *GaItemRepackRollback `json:"rollback,omitempty"`
+	Outcome        string                  `json:"outcome"`
+	CharacterIndex int                     `json:"characterIndex"`
+	Handle         uint32                  `json:"handle"`
+	KeptIndex      int                     `json:"keptIndex"`
+	RemovedIndex   int                     `json:"removedIndex"`
+	Failure        *GaItemMutationFailure  `json:"failure,omitempty"`
+	Rollback       *GaItemMutationRollback `json:"rollback,omitempty"`
 }
 
 type gaItemDedupToken struct {
@@ -81,9 +81,9 @@ func (a *App) AnalyzeGaItemDuplicate(charIdx int, handle uint32) (GaItemDuplicat
 
 	a.lifecycleMu[charIdx].Lock()
 	defer a.lifecycleMu[charIdx].Unlock()
-	if a.gaItemRepackHasActiveWorkspaceLocked(charIdx) {
+	if a.hasActiveInventoryWorkspaceLocked(charIdx) {
 		result.Outcome = "unavailable"
-		result.Failure = gaItemRepackFailure("app", "inventory_edit_session_active", "Save or discard the active Inventory Workspace before deduplicating GaItem records.")
+		result.Failure = gaItemMutationFailure("app", "inventory_edit_session_active", "Save or discard the active Inventory Workspace before deduplicating GaItem records.")
 		return result, nil
 	}
 
@@ -112,7 +112,7 @@ func (a *App) AnalyzeGaItemDuplicate(charIdx int, handle uint32) (GaItemDuplicat
 // keep index, then runs the core deduplication on a clone. The active slot is
 // replaced only after the candidate passes every core postcondition; a single
 // undo snapshot is pushed just before publishing. It never writes a save file
-// and never runs a repack afterwards.
+// and never performs unrelated compaction afterwards.
 func (a *App) ExecuteGaItemDuplicateRepair(req GaItemDuplicateExecuteRequest) (GaItemDuplicateExecutionResult, error) {
 	result := GaItemDuplicateExecutionResult{CharacterIndex: req.CharacterIndex, Handle: req.Handle, KeptIndex: req.KeepIndex}
 
@@ -128,25 +128,25 @@ func (a *App) ExecuteGaItemDuplicateRepair(req GaItemDuplicateExecuteRequest) (G
 	charIdx := req.CharacterIndex
 	a.lifecycleMu[charIdx].Lock()
 	defer a.lifecycleMu[charIdx].Unlock()
-	if a.gaItemRepackHasActiveWorkspaceLocked(charIdx) {
-		return gaItemDedupCouldNotStart(result, gaItemRepackFailure("app", "inventory_edit_session_active", "Save or discard the active Inventory Workspace before deduplicating GaItem records.")), nil
+	if a.hasActiveInventoryWorkspaceLocked(charIdx) {
+		return gaItemDedupCouldNotStart(result, gaItemMutationFailure("app", "inventory_edit_session_active", "Save or discard the active Inventory Workspace before deduplicating GaItem records.")), nil
 	}
 
 	a.slotMu[charIdx].Lock()
 	defer a.slotMu[charIdx].Unlock()
 	token, ok := a.gaItemDedupTokens[req.AnalysisToken]
 	if !ok || req.AnalysisToken == "" {
-		return gaItemDedupCouldNotStart(result, gaItemRepackFailure("app", "analysis_stale", "Run GaItem duplicate analysis again before repairing.")), nil
+		return gaItemDedupCouldNotStart(result, gaItemMutationFailure("app", "analysis_stale", "Run GaItem duplicate analysis again before repairing.")), nil
 	}
 	delete(a.gaItemDedupTokens, req.AnalysisToken) // every recognized token is one-use
 
 	slot := &a.save.Slots[charIdx]
 	if token.CharacterIndex != charIdx || token.Handle != req.Handle || token.SaveGeneration != a.saveGeneration ||
 		token.SlotRevision != a.slotRevisions[charIdx] || !reflect.DeepEqual(core.SnapshotSlot(slot), token.Snapshot) {
-		return gaItemDedupCouldNotStart(result, gaItemRepackFailure("app", "analysis_stale", "The slot changed after analysis; run GaItem duplicate analysis again.")), nil
+		return gaItemDedupCouldNotStart(result, gaItemMutationFailure("app", "analysis_stale", "The slot changed after analysis; run GaItem duplicate analysis again.")), nil
 	}
 	if req.KeepIndex != token.Candidates[0].Index && req.KeepIndex != token.Candidates[1].Index {
-		return gaItemDedupCouldNotStart(result, gaItemRepackFailure("app", "invalid_keep_index", "Choose which duplicate GaItem record to keep before repairing.")), nil
+		return gaItemDedupCouldNotStart(result, gaItemMutationFailure("app", "invalid_keep_index", "Choose which duplicate GaItem record to keep before repairing.")), nil
 	}
 	result.RemovedIndex = token.Candidates[0].Index
 	if req.KeepIndex == token.Candidates[0].Index {
@@ -156,7 +156,7 @@ func (a *App) ExecuteGaItemDuplicateRepair(req GaItemDuplicateExecuteRequest) (G
 	original := core.CloneSlot(slot)
 	candidate := core.CloneSlot(slot)
 	if err := core.RepairGaItemDuplicate(candidate, req.Handle, req.KeepIndex); err != nil {
-		return a.gaItemDedupDiscardCandidate(result, slot, original, gaItemRepackFailure("transform", "repair_failed", err.Error())), nil
+		return a.gaItemDedupDiscardCandidate(result, slot, original, gaItemMutationFailure("transform", "repair_failed", err.Error())), nil
 	}
 
 	// The candidate is both the exact planned projection and the value about to be
@@ -186,25 +186,25 @@ func (a *App) ExecuteGaItemDuplicateRepair(req GaItemDuplicateExecuteRequest) (G
 	return result, nil
 }
 
-func (a *App) gaItemDedupDiscardCandidate(result GaItemDuplicateExecutionResult, active, original *core.SaveSlot, failure *GaItemRepackFailure) GaItemDuplicateExecutionResult {
+func (a *App) gaItemDedupDiscardCandidate(result GaItemDuplicateExecutionResult, active, original *core.SaveSlot, failure *GaItemMutationFailure) GaItemDuplicateExecutionResult {
 	if !reflect.DeepEqual(active, original) {
 		result.Outcome = "rollback_failed"
 		result.Failure = failure
-		result.Rollback = &GaItemRepackRollback{
+		result.Rollback = &GaItemMutationRollback{
 			Attempted: true,
 			Complete:  false,
 			Mode:      "discard_candidate",
-			Failure:   gaItemRepackFailure("rollback", "original_state_changed", "The active slot changed unexpectedly while the repair candidate was discarded."),
+			Failure:   gaItemMutationFailure("rollback", "original_state_changed", "The active slot changed unexpectedly while the repair candidate was discarded."),
 		}
 		return result
 	}
 	result.Outcome = "rolled_back"
 	result.Failure = failure
-	result.Rollback = &GaItemRepackRollback{Attempted: true, Complete: true, Mode: "discard_candidate"}
+	result.Rollback = &GaItemMutationRollback{Attempted: true, Complete: true, Mode: "discard_candidate"}
 	return result
 }
 
-func gaItemDedupCouldNotStart(result GaItemDuplicateExecutionResult, failure *GaItemRepackFailure) GaItemDuplicateExecutionResult {
+func gaItemDedupCouldNotStart(result GaItemDuplicateExecutionResult, failure *GaItemMutationFailure) GaItemDuplicateExecutionResult {
 	result.Outcome = "could_not_start"
 	result.Failure = failure
 	return result
@@ -240,8 +240,8 @@ func (a *App) issueGaItemDedupTokenLocked(charIdx int, slot *core.SaveSlot, hand
 	if a.gaItemDedupTokens == nil {
 		a.gaItemDedupTokens = make(map[string]gaItemDedupToken)
 	}
-	a.gaItemRepackNextID++
-	token := fmt.Sprintf("gadedup-%d-%d", a.saveGeneration, a.gaItemRepackNextID)
+	a.gaItemDedupNextID++
+	token := fmt.Sprintf("gadedup-%d-%d", a.saveGeneration, a.gaItemDedupNextID)
 	a.gaItemDedupTokens[token] = gaItemDedupToken{
 		CharacterIndex: charIdx,
 		Handle:         handle,

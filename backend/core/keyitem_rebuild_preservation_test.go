@@ -18,7 +18,7 @@ import (
 // It never reads or writes an ignored real save file.
 func rawKeyItemFixture(t *testing.T) *SaveSlot {
 	t.Helper()
-	slot := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1).Slot
+	slot := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1).Slot
 	slot.Inventory.KeyItems = make([]InventoryItem, KeyItemCount)
 	slot.Inventory.KeyItems[0] = InventoryItem{GaItemHandle: 0x00000001, Quantity: 1, Index: 4029}
 	slot.Inventory.KeyItems[1] = InventoryItem{GaItemHandle: 0x40009C41, Quantity: 1, Index: 4030}
@@ -132,20 +132,6 @@ func TestRebuildSlotFull_PreservesKeyItemsWithShiftedLayout(t *testing.T) {
 		t.Fatalf("parseFromData: %v", err)
 	}
 	assertKeyRowsPreserved(t, slot, "shifted-layout rebuild")
-}
-
-// TestRepackGaItems_PreservesRawKeyItemsRow proves a GaItem repack that invokes
-// RebuildSlotFull + reparse preserves the raw KeyItems row exactly.
-func TestRepackGaItems_PreservesRawKeyItemsRow(t *testing.T) {
-	slot := rawKeyItemFixture(t)
-	res, err := RepackGaItems(slot)
-	if err != nil {
-		t.Fatalf("RepackGaItems: %v", err)
-	}
-	if !res.Changed {
-		t.Fatalf("fixture did not exercise a real repack (Changed=false)")
-	}
-	assertKeyRowsPreserved(t, slot, "after repack")
 }
 
 // TestAddItemsToSlotBatch_PreservesRawKeyItemsRowAcrossGrowth proves a GaItem-

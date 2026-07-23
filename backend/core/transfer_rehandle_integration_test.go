@@ -32,7 +32,7 @@ func findContainerHandleExcluding(slot *SaveSlot, start, slots int, prefix, excl
 // fresh 0xA0 handle is minted and registered in GaMap, but NO physical GaItem
 // record is created and the armament cursor never advances.
 func TestTransfer_TalismanCollision_RehandleHandleOnly(t *testing.T) {
-	slot := fragmentedRepackRoundTripFixture(t).Slot
+	slot := fragmentedGaItemRoundTripFixture(t).Slot
 
 	const talisman = ItemTypeAccessory | 0x000000A5 // 0xA00000A5
 	const talismanItemID = 0x20000000 | 0x000000A5  // 0x200000A5 (HandleToItemID)
@@ -87,7 +87,7 @@ func TestTransfer_TalismanCollision_RehandleHandleOnly(t *testing.T) {
 // over-correction: a duplicate weapon (0x80) handle on the destination must
 // still materialize a PHYSICAL GaItem record and survive the rebuild/reparse.
 func TestTransfer_WeaponCollision_RehandlePhysical(t *testing.T) {
-	fx := fragmentedRepackRoundTripFixture(t)
+	fx := fragmentedGaItemRoundTripFixture(t)
 	slot := fx.Slot
 	weapon := fx.Handles.Weapon
 	const weaponItemID = 0x000F4240 // Uchigatana, GaMap[handles.Weapon]

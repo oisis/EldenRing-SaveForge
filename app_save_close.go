@@ -45,7 +45,7 @@ func (a *App) CloseSave() error {
 	a.lastSavePath = ""
 	a.saveGeneration++
 	a.slotRevisions = [maxCharacters]uint64{}
-	a.gaItemRepackTokens = make(map[string]gaItemRepackToken)
+	a.gaItemDedupTokens = make(map[string]gaItemDedupToken)
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
 	a.clearAllEditSessions()

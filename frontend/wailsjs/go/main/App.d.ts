@@ -16,8 +16,6 @@ export function AddItemsToCharacterWithGameLimits(arg1:number,arg2:Array<number>
 
 export function AnalyzeGaItemDuplicate(arg1:number,arg2:number):Promise<main.GaItemDuplicateAnalysis>;
 
-export function AnalyzeGaItemRepack(arg1:number):Promise<main.GaItemRepackAnalysis>;
-
 export function ApplyBuildTemplateFromLibrary(arg1:string,arg2:string,arg3:main.ApplyTemplateOptions):Promise<main.ApplyTemplateResult>;
 
 export function ApplyBuildTemplateV2FromFileToCharacter(arg1:number,arg2:main.ApplyTemplateV2Options):Promise<main.ApplyTemplateV2Result>;
@@ -87,8 +85,6 @@ export function DownloadRemoteSave(arg1:string):Promise<string>;
 export function ExecuteConversion(arg1:string,arg2:string,arg3:string):Promise<string>;
 
 export function ExecuteGaItemDuplicateRepair(arg1:main.GaItemDuplicateExecuteRequest):Promise<main.GaItemDuplicateExecutionResult>;
-
-export function ExecuteGaItemRepack(arg1:main.GaItemRepackExecuteRequest):Promise<main.GaItemRepackExecutionResult>;
 
 export function ExportBuildTemplateV2JSONFromCharacter(arg1:number,arg2:string,arg3:main.BuildTemplateV2ExportOptions):Promise<string>;
 

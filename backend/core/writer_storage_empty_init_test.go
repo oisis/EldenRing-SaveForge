@@ -64,12 +64,12 @@ func TestAddToInventory_EmptyStorageFirstThrowingDaggerMatchesT310(t *testing.T)
 // storageEmptyInitFixture returns a fully serializable slot (GaItems, GaItemData,
 // section map — the same production fixture the GaItem-allocation tests use) with
 // Storage reset to the exact T310 empty signature: no CommonItems records,
-// NextAcquisitionSortId=1, NextEquipIndex=0. fragmentedRepackRoundTripFixtureForVersion
+// NextAcquisitionSortId=1, NextEquipIndex=0. fragmentedGaItemRoundTripFixtureForVersion
 // pre-populates Storage with one reference Armor record, so that record (and the
 // header/counters it implies) is cleared here before returning.
 func storageEmptyInitFixture(t *testing.T) *SaveSlot {
 	t.Helper()
-	slot := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1).Slot
+	slot := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1).Slot
 
 	storageRecordOff := slot.StorageBoxOffset + StorageHeaderSkip
 	for i := 0; i < InvRecordLen; i++ {

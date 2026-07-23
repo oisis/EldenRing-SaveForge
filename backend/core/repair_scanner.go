@@ -50,7 +50,7 @@ const (
 	// physical slot.GaItems table sharing one handle. This is a DISTINCT defect
 	// from RepairCodeDuplicateHandle (duplicate Inventory/Storage container
 	// records): here the collision is between physical GaItem records that may
-	// carry different ItemIDs, which the GaItem repack preflight refuses. It is
+	// carry different ItemIDs, which the structural integrity scan refuses. It is
 	// REPORT-ONLY — no safe generic auto-repair exists (which ItemID to retain is
 	// the user's call), so its only action is no_action.
 	RepairCodeDuplicatePhysicalHandle = "duplicate_physical_gaitem_handle"
@@ -162,7 +162,7 @@ func scanRepairIssuesFrom(slotIndex int, slot *SaveSlot, records []ResolvedRecor
 
 // scanPhysicalGaItemHandleIssues reports duplicate handles in the physical
 // slot.GaItems table. Two non-empty GaItem records sharing one handle is a real
-// integrity defect — the GaItem repack preflight refuses it — and is DISTINCT
+// integrity defect — the structural integrity scan refuses it — and is DISTINCT
 // from a duplicate Inventory/Storage container record (RepairCodeDuplicateHandle):
 // the colliding records may carry different ItemIDs. REPORT-ONLY: no safe generic
 // auto-repair exists, so the only action is no_action. Deterministic — records

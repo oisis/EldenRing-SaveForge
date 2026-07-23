@@ -18,10 +18,6 @@ export function AnalyzeGaItemDuplicate(arg1, arg2) {
   return window['go']['main']['App']['AnalyzeGaItemDuplicate'](arg1, arg2);
 }
 
-export function AnalyzeGaItemRepack(arg1) {
-  return window['go']['main']['App']['AnalyzeGaItemRepack'](arg1);
-}
-
 export function ApplyBuildTemplateFromLibrary(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyBuildTemplateFromLibrary'](arg1, arg2, arg3);
 }
@@ -160,10 +156,6 @@ export function ExecuteConversion(arg1, arg2, arg3) {
 
 export function ExecuteGaItemDuplicateRepair(arg1) {
   return window['go']['main']['App']['ExecuteGaItemDuplicateRepair'](arg1);
-}
-
-export function ExecuteGaItemRepack(arg1) {
-  return window['go']['main']['App']['ExecuteGaItemRepack'](arg1);
 }
 
 export function ExportBuildTemplateV2JSONFromCharacter(arg1, arg2, arg3) {

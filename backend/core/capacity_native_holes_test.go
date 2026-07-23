@@ -5,7 +5,7 @@ import "testing"
 // Weapon (prefix 0x00) → addKindGaItem, placed by physical handle index.
 const cursorWeaponID = uint32(0x001E8480)
 
-func TestCapacity_LegacyCursorExhaustionDoesNotRejectArmament(t *testing.T) {
+func TestCapacity_PhysicalHolesRemainUsableWhenLegacyCursorIsExhausted(t *testing.T) {
 	slot := capSlot(0, make([]GaItemFull, 100)) // FreeGaItems = 100 (all empty)
 	slot.NextArmamentIndex = 100                // cursor at end → zero cursor room
 
@@ -13,12 +13,12 @@ func TestCapacity_LegacyCursorExhaustionDoesNotRejectArmament(t *testing.T) {
 	if !r.CanFitAll {
 		t.Fatalf("CanFitAll=false CapHit=%q: physical holes must remain usable", r.CapHit)
 	}
-	if r.FreeGaItems != 100 || r.FreeGaItemCursor != 100 {
-		t.Errorf("FreeGaItems=%d FreeGaItemCursor=%d, want 100 / 100", r.FreeGaItems, r.FreeGaItemCursor)
+	if r.FreeGaItems != 100 {
+		t.Errorf("FreeGaItems=%d, want 100", r.FreeGaItems)
 	}
 }
 
-func TestCapacity_LegacyCursorRoomDoesNotLimitBatch(t *testing.T) {
+func TestCapacity_LegacyCursorDoesNotLimitBatch(t *testing.T) {
 	slot := capSlot(0, make([]GaItemFull, 100))
 	slot.NextArmamentIndex = 99 // exactly one cursor slot left
 
@@ -29,13 +29,14 @@ func TestCapacity_LegacyCursorRoomDoesNotLimitBatch(t *testing.T) {
 	if !r.CanFitAll {
 		t.Fatalf("CanFitAll=false CapHit=%q: 2 armaments fit 100 physical holes", r.CapHit)
 	}
-	if r.NeededGaItems != 2 || r.FreeGaItemCursor != 100 {
-		t.Errorf("NeededGaItems=%d FreeGaItemCursor=%d, want 2 / 100", r.NeededGaItems, r.FreeGaItemCursor)
+	if r.NeededGaItems != 2 || r.FreeGaItems != 100 {
+		t.Errorf("NeededGaItems=%d FreeGaItems=%d, want 2 / 100", r.NeededGaItems, r.FreeGaItems)
 	}
 }
 
-// A batch that fits BOTH the empty-record count and the cursor room passes.
-func TestCapacity_FitsBothConstraints(t *testing.T) {
+// A batch that fits the physical empty-record count passes regardless of the
+// legacy in-memory cursor value.
+func TestCapacity_FitsPhysicalHoleConstraint(t *testing.T) {
 	slot := capSlot(0, make([]GaItemFull, 100))
 	slot.NextArmamentIndex = 95 // five cursor slots left
 
@@ -45,7 +46,7 @@ func TestCapacity_FitsBothConstraints(t *testing.T) {
 		{ItemID: cursorWeaponID, InvQty: 1},
 	})
 	if !r.CanFitAll {
-		t.Fatalf("CanFitAll=false CapHit=%q: 3 armaments fit 5 cursor slots and 100 empty records", r.CapHit)
+		t.Fatalf("CanFitAll=false CapHit=%q: 3 armaments fit 100 empty records", r.CapHit)
 	}
 	if r.NeededGaItems != 3 {
 		t.Errorf("NeededGaItems=%d, want 3", r.NeededGaItems)

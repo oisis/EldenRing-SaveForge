@@ -87,11 +87,11 @@ func AnalyzeGaItemDuplicate(slot *SaveSlot, handle uint32) GaItemDuplicateAnalys
 			fmt.Sprintf("handle 0x%08X is referenced as an Ash of War by a weapon", handle))
 	}
 
-	// 6. No GaItem repack blocker exists apart from this exact duplicate — for
+	// 6. No structural issue exists apart from this exact duplicate — for
 	// EITHER possible keep choice, so whichever index the user later picks is safe.
-	if blockers := gaItemDuplicateOtherBlockers(slot, handle, idxs, a.ItemID, b.ItemID); len(blockers) != 0 {
+	if issues := gaItemDuplicateOtherIssues(slot, handle, idxs, a.ItemID, b.ItemID); len(issues) != 0 {
 		return refuseDuplicate(res, "other_preflight_blocker",
-			fmt.Sprintf("handle 0x%08X cannot be repaired while other issues exist: %s", handle, formatGaItemRepackBlockers(blockers)))
+			fmt.Sprintf("handle 0x%08X cannot be repaired while other issues exist: %s", handle, formatGaItemStructuralIssues(issues)))
 	}
 
 	res.Repairable = true
@@ -102,7 +102,7 @@ func AnalyzeGaItemDuplicate(slot *SaveSlot, handle uint32) GaItemDuplicateAnalys
 // verified duplicate pair, preserving the user-selected record unchanged. It runs
 // as one transaction: any failed postcondition restores the complete slot, so a
 // refused or failed call leaves the slot byte-for-byte and structurally unchanged.
-// It never saves a file, never creates a backup, and never runs a repack.
+// It never saves a file, never creates a backup, and never compacts the table.
 func RepairGaItemDuplicate(slot *SaveSlot, handle uint32, keepIndex int) error {
 	analysis := AnalyzeGaItemDuplicate(slot, handle)
 	if !analysis.Repairable {
@@ -144,7 +144,7 @@ func RepairGaItemDuplicate(slot *SaveSlot, handle uint32, keepIndex int) error {
 	if err := slot.parseFromData(); err != nil {
 		return rollback(fmt.Errorf("reparse: %w", err))
 	}
-	remergeMissingGaMapEntries(slot, snapshot.GaMap)
+	restoreValidatedGaMapEntries(slot, snapshot.GaMap)
 
 	if err := validateGaItemDuplicatePostconditions(slot, snapshot, handle, keptRecord, removedRecord, keptItemID); err != nil {
 		return rollback(err)
@@ -178,6 +178,17 @@ func canonicalizeAoWPartition(items []GaItemFull) {
 		}
 	}
 	copy(items, reordered)
+}
+
+// restoreValidatedGaMapEntries restores mappings that scanGaItems cannot
+// reconstruct. The structural scan has already rejected every unsupported
+// orphaned map entry; physical mappings are reconstructed during parse.
+func restoreValidatedGaMapEntries(slot *SaveSlot, before map[uint32]uint32) {
+	for handle, itemID := range before {
+		if _, exists := slot.GaMap[handle]; !exists {
+			slot.GaMap[handle] = itemID
+		}
+	}
 }
 
 func validateGaItemDuplicatePostconditions(slot *SaveSlot, snapshot SlotSnapshot, handle uint32, keptRecord, removedRecord GaItemFull, keptItemID uint32) error {
@@ -243,25 +254,25 @@ func validateGaItemDuplicatePostconditions(slot *SaveSlot, snapshot SlotSnapshot
 	if violations := ValidatePostMutation(slot); len(violations) != 0 {
 		return fmt.Errorf("postcondition: ValidatePostMutation: %v", violations)
 	}
-	post := PreflightGaItemRepack(slot)
-	if len(post.Blockers) != 0 {
-		return fmt.Errorf("postcondition: preflight still blocked: %s", formatGaItemRepackBlockers(post.Blockers))
+	post := ScanGaItemStructuralIssues(slot)
+	if len(post.Issues) != 0 {
+		return fmt.Errorf("postcondition: structural issues remain: %s", formatGaItemStructuralIssues(post.Issues))
 	}
 	return nil
 }
 
-// gaItemDuplicateOtherBlockers returns every repack blocker that is NOT the
-// expected duplicate_handle for handle, plus any blocker that would remain after
+// gaItemDuplicateOtherIssues returns every structural issue that is NOT the
+// expected duplicate_handle for handle, plus any issue that would remain after
 // removing either candidate. An empty result means the only defect is this exact
 // duplicate and both keep choices are safe.
-func gaItemDuplicateOtherBlockers(slot *SaveSlot, handle uint32, idxs []int, itemIDLow, itemIDHigh uint32) []GaItemRepackBlocker {
+func gaItemDuplicateOtherIssues(slot *SaveSlot, handle uint32, idxs []int, itemIDLow, itemIDHigh uint32) []GaItemStructuralIssue {
 	handleTag := fmt.Sprintf("handle 0x%08X", handle)
-	var other []GaItemRepackBlocker
-	for _, b := range PreflightGaItemRepack(slot).Blockers {
-		if b.Code == "duplicate_handle" && strings.Contains(b.Message, handleTag) {
+	var other []GaItemStructuralIssue
+	for _, issue := range ScanGaItemStructuralIssues(slot).Issues {
+		if issue.Code == "duplicate_handle" && strings.Contains(issue.Message, handleTag) {
 			continue
 		}
-		other = append(other, b)
+		other = append(other, issue)
 	}
 
 	// Simulate removing each candidate in memory (no byte rebuild — preflight
@@ -278,7 +289,7 @@ func gaItemDuplicateOtherBlockers(slot *SaveSlot, handle uint32, idxs []int, ite
 		clone := CloneSlot(slot)
 		clone.GaItems[k.remove] = GaItemFull{}
 		clone.GaMap[handle] = k.keepItemID
-		other = append(other, PreflightGaItemRepack(clone).Blockers...)
+		other = append(other, ScanGaItemStructuralIssues(clone).Issues...)
 	}
 	return other
 }

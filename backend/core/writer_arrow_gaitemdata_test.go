@@ -68,7 +68,7 @@ func TestAllocateGaItem_AoWKeepsUnk2Unk3NegativeOne(t *testing.T) {
 // skip upsertWeaponGaItemData, so the GaItemData record never existed and the
 // arrow was invisible in the game's Arrows/Bolts category.
 func TestAddItemsToSlotBatch_NewArrowGetsGaItemAndActiveGaItemData(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 	before := activeGaItemDataRecords(t, slot)
 
@@ -129,7 +129,7 @@ func TestAddItemsToSlotBatch_NewArrowGetsGaItemAndActiveGaItemData(t *testing.T)
 // must update quantity in place, without allocating a second GaItem or a
 // second GaItemData record.
 func TestAddItemsToSlotBatch_ExistingArrowStackDoesNotDuplicateGaItemOrGaItemData(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 
 	if err := AddItemsToSlotBatch(slot, []ItemToAdd{{ItemID: testArrowID, InvQty: 3, ForceStackable: true}}); err != nil {
@@ -244,7 +244,7 @@ const testChainCoifID = uint32(0x1010C8E0)
 // entry with flag 1 — the writer previously only did this for
 // ItemTypeWeapon/ItemTypeAow, so armor never got a GaItemData entry at all.
 func TestAddItemsToSlotBatch_NewArmorGetsGaItemAndActiveGaItemData(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 	before := activeGaItemDataRecords(t, slot)
 
@@ -294,7 +294,7 @@ func TestAddItemsToSlotBatch_NewArmorGetsGaItemAndActiveGaItemData(t *testing.T)
 // second active GaItemData entry for the ID — upsertActiveGaItemData's
 // existing itemID scan dedups this exactly like it already does for weapons.
 func TestAddItemsToSlotBatch_ExistingArmorSecondDestinationDoesNotDuplicateGaItemData(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 	before := activeGaItemDataRecords(t, slot)
 
@@ -336,7 +336,7 @@ func TestAddItemsToSlotBatch_ExistingArmorSecondDestinationDoesNotDuplicateGaIte
 // TestAddItemsToSlot_NewArrowGetsGaItemAndActiveGaItemData is the T211/T063
 // contract driven through AddItemsToSlot's forceStackable path.
 func TestAddItemsToSlot_NewArrowGetsGaItemAndActiveGaItemData(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 	before := activeGaItemDataRecords(t, slot)
 
@@ -381,7 +381,7 @@ func TestAddItemsToSlot_NewArrowGetsGaItemAndActiveGaItemData(t *testing.T) {
 // (T064's two distinct ammo IDs) each get their own GaItem/GaItemData
 // through AddItemsToSlot, mirroring TestCheckAddCapacity_ArrowAndBoltAsTwoNewIDsInBatch.
 func TestAddItemsToSlot_BoltIsDistinctNewGaItemDataEntry(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 
 	if err := AddItemsToSlot(slot, []uint32{testArrowID}, 1, 0, true); err != nil {

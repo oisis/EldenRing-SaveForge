@@ -4,50 +4,50 @@ import (
 	"encoding/binary"
 	"fmt"
 	"sort"
+	"strings"
 )
 
-// GaItemRepackBlocker is one fail-closed reason why a GaItem repack cannot be
-// attempted. Code is stable for callers; Message is concise and user-facing.
-// Handle carries the offending GaItem handle for blockers that identify one
+// GaItemStructuralIssue is one fail-closed GaItem integrity problem. Code is
+// stable for callers; Message is concise and user-facing.
+// Handle carries the offending GaItem handle for issues that identify one
 // structurally (currently only "duplicate_handle" for a physical GaItem
-// duplicate); it is 0 for blockers that do not name a handle.
-type GaItemRepackBlocker struct {
+// duplicate); it is 0 for issues that do not name a handle.
+type GaItemStructuralIssue struct {
 	Code    string
 	Message string
 	Handle  uint32
 	order   int
 }
 
-// GaItemRepackPreflight is the read-only result of checking whether a slot is
-// safe to repack. Analysis is populated only when all refusal gates pass.
-type GaItemRepackPreflight struct {
-	Analysis GaItemRepackAnalysis
-	Blockers []GaItemRepackBlocker
+// GaItemStructuralReport is the read-only result of validating persisted
+// GaItem records and every reference needed by duplicate repair.
+type GaItemStructuralReport struct {
+	Issues []GaItemStructuralIssue
 }
 
-// PreflightGaItemRepack validates only invariants required to preserve a slot
-// during stable GaItem compaction. It never repairs or mutates slot. Structural
-// and record-identity failures stop later phases; reference failures are
-// aggregated in deterministic order for a useful refusal report.
-func PreflightGaItemRepack(slot *SaveSlot) GaItemRepackPreflight {
-	if blockers := repackStructureBlockers(slot); len(blockers) != 0 {
-		return GaItemRepackPreflight{Blockers: sortRepackBlockers(blockers)}
+// ScanGaItemStructuralIssues validates the invariants required to repair a
+// physical duplicate safely. It never repairs or mutates slot. Structural and
+// record-identity failures stop later phases; reference failures are aggregated
+// in deterministic order for a useful refusal report.
+func ScanGaItemStructuralIssues(slot *SaveSlot) GaItemStructuralReport {
+	if issues := gaItemStructureIssues(slot); len(issues) != 0 {
+		return GaItemStructuralReport{Issues: sortGaItemStructuralIssues(issues)}
 	}
 
-	records, blockers := scanRepackRecords(slot)
-	if len(blockers) != 0 {
-		return GaItemRepackPreflight{Blockers: sortRepackBlockers(blockers)}
+	records, issues := scanGaItemStructuralRecords(slot)
+	if len(issues) != 0 {
+		return GaItemStructuralReport{Issues: sortGaItemStructuralIssues(issues)}
 	}
 
-	blockers = repackReferenceBlockers(slot, records)
-	if len(blockers) != 0 {
-		return GaItemRepackPreflight{Blockers: sortRepackBlockers(blockers)}
+	issues = gaItemReferenceIssues(slot, records)
+	if len(issues) != 0 {
+		return GaItemStructuralReport{Issues: sortGaItemStructuralIssues(issues)}
 	}
 
-	return GaItemRepackPreflight{Analysis: AnalyzeGaItemRepack(slot)}
+	return GaItemStructuralReport{}
 }
 
-type repackRecord struct {
+type gaItemStructuralRecord struct {
 	index  int
 	handle uint32
 	itemID uint32
@@ -55,36 +55,36 @@ type repackRecord struct {
 	entry  GaItemFull
 }
 
-func repackStructureBlockers(slot *SaveSlot) []GaItemRepackBlocker {
+func gaItemStructureIssues(slot *SaveSlot) []GaItemStructuralIssue {
 	if slot == nil || len(slot.Data) != SlotSize {
 		length := 0
 		if slot != nil {
 			length = len(slot.Data)
 		}
-		return []GaItemRepackBlocker{newRepackBlocker("slot_data_size", fmt.Sprintf("slot data length %d, want %d", length, SlotSize), 0)}
+		return []GaItemStructuralIssue{newGaItemStructuralIssue("slot_data_size", fmt.Sprintf("slot data length %d, want %d", length, SlotSize), 0)}
 	}
 
-	var blockers []GaItemRepackBlocker
-	if err := validateRepackOffsetChain(slot); err != nil {
-		blockers = append(blockers, newRepackBlocker("offset_chain", err.Error(), 0))
+	var issues []GaItemStructuralIssue
+	if err := validateGaItemOffsetChain(slot); err != nil {
+		issues = append(issues, newGaItemStructuralIssue("offset_chain", err.Error(), 0))
 	}
 	if slot.GaItemDataOffset <= 0 || slot.GaItemDataOffset+4 > len(slot.Data) {
-		blockers = append(blockers, newRepackBlocker("offset_chain", "GaItemData header is outside slot data", 1))
+		issues = append(issues, newGaItemStructuralIssue("offset_chain", "GaItemData header is outside slot data", 1))
 	}
 	storageEnd := slot.StorageBoxOffset + StorageHeaderSkip + StorageCommonCount*InvRecordLen
 	if slot.StorageBoxOffset <= 0 || storageEnd > len(slot.Data) {
-		blockers = append(blockers, newRepackBlocker("offset_chain", "Storage records are outside slot data", 2))
+		issues = append(issues, newGaItemStructuralIssue("offset_chain", "Storage records are outside slot data", 2))
 	}
 	if err := validateSectionMap(slot.SectionMap); err != nil {
-		blockers = append(blockers, newRepackBlocker("section_map", err.Error(), 0))
+		issues = append(issues, newGaItemStructuralIssue("section_map", err.Error(), 0))
 	}
-	return blockers
+	return issues
 }
 
-// validateRepackOffsetChain mirrors the read-only safety-relevant checks of
+// validateGaItemOffsetChain mirrors the read-only safety-relevant checks of
 // SaveSlot.validateOffsetChain. The latter may normalize EventFlagsOffset and
 // append a warning, which would violate the dry-run contract.
-func validateRepackOffsetChain(slot *SaveSlot) error {
+func validateGaItemOffsetChain(slot *SaveSlot) error {
 	type check struct {
 		name   string
 		offset int
@@ -121,9 +121,9 @@ func validateRepackOffsetChain(slot *SaveSlot) error {
 	return nil
 }
 
-func scanRepackRecords(slot *SaveSlot) ([]repackRecord, []GaItemRepackBlocker) {
-	var records []repackRecord
-	var blockers []GaItemRepackBlocker
+func scanGaItemStructuralRecords(slot *SaveSlot) ([]gaItemStructuralRecord, []GaItemStructuralIssue) {
+	var records []gaItemStructuralRecord
+	var issues []GaItemStructuralIssue
 	seenHandles := make(map[uint32]int)
 
 	for i, entry := range slot.GaItems {
@@ -134,7 +134,7 @@ func scanRepackRecords(slot *SaveSlot) ([]repackRecord, []GaItemRepackBlocker) {
 		switch typeID {
 		case ItemTypeWeapon, ItemTypeArmor, ItemTypeAccessory, ItemTypeItem, ItemTypeAow:
 		default:
-			blockers = append(blockers, newRepackBlocker(
+			issues = append(issues, newGaItemStructuralIssue(
 				"unknown_handle_type",
 				fmt.Sprintf("GaItem[%d] has unknown handle type 0x%X", i, typeID),
 				i,
@@ -142,30 +142,30 @@ func scanRepackRecords(slot *SaveSlot) ([]repackRecord, []GaItemRepackBlocker) {
 			continue
 		}
 		if first, exists := seenHandles[entry.Handle]; exists {
-			blocker := newRepackBlocker(
+			issue := newGaItemStructuralIssue(
 				"duplicate_handle",
 				fmt.Sprintf("GaItem[%d] reuses handle 0x%08X from GaItem[%d]", i, entry.Handle, first),
 				i,
 			)
-			blocker.Handle = entry.Handle // structural handle for the shared duplicate-repair UI
-			blockers = append(blockers, blocker)
+			issue.Handle = entry.Handle
+			issues = append(issues, issue)
 			continue
 		}
 		seenHandles[entry.Handle] = i
-		records = append(records, repackRecord{index: i, handle: entry.Handle, itemID: entry.ItemID, typeID: typeID, entry: entry})
+		records = append(records, gaItemStructuralRecord{index: i, handle: entry.Handle, itemID: entry.ItemID, typeID: typeID, entry: entry})
 	}
 
-	if !validRepackGaItemIndices(slot, len(records)) {
-		blockers = append(blockers, newRepackBlocker(
+	if !validGaItemIndices(slot, len(records)) {
+		issues = append(issues, newGaItemStructuralIssue(
 			"gaitem_indices",
 			fmt.Sprintf("NextAoWIndex=%d NextArmamentIndex=%d len(GaItems)=%d", slot.NextAoWIndex, slot.NextArmamentIndex, len(slot.GaItems)),
 			len(slot.GaItems),
 		))
 	}
-	return records, blockers
+	return records, issues
 }
 
-func validRepackGaItemIndices(slot *SaveSlot, recordCount int) bool {
+func validGaItemIndices(slot *SaveSlot, recordCount int) bool {
 	if len(slot.GaItems) == 0 && recordCount == 0 {
 		return slot.NextAoWIndex >= 0 && slot.NextAoWIndex <= 1 && slot.NextArmamentIndex == 1
 	}
@@ -175,8 +175,8 @@ func validRepackGaItemIndices(slot *SaveSlot, recordCount int) bool {
 		slot.NextArmamentIndex <= len(slot.GaItems)
 }
 
-func repackReferenceBlockers(slot *SaveSlot, records []repackRecord) []GaItemRepackBlocker {
-	physical := make(map[uint32]repackRecord, len(records))
+func gaItemReferenceIssues(slot *SaveSlot, records []gaItemStructuralRecord) []GaItemStructuralIssue {
+	physical := make(map[uint32]gaItemStructuralRecord, len(records))
 	aowRecords := make(map[uint32]struct{})
 	for _, record := range records {
 		physical[record.handle] = record
@@ -185,16 +185,16 @@ func repackReferenceBlockers(slot *SaveSlot, records []repackRecord) []GaItemRep
 		}
 	}
 
-	var blockers []GaItemRepackBlocker
+	var issues []GaItemStructuralIssue
 	for handle, itemID := range slot.GaMap {
 		if itemID == 0 {
-			blockers = append(blockers, newRepackBlocker("gamap_zero_id", fmt.Sprintf("GaMap handle 0x%08X maps to itemID=0", handle), int(handle)))
+			issues = append(issues, newGaItemStructuralIssue("gamap_zero_id", fmt.Sprintf("GaMap handle 0x%08X maps to itemID=0", handle), int(handle)))
 		}
 	}
 	for _, record := range records {
 		itemID, ok := slot.GaMap[record.handle]
 		if !ok || itemID != record.itemID {
-			blockers = append(blockers, newRepackBlocker(
+			issues = append(issues, newGaItemStructuralIssue(
 				"gamap_record_mismatch",
 				fmt.Sprintf("GaItem[%d] handle 0x%08X does not match GaMap", record.index, record.handle),
 				record.index,
@@ -207,7 +207,7 @@ func repackReferenceBlockers(slot *SaveSlot, records []repackRecord) []GaItemRep
 		}
 		typeID := handle & GaHandleTypeMask
 		if typeID != ItemTypeAccessory && typeID != ItemTypeItem {
-			blockers = append(blockers, newRepackBlocker(
+			issues = append(issues, newGaItemStructuralIssue(
 				"orphan_gamap_entry",
 				fmt.Sprintf("GaMap handle 0x%08X has no physical GaItem record", handle),
 				int(handle),
@@ -215,10 +215,10 @@ func repackReferenceBlockers(slot *SaveSlot, records []repackRecord) []GaItemRep
 		}
 	}
 
-	blockers = append(blockers, repackContainerBlockers(slot.Inventory.CommonItems, "inventory", physical, slot.GaMap)...)
-	blockers = append(blockers, repackContainerBlockers(slot.Inventory.KeyItems, "inventory key items", physical, slot.GaMap)...)
-	blockers = append(blockers, repackContainerBlockers(slot.Storage.CommonItems, "storage", physical, slot.GaMap)...)
-	blockers = append(blockers, repackAoWBlockers(records, aowRecords)...)
+	issues = append(issues, gaItemContainerIssues(slot.Inventory.CommonItems, "inventory", physical, slot.GaMap)...)
+	issues = append(issues, gaItemContainerIssues(slot.Inventory.KeyItems, "inventory key items", physical, slot.GaMap)...)
+	issues = append(issues, gaItemContainerIssues(slot.Storage.CommonItems, "storage", physical, slot.GaMap)...)
+	issues = append(issues, gaItemAoWIssues(records, aowRecords)...)
 
 	headerCount := binary.LittleEndian.Uint32(slot.Data[slot.StorageBoxOffset:])
 	actualStorageCount := uint32(0)
@@ -231,7 +231,7 @@ func repackReferenceBlockers(slot *SaveSlot, records []repackRecord) []GaItemRep
 		}
 	}
 	if headerCount != actualStorageCount {
-		blockers = append(blockers, newRepackBlocker(
+		issues = append(issues, newGaItemStructuralIssue(
 			"storage_count",
 			fmt.Sprintf("storage header count %d != actual items %d", headerCount, actualStorageCount),
 			0,
@@ -240,17 +240,17 @@ func repackReferenceBlockers(slot *SaveSlot, records []repackRecord) []GaItemRep
 
 	gaItemDataCount := binary.LittleEndian.Uint32(slot.Data[slot.GaItemDataOffset:])
 	if gaItemDataCount > GaItemDataMaxCount {
-		blockers = append(blockers, newRepackBlocker(
+		issues = append(issues, newGaItemStructuralIssue(
 			"gaitemdata_count",
 			fmt.Sprintf("GaItemData count %d > max %d", gaItemDataCount, GaItemDataMaxCount),
 			0,
 		))
 	}
-	return blockers
+	return issues
 }
 
-func repackContainerBlockers(items []InventoryItem, scope string, physical map[uint32]repackRecord, gaMap map[uint32]uint32) []GaItemRepackBlocker {
-	var blockers []GaItemRepackBlocker
+func gaItemContainerIssues(items []InventoryItem, scope string, physical map[uint32]gaItemStructuralRecord, gaMap map[uint32]uint32) []GaItemStructuralIssue {
+	var issues []GaItemStructuralIssue
 	for i, item := range items {
 		handle := item.GaItemHandle
 		if handle == GaHandleEmpty || handle == GaHandleInvalid {
@@ -265,7 +265,7 @@ func repackContainerBlockers(items []InventoryItem, scope string, physical map[u
 				if scope == "storage" {
 					code = "orphan_storage_handle"
 				}
-				blockers = append(blockers, newRepackBlocker(
+				issues = append(issues, newGaItemStructuralIssue(
 					code,
 					fmt.Sprintf("%s[%d] handle 0x%08X does not resolve to a matching GaItem", scope, i, handle),
 					i,
@@ -277,10 +277,10 @@ func repackContainerBlockers(items []InventoryItem, scope string, physical map[u
 			// is still rejected by the global gamap_zero_id preflight check.
 		}
 	}
-	return blockers
+	return issues
 }
 
-func repackAoWBlockers(records []repackRecord, aowRecords map[uint32]struct{}) []GaItemRepackBlocker {
+func gaItemAoWIssues(records []gaItemStructuralRecord, aowRecords map[uint32]struct{}) []GaItemStructuralIssue {
 	refs := make(map[uint32][]int)
 	for _, record := range records {
 		if record.typeID != ItemTypeWeapon || IsNoCustomAoWHandle(record.entry.AoWGaItemHandle) {
@@ -290,11 +290,11 @@ func repackAoWBlockers(records []repackRecord, aowRecords map[uint32]struct{}) [
 		refs[handle] = append(refs[handle], record.index)
 	}
 
-	var blockers []GaItemRepackBlocker
+	var issues []GaItemStructuralIssue
 	for handle, weaponIndices := range refs {
 		if _, exists := aowRecords[handle]; !exists {
 			for _, weaponIndex := range weaponIndices {
-				blockers = append(blockers, newRepackBlocker(
+				issues = append(issues, newGaItemStructuralIssue(
 					"dangling_aow_handle",
 					fmt.Sprintf("GaItem[%d] references missing Ash of War handle 0x%08X", weaponIndex, handle),
 					weaponIndex,
@@ -303,7 +303,7 @@ func repackAoWBlockers(records []repackRecord, aowRecords map[uint32]struct{}) [
 		}
 		if len(weaponIndices) > 1 {
 			for _, weaponIndex := range weaponIndices[1:] {
-				blockers = append(blockers, newRepackBlocker(
+				issues = append(issues, newGaItemStructuralIssue(
 					"shared_aow_handle",
 					fmt.Sprintf("Ash of War handle 0x%08X is referenced by multiple weapons", handle),
 					weaponIndex,
@@ -311,22 +311,30 @@ func repackAoWBlockers(records []repackRecord, aowRecords map[uint32]struct{}) [
 			}
 		}
 	}
-	return blockers
+	return issues
 }
 
-func newRepackBlocker(code, message string, order int) GaItemRepackBlocker {
-	return GaItemRepackBlocker{Code: code, Message: message, order: order}
+func newGaItemStructuralIssue(code, message string, order int) GaItemStructuralIssue {
+	return GaItemStructuralIssue{Code: code, Message: message, order: order}
 }
 
-func sortRepackBlockers(blockers []GaItemRepackBlocker) []GaItemRepackBlocker {
-	sort.Slice(blockers, func(i, j int) bool {
-		if blockers[i].Code != blockers[j].Code {
-			return blockers[i].Code < blockers[j].Code
+func sortGaItemStructuralIssues(issues []GaItemStructuralIssue) []GaItemStructuralIssue {
+	sort.Slice(issues, func(i, j int) bool {
+		if issues[i].Code != issues[j].Code {
+			return issues[i].Code < issues[j].Code
 		}
-		if blockers[i].order != blockers[j].order {
-			return blockers[i].order < blockers[j].order
+		if issues[i].order != issues[j].order {
+			return issues[i].order < issues[j].order
 		}
-		return blockers[i].Message < blockers[j].Message
+		return issues[i].Message < issues[j].Message
 	})
-	return blockers
+	return issues
+}
+
+func formatGaItemStructuralIssues(issues []GaItemStructuralIssue) string {
+	parts := make([]string, len(issues))
+	for i, issue := range issues {
+		parts[i] = issue.Code + ": " + issue.Message
+	}
+	return strings.Join(parts, "; ")
 }

@@ -350,7 +350,7 @@ var buildValidationSnapshot = editor.BuildSnapshot
 // Read-only with respect to both the slot and Inventory Workspaces: it builds
 // a throwaway snapshot via editor.BuildSnapshot instead of publishing an edit
 // session, so a diagnostic scan never creates, replaces, or discards an
-// existing session (which would otherwise block the GaItem optimizer).
+// existing session or its pending edits.
 func (a *App) ScanRepairIssuesLoaded(charIdx int) (RepairIssueReport, error) {
 	// The operation lifecycle brackets the whole call. requested fires before any
 	// lock or validation, so even an early rejection still leaves a

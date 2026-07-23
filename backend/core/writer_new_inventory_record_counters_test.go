@@ -17,7 +17,7 @@ import (
 // silently refused to render. Runs entirely against an in-memory fixture — no
 // dependency on any private save under tmp/.
 func TestAddItemsToSlotBatch_NewInventoryRecordAdvancesCounters(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 
 	const wantIndex = uint32(969)

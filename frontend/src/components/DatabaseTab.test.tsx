@@ -398,72 +398,24 @@ describe('DatabaseTab', () => {
     });
 
     // Drives a gaitem_full failure through the add flow with the supplied result.
-    async function triggerGaItemFull(result: object, onOptimizeGaItem?: (ctx: { neededGaItems: number }) => void) {
+    async function triggerGaItemFull(result: object) {
         mocks.AddItemsToCharacter.mockResolvedValue(result);
-        renderTab(onOptimizeGaItem ? { onOptimizeGaItem } : {});
+        renderTab();
         fireEvent.click(await screen.findByRole('button', { name: /Add Favorites/i }));
         fireEvent.click(await screen.findByRole('button', { name: 'Add Anyway' }));
         fireEvent.click(await screen.findByRole('button', { name: /^Add$/ }));
     }
 
-    it('error modal: eligible gaitem_full renders backend capacity copy and an optimization CTA', async () => {
-        const onOptimizeGaItem = vi.fn();
-        await triggerGaItemFull({
-            added: 0, requested: 328, trimmed: [], capHit: 'gaitem_full',
-            freeInv: 566, freeStore: 493, neededInv: 328, neededStore: 328,
-            freeGaItems: 47, neededGaItems: 200,
-            gaItemCapacity: { physicalEmpty: 300, cursorRoom: 47, usable: 47 },
-            gaItemRepackCTA: { eligible: true, recovered: 253 },
-        }, onOptimizeGaItem);
-
-        expect(await screen.findByText('GaItem Slots Full')).toBeInTheDocument();
-        expect(screen.getByText(/GaItem allocation: need 200, usable 47 \(physical empty 300, cursor room 47\)/)).toBeInTheDocument();
-
-        const cta = screen.getByRole('button', { name: 'Review GaItem optimization' });
-        fireEvent.click(cta);
-
-        expect(onOptimizeGaItem).toHaveBeenCalledWith({ neededGaItems: 200 });
-        await waitFor(() =>
-            expect(screen.queryByText('GaItem Slots Full')).not.toBeInTheDocument());
-    });
-
-    it('error modal: physical-empty insufficiency shows the helper copy and no CTA when ineligible', async () => {
-        const onOptimizeGaItem = vi.fn();
+    it('error modal: gaitem_full explains physical exhaustion without an optimization CTA', async () => {
         await triggerGaItemFull({
             added: 0, requested: 328, trimmed: [], capHit: 'gaitem_full',
             freeInv: 566, freeStore: 493, neededInv: 328, neededStore: 328,
             freeGaItems: 5, neededGaItems: 656,
-            gaItemCapacity: { physicalEmpty: 5, cursorRoom: 0, usable: 0 },
-            gaItemRepackCTA: { eligible: false, recovered: 0 },
-        }, onOptimizeGaItem);
+        });
 
         expect(await screen.findByText('GaItem Slots Full')).toBeInTheDocument();
-        expect(screen.getByText(/This batch needs more physical GaItem records than are empty/)).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Review GaItem optimization' })).not.toBeInTheDocument();
-    });
-
-    it('error modal: gaitem_full without the new DTO fields keeps the fallback copy and shows no CTA', async () => {
-        const onOptimizeGaItem = vi.fn();
-        await triggerGaItemFull({
-            added: 0, requested: 328, trimmed: [], capHit: 'gaitem_full',
-            freeInv: 566, freeStore: 493, neededInv: 328, neededStore: 328,
-            freeGaItems: 47, neededGaItems: 656,
-        }, onOptimizeGaItem);
-
-        expect(await screen.findByText('GaItem Slots Full')).toBeInTheDocument();
-        expect(screen.getByText(/GaItem allocation: need 656, free 47/)).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Review GaItem optimization' })).not.toBeInTheDocument();
-    });
-
-    it('error modal: a non-gaitem_full capacity failure never renders the CTA', async () => {
-        const onOptimizeGaItem = vi.fn();
-        await triggerGaItemFull({
-            added: 0, requested: 1, trimmed: [], capHit: 'inventory_full',
-            freeInv: 0, freeStore: 1, neededInv: 5, neededStore: 3,
-        }, onOptimizeGaItem);
-
-        expect(await screen.findByText('Inventory Full')).toBeInTheDocument();
-        expect(screen.queryByRole('button', { name: 'Review GaItem optimization' })).not.toBeInTheDocument();
+        expect(screen.getByText(/GaItem allocation: need 656, free 5/)).toBeInTheDocument();
+        expect(screen.getByText(/All physical GaItem records are occupied/)).toBeInTheDocument();
     });
 
     function makePebble(): db.ItemEntry {

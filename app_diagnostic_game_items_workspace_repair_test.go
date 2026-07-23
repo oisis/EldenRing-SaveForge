@@ -14,12 +14,12 @@ import (
 // the repairable validation issue the public endpoint is expected to clamp.
 func repairWorkspaceFixture(t *testing.T) (*App, string, string) {
 	t.Helper()
-	app := diagnosticRepackApp(t)
+	app := diagnosticGaItemApp(t)
 	app.journal = newInMemoryDiagnosticJournal()
 	slot := &app.save.Slots[0]
 	weapon := slot.GaItems[2]
 	if weapon.IsEmpty() {
-		t.Fatal("diagnostic repack fixture lost its weapon record")
+		t.Fatal("diagnostic GaItem fixture lost its weapon record")
 	}
 	invStart := slot.MagicOffset + core.InvStartFromMagic
 	binary.LittleEndian.PutUint32(slot.Data[invStart-4:], 1)

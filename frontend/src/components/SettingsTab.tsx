@@ -38,8 +38,6 @@ interface SettingsTabProps {
     charIndex: number;
     onComplete: () => void;
     onMutate?: () => void;
-    // Opens the App-owned GaItem repack modal for the current character.
-    onOptimizeGaItem?: () => void;
     // Opens the App-owned shared duplicate-repair modal for a physical GaItem handle.
     onResolveDuplicateGaItem?: (slotIndex: number, handle: number) => void;
 }
@@ -64,7 +62,7 @@ export function SettingsTab({
     platform, saveLoadKey, charIndex,
     selectedDeployTarget: selectedTarget, setSelectedDeployTarget: setSelectedTarget,
     onAfterLoad,
-    onComplete, onMutate, onOptimizeGaItem, onResolveDuplicateGaItem,
+    onComplete, onMutate, onResolveDuplicateGaItem,
 }: SettingsTabProps) {
     const {count: favCount} = useFavorites();
     const [view, setView] = useState<'overview' | 'favorites'>('overview');
@@ -554,16 +552,6 @@ export function SettingsTab({
                                 </svg>
                             }
                             {scanning ? 'Scanning…' : 'Diagnostics'}
-                        </button>
-                        <button
-                            onClick={() => onOptimizeGaItem?.()}
-                            disabled={!platform}
-                            className="flex items-center gap-2 px-3 py-2 rounded bg-primary text-primary-foreground hover:brightness-110 transition-all text-[9px] font-black uppercase tracking-widest shadow-sm active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h7" />
-                            </svg>
-                            Optimize GaItem allocation
                         </button>
                         <div className="flex items-center gap-2 px-3 py-2 rounded bg-muted/30 border border-border text-muted-foreground opacity-50 cursor-not-allowed text-[9px] font-black uppercase tracking-widest">
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

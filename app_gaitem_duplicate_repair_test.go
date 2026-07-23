@@ -251,8 +251,8 @@ func TestGaItemDuplicateRepair_App_AnalyzeExecuteAndUndo(t *testing.T) {
 			t.Fatalf("container reference %d changed: %+v -> %+v", i, invBefore[i], slot.Inventory.CommonItems[i])
 		}
 	}
-	if pf := core.PreflightGaItemRepack(slot); len(pf.Blockers) != 0 {
-		t.Fatalf("preflight still blocked after dedup: %+v", pf.Blockers)
+	if report := core.ScanGaItemStructuralIssues(slot); len(report.Issues) != 0 {
+		t.Fatalf("structural issues remain after dedup: %+v", report.Issues)
 	}
 	if depth := app.GetUndoDepth(charIdx); depth != 1 {
 		t.Fatalf("undo depth=%d, want 1", depth)
@@ -273,7 +273,7 @@ func TestGaItemDuplicateRepair_App_AnalyzeExecuteAndUndo(t *testing.T) {
 // only fixture, this slot round-trips through RebuildSlotFull, so it drives the
 // real App execute-success path without loading any user save.
 //
-// It builds the byte layout with the same formulas as the core repack fixtures,
+// It builds the byte layout with the same formulas as the core GaItem fixtures,
 // using only exported core API: a first Read() computes the dynamic offsets, the
 // container/equipment bytes are written at those offsets, and a second Read()
 // reparses the coherent slot. It returns the lower-index candidate as the keep

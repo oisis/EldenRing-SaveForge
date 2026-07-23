@@ -131,10 +131,10 @@ func (layout nativeGaItemLayout) firstFreeIndex() (int, bool) {
 // NativeGaItemCapacity validates the persisted two-pass layout and reports the
 // capacity available to the hole allocator. All physical holes are usable;
 // there is no separate monotonic cursor limit in the native model.
-func NativeGaItemCapacity(slot *SaveSlot) (GaItemCapacity, error) {
+func NativeGaItemCapacity(slot *SaveSlot) (int, error) {
 	layout, err := analyzeNativeGaItemLayout(slot)
 	if err != nil {
-		return GaItemCapacity{}, err
+		return 0, err
 	}
 	free := 0
 	for _, used := range layout.used {
@@ -142,7 +142,7 @@ func NativeGaItemCapacity(slot *SaveSlot) (GaItemCapacity, error) {
 			free++
 		}
 	}
-	return GaItemCapacity{PhysicalEmpty: free, CursorRoom: free, Usable: free}, nil
+	return free, nil
 }
 
 func validatePhysicalGaItemReferences(slot *SaveSlot, items map[uint32]uint32) error {

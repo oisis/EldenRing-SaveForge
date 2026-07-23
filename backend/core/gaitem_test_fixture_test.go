@@ -5,10 +5,9 @@ import (
 	"testing"
 )
 
-// repackPreflightFixture is the smallest healthy slot accepted by the repack
-// preflight. Keep it deliberately narrow for refusal tests; richer regression
-// cases use fragmentedRepackReferenceFixture below.
-func repackPreflightFixture() *SaveSlot {
+// gaItemStructuralFixture is the smallest healthy slot accepted by the
+// structural integrity scan. Keep it deliberately narrow for refusal tests.
+func gaItemStructuralFixture() *SaveSlot {
 	slot := &SaveSlot{
 		Data:              make([]byte, SlotSize),
 		Version:           1,
@@ -31,7 +30,7 @@ func repackPreflightFixture() *SaveSlot {
 	return slot
 }
 
-type repackFixtureHandles struct {
+type gaItemFixtureHandles struct {
 	AoW       uint32
 	Weapon    uint32
 	Armor     uint32
@@ -39,27 +38,26 @@ type repackFixtureHandles struct {
 	Unarmed   uint32
 }
 
-type repackReferenceFixture struct {
+type gaItemReferenceFixture struct {
 	Slot    *SaveSlot
-	Handles repackFixtureHandles
+	Handles gaItemFixtureHandles
 }
 
-// fragmentedRepackReferenceFixture is the reusable, in-memory source for the
-// repack regression suite. It deliberately contains holes before the exhausted
-// armament cursor and exercises the reference classes that repack must preserve:
+// fragmentedGaItemReferenceFixture is the reusable in-memory source for tests
+// that exercise holes and the supported GaItem reference classes:
 // a weapon -> AoW link, ordinary armor, and both game technical placeholders
 // (naked armor and Unarmed). It never reads or writes tmp/save fixtures.
-func fragmentedRepackReferenceFixture(t *testing.T) repackReferenceFixture {
+func fragmentedGaItemReferenceFixture(t *testing.T) gaItemReferenceFixture {
 	t.Helper()
 
-	handles := repackFixtureHandles{
+	handles := gaItemFixtureHandles{
 		AoW:       ItemTypeAow | gaItemHandleValidBit | 0x101,
 		Weapon:    ItemTypeWeapon | gaItemHandleValidBit | 0x102,
 		Armor:     ItemTypeArmor | gaItemHandleValidBit | 0x103,
 		NakedHead: ItemTypeArmor | gaItemHandleValidBit | 0x104,
 		Unarmed:   ItemTypeWeapon | gaItemHandleValidBit | 0x105,
 	}
-	slot := repackPreflightFixture()
+	slot := gaItemStructuralFixture()
 	slot.GaItems = []GaItemFull{
 		{Handle: handles.AoW, ItemID: 0x80000001, Unk2: -1, Unk3: -2, AoWGaItemHandle: LegacyNoCustomAoWHandle, Unk5: 1},
 		{},
@@ -92,21 +90,20 @@ func fragmentedRepackReferenceFixture(t *testing.T) repackReferenceFixture {
 	binary.LittleEndian.PutUint32(slot.Data[storageRecord+4:], 1)
 	binary.LittleEndian.PutUint32(slot.Data[storageRecord+8:], 200)
 
-	return repackReferenceFixture{Slot: slot, Handles: handles}
+	return gaItemReferenceFixture{Slot: slot, Handles: handles}
 }
 
-// fragmentedRepackRoundTripFixture is the fully serializable form of the
+// fragmentedGaItemRoundTripFixture is the fully serializable form of the
 // reference fixture. It has the production-size GaItem table and a coherent
-// binary layout, so RepackGaItems can rebuild and reparse it in a test without
-// using a user save file.
-func fragmentedRepackRoundTripFixture(t *testing.T) repackReferenceFixture {
-	return fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+// binary layout for rebuild/reparse tests without using a user save file.
+func fragmentedGaItemRoundTripFixture(t *testing.T) gaItemReferenceFixture {
+	return fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 }
 
-func fragmentedRepackRoundTripFixtureForVersion(t *testing.T, version uint32) repackReferenceFixture {
+func fragmentedGaItemRoundTripFixtureForVersion(t *testing.T, version uint32) gaItemReferenceFixture {
 	t.Helper()
 
-	fixture := fragmentedRepackReferenceFixture(t)
+	fixture := fragmentedGaItemReferenceFixture(t)
 	slot := fixture.Slot
 	initial := append([]GaItemFull(nil), slot.GaItems...)
 	gaItemCount := GaItemCountNew
@@ -114,9 +111,8 @@ func fragmentedRepackRoundTripFixtureForVersion(t *testing.T, version uint32) re
 		gaItemCount = GaItemCountOld
 	}
 	slot.GaItems = make([]GaItemFull, gaItemCount)
-	// The in-memory reference fixture is deliberately fragmented for Optimize
-	// tests. Its serializable form must instead obey the game's two-pass
-	// projection so it is a valid source for writer/add integration tests.
+	// Its serializable form obeys the game's two-pass projection so it is a
+	// valid source for writer/add integration tests.
 	for _, record := range initial {
 		if record.IsEmpty() {
 			continue
@@ -208,14 +204,10 @@ func writeFixtureStorage(slot *SaveSlot, items []InventoryItem) {
 	}
 }
 
-func TestFragmentedRepackReferenceFixture_IsHealthyAndRepresentative(t *testing.T) {
-	fixture := fragmentedRepackReferenceFixture(t)
-	preflight := PreflightGaItemRepack(fixture.Slot)
-	if len(preflight.Blockers) != 0 {
-		t.Fatalf("fixture blockers=%+v, want none", preflight.Blockers)
-	}
-	if preflight.Analysis.Recovered <= 0 {
-		t.Fatalf("fixture recovery=%d, want positive", preflight.Analysis.Recovered)
+func TestFragmentedGaItemReferenceFixture_IsHealthyAndRepresentative(t *testing.T) {
+	fixture := fragmentedGaItemReferenceFixture(t)
+	if report := ScanGaItemStructuralIssues(fixture.Slot); len(report.Issues) != 0 {
+		t.Fatalf("fixture issues=%+v, want none", report.Issues)
 	}
 
 	availability := ScanAoWAvailability(fixture.Slot)

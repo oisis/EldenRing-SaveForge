@@ -7,7 +7,6 @@ import {CharacterTab} from './components/CharacterTab';
 import {InventoryTab} from './components/InventoryTab';
 import {WorldTab} from './components/WorldTab';
 import {SettingsTab} from './components/SettingsTab';
-import {GaItemRepackModal} from './components/GaItemRepackModal';
 import {GaItemDuplicateRepairModal} from './components/GaItemDuplicateRepairModal';
 import {DiagnosticsModal} from './components/DiagnosticsModal';
 import {InventoryIssuesModal} from './components/InventoryIssuesModal';
@@ -78,12 +77,8 @@ function App() {
     const [theme, setTheme] = useState<Theme>(() => {
         return (localStorage.getItem('setting:theme') as Theme) || 'dark';
     });
-    // Character index the GaItem repack modal is open for (null = closed).
-    const [gaItemRepackChar, setGaItemRepackChar] = useState<number | null>(null);
-    // Optional CTA display context (add batch rejected for lack of GaItem room).
-    const [gaItemRepackCtx, setGaItemRepackCtx] = useState<{neededGaItems: number} | null>(null);
     // Shared duplicate-repair modal context: character index + physical handle
-    // (null = closed). Reachable from Diagnostics and the repack refusal path.
+    // (null = closed). Reachable from Diagnostics.
     const [gaItemDuplicateCtx, setGaItemDuplicateCtx] = useState<{charIndex: number; handle: number} | null>(null);
     const [cloneModal, setCloneModal] = useState<{srcIdx: number} | null>(null);
     const [deleteModal, setDeleteModal] = useState<{idx: number} | null>(null);
@@ -359,8 +354,7 @@ function App() {
     };
 
     // Drops the loaded save from backend memory and resets the UI to the
-    // no-save state. Shared by the integrity gate and the GaItem repack critical
-    // path. Throws on backend failure so callers can surface it.
+    // no-save state. Throws on backend failure so callers can surface it.
     const closeSaveWithoutSaving = async () => {
         await CloseSave();
         setIntegrityReport(null);
@@ -369,24 +363,13 @@ function App() {
         setActiveSlots([]);
         setCharacterNames([]);
         setSelectedChar(0);
-        setGaItemRepackChar(null);
-        setGaItemRepackCtx(null);
         setGaItemDuplicateCtx(null);
         setSaveLoadKey(k => k + 1);
     };
 
-    // Shared open path for the GaItem repack modal. Stores optional CTA context
-    // (or clears it) and opens the modal for the currently selected character.
-    const openGaItemRepack = (ctx?: {neededGaItems: number}) => {
-        setGaItemRepackCtx(ctx ?? null);
-        setGaItemRepackChar(selectedChar);
-    };
-
-    // Shared open path for the duplicate-repair modal. Closes any repack or issues
-    // modal first so only one flow is on screen, then opens the duplicate modal.
+    // Shared open path for the duplicate-repair modal. Closes the issues modal
+    // first so only one repair flow is on screen.
     const openGaItemDuplicateRepair = (charIndex: number, handle: number) => {
-        setGaItemRepackChar(null);
-        setGaItemRepackCtx(null);
         setInventoryIssuesModal(null);
         setGaItemDuplicateCtx({charIndex, handle});
     };
@@ -703,7 +686,6 @@ function App() {
                                     charIndex={selectedChar}
                                     onComplete={refreshSlots}
                                     onMutate={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
-                                    onOptimizeGaItem={() => openGaItemRepack()}
                                     onResolveDuplicateGaItem={(slotIndex, handle) => openGaItemDuplicateRepair(slotIndex, handle)}
                                 />
                             </div>
@@ -825,7 +807,6 @@ function App() {
                                                 onCloseDetail={() => setDetailItem(null)}
                                                 showOnlyFavorites={showOnlyFavorites}
                                                 onToggleFavorites={() => setShowOnlyFavorites(v => !v)}
-                                                onOptimizeGaItem={(ctx) => openGaItemRepack(ctx)}
                                             />
                                         ) : (
                                             <SortOrderTab
@@ -941,18 +922,6 @@ function App() {
                     </div>
                 </div>
             </div>
-        )}
-        {gaItemRepackChar !== null && (
-            <GaItemRepackModal
-                charIndex={gaItemRepackChar}
-                characterName={charNames[gaItemRepackChar]}
-                onWriteSave={handleSaveAs}
-                onRefresh={() => { setInventoryVersion(v => v + 1); setSaveLoadKey(k => k + 1); refreshSlots(); refreshUndoDepth(); }}
-                onCloseSaveWithoutSaving={closeSaveWithoutSaving}
-                ctaContext={gaItemRepackCtx ?? undefined}
-                onResolveDuplicateGaItem={(handle) => openGaItemDuplicateRepair(gaItemRepackChar, handle)}
-                onClose={() => { setGaItemRepackChar(null); setGaItemRepackCtx(null); }}
-            />
         )}
         {gaItemDuplicateCtx && (
             <GaItemDuplicateRepairModal

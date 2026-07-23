@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### refactor(gaitem): remove obsolete allocation optimizer
+
+Removed the GaItem allocation optimizer, its modal and its recovery prompt.
+SaveForge now uses the game's native hole-allocation model directly; when all
+physical records are occupied, the app asks the user to remove items instead
+of offering non-durable compaction. Duplicate-handle repair and its structural
+safety checks remain available.
+
 ## [1.5.8] - 2026-07-21
 
 ### chore(item-save): document and guard verified save behavior

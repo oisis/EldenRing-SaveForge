@@ -1296,36 +1296,6 @@ export namespace main {
 	        this.sessionID = source["sessionID"];
 	    }
 	}
-	export class GaItemRepackCTA {
-	    eligible: boolean;
-	    recovered: number;
-
-	    static createFrom(source: any = {}) {
-	        return new GaItemRepackCTA(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.eligible = source["eligible"];
-	        this.recovered = source["recovered"];
-	    }
-	}
-	export class GaItemCapacity {
-	    physicalEmpty: number;
-	    cursorRoom: number;
-	    usable: number;
-
-	    static createFrom(source: any = {}) {
-	        return new GaItemCapacity(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.physicalEmpty = source["physicalEmpty"];
-	        this.cursorRoom = source["cursorRoom"];
-	        this.usable = source["usable"];
-	    }
-	}
 	export class SkippedAdd {
 	    itemID: number;
 	    cutQty: number;
@@ -1352,8 +1322,6 @@ export namespace main {
 	    neededStore: number;
 	    freeGaItems: number;
 	    neededGaItems: number;
-	    gaItemCapacity?: GaItemCapacity;
-	    gaItemRepackCTA?: GaItemRepackCTA;
 
 	    static createFrom(source: any = {}) {
 	        return new AddResult(source);
@@ -1372,8 +1340,6 @@ export namespace main {
 	        this.neededStore = source["neededStore"];
 	        this.freeGaItems = source["freeGaItems"];
 	        this.neededGaItems = source["neededGaItems"];
-	        this.gaItemCapacity = this.convertValues(source["gaItemCapacity"], GaItemCapacity);
-	        this.gaItemRepackCTA = this.convertValues(source["gaItemRepackCTA"], GaItemRepackCTA);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1808,14 +1774,13 @@ export namespace main {
 	        this.image = source["image"];
 	    }
 	}
-
-	export class GaItemRepackFailure {
+	export class GaItemMutationFailure {
 	    stage: string;
 	    code: string;
 	    message: string;
 
 	    static createFrom(source: any = {}) {
-	        return new GaItemRepackFailure(source);
+	        return new GaItemMutationFailure(source);
 	    }
 
 	    constructor(source: any = {}) {
@@ -1855,7 +1820,7 @@ export namespace main {
 	    candidates: GaItemDuplicateCandidate[];
 	    refusalCode?: string;
 	    refusalMessage?: string;
-	    failure?: GaItemRepackFailure;
+	    failure?: GaItemMutationFailure;
 
 	    static createFrom(source: any = {}) {
 	        return new GaItemDuplicateAnalysis(source);
@@ -1870,7 +1835,7 @@ export namespace main {
 	        this.candidates = this.convertValues(source["candidates"], GaItemDuplicateCandidate);
 	        this.refusalCode = source["refusalCode"];
 	        this.refusalMessage = source["refusalMessage"];
-	        this.failure = this.convertValues(source["failure"], GaItemRepackFailure);
+	        this.failure = this.convertValues(source["failure"], GaItemMutationFailure);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1910,14 +1875,14 @@ export namespace main {
 	        this.analysisToken = source["analysisToken"];
 	    }
 	}
-	export class GaItemRepackRollback {
+	export class GaItemMutationRollback {
 	    attempted: boolean;
 	    complete: boolean;
 	    mode: string;
-	    failure?: GaItemRepackFailure;
+	    failure?: GaItemMutationFailure;
 
 	    static createFrom(source: any = {}) {
-	        return new GaItemRepackRollback(source);
+	        return new GaItemMutationRollback(source);
 	    }
 
 	    constructor(source: any = {}) {
@@ -1925,7 +1890,7 @@ export namespace main {
 	        this.attempted = source["attempted"];
 	        this.complete = source["complete"];
 	        this.mode = source["mode"];
-	        this.failure = this.convertValues(source["failure"], GaItemRepackFailure);
+	        this.failure = this.convertValues(source["failure"], GaItemMutationFailure);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1952,8 +1917,8 @@ export namespace main {
 	    handle: number;
 	    keptIndex: number;
 	    removedIndex: number;
-	    failure?: GaItemRepackFailure;
-	    rollback?: GaItemRepackRollback;
+	    failure?: GaItemMutationFailure;
+	    rollback?: GaItemMutationRollback;
 
 	    static createFrom(source: any = {}) {
 	        return new GaItemDuplicateExecutionResult(source);
@@ -1966,128 +1931,8 @@ export namespace main {
 	        this.handle = source["handle"];
 	        this.keptIndex = source["keptIndex"];
 	        this.removedIndex = source["removedIndex"];
-	        this.failure = this.convertValues(source["failure"], GaItemRepackFailure);
-	        this.rollback = this.convertValues(source["rollback"], GaItemRepackRollback);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class GaItemRepackBlocker {
-	    code: string;
-	    message: string;
-	    handle?: number;
-
-	    static createFrom(source: any = {}) {
-	        return new GaItemRepackBlocker(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.code = source["code"];
-	        this.message = source["message"];
-	        this.handle = source["handle"];
-	    }
-	}
-	export class GaItemRepackAnalysis {
-	    outcome: string;
-	    characterIndex: number;
-	    analysisToken?: string;
-	    before: GaItemCapacity;
-	    projectedAfter?: GaItemCapacity;
-	    recovered: number;
-	    nonEmptyRecords: number;
-	    blockers: GaItemRepackBlocker[];
-	    failure?: GaItemRepackFailure;
-
-	    static createFrom(source: any = {}) {
-	        return new GaItemRepackAnalysis(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.outcome = source["outcome"];
-	        this.characterIndex = source["characterIndex"];
-	        this.analysisToken = source["analysisToken"];
-	        this.before = this.convertValues(source["before"], GaItemCapacity);
-	        this.projectedAfter = this.convertValues(source["projectedAfter"], GaItemCapacity);
-	        this.recovered = source["recovered"];
-	        this.nonEmptyRecords = source["nonEmptyRecords"];
-	        this.blockers = this.convertValues(source["blockers"], GaItemRepackBlocker);
-	        this.failure = this.convertValues(source["failure"], GaItemRepackFailure);
-	    }
-
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-
-
-	export class GaItemRepackExecuteRequest {
-	    characterIndex: number;
-	    analysisToken: string;
-
-	    static createFrom(source: any = {}) {
-	        return new GaItemRepackExecuteRequest(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.characterIndex = source["characterIndex"];
-	        this.analysisToken = source["analysisToken"];
-	    }
-	}
-	export class GaItemRepackExecutionResult {
-	    outcome: string;
-	    characterIndex: number;
-	    before: GaItemCapacity;
-	    after?: GaItemCapacity;
-	    recovered: number;
-	    failure?: GaItemRepackFailure;
-	    rollback?: GaItemRepackRollback;
-
-	    static createFrom(source: any = {}) {
-	        return new GaItemRepackExecutionResult(source);
-	    }
-
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.outcome = source["outcome"];
-	        this.characterIndex = source["characterIndex"];
-	        this.before = this.convertValues(source["before"], GaItemCapacity);
-	        this.after = this.convertValues(source["after"], GaItemCapacity);
-	        this.recovered = source["recovered"];
-	        this.failure = this.convertValues(source["failure"], GaItemRepackFailure);
-	        this.rollback = this.convertValues(source["rollback"], GaItemRepackRollback);
+	        this.failure = this.convertValues(source["failure"], GaItemMutationFailure);
+	        this.rollback = this.convertValues(source["rollback"], GaItemMutationRollback);
 	    }
 
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

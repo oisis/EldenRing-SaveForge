@@ -10,8 +10,7 @@ interface GaItemDuplicateRepairModalProps {
     charIndex: number;
     characterName?: string;
     // The physical GaItem handle to deduplicate. Supplied structurally by the
-    // Diagnostics issue key or the repack duplicate_handle blocker — never parsed
-    // from a message string.
+    // Diagnostics issue key, never parsed from a message string.
     handle: number;
     // Refresh App state after a successful in-memory dedup (same as any mutation).
     onRefresh: () => void;
@@ -189,9 +188,7 @@ export function GaItemDuplicateRepairModal({
                         </div>
                         <div className="space-y-1.5 pt-1">
                             <p className={caveat}>The unselected physical record is removed.</p>
-                            <p className={caveat}>
-                                This changes only the in-memory slot. No file is written, and GaItem allocation optimization does not run automatically.
-                            </p>
+                            <p className={caveat}>This changes only the in-memory slot. No file is written.</p>
                             <p className={caveat}>{SAVEFORGE_CAVEAT}</p>
                         </div>
                         <div className="flex justify-end gap-2 pt-1">
@@ -246,9 +243,6 @@ export function GaItemDuplicateRepairModal({
                             Kept physical index {result.keptIndex}; removed physical index {result.removedIndex}.
                         </p>
                         <p className="text-[10px] font-bold text-amber-500">The active slot has changed in memory. No file has been written yet.</p>
-                        <p className={caveat}>
-                            If your next goal was to optimize GaItem allocation, run Optimize GaItem allocation again manually — it was not run automatically.
-                        </p>
                         <div className="flex justify-end pt-1">
                             <button onClick={onClose} className={btnPrimary}>Close</button>
                         </div>

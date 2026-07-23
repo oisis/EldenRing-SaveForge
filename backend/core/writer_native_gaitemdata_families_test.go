@@ -160,7 +160,7 @@ func TestCheckAddCapacity_ArrowAndBoltAsTwoNewIDsInBatch(t *testing.T) {
 
 func newRoundTripFixture(t *testing.T) *SaveSlot {
 	t.Helper()
-	return fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1).Slot
+	return fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1).Slot
 }
 
 func findCommonItemHandle(slot *SaveSlot, itemID uint32) (uint32, bool) {

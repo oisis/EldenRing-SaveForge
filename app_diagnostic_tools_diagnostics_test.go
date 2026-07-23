@@ -36,7 +36,7 @@ func setPrivateCharName(slot *core.SaveSlot) {
 
 // scanDiagApp wires an App to a file-backed journal (debug configurable) with a
 // healthy, non-empty slot 0 carrying the private character name. No on-disk user
-// save is touched — the slot is the synthetic fragmentedRepackSlot.
+// save is touched — the slot is the synthetic native-hole fixture.
 func scanDiagApp(t *testing.T, debug bool) (*App, int) {
 	t.Helper()
 	journal, err := newDiagnosticJournalInDir(t.TempDir())
@@ -48,7 +48,7 @@ func scanDiagApp(t *testing.T, debug bool) (*App, int) {
 	app := NewApp()
 	app.journal = journal
 	app.save = &core.SaveFile{}
-	app.save.Slots[0] = *fragmentedRepackSlot(t)
+	app.save.Slots[0] = *nativeHoleSlotFixture(t)
 	setPrivateCharName(&app.save.Slots[0])
 	app.saveGeneration = 1
 	return app, 0

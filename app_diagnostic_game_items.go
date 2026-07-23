@@ -40,7 +40,6 @@ const (
 	actionGameItemsWorkspaceRepair     = "workspace_auto_repair"
 	actionGameItemsWorkspaceSave       = "workspace_save"
 	actionGameItemsGaItemDeduplicate   = "gaitem_deduplicate"
-	actionGameItemsGaItemRepack        = "gaitem_repack"
 )
 
 // stageGameItemsApplyAddPlan is the finished-phase stage reported when the real
@@ -890,8 +889,8 @@ type gameItemMutationPlans struct {
 	storageHeader []gameItemSideEffectPlan
 	flags         []gameItemSideEffectPlan
 	// gaItemState holds the GaItem-specific semantic records (GaMap value changes
-	// then GaItem allocation cursors) that a GaItem structural mutation (dedup,
-	// and later repack) logs after its direct physical rows. It stays nil for the
+	// then GaItem allocation cursors) that duplicate repair logs after its direct
+	// physical rows. It stays nil for the
 	// unlock/save callers, so their lifecycle output is byte-for-byte unchanged.
 	gaItemState []gameItemSideEffectPlan
 }
@@ -917,7 +916,7 @@ func planGameItemsGaItemStructuralMutation(before, planned *core.SaveSlot) gameI
 }
 
 // planGameItemsGaItemState is the extensible GaItem-specific semantic projection
-// shared by GaItem structural mutations (dedup now, repack in Task 8B): the
+// emitted by GaItem duplicate repair: the
 // GaMap value changes (ascending handle) followed by the GaItem allocation
 // cursor changes. It is empty when neither actually changed, so adding it to an
 // otherwise-empty plan emits nothing.

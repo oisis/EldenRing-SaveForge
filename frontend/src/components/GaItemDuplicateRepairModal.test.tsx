@@ -158,15 +158,13 @@ describe('GaItemDuplicateRepairModal success', () => {
         return p;
     }
 
-    it('refreshes App once and never runs or opens GaItem optimization', async () => {
+    it('refreshes App once after a successful repair', async () => {
         const p = await execTo({
             outcome: 'success', characterIndex: 1, handle: HANDLE,
             keptIndex: 1, removedIndex: 2,
         });
         await screen.findByText('Duplicate GaItem resolved');
         expect(p.onRefresh).toHaveBeenCalledTimes(1);
-        // Points the user to a manual optimize run; does not automate it.
-        expect(screen.getByText(/run Optimize GaItem allocation again manually/)).toBeInTheDocument();
         expect(screen.getByText(/No file has been written yet/)).toBeInTheDocument();
     });
 

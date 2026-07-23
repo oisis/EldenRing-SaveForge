@@ -8,7 +8,7 @@ import (
 )
 
 // writeKeyItemsPhysical writes slot.Inventory.KeyItems into the KeyItems
-// physical byte region, mirroring gaitem_repack_fixture_test.go's
+// physical byte region, mirroring gaitem_test_fixture_test.go's
 // writeFixtureInventory. Needed because addToKeyItems scans slot.Data
 // directly (see writer.go), not the in-memory slice — a test that only
 // mutates slot.Inventory.KeyItems in Go memory would not reproduce the
@@ -70,7 +70,7 @@ func TestCheckAddCapacity_FullKeyItemsRejectsNewNativeKeyItem(t *testing.T) {
 // fails with io.ErrShortBuffer. Preflight and writer must never disagree —
 // this test and the one above check the identical fixture shape.
 func TestAddItemsToSlotBatch_FullKeyItemsFailsWriter(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 	slot.Inventory.KeyItems = fillKeyItems()
 	writeKeyItemsPhysical(slot)
@@ -102,7 +102,7 @@ func TestCheckAddCapacity_ExistingKeyItemBumpFitsDespiteFullKeyItems(t *testing.
 }
 
 func TestAddItemsToSlotBatch_ExistingKeyItemBumpSucceedsDespiteFullKeyItems(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 	handle := (testCrackedPotID & 0x0FFFFFFF) | ItemTypeItem
 	slot.Inventory.KeyItems = fillKeyItems()
@@ -128,7 +128,7 @@ func TestAddItemsToSlotBatch_ExistingKeyItemBumpSucceedsDespiteFullKeyItems(t *t
 // staying at 1 across a quantity-only bump (Cracked Pot 1->2, same physical
 // record). Not a symmetry guess — an independently verified header.
 func TestAddItemsToSlotBatch_KeyCountHeaderTracksNewEntriesOnly(t *testing.T) {
-	fixture := fragmentedRepackRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
+	fixture := fragmentedGaItemRoundTripFixtureForVersion(t, GaItemVersionBreak+1)
 	slot := fixture.Slot
 	keyCountOff := slot.MagicOffset + InvStartFromMagic + CommonItemCount*InvRecordLen
 	readKeyCount := func() uint32 { return binary.LittleEndian.Uint32(slot.Data[keyCountOff:]) }

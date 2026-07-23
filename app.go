@@ -77,17 +77,16 @@ type App struct {
 	// access goes through journalLog, which no-ops on a nil journal.
 	journal *DiagnosticJournal
 
-	// GaItem repack tokens bind a dry-run to one loaded save and an exact slot
-	// state. They are protected by saveMu + the relevant slotMu entry.
-	gaItemRepackTokens map[string]gaItemRepackToken
-	gaItemDedupTokens  map[string]gaItemDedupToken
-	gaItemRepackNextID uint64
-	saveGeneration     uint64
-	slotRevisions      [maxCharacters]uint64
-	deployStore        *deploy.TargetStore
-	deploySSH          *deploy.SSHManager
-	deployLocal        *deploy.LocalManager
-	favSlotNames       map[int]string // preset name written to each Favorites slot; empty = loaded from save (unknown)
+	// Duplicate-repair tokens bind an analysis to one loaded save and exact
+	// slot state. They are protected by saveMu + the relevant slotMu entry.
+	gaItemDedupTokens map[string]gaItemDedupToken
+	gaItemDedupNextID uint64
+	saveGeneration    uint64
+	slotRevisions     [maxCharacters]uint64
+	deployStore       *deploy.TargetStore
+	deploySSH         *deploy.SSHManager
+	deployLocal       *deploy.LocalManager
+	favSlotNames      map[int]string // preset name written to each Favorites slot; empty = loaded from save (unknown)
 
 	// Phase 1 inventory edit session state. One active session per character.
 	// editSessions is keyed by session ID; editSessionByChar maps charIdx → ID
@@ -183,11 +182,10 @@ type App struct {
 // NewApp creates a new App struct
 func NewApp() *App {
 	return &App{
-		favSlotNames:       make(map[int]string),
-		editSessions:       make(map[string]*editor.InventoryEditSession),
-		editSessionByChar:  make(map[int]string),
-		gaItemRepackTokens: make(map[string]gaItemRepackToken),
-		gaItemDedupTokens:  make(map[string]gaItemDedupToken),
+		favSlotNames:      make(map[int]string),
+		editSessions:      make(map[string]*editor.InventoryEditSession),
+		editSessionByChar: make(map[int]string),
+		gaItemDedupTokens: make(map[string]gaItemDedupToken),
 	}
 }
 
@@ -313,7 +311,6 @@ func (a *App) installLoadedSave(candidate *core.SaveFile, path string) {
 	a.lastSavePath = path
 	a.saveGeneration++
 	a.slotRevisions = [maxCharacters]uint64{}
-	a.gaItemRepackTokens = make(map[string]gaItemRepackToken)
 	a.gaItemDedupTokens = make(map[string]gaItemDedupToken)
 	a.favSlotNames = make(map[int]string)
 	a.clearAllUndoStacks()
@@ -601,16 +598,10 @@ type AddResult struct {
 	FreeStore       int          `json:"freeStore"`
 	NeededInv       int          `json:"neededInv"`
 	NeededStore     int          `json:"neededStore"`
-	// GaItem placement capacity (weapons/armor/AoW). FreeGaItems is the smaller
-	// of total empty records and allocator cursor room; NeededGaItems is how many
-	// the batch requires — surfaced so the UI can explain a gaitem_full failure.
+	// GaItem placement capacity (weapons/armor/AoW). Every physical hole is
+	// usable; NeededGaItems is surfaced so the UI can explain a full table.
 	FreeGaItems   int `json:"freeGaItems"`
 	NeededGaItems int `json:"neededGaItems"`
-	// GaItemCapacity and GaItemRepackCTA are present only for a gaitem_full
-	// rejection. They carry the backend's raw capacity breakdown and repack
-	// eligibility decision so the frontend never derives repack safety itself.
-	GaItemCapacity  *GaItemCapacity  `json:"gaItemCapacity,omitempty"`
-	GaItemRepackCTA *GaItemRepackCTA `json:"gaItemRepackCTA,omitempty"`
 }
 
 const diagnosticItemListMax = 20
@@ -832,16 +823,6 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	if charIdx < 0 || charIdx >= 10 {
 		return result, fmt.Errorf("invalid character index")
 	}
-
-	// Probe the inventory-workspace registry BEFORE taking slotMu: editSessionsMu
-	// (#3) precedes slotMu (#6) in the lock order, so it must not be acquired while
-	// slotMu is held. Because the probe runs outside slotMu, a workspace started
-	// concurrently after it returns can leave the CTA computed below stale (reported
-	// as eligible when a live workspace now exists). That is tolerated here: this
-	// path only reports the CTA and never mutates the slot on it, and
-	// AnalyzeGaItemRepack re-checks workspace state under its own lifecycle guard
-	// before performing any optimization.
-	workspaceActive := a.gaItemRepackHasActiveWorkspaceLocked(charIdx)
 
 	a.slotMu[charIdx].Lock()
 	defer a.slotMu[charIdx].Unlock()
@@ -1198,25 +1179,16 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	if len(capacityItems) > 0 {
 		capReport := core.CheckAddCapacity(slot, capacityItems)
 		if !capReport.CanFitAll {
-			freeGaItems := capReport.FreeGaItems
-			if capReport.FreeGaItemCursor < freeGaItems {
-				freeGaItems = capReport.FreeGaItemCursor
-			}
-			a.logError("[AddItems] %s: need inv=%d store=%d gaitem=%d, free inv=%d store=%d gaitem=%d (empty=%d cursor=%d), requested=%d",
+			a.logError("[AddItems] %s: need inv=%d store=%d gaitem=%d, free inv=%d store=%d gaitem=%d, requested=%d",
 				capReport.CapHit, capReport.NeededInv, capReport.NeededStorage, capReport.NeededGaItems,
-				capReport.FreeInv, capReport.FreeStorage, freeGaItems, capReport.FreeGaItems, capReport.FreeGaItemCursor, len(itemIDs))
+				capReport.FreeInv, capReport.FreeStorage, capReport.FreeGaItems, len(itemIDs))
 			result.CapHit = capReport.CapHit
 			result.FreeInv = capReport.FreeInv
 			result.FreeStore = capReport.FreeStorage
 			result.NeededInv = capReport.NeededInv
 			result.NeededStore = capReport.NeededStorage
-			result.FreeGaItems = freeGaItems
+			result.FreeGaItems = capReport.FreeGaItems
 			result.NeededGaItems = capReport.NeededGaItems
-			if capReport.CapHit == "gaitem_full" {
-				capacity, cta := gaItemFullCTA(slot, capReport, workspaceActive)
-				result.GaItemCapacity = &capacity
-				result.GaItemRepackCTA = &cta
-			}
 			return result, nil
 		}
 	}
@@ -2182,7 +2154,7 @@ func (a *App) pushUndoSnapshotLocked(idx int, snap slotSnapshot) {
 	}
 	a.undoStacks[idx] = append(stack, snap)
 	a.slotRevisions[idx]++
-	a.invalidateGaItemRepackTokensLocked(idx)
+	a.invalidateGaItemDedupTokensLocked(idx)
 }
 
 // lockAllSlots takes every slotMu[0..maxCharacters-1] in strictly ascending
@@ -2249,7 +2221,7 @@ func (a *App) RevertSlot(idx int) error {
 	a.save.ProfileSummaries[idx] = snap.ProfileSummary
 	core.RestoreSlot(&a.save.Slots[idx], snap.Slot)
 	a.slotRevisions[idx]++
-	a.invalidateGaItemRepackTokensLocked(idx)
+	a.invalidateGaItemDedupTokensLocked(idx)
 
 	return nil
 }

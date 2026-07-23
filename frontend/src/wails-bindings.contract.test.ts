@@ -92,10 +92,6 @@ describe('Wails binding contract: App methods', () => {
         expect(typeof App.AnalyzeGaItemDuplicate).toBe('function');
         expect(typeof App.ExecuteGaItemDuplicateRepair).toBe('function');
 
-        // The repack blocker carries a structural handle for the shared modal.
-        const blocker = main.GaItemRepackBlocker.createFrom({});
-        expect('handle' in blocker).toBe(true);
-
         // Candidate display-only fields must survive binding generation.
         const candidate = main.GaItemDuplicateCandidate.createFrom({});
         for (const field of ['index', 'itemId', 'name', 'currentUpgrade', 'infusionName', 'unknown']) {
@@ -111,6 +107,13 @@ describe('Wails binding contract: App methods', () => {
         for (const field of ['characterIndex', 'handle', 'keepIndex', 'analysisToken']) {
             expect(field in req).toBe(true);
         }
+    });
+
+    it('does not expose the removed GaItem optimizer API', () => {
+        expect('AnalyzeGaItemRepack' in App).toBe(false);
+        expect('ExecuteGaItemRepack' in App).toBe(false);
+        expect('GaItemRepackAnalysis' in main).toBe(false);
+        expect('GaItemRepackExecutionResult' in main).toBe(false);
     });
 });
 

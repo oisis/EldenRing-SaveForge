@@ -89,14 +89,11 @@ type ItemToAdd struct {
 
 // CapacityReport describes why items don't fit.
 type CapacityReport struct {
-	CanFitAll   bool
-	CapHit      string // "" | "inventory_full" | "storage_full" | "gaitem_full" | "gaitemdata_full"
-	FreeInv     int
-	FreeStorage int
-	FreeGaItems int
-	// FreeGaItemCursor is retained for API compatibility. The native hole
-	// allocator has no monotonic cursor, so it mirrors FreeGaItems.
-	FreeGaItemCursor int
+	CanFitAll        bool
+	CapHit           string // "" | "inventory_full" | "storage_full" | "gaitem_full" | "gaitemdata_full"
+	FreeInv          int
+	FreeStorage      int
+	FreeGaItems      int
 	FreeGaItemData   int
 	NeededInv        int
 	NeededStorage    int
@@ -120,12 +117,11 @@ func CheckAddCapacity(slot *SaveSlot, items []ItemToAdd) CapacityReport {
 	freeGaItems := usage.GaItemsMax - usage.GaItemsUsed
 
 	report := CapacityReport{
-		FreeInv:          usage.InventoryMax - usage.InventoryUsed,
-		FreeStorage:      usage.StorageMax - usage.StorageUsed,
-		FreeGaItems:      freeGaItems,
-		FreeGaItemCursor: freeGaItems,
-		FreeGaItemData:   usage.GaItemDataMax - usage.GaItemDataUsed,
-		FreeKeyItems:     usage.KeyItemsMax - usage.KeyItemsUsed,
+		FreeInv:        usage.InventoryMax - usage.InventoryUsed,
+		FreeStorage:    usage.StorageMax - usage.StorageUsed,
+		FreeGaItems:    freeGaItems,
+		FreeGaItemData: usage.GaItemDataMax - usage.GaItemDataUsed,
+		FreeKeyItems:   usage.KeyItemsMax - usage.KeyItemsUsed,
 	}
 
 	existingHandles := make(map[uint32]bool)

@@ -50,9 +50,6 @@ interface DatabaseTabProps {
     readOnly?: boolean;
     showOnlyFavorites?: boolean;
     onToggleFavorites?: () => void;
-    // Invoked when the user accepts the GaItem optimization CTA on a
-    // gaitem_full failure. Eligibility/recovery are decided by the backend.
-    onOptimizeGaItem?: (ctx: { neededGaItems: number }) => void;
 }
 
 // Determine if ALL selected items are non-stackable (max qty == 1)
@@ -75,7 +72,7 @@ export function effectiveCap(item: db.ItemEntry, kind: 'inv' | 'storage', clearC
     return base;
 }
 
-export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, selectedDetailItem, onCloseDetail, readOnly = false, showOnlyFavorites = false, onToggleFavorites, onOptimizeGaItem}: DatabaseTabProps) {
+export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVersion, onItemsAdded, addSettings, showFlaggedItems, category, setCategory, onSelectItem, selectedDetailItem, onCloseDetail, readOnly = false, showOnlyFavorites = false, onToggleFavorites}: DatabaseTabProps) {
     const {upgrade25, upgrade10, infuseOffset, upgradeAsh} = addSettings;
     const {isFav, toggle: toggleFav} = useFavorites();
     const [search, setSearch] = useState('');
@@ -99,7 +96,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     });
     const [isSaving, setIsSaving] = useState(false);
     const [brokenIcons, setBrokenIcons] = useState<Set<string>>(new Set());
-    const [errorModal, setErrorModal] = useState<{title: string; message: string; cta?: {label: string; onClick: () => void}} | null>(null);
+    const [errorModal, setErrorModal] = useState<{title: string; message: string} | null>(null);
 
     // Quantity state for modal
     const [addToInv, setAddToInv] = useState(true);
@@ -388,9 +385,7 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
         try {
             const addItems = useTechnicalCapsMode ? AddItemsToCharacterWithGameLimits : AddItemsToCharacter;
             const baseIds = confirmModal.map(i => i.id);
-            type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number; freeGaItems: number; neededGaItems: number;
-                gaItemCapacity?: { physicalEmpty: number; cursorRoom: number; usable: number };
-                gaItemRepackCTA?: { eligible: boolean; recovered: number } };
+            type AddRes = { added: number; requested: number; trimmed: { itemID: number; cutQty: number }[]; skippedExisting: { itemID: number; cutQty: number }[]; capHit: string; freeInv: number; freeStore: number; neededInv: number; neededStore: number; freeGaItems: number; neededGaItems: number };
             let lastResult: AddRes | null = null;
             let totalAdded = 0;
             let totalRequested = 0;
@@ -457,40 +452,20 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 if (invOverflow > 0) removals.push(`${invOverflow} item(s) from Inventory`);
                 if (storeOverflow > 0) removals.push(`${storeOverflow} item(s) from Storage`);
 
-                const cap = lastResult.gaItemCapacity;
                 const parts: string[] = [];
                 if (showInv) parts.push(`Inventory: need ${lastResult.neededInv}, free ${lastResult.freeInv}`);
                 if (showStore) parts.push(`Storage: need ${lastResult.neededStore}, free ${lastResult.freeStore}`);
                 if (showGaItems) {
-                    // Prefer backend capacity metrics; usable is computed server-side.
-                    if (cap) {
-                        parts.push(`GaItem allocation: need ${lastResult.neededGaItems}, usable ${cap.usable} (physical empty ${cap.physicalEmpty}, cursor room ${cap.cursorRoom})`);
-                        if (lastResult.neededGaItems > cap.physicalEmpty) {
-                            parts.push('This batch needs more physical GaItem records than are empty; optimization cannot create records.');
-                        }
-                    } else {
-                        parts.push(`GaItem allocation: need ${lastResult.neededGaItems}, free ${lastResult.freeGaItems}`);
-                    }
+                    parts.push(`GaItem allocation: need ${lastResult.neededGaItems}, free ${lastResult.freeGaItems}`);
+                    parts.push('All physical GaItem records are occupied. Remove one or more weapons, armor pieces, or Ashes of War to make room.');
                 }
                 if (removals.length > 0) parts.push(`\nRemove at least ${removals.join(' and ')} to make room.`);
                 parts.push(`\n0 / ${lastResult.requested} items added.`);
-
-                const neededGaItems = lastResult.neededGaItems;
-                const showCta = lastResult.capHit === 'gaitem_full'
-                    && lastResult.gaItemRepackCTA?.eligible === true
-                    && !!onOptimizeGaItem;
 
                 setConfirmModal(null);
                 setErrorModal({
                     title: labels[lastResult.capHit] || 'Capacity Exceeded',
                     message: parts.join('\n'),
-                    cta: showCta ? {
-                        label: 'Review GaItem optimization',
-                        onClick: () => {
-                            setErrorModal(null);
-                            onOptimizeGaItem!({ neededGaItems });
-                        },
-                    } : undefined,
                 });
                 return;
             }
@@ -643,7 +618,6 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 <ErrorModal
                     title={errorModal.title}
                     message={errorModal.message}
-                    cta={errorModal.cta}
                     onClose={() => setErrorModal(null)}
                 />
             )}

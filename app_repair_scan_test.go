@@ -222,14 +222,13 @@ func TestBuildRepairIssueReport_SameCodeDifferentHandle(t *testing.T) {
 
 // ---- ScanRepairIssuesLoaded is read-only w.r.t. Inventory Workspaces --------
 
-// scanRepackApp builds an App around the synthetic fragmentedRepackSlot at slot
-// 0, so the diagnostics/workspace regressions run deterministically without the
-// on-disk tmp/save fixture.
-func scanRepackApp(t *testing.T) (*App, int) {
+// scanRepairApp builds an App around the synthetic native-hole slot at slot 0,
+// so diagnostics/workspace regressions run without an on-disk save fixture.
+func scanRepairApp(t *testing.T) (*App, int) {
 	t.Helper()
 	app := NewApp()
 	app.save = &core.SaveFile{}
-	app.save.Slots[0] = *fragmentedRepackSlot(t)
+	app.save.Slots[0] = *nativeHoleSlotFixture(t)
 	app.saveGeneration = 1
 	return app, 0
 }
@@ -238,7 +237,7 @@ func scanRepackApp(t *testing.T) (*App, int) {
 // a slot with no active workspace leaves the session registry empty — it must
 // not publish an Inventory Edit Session.
 func TestScanRepairIssuesLoaded_DoesNotCreateSession(t *testing.T) {
-	app, charIdx := scanRepackApp(t)
+	app, charIdx := scanRepairApp(t)
 
 	report, err := app.ScanRepairIssuesLoaded(charIdx)
 	if err != nil {
@@ -260,7 +259,7 @@ func TestScanRepairIssuesLoaded_DoesNotCreateSession(t *testing.T) {
 // slot with a live Inventory Workspace leaves that exact session intact — same
 // ID, same object (so same pending state), neither replaced nor discarded.
 func TestScanRepairIssuesLoaded_PreservesExistingSession(t *testing.T) {
-	app, charIdx := scanRepackApp(t)
+	app, charIdx := scanRepairApp(t)
 
 	snap, err := app.StartInventoryEditSession(charIdx)
 	if err != nil {
@@ -293,28 +292,6 @@ func TestScanRepairIssuesLoaded_PreservesExistingSession(t *testing.T) {
 	}
 }
 
-// TestScanRepairIssuesLoaded_ThenRepackNotRejected is the regression for the
-// original defect: a diagnostic scan must not leave a session that makes the
-// GaItem allocation analysis refuse with inventory_edit_session_active.
-func TestScanRepairIssuesLoaded_ThenRepackNotRejected(t *testing.T) {
-	app, charIdx := scanRepackApp(t)
-
-	if _, err := app.ScanRepairIssuesLoaded(charIdx); err != nil {
-		t.Fatalf("ScanRepairIssuesLoaded: %v", err)
-	}
-
-	analysis, err := app.AnalyzeGaItemRepack(charIdx)
-	if err != nil {
-		t.Fatalf("AnalyzeGaItemRepack: %v", err)
-	}
-	if analysis.Failure != nil && analysis.Failure.Code == "inventory_edit_session_active" {
-		t.Fatalf("repack rejected after diagnostics scan: %+v", analysis.Failure)
-	}
-	if analysis.Outcome != "no_op" {
-		t.Fatalf("analysis outcome=%q, want native-hole no_op", analysis.Outcome)
-	}
-}
-
 // TestScanRepairIssuesLoaded_EmptySlotErrors guards the pre-refactor behavior:
 // an empty slot (Version == 0) must still return an error, not an empty report.
 func TestScanRepairIssuesLoaded_EmptySlotErrors(t *testing.T) {
@@ -331,7 +308,7 @@ func TestScanRepairIssuesLoaded_EmptySlotErrors(t *testing.T) {
 // read-only physical GaItem duplicate-handle issue surfaces in the normal
 // Diagnostics report produced by ScanRepairIssuesLoaded.
 func TestScanRepairIssuesLoaded_ReportsPhysicalGaItemDuplicate(t *testing.T) {
-	app, charIdx := scanRepackApp(t)
+	app, charIdx := scanRepairApp(t)
 	slot := &app.save.Slots[charIdx]
 
 	// Inject a second physical GaItem reusing an existing non-empty handle.

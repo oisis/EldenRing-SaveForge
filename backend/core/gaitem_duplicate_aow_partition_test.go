@@ -11,8 +11,8 @@ import (
 // freed slot lands inside the AoW block. RebuildSlotFull serializes slot.GaItems
 // linearly, so the table must be reordered into the native CSGaitem::WriteArray
 // fixed point (all non-empty AoW first, then everything else — the freed empty
-// included — in relative order) before the rebuild. A full repack is deliberately
-// NOT used: it compacts every empty away and would not reproduce the native
+// included — in relative order) before the rebuild. Unrelated compaction is not
+// used because it would remove every empty and fail to reproduce the native
 // second-pass ordering of the freed slot relative to the trailing Weapon.
 
 const (
@@ -28,8 +28,8 @@ const (
 // duplicateAoWGaItemFixture builds the E8b reproduction: two non-empty AoW
 // records share one handle (distinct ItemIDs) and sit before a later AoW and a
 // Weapon. The dup pair is at indexes [0]/[1], so whichever the user removes, the
-// freed slot is inside the AoW block. The slot is otherwise healthy (repack
-// preflight refuses only with the duplicate_handle blocker). Nothing here reads
+// freed slot is inside the AoW block. The slot is otherwise healthy (the
+// structural scan reports only duplicate_handle). Nothing here reads
 // or writes a user save file.
 //
 //	[0] AoW dup A   handle aowDupHandle, itemID aowDupLowID
@@ -39,7 +39,7 @@ const (
 func duplicateAoWGaItemFixture(t *testing.T) *SaveSlot {
 	t.Helper()
 
-	slot := repackPreflightFixture()
+	slot := gaItemStructuralFixture()
 	leading := []GaItemFull{
 		{Handle: aowDupHandle, ItemID: aowDupLowID},
 		{Handle: aowDupHandle, ItemID: aowDupHighID},
@@ -173,7 +173,7 @@ func TestRepairGaItemDuplicate_AoWPartitionCanonicalized(t *testing.T) {
 				t.Fatalf("remaining records for handle = %d, want 1", remaining)
 			}
 
-			// GaMap, cursors, container references, and repack preflight are all sound.
+			// GaMap, cursors, container references, and structural checks are all sound.
 			if slot.GaMap[aowDupHandle] != tc.wantItemID {
 				t.Errorf("GaMap[dup]=0x%08X, want 0x%08X", slot.GaMap[aowDupHandle], tc.wantItemID)
 			}
@@ -193,8 +193,8 @@ func TestRepairGaItemDuplicate_AoWPartitionCanonicalized(t *testing.T) {
 			if slot.Storage.CommonItems[0].GaItemHandle != aowWeaponH {
 				t.Errorf("storage ref changed: %+v", slot.Storage.CommonItems)
 			}
-			if pf := PreflightGaItemRepack(slot); len(pf.Blockers) != 0 {
-				t.Errorf("preflight still blocked after repair: %+v", pf.Blockers)
+			if report := ScanGaItemStructuralIssues(slot); len(report.Issues) != 0 {
+				t.Errorf("structural issues remain after repair: %+v", report.Issues)
 			}
 			if v := ValidatePostMutation(slot); len(v) != 0 {
 				t.Errorf("post-mutation validation failed: %v", v)
