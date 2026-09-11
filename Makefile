@@ -39,7 +39,7 @@ frontend-build:
 
 # Run Wails in development mode (hot reload)
 dev: generate-version generate-bindings
-	$(WAILS) dev -skipbindings
+	$(WAILS) dev -skipbindings -m
 
 # Run all tests without traversing ignored scratch packages under tmp/.
 test: test-go test-frontend
