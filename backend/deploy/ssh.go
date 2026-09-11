@@ -3,9 +3,11 @@ package deploy
 import (
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,7 +49,7 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 
 	localData, err := os.ReadFile(localPath)
 	if err != nil {
-		return fmt.Errorf("cannot read local file: %w", err)
+		return fmt.Errorf("[local-read] cannot read local file: %w", err)
 	}
 
 	client, err := m.dial(t)
@@ -58,7 +60,7 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
-		return fmt.Errorf("SFTP session failed: %w", err)
+		return fmt.Errorf("[sftp-init] SFTP session failed: %w", err)
 	}
 	defer sftpClient.Close()
 
@@ -93,30 +95,30 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 	// Upload
 	dst, err := sftpClient.Create(t.SavePath)
 	if err != nil {
-		return fmt.Errorf("cannot create remote file %s: %w", t.SavePath, err)
+		return fmt.Errorf("[remote-create] cannot create remote file %s: %w", t.SavePath, err)
 	}
 
 	n, err := dst.Write(localData)
 	if err != nil {
 		dst.Close()
-		return fmt.Errorf("upload write failed: %w", err)
+		return fmt.Errorf("[remote-write] upload write failed: %w", err)
 	}
 
 	// Close flushes the SFTP buffer — must check error
 	if err := dst.Close(); err != nil {
-		return fmt.Errorf("upload flush failed: %w", err)
+		return fmt.Errorf("[remote-flush] upload flush failed: %w", err)
 	}
 
 	// Verify size via SFTP stat
 	info, err := sftpClient.Stat(t.SavePath)
 	if err != nil {
-		return fmt.Errorf("cannot verify remote file: %w", err)
+		return fmt.Errorf("[remote-verify] cannot verify remote file: %w", err)
 	}
 	if info.Size() != int64(len(localData)) {
-		return fmt.Errorf("size mismatch after upload: local=%d, remote=%d", len(localData), info.Size())
+		return fmt.Errorf("[remote-verify] size mismatch after upload: local=%d, remote=%d", len(localData), info.Size())
 	}
 	if n != len(localData) {
-		return fmt.Errorf("write mismatch: wrote %d, expected %d", n, len(localData))
+		return fmt.Errorf("[remote-verify] write mismatch: wrote %d, expected %d", n, len(localData))
 	}
 
 	return nil
@@ -217,41 +219,45 @@ func (m *SSHManager) DeployAndLaunch(targetName string, localPath string) error 
 	return nil
 }
 
+// dial opens an SSH client to the target. Every failure is tagged with the
+// stage it happened in so the UI console can show where the connection broke,
+// not only that it broke. Stages map 1:1 to work this function actually does.
 func (m *SSHManager) dial(t Target) (*ssh.Client, error) {
 	keyPath := expandHome(t.KeyPath)
-
-	var authMethods []ssh.AuthMethod
-
-	if keyPath != "" {
-		keyData, err := os.ReadFile(keyPath)
-		if err != nil {
-			return nil, fmt.Errorf("cannot read SSH key %s: %w", keyPath, err)
-		}
-		signer, err := ssh.ParsePrivateKey(keyData)
-		if err != nil {
-			return nil, fmt.Errorf("cannot parse SSH key: %w", err)
-		}
-		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	if keyPath == "" {
+		return nil, fmt.Errorf("[config] no SSH key configured for target %q", t.Name)
 	}
 
-	// Fallback: try SSH agent
-	if len(authMethods) == 0 {
-		return nil, fmt.Errorf("no SSH key configured for target %q", t.Name)
+	keyData, err := os.ReadFile(keyPath)
+	if err != nil {
+		return nil, fmt.Errorf("[key-read] cannot read SSH key %s: %w", keyPath, err)
+	}
+	signer, err := ssh.ParsePrivateKey(keyData)
+	if err != nil {
+		return nil, fmt.Errorf("[key-parse] cannot parse SSH key %s: %w", keyPath, err)
 	}
 
 	config := &ssh.ClientConfig{
 		User:            t.User,
-		Auth:            authMethods,
+		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         10 * time.Second,
 	}
 
-	addr := fmt.Sprintf("%s:%d", t.Host, t.Port)
-	client, err := ssh.Dial("tcp", addr, config)
+	addr := net.JoinHostPort(t.Host, strconv.Itoa(t.Port))
+	// ssh.Dial folds the TCP connect and the SSH handshake into a single error.
+	// Doing both steps here keeps the same semantics but lets "host unreachable"
+	// and "authentication rejected" report as different stages.
+	conn, err := net.DialTimeout("tcp", addr, config.Timeout)
 	if err != nil {
-		return nil, fmt.Errorf("SSH connection to %s failed: %w", addr, err)
+		return nil, fmt.Errorf("[tcp-dial] cannot reach %s: %w", addr, err)
 	}
-	return client, nil
+	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		conn.Close() //nolint:errcheck
+		return nil, fmt.Errorf("[ssh-handshake] SSH handshake/authentication to %s as %q failed: %w", addr, t.User, err)
+	}
+	return ssh.NewClient(sshConn, chans, reqs), nil
 }
 
 func (m *SSHManager) execRemote(t Target, command string) (string, error) {

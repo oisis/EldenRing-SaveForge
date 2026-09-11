@@ -250,15 +250,17 @@ export function SettingsTab({
     };
     const handleTestConnection = async () => {
         if (!selectedTarget) return;
-        const tid = toast.loading('Testing...');
-        try { toast.success(await TestSSHConnection(selectedTarget), { id: tid }); }
-        catch (e) { toast.error(String(e), { id: tid }); }
+        const tid = toast.loading(`Testing connection to "${selectedTarget}"...`);
+        // Both outcomes go through toast, which also writes the full text to the
+        // bottom console — the one-line status alone truncates the SSH cause.
+        try { toast.success(`Connection test OK — ${await TestSSHConnection(selectedTarget)}`, { id: tid }); }
+        catch (e) { toast.error(`Connection test to "${selectedTarget}" failed: ${String(e)}`, { id: tid }); }
     };
     const handleUpload = async () => {
         if (!selectedTarget) return; setDeploying(true);
-        const tid = toast.loading('Uploading save...');
-        try { const msg = await DeploySave(selectedTarget); toast.success(msg, { id: tid }); }
-        catch (e) { toast.error(String(e), { id: tid }); }
+        const tid = toast.loading(`Uploading save to "${selectedTarget}"...`);
+        try { const msg = await DeploySave(selectedTarget); toast.success(`Upload OK — ${msg}`, { id: tid }); }
+        catch (e) { toast.error(`Upload to "${selectedTarget}" failed: ${String(e)}`, { id: tid }); }
         finally { setDeploying(false); }
     };
     const handleDownload = async () => {

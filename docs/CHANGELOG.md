@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(deploy): surface SSH test and upload errors in the console
+
+Test connection and save upload now report both the start and the outcome of the
+operation to the bottom, copyable console instead of only to the one-line status.
+Failures carry the stage they occurred in — configuration, key read, key parse,
+TCP dial, SSH handshake/authentication, SFTP init or the remote path operation —
+together with the original system cause, so an unreachable host is no longer
+indistinguishable from a rejected key. The one-line status keeps working as a
+short summary.
+
 ### feat(advanced): Super Merchant shop editor (PC, Regulation 1.17)
 
 Advanced gains a Super Merchant sub-tab that edits merchant stock in the

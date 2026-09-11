@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const getDiagnosticLogTail = vi.fn<() => Promise<string>>();
@@ -7,7 +7,7 @@ vi.mock('../../wailsjs/go/main/App', () => ({
     GetDiagnosticLogTail: () => getDiagnosticLogTail(),
 }));
 
-import { ToastBar } from './ToastBar';
+import { ToastBar, sfLog, sfLoading } from './ToastBar';
 
 const localStorageEntries: Record<string, string> = {};
 vi.stubGlobal('localStorage', {
@@ -87,5 +87,28 @@ describe('ToastBar diagnostic console', () => {
 
         fireEvent.change(screen.getByLabelText('Search logs'), {target: {value: 'missing'}});
         await waitFor(() => expect(screen.getByText('No matching log entries')).toBeInTheDocument());
+    });
+    // Regression: the console used to replace the UI log with the durable
+    // journal whenever the backend tail answered, so a deploy/SSH failure
+    // reported only by the frontend was visible solely in the truncated,
+    // non-copyable one-line status bar.
+    it('keeps UI log entries in the console while the durable journal is available', async () => {
+        render(<ToastBar />);
+        openConsole();
+        await screen.findByText(/active save loaded/);
+
+        act(() => {
+            sfLoading('deploy-1', 'Testing connection to "deck"...');
+            sfLog('error', 'Connection test to "deck" failed: [tcp-dial] cannot reach 10.0.0.5:22: dial tcp 10.0.0.5:22: connect: connection refused');
+            sfLog('info', 'Connection test OK — Connected to deck@10.0.0.5:22');
+        });
+
+        expect(screen.getByText(/Testing connection to "deck"/)).toBeInTheDocument();
+        expect(screen.getByText(/\[tcp-dial\] cannot reach 10\.0\.0\.5:22/)).toHaveTextContent(
+            'connect: connection refused',
+        );
+        expect(screen.getByText(/Connection test OK/)).toBeInTheDocument();
+        // Backend journal records stay visible alongside the UI log.
+        expect(screen.getByText(/active save loaded/)).toBeInTheDocument();
     });
 });

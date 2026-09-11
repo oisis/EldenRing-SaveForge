@@ -131,6 +131,16 @@ function localConsoleEntries(logs: LogEntry[]): ConsoleEntry[] {
     }));
 }
 
+// mergeConsoleEntries interleaves both sources oldest-first. Entries whose time
+// cannot be parsed keep their relative position rather than being dropped.
+function mergeConsoleEntries(journal: ConsoleEntry[], local: ConsoleEntry[]): ConsoleEntry[] {
+    const at = (entry: ConsoleEntry) => {
+        const parsed = Date.parse(entry.time);
+        return Number.isNaN(parsed) ? 0 : parsed;
+    };
+    return [...journal, ...local].sort((a, b) => at(a) - at(b));
+}
+
 function formatConsoleTime(time: string): string {
     const parsed = new Date(time);
     return Number.isNaN(parsed.getTime())
@@ -173,7 +183,7 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
 
     const addLog = useCallback((level: LogLevel, message: string) => {
         const entry: LogEntry = {
-            time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+            time: new Date().toISOString(),
             level,
             message,
         };
@@ -183,7 +193,7 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
 
     const startLoading = useCallback((id: string, message: string) => {
         const entry: LogEntry = {
-            time: new Date().toLocaleTimeString('en-GB', { hour12: false }),
+            time: new Date().toISOString(),
             level: 'info',
             message,
             loading: true,
@@ -305,7 +315,13 @@ export function ToastBar({ sidebarWidth = 256 }: ToastBarProps) {
         window.addEventListener('mouseup', onUp);
     }, [sidebarWidth]);
 
-    const allConsoleEntries = journalAvailable ? journalEntries : localConsoleEntries(logs);
+    // The durable journal and the UI log describe different halves of the same
+    // session: the journal never sees a frontend-side failure, and the UI log
+    // never sees a backend event. Merging them keeps a full, copyable error in
+    // the console instead of leaving it only in the truncated one-line toast.
+    const allConsoleEntries = journalAvailable
+        ? mergeConsoleEntries(journalEntries, localConsoleEntries(logs))
+        : localConsoleEntries(logs);
     const searchTerm = search.trim().toLocaleLowerCase();
     const visibleConsoleEntries = allConsoleEntries.filter(entry => {
         if (levelFilter !== 'all' && entry.level !== levelFilter) return false;
