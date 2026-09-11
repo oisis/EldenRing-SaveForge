@@ -58,6 +58,10 @@ export function ApplyRepairsLoaded(arg1, arg2, arg3) {
   return window['go']['main']['App']['ApplyRepairsLoaded'](arg1, arg2, arg3);
 }
 
+export function ApplyShopChanges(arg1) {
+  return window['go']['main']['App']['ApplyShopChanges'](arg1);
+}
+
 export function AuditLoadedSaveIssues() {
   return window['go']['main']['App']['AuditLoadedSaveIssues']();
 }
@@ -340,6 +344,14 @@ export function GetQuickItemEligibleItems() {
 
 export function GetSaveInventoryIntegrityReport() {
   return window['go']['main']['App']['GetSaveInventoryIntegrityReport']();
+}
+
+export function GetShopMerchants() {
+  return window['go']['main']['App']['GetShopMerchants']();
+}
+
+export function GetShopStock(arg1) {
+  return window['go']['main']['App']['GetShopStock'](arg1);
 }
 
 export function GetSlotCapacity(arg1) {

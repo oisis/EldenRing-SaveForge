@@ -1,12 +1,13 @@
 import {useState} from 'react';
 import {NetworkTab} from './NetworkTab';
 import {PresetsTab} from './PresetsTab';
+import {SuperMerchantTab} from './SuperMerchantTab';
 import type {PvPOptions} from '../App';
 
 // Feature flag — set to true when Presets feature is ready for release.
 const ENABLE_ADVANCED_PRESETS = false;
 
-type PvPSubTab = 'presets' | 'network';
+type PvPSubTab = 'presets' | 'network' | 'super merchant';
 
 interface PvPTabProps {
     charIdx: number;
@@ -18,7 +19,7 @@ interface PvPTabProps {
 
 export function PvPTab({charIdx, platform, pvpOpts: _pvpOpts, onPvpOptsChange: _onPvpOptsChange, onMutate}: PvPTabProps) {
     const [subTab, setSubTab] = useState<PvPSubTab>('network');
-    const visibleTabs = (['network', ...(ENABLE_ADVANCED_PRESETS ? ['presets'] : [])] as PvPSubTab[]);
+    const visibleTabs = (['network', 'super merchant', ...(ENABLE_ADVANCED_PRESETS ? ['presets'] : [])] as PvPSubTab[]);
     const activeTab: PvPSubTab = visibleTabs.includes(subTab) ? subTab : 'network';
 
     return (
@@ -43,6 +44,9 @@ export function PvPTab({charIdx, platform, pvpOpts: _pvpOpts, onPvpOptsChange: _
                 <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
                     <NetworkTab platform={platform} />
                 </div>
+            )}
+            {activeTab === 'super merchant' && (
+                <SuperMerchantTab platform={platform} />
             )}
         </div>
     );

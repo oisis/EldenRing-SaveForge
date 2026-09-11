@@ -1406,6 +1406,36 @@ export namespace application {
 	        this.fixTab = source["fixTab"];
 	    }
 	}
+	export class ShopStockRow {
+	    rowId: number;
+	    itemId: number;
+	    itemName: string;
+	    iconPath: string;
+	    category: string;
+	    flags: string[];
+	    value: number;
+	    sellQuantity: number;
+	    editable: boolean;
+	    lockReason?: string;
+
+	    static createFrom(source: any = {}) {
+	        return new ShopStockRow(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rowId = source["rowId"];
+	        this.itemId = source["itemId"];
+	        this.itemName = source["itemName"];
+	        this.iconPath = source["iconPath"];
+	        this.category = source["category"];
+	        this.flags = source["flags"];
+	        this.value = source["value"];
+	        this.sellQuantity = source["sellQuantity"];
+	        this.editable = source["editable"];
+	        this.lockReason = source["lockReason"];
+	    }
+	}
 
 	export class SlotCapacity {
 	    gaItemsUsed: number;
@@ -1618,6 +1648,40 @@ export namespace core {
 	        this.visitorListMax = source["visitorListMax"];
 	        this.visitorTimeOutTime = source["visitorTimeOutTime"];
 	        this.visitorDownloadSpan = source["visitorDownloadSpan"];
+	    }
+	}
+	export class ShopMerchantInfo {
+	    name: string;
+	    rowCount: number;
+	    editableRows: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ShopMerchantInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.rowCount = source["rowCount"];
+	        this.editableRows = source["editableRows"];
+	    }
+	}
+	export class ShopRowEdit {
+	    rowId: number;
+	    itemId: number;
+	    value: number;
+	    sellQuantity: number;
+
+	    static createFrom(source: any = {}) {
+	        return new ShopRowEdit(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.rowId = source["rowId"];
+	        this.itemId = source["itemId"];
+	        this.value = source["value"];
+	        this.sellQuantity = source["sellQuantity"];
 	    }
 	}
 	export class TransferSkip {

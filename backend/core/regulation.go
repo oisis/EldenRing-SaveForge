@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"strings"
 	"unicode/utf16"
 
 	"github.com/klauspost/compress/zstd"
@@ -57,22 +58,22 @@ const (
 	offsetBreakInTimeout    = 0x78
 	// 0x7C is labelled "dummy8 pad[4]" in PARAMDEF but holds vanilla=5 — it is the
 	// undocumented breakInRequestAreaCount field (hidden from editors by FromSoftware).
-	offsetBreakInAreaCount  = 0x7C
+	offsetBreakInAreaCount = 0x7C
 
 	// Group: Visit / Blue Phantom (Blue + Host role)
-	offsetReloadVisitListCoolTime  = 0x180
-	offsetMaxCoopBlueSummonCount   = 0x184
-	offsetMaxVisitListCount        = 0x18C
-	offsetReloadSearchCoopBlueMin  = 0x190
-	offsetReloadSearchCoopBlueMax  = 0x194
+	offsetReloadVisitListCoolTime = 0x180
+	offsetMaxCoopBlueSummonCount  = 0x184
+	offsetMaxVisitListCount       = 0x18C
+	offsetReloadSearchCoopBlueMin = 0x190
+	offsetReloadSearchCoopBlueMax = 0x194
 
 	// Group: Extra (all roles)
 	offsetAllAreaSearchRateCoopBlue = 0x1D8
 	offsetAllAreaSearchRateVsBlue   = 0x1D9
 
 	// Group: Visitor / Taunter's Tongue (Host role)
-	offsetVisitorListMax     = 0x240
-	offsetVisitorTimeOutTime = 0x244
+	offsetVisitorListMax      = 0x240
+	offsetVisitorTimeOutTime  = 0x244
 	offsetVisitorDownloadSpan = 0x248
 )
 
@@ -93,17 +94,17 @@ type NetworkParamValues struct {
 	ReloadSignCellCount     int32   `json:"reloadSignCellCount"`
 	UpdateSignIntervalTime  float32 `json:"updateSignIntervalTime"`
 	SingGetMax              int32   `json:"singGetMax"`
-	SignDownloadSpan         float32 `json:"signDownloadSpan"`
-	SignUpdateSpan           float32 `json:"signUpdateSpan"`
+	SignDownloadSpan        float32 `json:"signDownloadSpan"`
+	SignUpdateSpan          float32 `json:"signUpdateSpan"`
 
 	// --- Blue role (Blue Cipher Ring) ---
-	ReloadVisitListCoolTime    float32 `json:"reloadVisitListCoolTime"`
-	MaxCoopBlueSummonCount     int32   `json:"maxCoopBlueSummonCount"`
-	MaxVisitListCount          int32   `json:"maxVisitListCount"`
-	ReloadSearchCoopBlueMin    float32 `json:"reloadSearchCoopBlueMin"`
-	ReloadSearchCoopBlueMax    float32 `json:"reloadSearchCoopBlueMax"`
-	AllAreaSearchRateCoopBlue  int32   `json:"allAreaSearchRateCoopBlue"`
-	AllAreaSearchRateVsBlue    int32   `json:"allAreaSearchRateVsBlue"`
+	ReloadVisitListCoolTime   float32 `json:"reloadVisitListCoolTime"`
+	MaxCoopBlueSummonCount    int32   `json:"maxCoopBlueSummonCount"`
+	MaxVisitListCount         int32   `json:"maxVisitListCount"`
+	ReloadSearchCoopBlueMin   float32 `json:"reloadSearchCoopBlueMin"`
+	ReloadSearchCoopBlueMax   float32 `json:"reloadSearchCoopBlueMax"`
+	AllAreaSearchRateCoopBlue int32   `json:"allAreaSearchRateCoopBlue"`
+	AllAreaSearchRateVsBlue   int32   `json:"allAreaSearchRateVsBlue"`
 
 	// --- Host role (Taunter's Tongue / visitor) ---
 	VisitorListMax      int32   `json:"visitorListMax"`
@@ -985,17 +986,20 @@ func locateNetworkParam(ud11 []byte) (rowData []byte, paramOffset int, rowDataOf
 	return bnd4Data[paramOff+rowOff:], paramOff, rowOff, nil
 }
 
-// findNetworkParamInBND4 scans BND4 file entries for NetworkParam.param.
-// Returns: paramDataOffset, paramSize, rowDataOffset within the .param file.
-func findNetworkParamInBND4(bnd4 []byte) (paramOffset int, paramSize int, rowDataOffset int, err error) {
+// findParamEntryInBND4 scans BND4 file entries for the named .param file and
+// returns its data offset and compressed size within the archive.
+//
+// Container-layer helper shared with the Super Merchant ShopLineupParam reader:
+// it locates a BND4 entry by name and never interprets PARAM contents.
+func findParamEntryInBND4(bnd4 []byte, name string) (dataOffset int, size int, err error) {
 	if len(bnd4) < 0x40 || string(bnd4[:4]) != bnd4Magic {
-		return 0, 0, 0, fmt.Errorf("not a BND4 file")
+		return 0, 0, fmt.Errorf("not a BND4 file")
 	}
 
 	fileCount := int(binary.LittleEndian.Uint32(bnd4[0x0C:0x10]))
 	const entrySize = 0x24
 
-	targetUTF16 := encodeUTF16LE(networkParamName)
+	targetUTF16 := encodeUTF16LE(name)
 
 	for i := 0; i < fileCount; i++ {
 		entryOff := 0x40 + i*entrySize
@@ -1012,22 +1016,34 @@ func findNetworkParamInBND4(bnd4 []byte) (paramOffset int, paramSize int, rowDat
 			compSize := int(binary.LittleEndian.Uint64(bnd4[entryOff+8 : entryOff+16]))
 			dataOff := int(binary.LittleEndian.Uint32(bnd4[entryOff+24 : entryOff+28]))
 
-			if dataOff+compSize > len(bnd4) {
-				return 0, 0, 0, fmt.Errorf("NetworkParam data exceeds BND4 bounds")
+			if dataOff < 0 || compSize < 0 || dataOff+compSize > len(bnd4) {
+				// Bounds message keeps the historical short form ("NetworkParam", not
+				// "NetworkParam.param") so the Network contract stays unchanged.
+				return 0, 0, fmt.Errorf("%s data exceeds BND4 bounds", strings.TrimSuffix(name, ".param"))
 			}
 
-			// Parse PARAM to find Row 0 data offset
-			paramData := bnd4[dataOff : dataOff+compSize]
-			rowOff, err := parseParamRowDataOffset(paramData)
-			if err != nil {
-				return 0, 0, 0, fmt.Errorf("parse PARAM: %w", err)
-			}
-
-			return dataOff, compSize, rowOff, nil
+			return dataOff, compSize, nil
 		}
 	}
 
-	return 0, 0, 0, fmt.Errorf("NetworkParam.param not found in BND4 (%d files scanned)", fileCount)
+	return 0, 0, fmt.Errorf("%s not found in BND4 (%d files scanned)", name, fileCount)
+}
+
+// findNetworkParamInBND4 scans BND4 file entries for NetworkParam.param.
+// Returns: paramDataOffset, paramSize, rowDataOffset within the .param file.
+func findNetworkParamInBND4(bnd4 []byte) (paramOffset int, paramSize int, rowDataOffset int, err error) {
+	dataOff, compSize, err := findParamEntryInBND4(bnd4, networkParamName)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+
+	// Parse PARAM to find Row 0 data offset
+	rowOff, err := parseParamRowDataOffset(bnd4[dataOff : dataOff+compSize])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("parse PARAM: %w", err)
+	}
+
+	return dataOff, compSize, rowOff, nil
 }
 
 // parseParamRowDataOffset reads just enough of the PARAM header to locate Row 0's data.

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### feat(advanced): Super Merchant shop editor (PC, Regulation 1.17)
+
+Advanced gains a Super Merchant sub-tab that edits merchant stock in the
+regulation embedded in the save. For each of the 37 browsable merchants it lists
+the shop rows and allows swapping the sold item, the price and the stock count,
+with Apply, Discard Changes and Restore Loaded Values.
+
+Scope of this first version: PC saves carrying Regulation 1.17 only. Any other
+regulation, and every PS4 save, is rejected before any mutation and the tab shows
+that instead of an editor. Enia's stock and material-priced rows stay read-only.
+Applies are atomic — all rows plus any required EquipParam sell-value reduction
+are staged and verified together, or nothing is written. Advanced -> Network is
+unchanged.
+
 ### fix(inventory): exclude Perfumed Oil of Ranah from Perfume Bottle capacity
 
 Repair Issues no longer counts the reusable Perfumed Oil of Ranah as a crafted

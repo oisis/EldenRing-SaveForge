@@ -3,9 +3,9 @@
 import {editor} from '../models';
 import {application} from '../models';
 import {vm} from '../models';
+import {core} from '../models';
 import {db} from '../models';
 import {deploy} from '../models';
-import {core} from '../models';
 import {templates} from '../models';
 
 export function AddInventoryWorkspaceItem(arg1:string,arg2:editor.AddItemSpec,arg3:string,arg4:number):Promise<editor.InventoryWorkspaceSnapshot>;
@@ -35,6 +35,8 @@ export function ApplyPresetToCharacter(arg1:number,arg2:string):Promise<void>;
 export function ApplyPvPPreparation(arg1:number,arg2:application.PvPPreparationOptions):Promise<Array<string>>;
 
 export function ApplyRepairsLoaded(arg1:number,arg2:Array<application.RepairApplyTarget>,arg3:boolean):Promise<application.RepairApplyReport>;
+
+export function ApplyShopChanges(arg1:Array<core.ShopRowEdit>):Promise<void>;
 
 export function AuditLoadedSaveIssues():Promise<Array<application.SaveIssue>>;
 
@@ -177,6 +179,10 @@ export function GetQuestProgress(arg1:number,arg2:string):Promise<db.QuestNPC>;
 export function GetQuickItemEligibleItems():Promise<Array<db.ItemEntry>>;
 
 export function GetSaveInventoryIntegrityReport():Promise<application.SaveInventoryIntegrityReport>;
+
+export function GetShopMerchants():Promise<Array<core.ShopMerchantInfo>>;
+
+export function GetShopStock(arg1:string):Promise<Array<application.ShopStockRow>>;
 
 export function GetSlotCapacity(arg1:number):Promise<application.SlotCapacity>;
 
