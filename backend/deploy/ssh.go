@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"crypto/md5"
 	"fmt"
 	"io"
 	"net"
@@ -39,6 +40,34 @@ func (m *SSHManager) TestConnection(targetName string) (string, error) {
 	return fmt.Sprintf("Connected to %s@%s:%d", t.User, t.Host, t.Port), nil
 }
 
+// sizedReader feeds a transfer source to io.Copy without the source's own
+// io.WriterTo. io.Copy prefers src.WriteTo over dst.ReadFrom, and os.File
+// implements WriteTo, which would bypass sftp.File.ReadFrom and with it the
+// concurrent-write path. Size lets ReadFrom size its concurrency up front.
+type sizedReader struct {
+	r    io.Reader
+	size int64
+}
+
+func (s sizedReader) Read(p []byte) (int, error) { return s.r.Read(p) }
+
+func (s sizedReader) Size() int64 { return s.size }
+
+// copyStream streams src into dst through sizedReader, so io.Copy reaches
+// sftp.File.ReadFrom instead of the source's own WriteTo. A known size (>= 0)
+// is enforced: a stream that ends early is a truncated transfer, not a
+// success. size < 0 means the size is unknown and no count check is possible.
+func copyStream(dst io.Writer, src io.Reader, size int64) (int64, error) {
+	n, err := io.Copy(dst, sizedReader{r: src, size: size})
+	if err != nil {
+		return n, err
+	}
+	if size >= 0 && n != size {
+		return n, fmt.Errorf("copied %d of %d bytes: %w", n, size, io.ErrUnexpectedEOF)
+	}
+	return n, nil
+}
+
 // UploadSave uploads a local save file to the remote target.
 // It creates a timestamped backup of the remote file before overwriting.
 func (m *SSHManager) UploadSave(targetName string, localPath string) error {
@@ -47,10 +76,17 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 		return fmt.Errorf("target %q not found", targetName)
 	}
 
-	localData, err := os.ReadFile(localPath)
+	local, err := os.Open(localPath)
 	if err != nil {
 		return fmt.Errorf("[local-read] cannot read local file: %w", err)
 	}
+	defer local.Close()
+
+	localInfo, err := local.Stat()
+	if err != nil {
+		return fmt.Errorf("[local-read] cannot stat local file: %w", err)
+	}
+	localSize := localInfo.Size()
 
 	client, err := m.dial(t)
 	if err != nil {
@@ -58,7 +94,7 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 	}
 	defer client.Close()
 
-	sftpClient, err := sftp.NewClient(client)
+	sftpClient, err := sftp.NewClient(client, sftp.UseConcurrentWrites(true))
 	if err != nil {
 		return fmt.Errorf("[sftp-init] SFTP session failed: %w", err)
 	}
@@ -69,14 +105,25 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 		stamp := time.Now().Format("20060102_150405")
 		backupPath := fmt.Sprintf("%s.%s.bak", t.SavePath, stamp)
 		if existing, err := sftpClient.Open(t.SavePath); err == nil {
-			existingData, readErr := io.ReadAll(existing)
-			existing.Close()
-			if readErr == nil {
-				if dst, err := sftpClient.Create(backupPath); err == nil {
-					dst.Write(existingData) //nolint:errcheck
-					dst.Close()
+			// -1 keeps "unknown" distinct from "empty": pkg/sftp reads a
+			// negative size as unknown and still uses full concurrency.
+			existingSize := int64(-1)
+			if info, statErr := existing.Stat(); statErr == nil {
+				existingSize = info.Size()
+			}
+			if dst, err := sftpClient.Create(backupPath); err == nil {
+				// Stream the remote save straight into the backup and hash it on
+				// the way through, so neither copy is buffered in memory.
+				digest := md5.New()
+				_, copyErr := copyStream(dst, io.TeeReader(existing, digest), existingSize)
+				closeErr := dst.Close()
+				if copyErr != nil || closeErr != nil {
+					// A half-written .bak would show up in ListBackups as a real
+					// backup, so drop exactly the file this block just created.
+					sftpClient.Remove(backupPath) //nolint:errcheck — best effort
+				} else {
 					meta := BackupMeta{
-						MD5: computeMD5(existingData), Tags: []string{},
+						MD5: fmt.Sprintf("%x", digest.Sum(nil)), Tags: []string{},
 						Desc: "Auto-backup before deploy", CreatedAt: time.Now(),
 					}
 					if mf, err := sftpClient.Create(metaPath(backupPath)); err == nil {
@@ -85,6 +132,7 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 					}
 				}
 			}
+			existing.Close()
 		}
 	}
 
@@ -98,7 +146,7 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 		return fmt.Errorf("[remote-create] cannot create remote file %s: %w", t.SavePath, err)
 	}
 
-	n, err := dst.Write(localData)
+	n, err := copyStream(dst, local, localSize)
 	if err != nil {
 		dst.Close()
 		return fmt.Errorf("[remote-write] upload write failed: %w", err)
@@ -114,11 +162,11 @@ func (m *SSHManager) UploadSave(targetName string, localPath string) error {
 	if err != nil {
 		return fmt.Errorf("[remote-verify] cannot verify remote file: %w", err)
 	}
-	if info.Size() != int64(len(localData)) {
-		return fmt.Errorf("[remote-verify] size mismatch after upload: local=%d, remote=%d", len(localData), info.Size())
+	if info.Size() != localSize {
+		return fmt.Errorf("[remote-verify] size mismatch after upload: local=%d, remote=%d", localSize, info.Size())
 	}
-	if n != len(localData) {
-		return fmt.Errorf("[remote-verify] write mismatch: wrote %d, expected %d", n, len(localData))
+	if n != localSize {
+		return fmt.Errorf("[remote-verify] write mismatch: wrote %d, expected %d", n, localSize)
 	}
 
 	return nil

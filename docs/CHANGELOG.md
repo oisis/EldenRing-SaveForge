@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### perf(deploy): stream remote save transfers with concurrent SFTP writes
+
+Uploading a save and the automatic backup taken before it no longer buffer the
+whole file in memory: both stream through `io.Copy`, and the SFTP client used
+for upload enables concurrent writes so a transfer is no longer one round trip
+per packet. The backup keeps the same name, retention, MD5 and metadata sidecar,
+hashed while the data streams past. Download already streamed and is unchanged.
+
 ### fix(deploy): surface SSH test and upload errors in the console
 
 Test connection and save upload now report both the start and the outcome of the
