@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-12
+
+### fix(build): skip automatic module tidy in Wails commands
+
+Development and production builds now tell Wails to skip its automatic
+`go mod tidy` pass. This prevents ignored scratch modules under `tmp/` from
+breaking `make dev` or `make build`; project dependencies remain managed by the
+explicit dependency workflow.
+
 ### perf(deploy): stream remote save transfers with concurrent SFTP writes
 
 Uploading a save and the automatic backup taken before it no longer buffer the

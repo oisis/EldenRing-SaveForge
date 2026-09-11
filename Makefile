@@ -1,6 +1,6 @@
 # Variables
 BINARY_NAME=Elden Ring SaveForge
-VERSION=1.7.1
+VERSION=1.8.0
 BUILD_DIR=build/bin
 WAILS ?= ~/go/bin/wails
 OUTPUT ?= $(BINARY_NAME)
@@ -31,7 +31,7 @@ deps:
 # Build the application for the current platform
 build: generate-version generate-bindings
 	@echo "🔨 Building $(BINARY_NAME) v$(VERSION)..."
-	$(WAILS) build -skipbindings $(WAILS_PLATFORM_FLAG) -o "$(OUTPUT)"
+	$(WAILS) build -skipbindings -m $(WAILS_PLATFORM_FLAG) -o "$(OUTPUT)"
 
 # Build assets embedded by the root Go package.
 frontend-build:
