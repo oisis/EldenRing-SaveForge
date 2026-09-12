@@ -34,7 +34,15 @@ const maxCharacters = 10
 type slotSnapshot struct {
 	Active         bool
 	ProfileSummary core.ProfileSummary
-	Slot           core.SlotSnapshot
+	// ProfileSummaryRaw is the FULL 0x24C UserData10 record, including the
+	// opaque face/equipment snapshot that ProfileSummary does not parse and
+	// ProfileSummary.Serialize does not write. Without it, undoing an operation
+	// that replaces or clears that region (CloneSlot, DeleteSlot,
+	// CleanResidualSlot) would restore only name+level and leave the menu
+	// snapshot of the wrong character behind. nil when UserData10 is absent or
+	// too short.
+	ProfileSummaryRaw []byte
+	Slot              core.SlotSnapshot
 }
 
 // App struct
@@ -1954,27 +1962,50 @@ func (a *App) CloneSlot(srcIdx, destIdx int) error {
 	}
 	cloneName := uniqueClonedCharacterName(srcName, usedNames)
 
-	a.pushUndoLocked(destIdx)
-
-	src := a.save.Slots[srcIdx]
-
-	// Deep copy Data
-	newData := make([]byte, len(src.Data))
-	copy(newData, src.Data)
-	src.Data = newData
-
-	// Deep copy GaMap
-	newGaMap := make(map[uint32]uint32, len(src.GaMap))
-	for k, v := range src.GaMap {
-		newGaMap[k] = v
+	// PLAN — everything is prepared on local copies, and everything that can
+	// fail is checked, before a single byte of save state changes. A clone that
+	// cannot carry the FULL 0x24C ProfileSummary record is exactly the defect
+	// being fixed, so it must fail closed instead of publishing a half-cloned
+	// slot.
+	//
+	// The character-select menu renders the opaque face/equipment snapshot that
+	// lives in the rest of the record and that ProfileSummary.Serialize never
+	// writes; copying only the parsed summary leaves the destination carrying
+	// whatever bytes were there before, which the menu renders as a greyed-out
+	// or otherwise incorrect character.
+	ud := a.save.UserData10.Data
+	destRecord := core.ProfileSummaryRegion(ud, srcIdx) // an independent copy
+	if destRecord == nil {
+		return fmt.Errorf("source slot %d has no complete ProfileSummary record in UserData10", srcIdx)
 	}
-	src.GaMap = newGaMap
-	src.Player.CharacterName = encodeCharacterName16(cloneName)
+	if core.ProfileSummaryRegion(ud, destIdx) == nil {
+		return fmt.Errorf("destination slot %d has no room for a complete ProfileSummary record in UserData10", destIdx)
+	}
 
-	a.save.Slots[destIdx] = src
+	// core.CloneSlot is the single deep-copy source of truth: the destination
+	// must not alias ANY mutable field of the source (Data, GaMap, GaItems,
+	// Inventory, Storage, UnlockedRegions, SectionMap, Warnings).
+	clone := core.CloneSlot(&a.save.Slots[srcIdx])
+	clone.Player.CharacterName = encodeCharacterName16(cloneName)
+	summary := a.save.ProfileSummaries[srcIdx]
+	summary.CharacterName = clone.Player.CharacterName
+	// Stamp the unique clone name (and the unchanged source level) into the
+	// planned record while it is still a local buffer, so raw and in-memory
+	// state agree the moment the record is published — not only after WriteSave.
+	summary.Serialize(destRecord, 0)
+	undoSnapshot := a.buildSlotSnapshotLocked(destIdx)
+
+	// PUBLISH — one logical mutation, ordered so that nothing after the first
+	// write can fail. SetProfileSummaryRegion fails closed (it validated the
+	// same bounds above), so a false here means no byte was written and no
+	// auxiliary state — undo stack, slot revision, dedup tokens — has moved.
+	if !core.SetProfileSummaryRegion(ud, destIdx, destRecord) {
+		return fmt.Errorf("failed to copy the ProfileSummary record into slot %d", destIdx)
+	}
+	a.save.ProfileSummaries[destIdx] = summary
+	a.save.Slots[destIdx] = *clone
 	a.save.ActiveSlots[destIdx] = true
-	a.save.ProfileSummaries[destIdx] = a.save.ProfileSummaries[srcIdx]
-	a.save.ProfileSummaries[destIdx].CharacterName = src.Player.CharacterName
+	a.pushUndoSnapshotLocked(destIdx, undoSnapshot)
 
 	return nil
 }
@@ -2233,9 +2264,10 @@ func (a *App) pushUndoLocked(idx int) {
 // entry. Same locking contract as pushUndoLocked.
 func (a *App) buildSlotSnapshotLocked(idx int) slotSnapshot {
 	return slotSnapshot{
-		Active:         a.save.ActiveSlots[idx],
-		ProfileSummary: a.save.ProfileSummaries[idx],
-		Slot:           core.SnapshotSlot(&a.save.Slots[idx]),
+		Active:            a.save.ActiveSlots[idx],
+		ProfileSummary:    a.save.ProfileSummaries[idx],
+		ProfileSummaryRaw: core.ProfileSummaryRegion(a.save.UserData10.Data, idx),
+		Slot:              core.SnapshotSlot(&a.save.Slots[idx]),
 	}
 }
 
@@ -2309,7 +2341,15 @@ func (a *App) RevertSlot(idx int) error {
 		return fmt.Errorf("nothing to undo for slot %d", idx)
 	}
 
+	// Restore the fallible part first: if the full raw ProfileSummary record can
+	// no longer be written, the undo entry stays on the stack and no state is
+	// partially restored. A nil record means the snapshot was taken without a
+	// usable UserData10, so there is nothing to restore.
 	snap := stack[len(stack)-1]
+	if snap.ProfileSummaryRaw != nil &&
+		!core.SetProfileSummaryRegion(a.save.UserData10.Data, idx, snap.ProfileSummaryRaw) {
+		return fmt.Errorf("cannot undo slot %d: its ProfileSummary record no longer fits in UserData10", idx)
+	}
 	a.undoStacks[idx] = stack[:len(stack)-1]
 	a.save.ActiveSlots[idx] = snap.Active
 	a.save.ProfileSummaries[idx] = snap.ProfileSummary

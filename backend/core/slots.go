@@ -79,3 +79,34 @@ func (s *SaveFile) CleanResidualSlots() int {
 	}
 	return cleaned
 }
+
+// ProfileSummaryRegion returns a copy of the FULL ProfileSummary record for slot
+// idx (ProfileSummaryStride bytes: name, level AND the opaque face/equipment
+// snapshot the character-select menu renders). Returns nil when the region does
+// not fit in data. ProfileSummary.Serialize only rewrites name+level, so this is
+// the only way to move or preserve a complete record.
+func ProfileSummaryRegion(data []byte, idx int) []byte {
+	if idx < 0 || idx >= 10 {
+		return nil
+	}
+	off := ProfileSummaryOffset + idx*ProfileSummaryStride
+	if off < 0 || off+ProfileSummaryStride > len(data) {
+		return nil
+	}
+	return append([]byte(nil), data[off:off+ProfileSummaryStride]...)
+}
+
+// SetProfileSummaryRegion overwrites the FULL ProfileSummary record for slot idx
+// with rec. It reports whether the write happened; an out-of-range index, a short
+// buffer or a wrong-sized record fail closed without mutating anything.
+func SetProfileSummaryRegion(data []byte, idx int, rec []byte) bool {
+	if idx < 0 || idx >= 10 || len(rec) != ProfileSummaryStride {
+		return false
+	}
+	off := ProfileSummaryOffset + idx*ProfileSummaryStride
+	if off < 0 || off+ProfileSummaryStride > len(data) {
+		return false
+	}
+	copy(data[off:off+ProfileSummaryStride], rec)
+	return true
+}

@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-09-12
+
+### fix(slots): copy the full character-select ProfileSummary when cloning a slot
+
+Cloning a character copied only the parsed ProfileSummary (name and level) and
+left the rest of the 0x24C UserData10 record — the opaque face/equipment
+snapshot the character-select screen renders — as whatever bytes the destination
+slot already carried. The clone therefore ended up with an incomplete and
+inconsistent ProfileSummary, and the character-select screen showed it greyed
+out or otherwise incorrectly rendered. CloneSlot now copies the complete record,
+stamps the unique clone name and the source level into it, and deep-copies the
+destination slot through `core.CloneSlot` so it no longer shares GaItems,
+Inventory, Storage, UnlockedRegions, SectionMap or Warnings with the source.
+The operation is fail-closed: it verifies up front that the full source and
+destination records are available and leaves the slots, active flags, UserData10
+and the undo stack untouched when they are not. Undo snapshots keep the full
+record too, so reverting a clone, a character delete or a residual-slot cleanup
+restores the previous record byte-for-byte — and an undo that cannot restore it
+keeps its snapshot instead of leaving a partially restored slot.
+
+Whether this also resolves the reported freeze after selecting a character in an
+affected save is not yet confirmed — that needs a controlled in-game test.
+
 ## [1.8.0] - 2026-09-12
 
 ### fix(build): skip automatic module tidy in Wails commands
