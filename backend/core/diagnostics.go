@@ -72,6 +72,9 @@ func DiagnoseSaveCorruption(slot *SaveSlot, slotIndex int) SlotDiagnostics {
 	// 8. Storage count header
 	diag.checkStorageHeader(slot)
 
+	// 9. Torrent ride state
+	diag.checkTorrentState(slot)
+
 	return diag
 }
 
@@ -296,6 +299,17 @@ func (d *SlotDiagnostics) checkStorageHeader(slot *SaveSlot) {
 	if headerCount != actualCount {
 		d.addWarning("storage", "storage header count %d != actual items %d", headerCount, actualCount)
 	}
+}
+
+// checkTorrentState reports the confirmed freeze condition: Torrent with no HP
+// still held in the ACTIVE ride state makes the character hang forever on load.
+// The rule itself lives in TorrentDeadButActive, shared verbatim with the repair
+// scanner so the two can never disagree.
+func (d *SlotDiagnostics) checkTorrentState(slot *SaveSlot) {
+	if !TorrentDeadButActive(slot) {
+		return
+	}
+	d.addCritical("torrent", "Torrent HP=0 while ride state is ACTIVE (%d) — character never finishes loading", HorseStateActive)
 }
 
 // IntegrityError describes a single post-mutation invariant violation.

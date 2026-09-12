@@ -54,6 +54,11 @@ const (
 	// REPORT-ONLY — no safe generic auto-repair exists (which ItemID to retain is
 	// the user's call), so its only action is no_action.
 	RepairCodeDuplicatePhysicalHandle = "duplicate_physical_gaitem_handle"
+	// RepairCodeTorrentDeadActive flags the confirmed freeze condition: Torrent
+	// has no HP but the ride state is still ACTIVE, which makes the character
+	// hang forever on load. The rule lives in TorrentDeadButActive, shared with
+	// DiagnoseSaveCorruption.
+	RepairCodeTorrentDeadActive = "torrent_dead_active"
 )
 
 // Repair action identifiers — proposed by the scanner, executed by the apply endpoint.
@@ -68,6 +73,9 @@ const (
 	// RepairActionClampQuantity clamps an over-cap record down to its
 	// authoritative effective cap (ClampInventoryQuantityAt).
 	RepairActionClampQuantity = "clamp_quantity"
+	// RepairActionFixTorrentState moves RideGameData.State from ACTIVE to DEAD
+	// on a slot in the HP=0 + ACTIVE freeze condition. It writes nothing else.
+	RepairActionFixTorrentState = "fix_torrent_state"
 )
 
 const (
@@ -75,6 +83,7 @@ const (
 	repairDomainAoW       = "aow"
 	repairDomainStats     = "stats"
 	repairDomainGaItem    = "gaitem"
+	repairDomainWorld     = "world"
 
 	repairScopeGaItems = "gaitems"
 
@@ -82,6 +91,7 @@ const (
 	repairScopeInventoryKey    = "inventory_key"
 	repairScopeStorageCommon   = "storage_common"
 	repairScopeStats           = "stats"
+	repairScopeWorld           = "world"
 
 	repairSeverityError   = "error"
 	repairSeverityWarning = "warning"
@@ -157,6 +167,7 @@ func scanRepairIssuesFrom(slotIndex int, slot *SaveSlot, records []ResolvedRecor
 	out = append(out, scanAoWRepairIssues(slotIndex, slot)...)
 	out = append(out, scanStatsRepairIssues(slotIndex, slot)...)
 	out = append(out, scanPhysicalGaItemHandleIssues(slotIndex, slot)...)
+	out = append(out, scanTorrentRepairIssues(slotIndex, slot)...)
 	return out, structuralChecked, categoryChecked
 }
 
@@ -190,6 +201,24 @@ func scanPhysicalGaItemHandleIssues(slotIndex int, slot *SaveSlot) []RepairIssue
 		firstIndex[h] = i
 	}
 	return out
+}
+
+// scanTorrentRepairIssues exposes the confirmed Torrent freeze condition
+// (TorrentDeadButActive) as a repairable issue. It is slot-scoped, not
+// record-scoped, so it carries no row and no fingerprint: RepairTorrentState
+// re-verifies the condition itself before writing.
+func scanTorrentRepairIssues(slotIndex int, slot *SaveSlot) []RepairIssue {
+	if !TorrentDeadButActive(slot) {
+		return nil
+	}
+	key := IssueKey{Slot: slotIndex, Domain: repairDomainWorld, Code: RepairCodeTorrentDeadActive,
+		Scope: repairScopeWorld, Row: -1,
+		Field: "state", Value: fmt.Sprintf("%d", HorseStateActive)}
+	return []RepairIssue{mkIssue(key,
+		fmt.Sprintf("Torrent HP=0 while ride state is ACTIVE (%d) — character never finishes loading", HorseStateActive),
+		repairSeverityError,
+		[]string{RepairActionFixTorrentState},
+		RepairActionFixTorrentState, "")}
 }
 
 // ---- helpers ----------------------------------------------------------------

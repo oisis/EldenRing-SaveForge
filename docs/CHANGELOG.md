@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ## [1.8.1] - 2026-09-12
 
+### fix(diagnostics): detect and repair Torrent stuck in the ACTIVE ride state
+
+A character whose Torrent carries no HP while the ride state is still ACTIVE
+never finishes loading — the game hangs on the loading screen. Diagnostics now
+reports that exact combination as a critical `torrent` issue, and the repair
+scanner exposes it as `torrent_dead_active` with a single mutating action,
+`fix_torrent_state`, selected by default. The repair re-verifies the bounds and
+the condition, then writes only `RideGameData.State` (ACTIVE → DEAD); HP,
+coordinates, map ID, angle and every other byte of the slot are preserved, and
+it fails without mutating anything when the condition is already gone or the
+structure cannot be read safely. Every other HP/state combination, including
+HP 0 with state DEAD, remains untouched.
+
 ### fix(slots): copy the full character-select ProfileSummary when cloning a slot
 
 Cloning a character copied only the parsed ProfileSummary (name and level) and

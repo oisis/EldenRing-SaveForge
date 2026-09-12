@@ -318,6 +318,10 @@ func dispatchRepairAction(slot *core.SaveSlot, t RepairApplyTarget) error {
 			}
 			return core.CreateWeaponAoWCopy(slot, t.Key.Handle, aowItemID)
 		}
+	case "world":
+		if t.SelectedAction == core.RepairActionFixTorrentState {
+			return core.RepairTorrentState(slot)
+		}
 	}
 	return fmt.Errorf("unsupported action %q for domain %q", t.SelectedAction, t.Key.Domain)
 }

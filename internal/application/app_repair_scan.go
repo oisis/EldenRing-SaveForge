@@ -94,6 +94,8 @@ func repairActionLabel(id string) string {
 		return "Clamp quantity to allowed maximum"
 	case core.RepairActionFixLevel:
 		return "Set level to formula result"
+	case core.RepairActionFixTorrentState:
+		return "Set Torrent state to DEAD"
 	case core.RepairActionNoAction:
 		return "No action"
 	case RepairActionLeaveUnchanged:
@@ -128,6 +130,7 @@ func repairActionsForCode(code string) ([]RepairIssueAction, string) {
 		core.RepairCodeCurrentAoWMissing:         {[]string{core.RepairActionClearAoW, core.RepairActionPickAoW, RepairActionLeaveUnchanged}, core.RepairActionClearAoW},
 		core.RepairCodeCurrentAoWShared:          {[]string{core.RepairActionCreateCopy, core.RepairActionClearAoW, RepairActionLeaveUnchanged}, core.RepairActionCreateCopy},
 		core.RepairCodeCurrentAoWNonAoWCategory:  {[]string{core.RepairActionClearAoW, RepairActionLeaveUnchanged}, core.RepairActionClearAoW},
+		core.RepairCodeTorrentDeadActive:         {[]string{core.RepairActionFixTorrentState, RepairActionLeaveUnchanged}, core.RepairActionFixTorrentState},
 		core.RepairCodeStatsFormula:              {[]string{core.RepairActionFixLevel, RepairActionLeaveUnchanged}, core.RepairActionFixLevel},
 		editor.CodeUpgradeOutOfRange:             {[]string{RepairActionClampUpgrade, RepairActionLeaveUnchanged}, RepairActionClampUpgrade},
 		editor.CodeCategoryUnsupported:           {[]string{RepairActionReportOnly}, RepairActionReportOnly},
