@@ -892,12 +892,10 @@ func uniqueClonedCharacterName(base string, used map[string]struct{}) string {
 	return trimToUTF16Units(base, 14) + " 2"
 }
 
-// weaponCategorySupportsInfusion returns true for categories whose weapons can
-// receive affinities. Ranged weapons (bows, crossbows, greatbows) and catalysts
-// (staves, seals) cannot be infused in Elden Ring — applying an infuse offset to
-// their ID produces an ID the game does not recognise, making the item invisible.
-func weaponCategorySupportsInfusion(category string) bool {
-	return category == "melee_armaments" || category == "shields"
+// isWeaponAddCategory reports whether category holds editable weapons whose
+// final ID must resolve through db.ResolveWeaponIdentity.
+func isWeaponAddCategory(category string) bool {
+	return category == "melee_armaments" || category == "shields" || category == "ranged_and_catalysts"
 }
 
 // AddItemsToCharacter adds multiple items from the database to a character slot.
@@ -965,6 +963,9 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 	}
 	if charIdx < 0 || charIdx >= 10 {
 		return result, fmt.Errorf("invalid character index")
+	}
+	if !db.IsValidInfuseOffset(infuseOffset) {
+		return result, fmt.Errorf("invalid affinity offset %d", infuseOffset)
 	}
 
 	a.slotMu[charIdx].Lock()
@@ -1122,18 +1123,29 @@ func (a *App) addItemsToCharacter(charIdx int, itemIDs []uint32, upgrade25, upgr
 		// never encode an out-of-range level (e.g. base+25 for a somber +10 weapon
 		// like Golem Greatbow). The encoded ID embeds the level, so an over-cap
 		// value would produce a permanently invalid item the editor then rejects.
+		// A catalogued pre-infused row already carries its affinity, so it takes
+		// no batch offset (same silent-ignore contract as CanChangeAffinity=false).
 		switch {
 		case itemData.Category == "ashes":
 			finalID = id + uint32(editor.ClampUpgrade(upgradeAsh, int(itemData.MaxUpgrade)))
 		case itemData.MaxUpgrade == 25:
 			lvl := editor.ClampUpgrade(upgrade25, int(itemData.MaxUpgrade))
-			if infuseOffset != 0 && weaponCategorySupportsInfusion(itemData.Category) {
+			if infuseOffset != 0 && db.WeaponAcceptsBatchAffinity(id) {
 				finalID = id + uint32(infuseOffset) + uint32(lvl)
 			} else {
 				finalID = id + uint32(lvl)
 			}
 		case itemData.MaxUpgrade == 10:
 			finalID = id + uint32(editor.ClampUpgrade(upgrade10, int(itemData.MaxUpgrade)))
+		}
+		if isWeaponAddCategory(itemData.Category) {
+			// Fail-closed: a weapon must never be written under an ID that does
+			// not resolve to the same weapon family as the requested row.
+			rowIdentity, rowOK := db.ResolveWeaponIdentity(id)
+			identity, ok := db.ResolveWeaponIdentity(finalID)
+			if !rowOK || !ok || identity.BaseID != rowIdentity.BaseID {
+				return result, fmt.Errorf("item 0x%08X (%s): computed ID 0x%08X is not a valid weapon ID", id, itemData.Name, finalID)
+			}
 		}
 
 		actualInv := resolveQty(invQty, int(maxInventory))

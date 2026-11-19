@@ -123,3 +123,27 @@ func infusionNameForOffset(offset uint32) (string, bool) {
 	}
 	return "", false
 }
+
+// IsValidInfuseOffset reports whether offset is one of the affinity offsets in
+// InfuseTypes (Standard = 0 included). Any other value would encode a
+// non-existent weapon ID.
+func IsValidInfuseOffset(offset int) bool {
+	for _, infuse := range InfuseTypes {
+		if infuse.Offset == offset {
+			return true
+		}
+	}
+	return false
+}
+
+// WeaponAcceptsBatchAffinity reports whether a batch-selected affinity offset may
+// be added to the weapon row id: the regulation must allow affinity changes and
+// the row must not be a catalogued pre-infused variant that already carries its
+// own affinity.
+func WeaponAcceptsBatchAffinity(id uint32) bool {
+	if !CanWeaponChangeAffinity(id) {
+		return false
+	}
+	identity, ok := ResolveWeaponIdentity(id)
+	return ok && identity.AffinityOffset == 0
+}

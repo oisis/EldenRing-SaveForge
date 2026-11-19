@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### fix(items): apply affinity only to weapons whose regulation allows it
+
+Item Database add decided whether to apply the selected affinity from the item
+category (melee armaments and shields), not from the weapon's own regulation
+flag. Weapons that forbid affinity changes — Ghostflame Torch, Beast-Repellent
+Torch, Torchpole, Crystal Knife, the Perfume Bottles, Smithscript Shield and
+others, 21 in total — therefore received an infusion offset and were written
+under IDs that do not exist: the items were invisible in game and could crash
+it. The add path and presets now apply an affinity only when
+`CanChangeAffinity` is set; for every other weapon the offset is ignored and the
+base weapon is added at the requested level. Catalogued pre-infused rows
+(for example Flame Art Swift Spear) already carry their affinity and ignore the
+batch offset the same way, so "select all" with an affinity never fails the batch.
+
+The add path also rejects, before touching the slot, an affinity offset that is
+not one of the 13 known affinities and a weapon whose computed ID does not
+resolve to the requested weapon family.
+
+Behavior change: presets that carry an affinity on a bow, catalyst, torch or
+other weapon without affinity support now produce the base weapon instead of a
+non-existent infused ID, and the preset validator warns that the offset will be
+ignored.
+
 ## [1.8.1] - 2026-09-12
 
 ### fix(diagnostics): detect and repair Torrent stuck in the ACTIVE ride state

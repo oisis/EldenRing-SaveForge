@@ -125,7 +125,7 @@ Single public entry point: `App.AddItemsToCharacter(charIdx int, itemIDs []uint3
 - `charIdx` — character slot (`0..9`). Validation: `charIdx < 0 || charIdx >= 10` → error.
 - `itemIDs` — list of **base** item IDs (canonical DB values, e.g., `0x000F4240` Uchigatana, `0x40001234` goods).
 - `upgrade25`, `upgrade10` — additive shifts for weapons with `MaxUpgrade == 25` / `MaxUpgrade == 10`. The frontend selects the upgrade level globally for the whole batch.
-- `infuseOffset` — additive shift for items supporting infusion (`weaponCategorySupportsInfusion`: `melee_armaments` + `shields`). Bows/crossbows/staves/seals do **not** receive an infuse offset, despite `MaxUpgrade == 25` — because the game does not recognize their infused IDs (comment in `app.go:312-318`).
+- `infuseOffset` — additive shift applied only to weapons whose regulation allows affinity changes (`ItemData.CanChangeAffinity`). Weapons without it (bows, crossbows, staves, seals, torches, Crystal Knife, Perfume Bottles, Smithscript Shield, …) ignore a non-zero offset silently and are added as `base + level` (as are catalogued pre-infused rows such as Flame Art Swift Spear, whose `ResolveWeaponIdentity` affinity is already non-zero), despite `MaxUpgrade == 25` — the game does not recognize their infused IDs. An offset outside `db.InfuseTypes` (including negative values) is rejected with an error before any slot mutation, and so is any weapon whose computed final ID does not resolve through `db.ResolveWeaponIdentity` to the same family as the requested row.
 - `upgradeAsh` — shift for `category == "ashes"` (spirit ashes).
 - `invQty`, `storageQty` — requested quantity per item: `0` = skip, `-1` = max (from `db.ItemData.Max*`), `> 0` = `min(qty, max)`.
 
@@ -488,7 +488,7 @@ below), and any quantity/batch size beyond what T351/T352 exercised.
 
 ## Sources
 
-- `app.go` — `AddItemsToCharacter`, `AddResult`, `SkippedAdd`, `weaponCategorySupportsInfusion`, `resolveQty`
+- `app.go` — `AddItemsToCharacter`, `AddResult`, `SkippedAdd`, `db.IsValidInfuseOffset`, `db.WeaponAcceptsBatchAffinity`, `resolveQty`
 - `backend/core/writer.go` — `AddItemsToSlot`, `AddItemsToSlotBatch`, `allocateGaItem`, `generateUniqueHandle`, `upsertGaItemData`, `ReconcileInventoryHeader`, `ReconcileStorageHeader`
 - `backend/core/capacity.go` — `CheckAddCapacity`, `CapacityReport`, `CountSlotUsage`, `SlotUsage`, `ItemToAdd`, `handlePrefixForStackable`, `needsGaItemData`
 - `backend/core/snapshot.go` — `SnapshotSlot`, `RestoreSlot`, `SlotSnapshot`
