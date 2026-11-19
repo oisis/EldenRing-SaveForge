@@ -53,7 +53,7 @@ Per-category sort mechanics (acquisition stride-2) — canonically in [52](52-ac
 | SortOrderTab tab → DB categories | `app_inventory_order.go:32-39` — `inventoryOrderTabs` (backend), `frontend/src/components/SortOrderTab.tsx:47-54` — `TAB_CATEGORIES` (frontend mirror) |
 | Unarmed exclusion | `app_inventory_order.go:54-58` — `invUnarmedBaseID = 0x0001ADB0`, `isWeaponOrderTechnical` |
 | Public list endpoints | `app.go:273` — `GetItemList(category)`; `:283` — `GetItemListChunk` (alias for progressive load) |
-| Infusion support per category | `app.go:316` — `weaponCategorySupportsInfusion` (only `melee_armaments` and `shields`) |
+| Infusion support per weapon | `backend/db/db.go` — `ItemData.CanChangeAffinity` (regulation flag, not the category); catalogued pre-infused rows (non-zero `ResolveWeaponIdentity` affinity) take no extra offset |
 | Infuse variant filter | `backend/db/db.go:988` — `filterInfuseVariants` |
 | Arrow ID detection | `backend/db/db.go:566` — `IsArrowID` |
 
@@ -372,7 +372,7 @@ DB-level tests touching category:
 - [07 — Inventory model](07-inventory.md) — read-side 12B record, CommonItems offsets.
 - [10 — Storage model](10-storage.md) — read-side record, StorageBoxOffset.
 - [35 — GaItem allocator invariants](35-gaitem-allocator-invariants.md) — handle allocation (independent of category).
-- [43 — Transactional item adding](43-transactional-item-adding.md) — `AddItemsToCharacter`, per-category validation (e.g. `weaponCategorySupportsInfusion`).
+- [43 — Transactional item adding](43-transactional-item-adding.md) — `AddItemsToCharacter`, per-weapon affinity gate (`ItemData.CanChangeAffinity`).
 - [52 — Acquisition stride-2 sort order](52-acquisition-sort-stride2.md) — stride-2 reorder per Sort Order tab.
 - [53 — Inventory ↔ Storage transfer](53-inventory-storage-transfer.md) — SortOrderTab workspace UI, transfer mechanics.
 
@@ -383,7 +383,7 @@ DB-level tests touching category:
 - `frontend/src/components/CategorySelect.tsx` — canonical list of 18 tabs in game order.
 - `frontend/src/components/SortOrderTab.tsx` — 6 workspace UI tabs + `TAB_CATEGORIES`.
 - `app_inventory_order.go` — `inventoryOrderTabs`, `invUnarmedBaseID`, `isWeaponOrderTechnical`.
-- `app.go:273+` — `GetItemList`, `GetItemListChunk`, `weaponCategorySupportsInfusion`.
+- `app.go:273+` — `GetItemList`, `GetItemListChunk`.
 - `backend/db/db.go` — `GetItemsByCategory`, `GetItemCategoryFromHandle`, `HandleToItemID`, `ItemIDToHandlePrefix`, `filterInfuseVariants`, `GetItemSubCategory`, `IsArrowID`.
 - `backend/db/data/types.go` — `ItemData` shape + `Flags` semantics.
 - `backend/db/data/subcategories.go` — 76 `Subcat*` constants.

@@ -90,11 +90,6 @@ type PresetApplyResult struct {
 	Warnings     []string `json:"warnings"`
 }
 
-var validInfuseOffsets = map[uint32]bool{
-	0: true, 100: true, 200: true, 300: true, 400: true, 500: true,
-	600: true, 700: true, 800: true, 900: true, 1000: true, 1100: true, 1200: true,
-}
-
 func VMToPreset(vm *CharacterViewModel, appVersion string) *CharacterPreset {
 	preset := &CharacterPreset{
 		FormatVersion: PresetFormatVersion,
@@ -212,13 +207,13 @@ func validatePresetItem(item *PresetItem, location string, idx int, warnings *[]
 				location, idx, itemData.Name, item.CurrentUpgrade, itemData.MaxUpgrade))
 	}
 
-	if item.InfuseOffset > 0 && itemData.MaxUpgrade != 25 {
+	if item.InfuseOffset > 0 && !db.WeaponAcceptsBatchAffinity(item.BaseID) {
 		*warnings = append(*warnings,
 			fmt.Sprintf("%s[%d] %s: infuse offset %d on non-infusable item — will be ignored",
 				location, idx, itemData.Name, item.InfuseOffset))
 	}
 
-	if item.InfuseOffset > 0 && !validInfuseOffsets[item.InfuseOffset] {
+	if item.InfuseOffset > 0 && !db.IsValidInfuseOffset(int(item.InfuseOffset)) {
 		*warnings = append(*warnings,
 			fmt.Sprintf("%s[%d] %s: invalid infuse offset %d — will use Standard",
 				location, idx, itemData.Name, item.InfuseOffset))
@@ -437,7 +432,7 @@ func PresetItemToFinalID(item PresetItem) uint32 {
 	}
 
 	var infuse uint32
-	if itemData.Name != "" && itemData.MaxUpgrade == 25 && validInfuseOffsets[item.InfuseOffset] {
+	if itemData.Name != "" && db.WeaponAcceptsBatchAffinity(item.BaseID) && db.IsValidInfuseOffset(int(item.InfuseOffset)) {
 		infuse = item.InfuseOffset
 	}
 

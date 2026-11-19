@@ -1048,3 +1048,64 @@ func searchString(s, substr string) bool {
 	}
 	return false
 }
+
+func TestPresetItemToFinalID_AffinityGate(t *testing.T) {
+	tests := []struct {
+		name     string
+		item     PresetItem
+		expected uint32
+	}{
+		{
+			name:     "torch without affinity ignores infuse",
+			item:     PresetItem{BaseID: 0x016EF950, CurrentUpgrade: 5, InfuseOffset: 100},
+			expected: 0x016EF950 + 5,
+		},
+		{
+			name:     "bow ignores infuse",
+			item:     PresetItem{BaseID: 0x02719C40, CurrentUpgrade: 5, InfuseOffset: 100},
+			expected: 0x02719C40 + 5,
+		},
+		{
+			name:     "dagger applies infuse",
+			item:     PresetItem{BaseID: 0x000F4240, CurrentUpgrade: 5, InfuseOffset: 100},
+			expected: 0x000F4240 + 100 + 5,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := PresetItemToFinalID(tt.item); got != tt.expected {
+				t.Errorf("PresetItemToFinalID() = 0x%08X, want 0x%08X", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestValidatePreset_InfuseWarning_AffinityGate(t *testing.T) {
+	warningsFor := func(baseID uint32) []string {
+		var warnings []string
+		item := PresetItem{BaseID: baseID, InfuseOffset: 100}
+		validatePresetItem(&item, "inventory", 0, &warnings)
+		return warnings
+	}
+
+	if w := warningsFor(0x016EF950); len(w) != 1 || !containsString(w[0], "non-infusable item") {
+		t.Errorf("torch: want one non-infusable warning, got %v", w)
+	}
+	if w := warningsFor(0x000F4240); len(w) != 0 {
+		t.Errorf("dagger: want no warnings, got %v", w)
+	}
+}
+
+func TestPresetPreInfusedRow_AffinityGate(t *testing.T) {
+	const preInfused = uint32(0x00FC1534) // Flame Art Swift Spear
+	item := PresetItem{BaseID: preInfused, CurrentUpgrade: 5, InfuseOffset: 100}
+	if got := PresetItemToFinalID(item); got != preInfused+5 {
+		t.Errorf("PresetItemToFinalID() = 0x%08X, want 0x%08X", got, preInfused+5)
+	}
+	var warnings []string
+	validatePresetItem(&item, "inventory", 0, &warnings)
+	if len(warnings) != 1 || !containsString(warnings[0], "will be ignored") {
+		t.Errorf("want one ignore warning, got %v", warnings)
+	}
+}
