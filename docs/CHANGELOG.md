@@ -39,6 +39,21 @@ verified in game. A legacy Key Items duplicate left by older SaveForge versions
 is zeroed (not removed) so the count is correct; the same caveat about
 0-quantity records applies.
 
+### fix(ui): capacity message distinguishes an oversized selection from a full container
+
+When an Item Database add was rejected for capacity, the modal always asked the
+user to remove items from Inventory or Storage, even when the container was
+empty and the selection simply exceeded the game's maximum. The message now
+says the selection needs N slots while the game allows at most the container
+maximum and asks to reduce the selection; the "Remove at least" hint is kept
+for selections that fit the maximum but not the free space.
+
+### fix(ui): rename "Skip Bosses" to "Skip Boss Arenas" with an explanatory tooltip
+
+The Sites of Grace checkbox is now labelled "Skip Boss Arenas", matching the
+risk notes, and its tooltip explains that Unlock All leaves boss-arena graces
+(marked B) locked. It does not defeat bosses or change boss flags.
+
 ## [1.8.1] - 2026-09-12
 
 ### fix(diagnostics): detect and repair Torrent stuck in the ACTIVE ride state

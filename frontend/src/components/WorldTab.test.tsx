@@ -57,8 +57,10 @@ vi.mock('../state/safetyMode', () => ({
 }));
 
 import {
+    GetGraces,
     GetQuestNPCs,
     GetQuestProgress,
+    SetGraceVisited,
     SetMapFlag,
     SetQuestStep,
 } from '../../wailsjs/go/main/App';
@@ -200,5 +202,51 @@ describe('WorldTab NPC Quests scroll and mount stability', () => {
         await waitFor(() => {
             expect(screen.getByText('1001').closest('button')).not.toBeDisabled();
         });
+    });
+});
+
+describe('WorldTab Sites of Grace boss-arena skip', () => {
+    const grace = (id: number, name: string, isBossArena: boolean) =>
+        ({ id, name, region: 'Limgrave', visited: false, isBossArena }) as unknown as db.GraceEntry;
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        localStorage.clear();
+        vi.mocked(GetQuestNPCs).mockResolvedValue([]);
+        vi.mocked(GetGraces).mockResolvedValue([
+            grace(1, 'Plain Grace', false),
+            grace(2, 'Arena Grace', true),
+        ]);
+    });
+
+    const renderAndLoad = async () => {
+        render(<WorldTab charIdx={0} />);
+        await waitFor(() => expect(GetGraces).toHaveBeenCalled());
+        return screen.findByText('Skip Boss Arenas');
+    };
+
+    it('labels the checkbox "Skip Boss Arenas" with an explanatory tooltip', async () => {
+        const label = await renderAndLoad();
+        expect(screen.queryByText('Skip Bosses')).not.toBeInTheDocument();
+        expect(label.closest('label')).toHaveAttribute(
+            'title',
+            'Unlock All leaves boss-arena graces (marked B) locked. It does not defeat bosses or change boss flags.');
+    });
+
+    it('Unlock All skips boss-arena graces while the checkbox is checked', async () => {
+        const label = await renderAndLoad();
+        expect(label.closest('label')!.querySelector('input')).toBeChecked();
+        const unlockAll = screen.getAllByRole('button', { name: 'Unlock All' })[0];
+        fireEvent.click(unlockAll);
+        await waitFor(() => expect(SetGraceVisited).toHaveBeenCalledWith(0, 1, true));
+        expect(SetGraceVisited).not.toHaveBeenCalledWith(0, 2, true);
+    });
+
+    it('Unlock All includes boss-arena graces when the checkbox is unchecked', async () => {
+        const label = await renderAndLoad();
+        fireEvent.click(label.closest('label')!.querySelector('input')!);
+        fireEvent.click(screen.getAllByRole('button', { name: 'Unlock All' })[0]);
+        await waitFor(() => expect(SetGraceVisited).toHaveBeenCalledWith(0, 2, true));
+        expect(SetGraceVisited).toHaveBeenCalledWith(0, 1, true);
     });
 });

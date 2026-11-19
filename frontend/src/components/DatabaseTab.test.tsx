@@ -700,6 +700,38 @@ describe('DatabaseTab', () => {
         expect(order).toEqual(['Rowa Fruit', 'Cured Meat', 'Golden Rune']); // 1, 5, 10
     });
 
+    describe('capacity modal: selection larger than the game maximum', () => {
+        async function triggerCapHit(res: Record<string, unknown>) {
+            mocks.AddItemsToCharacter.mockResolvedValue({
+                added: 0, requested: 1, trimmed: [], freeGaItems: 0, neededGaItems: 0, ...res,
+            });
+            renderTab();
+            await waitFor(() => expect(mocks.GetSlotCapacity).toHaveBeenCalled());
+            fireEvent.click(await screen.findByRole('button', { name: /Add Favorites/i }));
+            fireEvent.click(await screen.findByRole('button', { name: 'Add Anyway' }));
+            fireEvent.click(await screen.findByRole('button', { name: /^Add$/ }));
+            await waitFor(() => expect(mocks.AddItemsToCharacter).toHaveBeenCalledTimes(1));
+        }
+
+        it('storage: needed above the maximum shows the reduce-selection message, not "Remove at least"', async () => {
+            await triggerCapHit({ capHit: 'storage_full', freeInv: 0, freeStore: 1920, neededInv: 0, neededStore: 2000 });
+            expect(await screen.findByText(/Selection needs 2000 Storage slots, but the game allows at most 1920\. Reduce the selection\./)).toBeInTheDocument();
+            expect(screen.queryByText(/Remove at least/)).not.toBeInTheDocument();
+        });
+
+        it('inventory: needed above the maximum shows the reduce-selection message, not "Remove at least"', async () => {
+            await triggerCapHit({ capHit: 'inventory_full', freeInv: 2688, freeStore: 0, neededInv: 3000, neededStore: 0 });
+            expect(await screen.findByText(/Selection needs 3000 Inventory slots, but the game allows at most 2688\. Reduce the selection\./)).toBeInTheDocument();
+            expect(screen.queryByText(/Remove at least/)).not.toBeInTheDocument();
+        });
+
+        it('boundary: needed equal to the maximum with less free space still asks to remove items', async () => {
+            await triggerCapHit({ capHit: 'storage_full', freeInv: 0, freeStore: 100, neededInv: 0, neededStore: 1920 });
+            expect(await screen.findByText(/Remove at least 1820 item\(s\) from Storage to make room/)).toBeInTheDocument();
+            expect(screen.queryByText(/Reduce the selection/)).not.toBeInTheDocument();
+        });
+    });
+
     // NOTE: the legacy "Repair & Retry" prompt that fired on a duplicate
     // acquisition-index error from AddItemsToCharacter was removed together
     // with the AddItems tolerance flow (see fix(save-integrity)). Duplicate
