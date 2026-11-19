@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.8.2-dev] - 2026-11-19
+
 ### fix(items): apply affinity only to weapons whose regulation allows it
 
 Item Database add decided whether to apply the selected affinity from the item

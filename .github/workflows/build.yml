@@ -243,6 +243,7 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "Elden Ring SaveForge ${{ steps.version.outputs.tag }}"
           draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           body_path: release-notes.md
           generate_release_notes: false
           files: artifacts/**/*.zip
