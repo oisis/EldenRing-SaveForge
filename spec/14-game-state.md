@@ -314,7 +314,7 @@ The **boss multi-flag editor** (a complex sync of multiple flags per boss, e.g.,
 1. Validates `a.save != nil` and `index` ∈ [0, 10).
 2. **`a.pushUndo(index)`** (line 186) — snapshot before all mutations.
 3. Calls `vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index])` — flush VM fields to `slot.Player` (incl. cap ClearCount @ 7).
-4. Applies MemoryStones via `a.applyMemoryStonesToSlot(slot, charVM.MemoryStones)`.
+4. Applies MemoryStones via `a.applyMemoryStonesToSlot(slot, charVM.MemoryStones)`. The count is clamped to 8 and written to both the parsed slice and `slot.Data` (`setInventoryCommonItemQuantity` / `setInventoryKeyItemQuantity`): an existing Common Items record is updated first (a legacy Key Items duplicate is then zeroed, not removed), otherwise an existing Key Items record is updated in place (no Common Items copy is created); a new Common Items record is added only when none exists and the count is above 0. A count of 0 keeps the record with quantity 0.
 5. `slot.SyncPlayerToData()` — flush `slot.Player` → `slot.Data` (binary serialize).
 6. **NG+ event flag sync 50-57** (`app.go:204-209`) — error swallowed.
 7. Updates `ProfileSummary[index].Level` + `.CharacterName`.

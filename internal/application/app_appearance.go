@@ -220,22 +220,43 @@ func hasEventFlagsRegion(slot *core.SaveSlot) bool {
 // adding them if absent, and syncs the corresponding pickup event flags.
 func (a *App) applyMemoryStonesToSlot(slot *core.SaveSlot, desired uint32) error {
 	desired = normalizeMemoryStones(desired)
-	stoneFound := false
+	commonRow, keyRow := -1, -1
 	for i := range slot.Inventory.CommonItems {
-		if slot.Inventory.CommonItems[i].GaItemHandle == 0xB000272E {
-			slot.Inventory.CommonItems[i].Quantity = desired
-			stoneFound = true
+		if slot.Inventory.CommonItems[i].GaItemHandle == memoryStonesHandle {
+			commonRow = i
 			break
 		}
 	}
-	if !stoneFound && desired > 0 {
-		if err := core.AddItemsToSlot(slot, []uint32{0x4000272E}, int(desired), 0, false); err != nil {
+	for i := range slot.Inventory.KeyItems {
+		if slot.Inventory.KeyItems[i].GaItemHandle == memoryStonesHandle {
+			keyRow = i
+			break
+		}
+	}
+	switch {
+	case commonRow >= 0:
+		if err := setInventoryCommonItemQuantity(slot, commonRow, desired); err != nil {
+			return fmt.Errorf("set memory stone quantity: %w", err)
+		}
+		// A legacy Key Items duplicate would win the effective count whenever
+		// the Common stack is 0, so it is zeroed (never removed).
+		if keyRow >= 0 {
+			if err := setInventoryKeyItemQuantity(slot, keyRow, 0); err != nil {
+				return fmt.Errorf("zero legacy memory stone record: %w", err)
+			}
+		}
+	case keyRow >= 0:
+		if err := setInventoryKeyItemQuantity(slot, keyRow, desired); err != nil {
+			return fmt.Errorf("set memory stone quantity: %w", err)
+		}
+	case desired > 0:
+		if err := core.AddItemsToSlot(slot, []uint32{memoryStonesItemID}, int(desired), 0, false); err != nil {
 			return fmt.Errorf("add memory stone: %w", err)
 		}
 	}
 	if hasEventFlagsRegion(slot) {
 		flags := slot.Data[slot.EventFlagsOffset:]
-		flagList := data.BolsteringPickupFlags[0x4000272E]
+		flagList := data.BolsteringPickupFlags[memoryStonesItemID]
 		sorted := make([]uint32, len(flagList))
 		copy(sorted, flagList)
 		sort.Slice(sorted, func(i, j int) bool { return sorted[i] < sorted[j] })
