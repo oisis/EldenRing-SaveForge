@@ -269,6 +269,16 @@ func memoryStonesEffective(slot *core.SaveSlot) uint32 {
 	return eff
 }
 
+// memoryStonesInKeyItems reports whether a Key Items record holds the stone.
+func memoryStonesInKeyItems(slot *core.SaveSlot) bool {
+	for _, item := range slot.Inventory.KeyItems {
+		if item.GaItemHandle == memoryStonesHandle {
+			return true
+		}
+	}
+	return false
+}
+
 // readMemoryStonesEffective is the journal reader for the effective count.
 func readMemoryStonesEffective(slot *core.SaveSlot) string {
 	return strconv.FormatUint(uint64(memoryStonesEffective(slot)), 10)
@@ -319,12 +329,13 @@ func planMemoryStonesSaveChanges(slot *core.SaveSlot, requested uint32) []memory
 	normalized := normalizeMemoryStones(requested)
 	count := strconv.FormatUint(uint64(normalized), 10)
 
-	// The writer creates or updates a Common Items stack only when it ends up
-	// non-empty (desired > 0) or a stack already exists; otherwise the stone
-	// stays absent from Common Items.
+	// The writer updates an existing Common Items or Key Items record in place
+	// and creates a Common Items stack only when no record exists and the
+	// desired count is non-empty; otherwise the stone stays absent from Common
+	// Items.
 	commonExists := readMemoryStonesCommonQuantity(slot) != memoryStonesAbsent
 	plannedCommon := memoryStonesAbsent
-	if commonExists || normalized > 0 {
+	if commonExists || (!memoryStonesInKeyItems(slot) && normalized > 0) {
 		plannedCommon = count
 	}
 

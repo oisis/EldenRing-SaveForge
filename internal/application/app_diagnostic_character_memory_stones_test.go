@@ -1,6 +1,7 @@
 package application
 
 import (
+	"encoding/binary"
 	"sort"
 	"testing"
 
@@ -190,18 +191,17 @@ func TestSaveCharacterMemoryStonesDiagnosticExistingCommonRecord(t *testing.T) {
 	}
 }
 
-// TestSaveCharacterMemoryStonesDiagnosticLegacyKeyItemsCreatesCommon covers a
+// TestSaveCharacterMemoryStonesDiagnosticLegacyKeyItemsUpdatedInPlace covers a
 // legacy state where the stone lives outside the Common Items stack: the writer
-// creates a Common Items record, so memory_stones_common_quantity must go from
-// absent to the real created quantity.
-func TestSaveCharacterMemoryStonesDiagnosticLegacyKeyItemsCreatesCommon(t *testing.T) {
+// updates the Key Items record in place and creates no Common Items record, so
+// memory_stones_common_quantity stays absent and emits nothing.
+func TestSaveCharacterMemoryStonesDiagnosticLegacyKeyItemsUpdatedInPlace(t *testing.T) {
 	app := remembranceGameLimitsFixture()
 	slot := &app.save.Slots[0]
 	withEventFlagsRegion(slot)
 	// Live legacy state: a non-zero Memory Stones Key Items stack, with the
 	// stackable handle registered in GaMap exactly as a parsed save carries it.
-	// The writer only inspects Common Items before adding, so it creates a fresh
-	// Common Items stack and leaves the legacy Key Items record untouched.
+	// The writer updates the existing Key Items record in place.
 	const legacyKeyQty = uint32(5)
 	slot.GaMap[memoryStonesHandle] = memoryStonesItemID
 	slot.Inventory.KeyItems = []core.InventoryItem{{GaItemHandle: memoryStonesHandle, Quantity: legacyKeyQty}}
@@ -220,39 +220,29 @@ func TestSaveCharacterMemoryStonesDiagnosticLegacyKeyItemsCreatesCommon(t *testi
 		t.Fatalf("SaveCharacter: %v", err)
 	}
 
-	// The legacy Key Items stack must be preserved verbatim.
+	// The legacy Key Items record must be updated in place (slice and Data).
 	if len(slot.Inventory.KeyItems) != 1 || slot.Inventory.KeyItems[0].GaItemHandle != memoryStonesHandle ||
-		slot.Inventory.KeyItems[0].Quantity != legacyKeyQty {
-		t.Fatalf("Key Items stack changed: %+v, want single stone qty %d", slot.Inventory.KeyItems, legacyKeyQty)
+		slot.Inventory.KeyItems[0].Quantity != 4 {
+		t.Fatalf("Key Items stack = %+v, want single stone qty 4", slot.Inventory.KeyItems)
 	}
-	// The writer must have created a Common Items stack at the requested count,
-	// and the effective count now reflects it (Common Items wins over Key Items).
-	if got := readMemoryStonesCommonQuantity(slot); got != "4" {
-		t.Fatalf("Common Items quantity = %q, want 4 (record created)", got)
+	keyStart := slot.MagicOffset + core.InvStartFromMagic + core.CommonItemCount*core.InvRecordLen + core.InvKeyCountHeader
+	if got := binary.LittleEndian.Uint32(slot.Data[keyStart+4:]); got != 4 {
+		t.Fatalf("Key Items binary quantity = %d, want 4", got)
+	}
+	// No Common Items record may be created.
+	if got := readMemoryStonesCommonQuantity(slot); got != memoryStonesAbsent {
+		t.Fatalf("Common Items quantity = %q, want %q (no record created)", got, memoryStonesAbsent)
 	}
 	if got := memoryStonesEffective(slot); got != 4 {
 		t.Errorf("effective memory_stones = %d, want 4", got)
 	}
 
 	records := characterRecords(app.journal.Tail())
-	phases := memoryStonesPhases(records, "memory_stones_common_quantity")
-	if len(phases) != 3 {
-		t.Fatalf("memory_stones_common_quantity: got %d records, want 3", len(phases))
-	}
-	if got := operationField(phases[0], "before"); got != memoryStonesAbsent {
-		t.Errorf("common_quantity before = %q, want %q", got, memoryStonesAbsent)
-	}
-	if got := operationField(phases[1], "after"); got != "4" {
-		t.Errorf("common_quantity planned = %q, want 4", got)
-	}
-	if got := operationField(phases[2], "after"); got != "4" {
-		t.Errorf("common_quantity finished = %q, want 4 (record actually created)", got)
-	}
-	if got := operationField(phases[2], "outcome"); got != string(characterChangeSuccess) {
-		t.Errorf("common_quantity finished outcome = %q, want success", got)
+	if phases := memoryStonesPhases(records, "memory_stones_common_quantity"); len(phases) != 0 {
+		t.Fatalf("memory_stones_common_quantity: got %d records, want 0 (field unchanged)", len(phases))
 	}
 
-	// Effective memory_stones lifecycle: 5 (Key Items) -> 4 (created Common stack).
+	// Effective memory_stones lifecycle: 5 -> 4 (Key Items record updated in place).
 	eff := memoryStonesPhases(records, "memory_stones")
 	if len(eff) != 3 {
 		t.Fatalf("memory_stones: got %d records, want 3", len(eff))

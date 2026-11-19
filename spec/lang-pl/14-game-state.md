@@ -314,7 +314,7 @@ To jest **single-flag editor** — działa na pojedynczych event flagach per bos
 1. Validuje `a.save != nil` i `index` ∈ [0, 10).
 2. **`a.pushUndo(index)`** (linia 186) — snapshot przed wszystkimi mutacjami.
 3. Wywołuje `vm.ApplyVMToParsedSlot(&charVM, &a.save.Slots[index])` — flush VM fields do `slot.Player` (m.in. cap ClearCount @ 7).
-4. Aplikuje MemoryStones przez `a.applyMemoryStonesToSlot(slot, charVM.MemoryStones)`.
+4. Aplikuje MemoryStones przez `a.applyMemoryStonesToSlot(slot, charVM.MemoryStones)`. Liczba jest ograniczana do 8 i zapisywana zarówno w sparsowanym slice, jak i w `slot.Data` (`setInventoryCommonItemQuantity` / `setInventoryKeyItemQuantity`): najpierw aktualizowany jest istniejący rekord Common Items (ewentualny dawny duplikat w Key Items jest wtedy zerowany, nie usuwany), w przeciwnym razie istniejący rekord Key Items jest aktualizowany w miejscu (bez tworzenia kopii w Common Items); nowy rekord Common Items powstaje tylko gdy żadnego nie ma, a liczba jest większa od 0. Wartość 0 zostawia rekord z ilością 0.
 5. `slot.SyncPlayerToData()` — flush `slot.Player` → `slot.Data` (binary serialize).
 6. **Event flag sync NG+ 50-57** (`app.go:204-209`) — error swallowed.
 7. Aktualizuje `ProfileSummary[index].Level` + `.CharacterName`.

@@ -27,6 +27,18 @@ other weapon without affinity support now produce the base weapon instead of a
 non-existent infused ID, and the preset validator warns that the offset will be
 ignored.
 
+### fix(character): persist the Memory Stones count to the save
+
+The Memory Stones count set in the Character tab is now written to the save
+data. Previously only the in-memory view changed, so the saved file (and the
+game) kept the old number, and a stone record stored in Key Items was left
+untouched. An existing Key Items record is now updated in place without
+creating a Common Items copy. Setting the count to 0 keeps the record with
+quantity 0; the game's acceptance of a 0-quantity record has not yet been
+verified in game. A legacy Key Items duplicate left by older SaveForge versions
+is zeroed (not removed) so the count is correct; the same caveat about
+0-quantity records applies.
+
 ## [1.8.1] - 2026-09-12
 
 ### fix(diagnostics): detect and repair Torrent stuck in the ACTIVE ride state
