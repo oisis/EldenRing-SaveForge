@@ -127,6 +127,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
     // guard (all-or-nothing); these just pre-bound the input.
     const [freeInv, setFreeInv] = useState<number>(999);
     const [freeStorage, setFreeStorage] = useState<number>(999);
+    // Game maximum per container (constant). null = capacity unavailable; the
+    // capacity modal then falls back to the generic "free up space" message.
+    const [invMaxSlots, setInvMaxSlots] = useState<number | null>(null);
+    const [storageMaxSlots, setStorageMaxSlots] = useState<number | null>(null);
 
     // Safety profile drives cap mode + the add path. expanded_limits and chaos
     // both use technical/game caps; risky-item visibility comes from the
@@ -158,8 +162,10 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
             .then(cap => {
                 setFreeInv(Math.max(1, (cap?.inventoryMax ?? 0) - (cap?.inventoryUsed ?? 0)));
                 setFreeStorage(Math.max(1, (cap?.storageMax ?? 0) - (cap?.storageUsed ?? 0)));
+                setInvMaxSlots(cap?.inventoryMax ?? null);
+                setStorageMaxSlots(cap?.storageMax ?? null);
             })
-            .catch(() => { setFreeInv(999); setFreeStorage(999); });
+            .catch(() => { setFreeInv(999); setFreeStorage(999); setInvMaxSlots(null); setStorageMaxSlots(null); });
     }, [charIndex, inventoryVersion]);
 
     useEffect(() => {
@@ -447,11 +453,14 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                 const showInv = lastResult.neededInv > 0;
                 const showStore = lastResult.neededStore > 0;
                 const showGaItems = lastResult.capHit === 'gaitem_full' && lastResult.neededGaItems > 0;
+                // A selection larger than the game maximum cannot be fixed by freeing space.
+                const invTooLarge = invMaxSlots !== null && lastResult.neededInv > invMaxSlots;
+                const storeTooLarge = storageMaxSlots !== null && lastResult.neededStore > storageMaxSlots;
                 const invOverflow = Math.max(0, lastResult.neededInv - lastResult.freeInv);
                 const storeOverflow = Math.max(0, lastResult.neededStore - lastResult.freeStore);
                 const removals: string[] = [];
-                if (invOverflow > 0) removals.push(`${invOverflow} item(s) from Inventory`);
-                if (storeOverflow > 0) removals.push(`${storeOverflow} item(s) from Storage`);
+                if (!invTooLarge && invOverflow > 0) removals.push(`${invOverflow} item(s) from Inventory`);
+                if (!storeTooLarge && storeOverflow > 0) removals.push(`${storeOverflow} item(s) from Storage`);
 
                 const parts: string[] = [];
                 if (showInv) parts.push(`Inventory: need ${lastResult.neededInv}, free ${lastResult.freeInv}`);
@@ -460,6 +469,8 @@ export function DatabaseTab({columnVisibility, platform, charIndex, inventoryVer
                     parts.push(`GaItem allocation: need ${lastResult.neededGaItems}, free ${lastResult.freeGaItems}`);
                     parts.push('All physical GaItem records are occupied. Remove one or more weapons, armor pieces, or Ashes of War to make room.');
                 }
+                if (invTooLarge) parts.push(`\nSelection needs ${lastResult.neededInv} Inventory slots, but the game allows at most ${invMaxSlots}. Reduce the selection.`);
+                if (storeTooLarge) parts.push(`\nSelection needs ${lastResult.neededStore} Storage slots, but the game allows at most ${storageMaxSlots}. Reduce the selection.`);
                 if (removals.length > 0) parts.push(`\nRemove at least ${removals.join(' and ')} to make room.`);
                 parts.push(`\n0 / ${lastResult.requested} items added.`);
 

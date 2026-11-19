@@ -514,9 +514,9 @@ export function WorldTab({charIdx, showFlaggedItems, saveLoadKey, saveDataRevisi
                         actions={<>
                             <RiskActionButton riskKey="bulk_grace_unlock" onConfirm={handleUnlockAllGraces} className={`${btnSm} hover:text-primary hover:border-primary/50`}>Unlock All</RiskActionButton>
                             <button onClick={handleLockAllGraces} className={`${btnSm} hover:text-red-400 hover:border-red-400/50`}>Lock All</button>
-                            <label className="flex items-center space-x-1 cursor-pointer">
+                            <label className="flex items-center space-x-1 cursor-pointer" title="Unlock All leaves boss-arena graces (marked B) locked. It does not defeat bosses or change boss flags.">
                                 <Chk checked={skipBossArenas} onChange={setSkipBossArenas} />
-                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Skip Bosses</span>
+                                <span className="text-[11px] font-black uppercase tracking-widest text-muted-foreground">Skip Boss Arenas</span>
                             </label>
                         </>}>
                         <div className="accordion-grid">
